@@ -1,13 +1,20 @@
-import { Suspense } from 'react';
+'use client';
+
+import { Suspense, useState } from 'react';
 import Header from '@/components/layout/Header';
 import Link from 'next/link';
 import DashboardClient from './DashboardClient';
-
-export const metadata = {
-  title: 'Dashboard | Aavin NKL Dairy',
-};
+import ImportExcelModal from '@/components/ImportExcelModal';
 
 export default function DashboardPage() {
+  const [isImportOpen, setIsImportOpen] = useState(false);
+  const [refreshKey, setRefreshKey] = useState(0);
+
+  const handleImportSuccess = (count: number) => {
+    alert(`Successfully imported ${count} entries!`);
+    setRefreshKey(prev => prev + 1); // Refresh data
+  };
+
   return (
     <>
       <Header
@@ -15,6 +22,12 @@ export default function DashboardPage() {
         subtitle="Namakkal District Co-operative Milk Producers' Union Ltd"
         actions={
           <div style={{ display: 'flex', gap: 8 }}>
+            <button
+              className="btn btn-secondary btn-sm"
+              onClick={() => setIsImportOpen(true)}
+            >
+              📥 Import Excel
+            </button>
             <Link href="/dashboard/ts/new" className="btn btn-primary btn-sm">
               ➕ New TS Entry
             </Link>
@@ -26,9 +39,15 @@ export default function DashboardPage() {
       />
       <div className="page-body animate-fade-in">
         <Suspense fallback={<div className="spinner" />}>
-          <DashboardClient />
+          <DashboardClient key={refreshKey} />
         </Suspense>
       </div>
+
+      <ImportExcelModal
+        isOpen={isImportOpen}
+        onClose={() => setIsImportOpen(false)}
+        onSuccess={handleImportSuccess}
+      />
     </>
   );
 }

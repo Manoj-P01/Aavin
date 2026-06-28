@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getSupabaseServiceClient } from '@/lib/supabase';
 import { calcKgFatSnf } from '@/lib/calculations';
+import { isLocalDbEnabled, getLocalEntries, getLocalTSData, saveLocalTSData } from '@/lib/fileDb';
 import type { TSMilkRowInput, STGRow } from '@/lib/types';
 
 // GET /api/ts?entry_id=xxx  OR  ?date=YYYY-MM-DD
@@ -10,12 +11,22 @@ export async function GET(req: NextRequest) {
     const entry_id = searchParams.get('entry_id');
     const date = searchParams.get('date');
 
-    const supabase = getSupabaseServiceClient();
-
     if (!entry_id && !date) {
       return NextResponse.json({ error: 'entry_id or date required' }, { status: 400 });
     }
 
+    if (isLocalDbEnabled()) {
+      let resolvedEntryId = entry_id;
+      if (!resolvedEntryId && date) {
+        const entries = getLocalEntries('TS', undefined, date);
+        if (entries.length === 0) return NextResponse.json({ error: 'TS entry not found for date' }, { status: 404 });
+        resolvedEntryId = entries[0].id;
+      }
+      const data = getLocalTSData(resolvedEntryId!);
+      return NextResponse.json({ data });
+    }
+
+    const supabase = getSupabaseServiceClient();
     let resolvedEntryId = entry_id;
 
     if (!resolvedEntryId && date) {
@@ -51,10 +62,18 @@ export async function POST(req: NextRequest) {
     const { entry_id, ts_rows, stg_rows } = body as {
       entry_id: string;
       ts_rows: (TSMilkRowInput & { section: string; sort_order?: number })[];
-      stg_rows: Partial<STGRow>[];
+      stg_rows?: Partial<STGRow>[];
     };
 
     if (!entry_id) return NextResponse.json({ error: 'entry_id required' }, { status: 400 });
+    const { section } = body as { section?: string };
+
+    if (isLocalDbEnabled()) {
+      const tsInsert = saveLocalTSData(entry_id, ts_rows, section);
+      return NextResponse.json({
+        data: { ts_rows: tsInsert, stg_rows: [] },
+      }, { status: 201 });
+    }
 
     const supabase = getSupabaseServiceClient();
 
@@ -105,8 +124,6 @@ export async function POST(req: NextRequest) {
         sort_order: r.sort_order ?? i,
       };
     });
-
-    const { section } = body as { section?: string };
 
     // Delete existing rows for this entry/section then re-insert
     if (section) {

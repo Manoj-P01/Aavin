@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getSupabaseServiceClient } from '@/lib/supabase';
-import type { StockRow, Shift } from '@/lib/types';
+import { isLocalDbEnabled, getLocalEntries, getLocalStockData, saveLocalStockData } from '@/lib/fileDb';
+import type { StockRow, Shift, Entry } from '@/lib/types';
 
 // GET /api/stock?date=YYYY-MM-DD&shift=D|N  OR  ?date=YYYY-MM-DD (both shifts)
 export async function GET(req: NextRequest) {
@@ -10,6 +11,43 @@ export async function GET(req: NextRequest) {
     const shift = searchParams.get('shift') as Shift | null;
     const entry_id = searchParams.get('entry_id');
     const month = searchParams.get('month'); // YYYY-MM for monthly list
+
+    // Check Local DB fallback
+    if (isLocalDbEnabled()) {
+      if (entry_id) {
+        const data = getLocalStockData(entry_id);
+        return NextResponse.json({ data });
+      }
+
+      if (month) {
+        const data = getLocalEntries('STOCK', month);
+        return NextResponse.json({ data });
+      }
+
+      if (!date) return NextResponse.json({ error: 'date or entry_id or month required' }, { status: 400 });
+
+      let entries = getLocalEntries('STOCK', undefined, date);
+      if (shift) entries = entries.filter(e => e.shift === shift);
+      if (entries.length === 0) return NextResponse.json({ error: 'No stock entries found' }, { status: 404 });
+
+      // Gather rows for all matching entries
+      const stock_rows: StockRow[] = [];
+      const separation_details: any[] = [];
+
+      for (const entry of entries) {
+        const d = getLocalStockData(entry.id);
+        stock_rows.push(...d.stock_rows);
+        if (d.separation_details) separation_details.push(d.separation_details);
+      }
+
+      return NextResponse.json({
+        data: {
+          entries,
+          stock_rows,
+          separation_details,
+        },
+      });
+    }
 
     const supabase = getSupabaseServiceClient();
 
@@ -87,6 +125,11 @@ export async function POST(req: NextRequest) {
     };
 
     if (!entry_id) return NextResponse.json({ error: 'entry_id required' }, { status: 400 });
+
+    if (isLocalDbEnabled()) {
+      const result = saveLocalStockData(entry_id, stock_rows, separation_details);
+      return NextResponse.json({ data: { entry_id, row_count: result.row_count } }, { status: 201 });
+    }
 
     const supabase = getSupabaseServiceClient();
 

@@ -37,6 +37,7 @@ Set the same variables in your Vercel project:
 | `NEXT_PUBLIC_APP_URL` | Full public URL of the app | `http://localhost:3000` (dev) / Vercel URL (prod) |
 | `NEXT_PUBLIC_ORG_NAME` | Organisation name shown in header | `Namakkal District Co-operative Milk Producers' Union Ltd` |
 | `NEXT_PUBLIC_ORG_SHORT` | Short name for mobile header | `NKL Dairy Union` |
+| `USE_LOCAL_STORAGE` | Toggle local offline JSON storage (`true`/`false`) | `true` (dev default fallback if Supabase url is empty) |
 
 ---
 

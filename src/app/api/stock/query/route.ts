@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getSupabaseServiceClient } from '@/lib/supabase';
+import { isLocalDbEnabled, getLocalAggregatedStock } from '@/lib/fileDb';
 
 export async function GET(req: NextRequest) {
   try {
@@ -10,6 +11,15 @@ export async function GET(req: NextRequest) {
     const year = searchParams.get('year');
     const from = searchParams.get('from');
     const to = searchParams.get('to');
+
+    if (!type) {
+      return NextResponse.json({ error: 'Invalid parameters' }, { status: 400 });
+    }
+
+    if (isLocalDbEnabled()) {
+      const data = getLocalAggregatedStock(type, date || undefined, month || undefined, year || undefined, from || undefined, to || undefined);
+      return NextResponse.json({ data });
+    }
 
     const supabase = getSupabaseServiceClient();
     let query = supabase.from('entries').select('id, entry_date, shift').eq('report_type', 'STOCK');
@@ -34,7 +44,6 @@ export async function GET(req: NextRequest) {
     if (!entries || entries.length === 0) {
       return NextResponse.json({ data: [] });
     }
-
     const entryIds = entries.map(e => e.id);
     const { data: rows, error: rowsErr } = await supabase
       .from('stock_rows')

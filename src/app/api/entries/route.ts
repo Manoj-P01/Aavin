@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getSupabaseServiceClient } from '@/lib/supabase';
+import { isLocalDbEnabled, getLocalEntries, createLocalEntry } from '@/lib/fileDb';
 import type { ReportType, Shift } from '@/lib/types';
 
 // GET /api/entries?report_type=TS&month=2026-06
@@ -9,6 +10,11 @@ export async function GET(req: NextRequest) {
     const report_type = searchParams.get('report_type') as ReportType | null;
     const month = searchParams.get('month'); // YYYY-MM
     const date = searchParams.get('date');   // YYYY-MM-DD
+
+    if (isLocalDbEnabled()) {
+      const data = getLocalEntries(report_type || undefined, month || undefined, date || undefined);
+      return NextResponse.json({ data });
+    }
 
     const supabase = getSupabaseServiceClient();
     let query = supabase.from('entries').select('*').order('entry_date', { ascending: false });
@@ -44,6 +50,18 @@ export async function POST(req: NextRequest) {
 
     if (!entry_date || !report_type) {
       return NextResponse.json({ error: 'entry_date and report_type are required' }, { status: 400 });
+    }
+
+    if (isLocalDbEnabled()) {
+      // Guard duplicate
+      const entries = getLocalEntries(report_type, undefined, entry_date);
+      const exists = entries.find(e => e.shift === (shift || null));
+      if (exists) {
+        return NextResponse.json({ error: 'Entry for this date/shift already exists' }, { status: 409 });
+      }
+
+      const data = createLocalEntry(entry_date, shift, report_type, notes);
+      return NextResponse.json({ data }, { status: 201 });
     }
 
     const supabase = getSupabaseServiceClient();
