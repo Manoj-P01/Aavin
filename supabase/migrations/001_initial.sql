@@ -43,8 +43,9 @@ CREATE TABLE IF NOT EXISTS ts_milk_rows (
   fat_pct     numeric(6,4) DEFAULT 0,
   snf_pct     numeric(6,4) DEFAULT 0,
   sp_gr       numeric(6,4) DEFAULT 0,
-  kg_fat      numeric(12,4) DEFAULT 0,  -- computed on save: qty_kg * fat_pct / 100
-  kg_snf      numeric(12,4) DEFAULT 0,  -- computed on save: qty_kg * snf_pct / 100
+  kg_fat      numeric(12,4) DEFAULT 0,
+  kg_snf      numeric(12,4) DEFAULT 0,
+  remarks     text,
   sort_order  int DEFAULT 0,
   created_at  timestamptz NOT NULL DEFAULT now()
 );

@@ -1,0 +1,47 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Next.js: Debug Server-side",
+      "type": "node",
+      "request": "launch",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "dev"],
+      "port": 9229,
+      "console": "integratedTerminal",
+      "presentation": {
+        "group": "group1",
+        "order": 1
+      }
+    },
+    {
+      "name": "Next.js: Debug Client-side",
+      "type": "chrome",
+      "request": "launch",
+      "url": "http://localhost:3000",
+      "webRoot": "${workspaceFolder}",
+      "presentation": {
+        "group": "group1",
+        "order": 2
+      }
+    },
+    {
+      "name": "Next.js: Debug Full-stack",
+      "type": "node",
+      "request": "launch",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "dev"],
+      "port": 9229,
+      "console": "integratedTerminal",
+      "serverReadyAction": {
+        "pattern": "started server on .+, url: (https?://.+)",
+        "uriFormat": "%s",
+        "action": "debugWithChrome"
+      },
+      "presentation": {
+        "group": "group1",
+        "order": 3
+      }
+    }
+  ]
+}
