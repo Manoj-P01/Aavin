@@ -2,6 +2,7 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
+import { useSidebar } from '@/context/SidebarContext';
 
 const NAV_SECTIONS = [
   {
@@ -14,20 +15,29 @@ const NAV_SECTIONS = [
     label: 'Daily Reports',
     items: [
       { href: '/dashboard/ts', icon: '🧪', label: 'Total Solids (TS)' },
-      { href: '/dashboard/ts/new', icon: '➕', label: 'New TS Entry' },
+      { href: '/dashboard/ts/new-stg', icon: '⚖️', label: 'New STG Entry' },
+      { href: '/dashboard/ts/new', icon: '🧪', label: 'New TS Entry' },
     ],
   },
   {
     label: 'Stock Statement',
     items: [
       { href: '/dashboard/stock', icon: '📦', label: 'Stock Register' },
-      { href: '/dashboard/stock/new', icon: '➕', label: 'New Stock Entry' },
+      { href: '/dashboard/stock/new', icon: '📦', label: 'New Stock Entry' },
+    ],
+  },
+  {
+    label: 'Configuration',
+    items: [
+      { href: '/dashboard/ts/manage-statements', icon: '⚙️', label: 'Manage Statements' },
+      { action: 'settings', icon: '🔧', label: 'Shift Settings' },
     ],
   },
 ];
 
 export default function Sidebar() {
   const pathname = usePathname();
+  const { setConfigOpen } = useSidebar();
 
   return (
     <aside className="sidebar">
@@ -47,14 +57,29 @@ export default function Sidebar() {
             <div className="sidebar-section-label">{section.label}</div>
             <ul className="sidebar-nav">
               {section.items.map(item => {
+                if ('action' in item && item.action === 'settings') {
+                  return (
+                    <li key="settings">
+                      <button
+                        type="button"
+                        className="sidebar-link"
+                        onClick={() => setConfigOpen(true)}
+                      >
+                        <span className="icon">{item.icon}</span>
+                        {item.label}
+                      </button>
+                    </li>
+                  );
+                }
+                const href = (item as any).href;
                 const isActive =
-                  item.href === '/dashboard'
+                  href === '/dashboard'
                     ? pathname === '/dashboard'
-                    : pathname.startsWith(item.href);
+                    : pathname.startsWith(href);
                 return (
-                  <li key={item.href}>
+                  <li key={href}>
                     <Link
-                      href={item.href}
+                      href={href}
                       className={`sidebar-link ${isActive ? 'active' : ''}`}
                     >
                       <span className="icon">{item.icon}</span>

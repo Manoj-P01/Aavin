@@ -1,6 +1,7 @@
 import Header from '@/components/layout/Header';
 import Link from 'next/link';
 import TSEntryForm from '@/components/forms/TSEntryForm';
+import { Suspense } from 'react';
 
 export const metadata = { title: 'New TS Entry | Aavin Dashboard' };
 
@@ -15,7 +16,9 @@ export default function NewTSPage() {
         }
       />
       <div className="page-body animate-fade-in">
-        <TSEntryForm />
+        <Suspense fallback={<div className="card" style={{ padding: 20 }}>Loading form...</div>}>
+          <TSEntryForm />
+        </Suspense>
       </div>
     </>
   );

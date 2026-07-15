@@ -20,6 +20,8 @@ export default function StockViewPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [viewMode, setViewMode] = useState<'shift' | 'combined'>('shift');
+  const [entryNotes, setEntryNotes] = useState<string | null>(null);
+  const [otherNotes, setOtherNotes] = useState<string | null>(null);
 
   // Also load the opposite shift for combined view
   const [otherShiftData, setOtherShiftData] = useState<ShiftData | null>(null);
@@ -36,6 +38,8 @@ export default function StockViewPage() {
         const entry = json.data?.entries?.[0];
         if (!entry) throw new Error('Entry not found');
 
+        setEntryNotes(entry.notes);
+
         const shiftRows = json.data.stock_rows.filter((r: StockRow) => r.entry_id === entry.id);
         const shiftSep = json.data.separation_details.find((s: SeparationDetails) => s.entry_id === entry.id) || null;
         setData({ rows: shiftRows, separation: shiftSep });
@@ -47,6 +51,7 @@ export default function StockViewPage() {
             const json2 = await res2.json();
             const entry2 = json2.data?.entries?.[0];
             if (entry2) {
+              setOtherNotes(entry2.notes);
               const rows2 = json2.data.stock_rows.filter((r: StockRow) => r.entry_id === entry2.id);
               const sep2 = json2.data.separation_details.find((s: SeparationDetails) => s.entry_id === entry2.id) || null;
               setOtherShiftData({ rows: rows2, separation: sep2 });
@@ -141,6 +146,7 @@ export default function StockViewPage() {
               separation={displayData.separation}
               date={date}
               shift={viewMode === 'combined' ? 'COMBINED' : (shift as Shift)}
+              notes={viewMode === 'combined' ? `${entryNotes || ''}\n${otherNotes || ''}` : entryNotes}
             />
           </div>
         )}

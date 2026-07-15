@@ -8,7 +8,8 @@ import type {
   TSTotals, STGProductTotals, StockSummary,
   StockColumns, TSSection,
 } from './types';
-import { CMPDD_NORM_PCT, STOCK_PRODUCT_COLUMNS } from './types';
+import { STOCK_PRODUCT_COLUMNS } from './types';
+import { CALC_CONFIG } from './config';
 
 // ─── Helper ───────────────────────────────────────────────────────────────────
 
@@ -26,14 +27,14 @@ export function safeDivide(numerator: number, denominator: number): number {
 /** Calculate Kg Fat and Kg SNF from Qty(Kg), Fat%, SNF% */
 export function calcKgFatSnf(qty_kg: number, fat_pct: number, snf_pct: number) {
   return {
-    kg_fat: round(qty_kg * fat_pct / 100, 4),
-    kg_snf: round(qty_kg * snf_pct / 100, 4),
+    kg_fat: round((qty_kg * fat_pct) / CALC_CONFIG.KG_FAT.DIVISOR, CALC_CONFIG.KG_FAT.TS_DECIMALS),
+    kg_snf: round((qty_kg * snf_pct) / CALC_CONFIG.KG_SNF.DIVISOR, CALC_CONFIG.KG_SNF.TS_DECIMALS),
   };
 }
 
 /** Calculate Qty(Kg) from Qty(Lts) and Specific Gravity */
 export function calcQtyKg(qty_lts: number, sp_gr: number): number {
-  return round(qty_lts * sp_gr, 4);
+  return round(qty_lts * sp_gr, CALC_CONFIG.TS_REPORT.QTY_KG_DECIMALS);
 }
 
 // ─── TS Report Totals ─────────────────────────────────────────────────────────
@@ -57,23 +58,23 @@ export function calcTSTotals(rows: TSMilkRow[]): TSTotals {
   const disposal_fat  = sum(DISPOSAL_SECTIONS, 'kg_fat');
   const disposal_snf  = sum(DISPOSAL_SECTIONS, 'kg_snf');
 
-  const loss_fat  = round(arrival_fat - disposal_fat, 4);
-  const loss_snf  = round(arrival_snf - disposal_snf, 4);
+  const loss_fat  = round(arrival_fat - disposal_fat, CALC_CONFIG.KG_FAT.TS_DECIMALS);
+  const loss_snf  = round(arrival_snf - disposal_snf, CALC_CONFIG.KG_SNF.TS_DECIMALS);
 
   return {
-    grand_total_arrival_lts:     round(arrival_lts),
-    grand_total_arrival_kg:      round(arrival_kg),
-    grand_total_arrival_kg_fat:  round(arrival_fat, 4),
-    grand_total_arrival_kg_snf:  round(arrival_snf, 4),
-    grand_total_disposal_lts:    round(disposal_lts),
-    grand_total_disposal_kg:     round(disposal_kg),
-    grand_total_disposal_kg_fat: round(disposal_fat, 4),
-    grand_total_disposal_kg_snf: round(disposal_snf, 4),
+    grand_total_arrival_lts:     round(arrival_lts, CALC_CONFIG.TS_REPORT.QTY_LTS_DECIMALS),
+    grand_total_arrival_kg:      round(arrival_kg, CALC_CONFIG.TS_REPORT.QTY_KG_DECIMALS),
+    grand_total_arrival_kg_fat:  round(arrival_fat, CALC_CONFIG.KG_FAT.TS_DECIMALS),
+    grand_total_arrival_kg_snf:  round(arrival_snf, CALC_CONFIG.KG_SNF.TS_DECIMALS),
+    grand_total_disposal_lts:    round(disposal_lts, CALC_CONFIG.TS_REPORT.QTY_LTS_DECIMALS),
+    grand_total_disposal_kg:     round(disposal_kg, CALC_CONFIG.TS_REPORT.QTY_KG_DECIMALS),
+    grand_total_disposal_kg_fat: round(disposal_fat, CALC_CONFIG.KG_FAT.TS_DECIMALS),
+    grand_total_disposal_kg_snf: round(disposal_snf, CALC_CONFIG.KG_SNF.TS_DECIMALS),
     loss_kg_fat:                 loss_fat,
     loss_kg_snf:                 loss_snf,
-    loss_pct_fat:                round(safeDivide(loss_fat, arrival_fat) * 100, 4),
-    loss_pct_snf:                round(safeDivide(loss_snf, arrival_snf) * 100, 4),
-    cmpdd_norm_pct:              CMPDD_NORM_PCT,
+    loss_pct_fat:                round(safeDivide(loss_fat, arrival_fat) * 100, CALC_CONFIG.TS_REPORT.LOSS_PERCENTAGE_DECIMALS),
+    loss_pct_snf:                round(safeDivide(loss_snf, arrival_snf) * 100, CALC_CONFIG.TS_REPORT.LOSS_PERCENTAGE_DECIMALS),
+    cmpdd_norm_pct:              CALC_CONFIG.TS_REPORT.CMPDD_NORM_PCT,
   };
 }
 
@@ -102,21 +103,21 @@ export function calcSTGProductTotals(
   const grand_arrival_fat = r_fat;
   const grand_arrival_snf = r_snf;
 
-  const lg_fat = round(grand_arrival_fat - d_fat, 4);
-  const lg_snf = round(grand_arrival_snf - d_snf, 4);
+  const lg_fat = round(grand_arrival_fat - d_fat, CALC_CONFIG.KG_FAT.TS_DECIMALS);
+  const lg_snf = round(grand_arrival_snf - d_snf, CALC_CONFIG.KG_SNF.TS_DECIMALS);
 
   return {
     product,
-    receipt_kg_fat:    round(r_fat, 4),
-    receipt_kg_snf:    round(r_snf, 4),
-    disposal_kg_fat:   round(d_fat, 4),
-    disposal_kg_snf:   round(d_snf, 4),
-    ob_kg_fat:         round(ob_fat, 4),
-    ob_kg_snf:         round(ob_snf, 4),
+    receipt_kg_fat:    round(r_fat, CALC_CONFIG.KG_FAT.TS_DECIMALS),
+    receipt_kg_snf:    round(r_snf, CALC_CONFIG.KG_SNF.TS_DECIMALS),
+    disposal_kg_fat:   round(d_fat, CALC_CONFIG.KG_FAT.TS_DECIMALS),
+    disposal_kg_snf:   round(d_snf, CALC_CONFIG.KG_SNF.TS_DECIMALS),
+    ob_kg_fat:         round(ob_fat, CALC_CONFIG.KG_FAT.TS_DECIMALS),
+    ob_kg_snf:         round(ob_snf, CALC_CONFIG.KG_SNF.TS_DECIMALS),
     loss_gain_kg_fat:  lg_fat,
     loss_gain_kg_snf:  lg_snf,
-    loss_gain_pct_fat: round(safeDivide(lg_fat, grand_arrival_fat) * 100, 4),
-    loss_gain_pct_snf: round(safeDivide(lg_snf, grand_arrival_snf) * 100, 4),
+    loss_gain_pct_fat: round(safeDivide(lg_fat, grand_arrival_fat) * 100, CALC_CONFIG.TS_REPORT.LOSS_PERCENTAGE_DECIMALS),
+    loss_gain_pct_snf: round(safeDivide(lg_snf, grand_arrival_snf) * 100, CALC_CONFIG.TS_REPORT.LOSS_PERCENTAGE_DECIMALS),
   };
 }
 

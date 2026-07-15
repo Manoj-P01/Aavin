@@ -12,7 +12,7 @@ interface Schema {
   separation_details: SeparationDetails[];
 }
 
-function initDb(): Schema {
+export function initDb(): Schema {
   if (fs.existsSync(DB_FILE_PATH)) {
     try {
       const content = fs.readFileSync(DB_FILE_PATH, 'utf-8');
@@ -45,7 +45,7 @@ export function isLocalDbEnabled(): boolean {
 
 // ─── Query Operations ─────────────────────────────────────────────────────────
 
-export function getLocalEntries(reportType?: ReportType, month?: string, date?: string): Entry[] {
+export function getLocalEntries(reportType?: ReportType, month?: string, date?: string, shift?: Shift | null): Entry[] {
   const db = initDb();
   let result = [...db.entries];
 
@@ -57,6 +57,9 @@ export function getLocalEntries(reportType?: ReportType, month?: string, date?: 
   }
   if (month) {
     result = result.filter(e => e.entry_date.startsWith(month)); // YYYY-MM
+  }
+  if (shift !== undefined) {
+    result = result.filter(e => e.shift === shift || (!e.shift && !shift));
   }
 
   return result.sort((a, b) => b.entry_date.localeCompare(a.entry_date));
@@ -91,7 +94,7 @@ export function getLocalTSData(entryId: string) {
   return { ts_rows, stg_rows };
 }
 
-export function saveLocalTSData(entryId: string, tsRows: any[], section?: string) {
+export function saveLocalTSData(entryId: string, tsRows: any[], stgRows?: any[], section?: string) {
   const db = initDb();
 
   if (section) {
@@ -100,6 +103,7 @@ export function saveLocalTSData(entryId: string, tsRows: any[], section?: string
   } else {
     // Delete all
     db.ts_milk_rows = db.ts_milk_rows.filter(r => r.entry_id !== entryId);
+    db.stg_rows = db.stg_rows.filter(r => r.entry_id !== entryId);
   }
 
   const rowsToInsert = tsRows.map((r, idx) => ({
@@ -119,6 +123,26 @@ export function saveLocalTSData(entryId: string, tsRows: any[], section?: string
   }));
 
   db.ts_milk_rows.push(...rowsToInsert);
+
+  if (stgRows && stgRows.length > 0) {
+    const stgToInsert = stgRows.map((r, idx) => ({
+      id: Math.random().toString(36).substring(2, 11),
+      entry_id: entryId,
+      product_block: r.product_block,
+      side: r.side,
+      item_name: r.item_name,
+      qty_lts: Number(r.qty_lts) || 0,
+      qty_kg: Number(r.qty_kg) || 0,
+      fat_pct: Number(r.fat_pct) || 0,
+      snf_pct: Number(r.snf_pct) || 0,
+      sp_gr: Number(r.sp_gr) || 0,
+      kg_fat: Number(r.kg_fat) || 0,
+      kg_snf: Number(r.kg_snf) || 0,
+      sort_order: r.sort_order ?? idx,
+    }));
+    db.stg_rows.push(...stgToInsert);
+  }
+
   saveDb(db);
   return rowsToInsert;
 }

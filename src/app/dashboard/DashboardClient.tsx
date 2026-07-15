@@ -2,7 +2,6 @@
 
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
-import { supabase } from '@/lib/supabase';
 import { fmtDate } from '@/lib/calculations';
 import MonthlyTrendChart from '@/components/charts/MonthlyTrendChart';
 import type { Entry } from '@/lib/types';
@@ -23,33 +22,15 @@ export default function DashboardClient() {
 
   useEffect(() => {
     async function load() {
-      const now = new Date();
-      const monthStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
-      const monthStart = `${monthStr}-01`;
-      const monthEnd = new Date(now.getFullYear(), now.getMonth() + 1, 0)
-        .toISOString().split('T')[0];
-
-      const [allTs, allStock, monthTs, monthStock, recentAll] = await Promise.all([
-        supabase.from('entries').select('id', { count: 'exact', head: true }).eq('report_type', 'TS'),
-        supabase.from('entries').select('id', { count: 'exact', head: true }).eq('report_type', 'STOCK'),
-        supabase.from('entries').select('id', { count: 'exact', head: true }).eq('report_type', 'TS').gte('entry_date', monthStart).lte('entry_date', monthEnd),
-        supabase.from('entries').select('id', { count: 'exact', head: true }).eq('report_type', 'STOCK').gte('entry_date', monthStart).lte('entry_date', monthEnd),
-        supabase.from('entries').select('*').order('created_at', { ascending: false }).limit(8),
-      ]);
-
-      const recent = (recentAll.data || []) as Entry[];
-      const latestTs = recent.find(e => e.report_type === 'TS') || null;
-      const latestStock = recent.find(e => e.report_type === 'STOCK') || null;
-
-      setStats({
-        tsCount: allTs.count || 0,
-        stockCount: allStock.count || 0,
-        thisMonthTs: monthTs.count || 0,
-        thisMonthStock: monthStock.count || 0,
-        latestTs,
-        latestStock,
-        recentEntries: recent,
-      });
+      try {
+        const res = await fetch('/api/dashboard/stats');
+        const json = await res.json();
+        if (json.data) {
+          setStats(json.data as Stats);
+        }
+      } catch {
+        // ignore
+      }
       setLoading(false);
     }
     load();
@@ -154,7 +135,7 @@ export default function DashboardClient() {
                     <td>
                       <Link
                         href={entry.report_type === 'TS'
-                          ? `/dashboard/ts/${entry.entry_date}`
+                          ? `/dashboard/ts/${entry.entry_date}${entry.shift ? `?shift=${entry.shift}` : ''}`
                           : `/dashboard/stock/${entry.entry_date}/${entry.shift}`}
                         className="btn btn-secondary btn-sm"
                       >

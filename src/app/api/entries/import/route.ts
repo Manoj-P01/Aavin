@@ -128,10 +128,86 @@ export async function POST(req: NextRequest) {
         }
       }
 
+      // Try to parse STG sheet too if present in the workbook!
+      const stgSheet = workbook.Sheets['STG'];
+      const stgRows: any[] = [];
+      if (stgSheet) {
+        const stgRange = XLSX.utils.decode_range(stgSheet['!ref'] || 'A1:R80');
+        const sRows: any[] = [];
+        for (let r = stgRange.s.r; r <= stgRange.e.r; r++) {
+          const row: any[] = [];
+          for (let c = stgRange.s.c; c <= stgRange.e.c; c++) {
+            const cell = stgSheet[XLSX.utils.encode_cell({ r, c })];
+            row.push(cell ? cell.v : null);
+          }
+          sRows.push(row);
+        }
+
+        let currentBlock: 'WM' | 'SSM' | 'CREAM' | 'SMP' | null = null;
+
+        for (let r = 0; r < sRows.length; r++) {
+          const row = sRows[r];
+          if (!row || row.length === 0) continue;
+
+          const title = row[0] ? String(row[0]).trim() : '';
+
+          // Detect block header
+          if (title.includes('WHOLE MILK') || title.includes('TENTATIVE WHOLE')) {
+            currentBlock = 'WM';
+            continue;
+          } else if (title.includes('SKIMMED MILK') || title.includes('SKIM MILK')) {
+            currentBlock = 'SSM';
+            continue;
+          } else if (title.includes('CREAM')) {
+            currentBlock = 'CREAM';
+            continue;
+          } else if (title.includes('SMP') || title.includes('DELITE') || title.includes('SEPARATION')) {
+            currentBlock = 'SMP';
+            continue;
+          }
+
+          if (!currentBlock) continue;
+
+          // Left Side: Receipt
+          const leftName = row[1] ? String(row[1]).trim() : null;
+          if (leftName && leftName !== 'Receipt' && leftName !== 'Total' && leftName !== 'OB' && leftName !== 'Grand Total' && leftName !== 'Loss/Gain' && leftName !== 'S.No.') {
+            stgRows.push({
+              product_block: currentBlock,
+              side: 'RECEIPT',
+              item_name: leftName,
+              qty_lts: Number(row[2]) || 0,
+              qty_kg: Number(row[3]) || 0,
+              fat_pct: Number(row[4]) || 0,
+              snf_pct: Number(row[5]) || 0,
+              sp_gr: Number(row[6]) || 0,
+              kg_fat: Number(row[7]) || 0,
+              kg_snf: Number(row[8]) || 0,
+            });
+          }
+
+          // Right Side: Disposal
+          const rightName = row[10] ? String(row[10]).trim() : null;
+          if (rightName && rightName !== 'Disposal' && rightName !== 'Total' && rightName !== 'CB' && rightName !== 'Grand Total' && rightName !== 'Loss/Gain' && rightName !== 'S.No.') {
+            stgRows.push({
+              product_block: currentBlock,
+              side: 'DISPOSAL',
+              item_name: rightName,
+              qty_lts: Number(row[11]) || 0,
+              qty_kg: Number(row[12]) || 0,
+              fat_pct: Number(row[13]) || 0,
+              snf_pct: Number(row[14]) || 0,
+              sp_gr: Number(row[15]) || 0,
+              kg_fat: Number(row[16]) || 0,
+              kg_snf: Number(row[17]) || 0,
+            });
+          }
+        }
+      }
+
       // Persist
       if (localEnabled) {
         const entry = createLocalEntry(entryDate, null, 'TS');
-        saveLocalTSData(entry.id, tsRows);
+        saveLocalTSData(entry.id, tsRows, stgRows);
       } else {
         const { data: entry, error: entErr } = await supabase!
           .from('entries')
@@ -147,10 +223,18 @@ export async function POST(req: NextRequest) {
         }
 
         if (entryId) {
-          await supabase!.from('ts_milk_rows').delete().eq('entry_id', entryId);
-          await supabase!.from('ts_milk_rows').insert(
-            tsRows.map((r, sort_order) => ({ ...r, entry_id: entryId, sort_order }))
-          );
+          await Promise.all([
+            supabase!.from('ts_milk_rows').delete().eq('entry_id', entryId),
+            supabase!.from('stg_rows').delete().eq('entry_id', entryId),
+          ]);
+          await Promise.all([
+            supabase!.from('ts_milk_rows').insert(
+              tsRows.map((r, sort_order) => ({ ...r, entry_id: entryId, sort_order }))
+            ),
+            stgRows.length > 0 ? supabase!.from('stg_rows').insert(
+              stgRows.map((r, sort_order) => ({ ...r, entry_id: entryId, sort_order }))
+            ) : Promise.resolve(),
+          ]);
         }
       }
       importedCount = 1;

@@ -53,12 +53,17 @@ export async function GET(req: NextRequest) {
 
     // Single entry by ID
     if (entry_id) {
-      const [rowsRes, sepRes] = await Promise.all([
+      const [entryRes, rowsRes, sepRes] = await Promise.all([
+        supabase.from('entries').select('id, entry_date, shift, notes').eq('id', entry_id).single(),
         supabase.from('stock_rows').select('*').eq('entry_id', entry_id).order('sort_order'),
         supabase.from('separation_details').select('*').eq('entry_id', entry_id).single(),
       ]);
       return NextResponse.json({
-        data: { stock_rows: rowsRes.data || [], separation_details: sepRes.data || null },
+        data: {
+          entries: entryRes.data ? [entryRes.data] : [],
+          stock_rows: rowsRes.data || [],
+          separation_details: sepRes.data || null
+        },
       });
     }
 
@@ -84,7 +89,7 @@ export async function GET(req: NextRequest) {
 
     let entryQuery = supabase
       .from('entries')
-      .select('id, entry_date, shift')
+      .select('id, entry_date, shift, notes')
       .eq('entry_date', date)
       .eq('report_type', 'STOCK');
 

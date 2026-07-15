@@ -43,3 +43,5 @@ next-env.d.ts
 # Aavin Dashboard
 .env.local
 config.md
+local_db copy.json
+

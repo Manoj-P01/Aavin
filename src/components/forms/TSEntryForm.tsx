@@ -1,9 +1,9 @@
 'use client';
 
-import { useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { useState, useEffect } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { calcKgFatSnf } from '@/lib/calculations';
-import type { TSSection } from '@/lib/types';
+import type { TSSection, Shift } from '@/lib/types';
 
 interface RowState {
   section: TSSection;
@@ -77,7 +77,12 @@ const SECTION_META: { key: TSSection; label: string; color: string }[] = [
 
 export default function TSEntryForm() {
   const router = useRouter();
-  const [entryDate, setEntryDate] = useState(new Date().toISOString().split('T')[0]);
+  const searchParams = useSearchParams();
+  const paramDate = searchParams.get('date');
+  const paramShift = searchParams.get('shift') as Shift | null;
+
+  const [entryDate, setEntryDate] = useState(paramDate || new Date().toISOString().split('T')[0]);
+  const [shift, setShift] = useState<Shift>(paramShift || 'D');
   const [notes, setNotes] = useState('');
   const [rows, setRows] = useState<RowState[]>(makeDefaultRows);
   const [savingSection, setSavingSection] = useState<Record<string, boolean>>({});
@@ -85,10 +90,59 @@ export default function TSEntryForm() {
   const [mainSaving, setMainSaving] = useState(false);
   const [error, setError] = useState('');
 
+  // Load existing TS entry on mount or when entryDate or shift changes
+  useEffect(() => {
+    if (!entryDate) return;
+    let active = true;
+
+    async function loadData() {
+      try {
+        const res = await fetch(`/api/ts?date=${entryDate}&shift=${shift}`);
+        if (res.ok) {
+          const data = await res.json();
+          if (active && data.data) {
+            if (data.data.ts_rows && data.data.ts_rows.length > 0) {
+              const mappedRows = data.data.ts_rows.map((row: any) => ({
+                section: row.section,
+                product: row.product || '',
+                qty_lts: row.qty_lts ? String(row.qty_lts) : '',
+                qty_kg: row.qty_kg ? String(row.qty_kg) : '',
+                fat_pct: row.fat_pct ? String(row.fat_pct) : '',
+                snf_pct: row.snf_pct ? String(row.snf_pct) : '',
+                sp_gr: row.sp_gr ? String(row.sp_gr) : '',
+                kg_fat: row.kg_fat ? String(row.kg_fat) : '',
+                kg_snf: row.kg_snf ? String(row.kg_snf) : '',
+                remarks: row.remarks || '',
+              }));
+              setRows(mappedRows);
+              setNotes(data.data.notes || '');
+              return;
+            }
+          }
+        }
+        // Fall back to default rows if no entry/data exists
+        if (active) {
+          setRows(makeDefaultRows());
+          setNotes('');
+        }
+      } catch (err) {
+        console.error('Error loading TS data:', err);
+        if (active) {
+          setRows(makeDefaultRows());
+          setNotes('');
+        }
+      }
+    }
+
+    loadData();
+    return () => { active = false; };
+  }, [entryDate, shift]);
+
   const updateRow = (idx: number, field: keyof RowState, value: string) => {
+    const finalVal = field === 'product' ? value.toUpperCase() : value;
     setRows(prev => {
       const next = [...prev];
-      next[idx] = { ...next[idx], [field]: value };
+      next[idx] = { ...next[idx], [field]: finalVal };
 
       // 1. Auto-calc qty_kg from qty_lts × sp_gr if they haven't explicitly set it or are updating inputs
       if (field === 'qty_lts' || field === 'sp_gr') {
@@ -116,22 +170,69 @@ export default function TSEntryForm() {
     });
   };
 
-  const addCustomRow = (section: TSSection) => {
-    setRows(prev => [
-      ...prev,
-      {
+  const addRowAfter = (section: TSSection, originalIdx: number) => {
+    setRows(prev => {
+      const next = [...prev];
+      const item: RowState = {
         section,
-        product: 'New Product',
+        product: '',
         qty_lts: '',
         qty_kg: '',
         fat_pct: '',
         snf_pct: '',
-        sp_gr: '1.027',
+        sp_gr: '',
         kg_fat: '',
         kg_snf: '',
         remarks: '',
-      },
-    ]);
+      };
+
+      if (originalIdx !== -1) {
+        next.splice(originalIdx + 1, 0, item);
+      } else {
+        // Find last index of this section in rows
+        let insertAt = -1;
+        for (let i = prev.length - 1; i >= 0; i--) {
+          if (prev[i].section === section) {
+            insertAt = i;
+            break;
+          }
+        }
+        if (insertAt !== -1) {
+          next.splice(insertAt + 1, 0, item);
+        } else {
+          next.push(item);
+        }
+      }
+      return next;
+    });
+  };
+
+  const deleteRow = (originalIdx: number) => {
+    setRows(prev => {
+      const item = prev[originalIdx];
+      if (!item) return prev;
+
+      const hasContent = (
+        item.product.trim() !== '' ||
+        item.qty_lts.trim() !== '' ||
+        item.qty_kg.trim() !== '' ||
+        item.fat_pct.trim() !== '' ||
+        item.snf_pct.trim() !== '' ||
+        item.sp_gr.trim() !== '' ||
+        item.kg_fat.trim() !== '' ||
+        item.kg_snf.trim() !== '' ||
+        (item.remarks || '').trim() !== ''
+      );
+
+      if (hasContent) {
+        const ok = window.confirm("Are you sure you want to remove this row containing data?");
+        if (!ok) return prev;
+      }
+
+      const next = [...prev];
+      next.splice(originalIdx, 1);
+      return next;
+    });
   };
 
   // Helper to ensure the main entry exists, returning the entry ID
@@ -139,7 +240,7 @@ export default function TSEntryForm() {
     const entryRes = await fetch('/api/entries', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ entry_date: entryDate, report_type: 'TS', notes }),
+      body: JSON.stringify({ entry_date: entryDate, shift, report_type: 'TS', notes }),
     });
     const entryData = await entryRes.json();
     if (!entryRes.ok && entryRes.status !== 409) {
@@ -148,7 +249,7 @@ export default function TSEntryForm() {
 
     if (entryRes.status === 409) {
       // Entry already exists, fetch it
-      const getRes = await fetch(`/api/entries?report_type=TS&date=${entryDate}`);
+      const getRes = await fetch(`/api/entries?report_type=TS&date=${entryDate}&shift=${shift}`);
       const getData = await getRes.json();
       if (getData.data && getData.data.length > 0) {
         return getData.data[0].id;
@@ -214,7 +315,7 @@ export default function TSEntryForm() {
         throw new Error(d.error || 'Failed to save TS report');
       }
 
-      router.push(`/dashboard/ts/${entryDate}`);
+      router.push(`/dashboard/ts/${entryDate}?shift=${shift}`);
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : 'Save failed');
     } finally {
@@ -224,10 +325,10 @@ export default function TSEntryForm() {
 
   return (
     <div style={{ maxWidth: 1400 }}>
-      {/* Date / Notes */}
+      {/* Date / Shift / Notes */}
       <div className="card" style={{ marginBottom: 20 }}>
         <div className="section-title" style={{ marginBottom: 16 }}>Entry Details</div>
-        <div className="form-row form-row-3">
+        <div className="form-row" style={{ display: 'grid', gridTemplateColumns: '1.2fr 1.2fr 2.6fr', gap: 16 }}>
           <div className="form-group">
             <label className="form-label">Date *</label>
             <input
@@ -239,7 +340,18 @@ export default function TSEntryForm() {
               max={new Date().toISOString().split('T')[0]}
             />
           </div>
-          <div className="form-group" style={{ gridColumn: 'span 2' }}>
+          <div className="form-group">
+            <label className="form-label">Shift *</label>
+            <select
+              className="form-select"
+              value={shift}
+              onChange={e => setShift(e.target.value as Shift)}
+            >
+              <option value="D">☀️ Day Shift</option>
+              <option value="N">🌙 Night Shift</option>
+            </select>
+          </div>
+          <div className="form-group">
             <label className="form-label">Notes (optional)</label>
             <input
               type="text"
@@ -272,13 +384,6 @@ export default function TSEntryForm() {
                 )}
                 <button
                   type="button"
-                  className="btn btn-secondary btn-sm"
-                  onClick={() => addCustomRow(key)}
-                >
-                  ➕ Add custom row
-                </button>
-                <button
-                  type="button"
                   className="btn btn-primary btn-sm"
                   style={{ background: color, border: 'none', boxShadow: 'none' }}
                   onClick={() => handleSaveSection(key)}
@@ -301,6 +406,7 @@ export default function TSEntryForm() {
                     <th style={{ minWidth: 90 }}>Kg Fat</th>
                     <th style={{ minWidth: 90 }}>Kg SNF</th>
                     <th style={{ minWidth: 150 }}>Remarks</th>
+                    <th className="no-print" style={{ width: 70 }}>Actions</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -392,8 +498,37 @@ export default function TSEntryForm() {
                           id={`ts-${key}-${originalIdx}-remarks`}
                         />
                       </td>
+                      <td className="no-print">
+                        <div style={{ display: 'flex', gap: 8, justifyContent: 'center' }}>
+                          <button
+                            type="button"
+                            style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '1rem', padding: 0 }}
+                            title="Add row below"
+                            onClick={() => addRowAfter(key, originalIdx)}
+                          >
+                            ➕
+                          </button>
+                          <button
+                            type="button"
+                            style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '1rem', padding: 0 }}
+                            title="Delete row"
+                            onClick={() => deleteRow(originalIdx)}
+                          >
+                            ❌
+                          </button>
+                        </div>
+                      </td>
                     </tr>
                   ))}
+                  {/* Clickable inline Add Row */}
+                  <tr className="no-print" style={{ cursor: 'pointer', background: '#f8fafc' }} onClick={() => {
+                    const lastSecRow = sRowsWithIdx[sRowsWithIdx.length - 1];
+                    addRowAfter(key, lastSecRow ? lastSecRow.originalIdx : -1);
+                  }}>
+                    <td colSpan={10} style={{ textAlign: 'center', color: 'var(--brand-primary)', fontWeight: 600, padding: 8 }}>
+                      ➕ Add Row
+                    </td>
+                  </tr>
                 </tbody>
               </table>
             </div>
