@@ -29,7 +29,7 @@
   ],
   "ts_milk_rows": [
     {
-      "id": "ut4aicjsi",
+      "id": "rxs9ikclm",
       "entry_id": "jp7s6b18t",
       "section": "OB",
       "product": "WM",
@@ -44,7 +44,7 @@
       "sort_order": 0
     },
     {
-      "id": "izb66evu3",
+      "id": "3k9cosc9u",
       "entry_id": "jp7s6b18t",
       "section": "RECEIPT",
       "product": "BMC'S",
@@ -59,7 +59,7 @@
       "sort_order": 1
     },
     {
-      "id": "nt2bzja1w",
+      "id": "xubcvsu51",
       "entry_id": "jp7s6b18t",
       "section": "RECEIPT",
       "product": "WF",
@@ -74,7 +74,7 @@
       "sort_order": 2
     },
     {
-      "id": "ip4o2e9yt",
+      "id": "u9pupycd0",
       "entry_id": "jp7s6b18t",
       "section": "CB",
       "product": "WM",
@@ -91,7 +91,7 @@
   ],
   "stg_rows": [
     {
-      "id": "a4sii88wq",
+      "id": "9d8l139hi",
       "entry_id": "jp7s6b18t",
       "product_block": "WM",
       "side": "RECEIPT",
@@ -106,7 +106,7 @@
       "sort_order": 0
     },
     {
-      "id": "6rgsa1sh3",
+      "id": "evbw3rpse",
       "entry_id": "jp7s6b18t",
       "product_block": "WM",
       "side": "RECEIPT",
@@ -121,7 +121,7 @@
       "sort_order": 1
     },
     {
-      "id": "vd7d4cpdo",
+      "id": "g5i4o559q",
       "entry_id": "jp7s6b18t",
       "product_block": "WM",
       "side": "RECEIPT",
@@ -136,7 +136,7 @@
       "sort_order": 2
     },
     {
-      "id": "wf81rrmkg",
+      "id": "tfq26ppx0",
       "entry_id": "jp7s6b18t",
       "product_block": "WM",
       "side": "RECEIPT",
@@ -151,11 +151,11 @@
       "sort_order": 3
     },
     {
-      "id": "u6oq87hpo",
+      "id": "ndezbqyll",
       "entry_id": "jp7s6b18t",
       "product_block": "WM",
       "side": "DISPOSAL",
-      "item_name": "SEPERATION",
+      "item_name": "SEPARATION",
       "qty_lts": 22000,
       "qty_kg": 22598.4,
       "fat_pct": 3.95,
@@ -166,7 +166,7 @@
       "sort_order": 4
     },
     {
-      "id": "ixvo9kd55",
+      "id": "3l366ee83",
       "entry_id": "jp7s6b18t",
       "product_block": "WM",
       "side": "DISPOSAL",
