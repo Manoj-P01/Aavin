@@ -15,18 +15,18 @@ export async function GET(req: NextRequest) {
     // Check Local DB fallback
     if (isLocalDbEnabled()) {
       if (entry_id) {
-        const data = getLocalStockData(entry_id);
+        const data = await getLocalStockData(entry_id);
         return NextResponse.json({ data });
       }
 
       if (month) {
-        const data = getLocalEntries('STOCK', month);
+        const data = await getLocalEntries('STOCK', month);
         return NextResponse.json({ data });
       }
 
       if (!date) return NextResponse.json({ error: 'date or entry_id or month required' }, { status: 400 });
 
-      let entries = getLocalEntries('STOCK', undefined, date);
+      let entries = await getLocalEntries('STOCK', undefined, date);
       if (shift) entries = entries.filter(e => e.shift === shift);
       if (entries.length === 0) return NextResponse.json({ error: 'No stock entries found' }, { status: 404 });
 
@@ -35,7 +35,7 @@ export async function GET(req: NextRequest) {
       const separation_details: any[] = [];
 
       for (const entry of entries) {
-        const d = getLocalStockData(entry.id);
+        const d = await getLocalStockData(entry.id);
         stock_rows.push(...d.stock_rows);
         if (d.separation_details) separation_details.push(d.separation_details);
       }
@@ -132,7 +132,7 @@ export async function POST(req: NextRequest) {
     if (!entry_id) return NextResponse.json({ error: 'entry_id required' }, { status: 400 });
 
     if (isLocalDbEnabled()) {
-      const result = saveLocalStockData(entry_id, stock_rows, separation_details);
+      const result = await saveLocalStockData(entry_id, stock_rows, separation_details);
       return NextResponse.json({ data: { entry_id, row_count: result.row_count } }, { status: 201 });
     }
 

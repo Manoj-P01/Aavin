@@ -12,7 +12,7 @@ export async function GET(req: NextRequest) {
       .toISOString().split('T')[0];
 
     if (isLocalDbEnabled()) {
-      const allEntries = getLocalEntries();
+      const allEntries = await getLocalEntries();
       const tsEntries = allEntries.filter(e => e.report_type === 'TS');
       const stockEntries = allEntries.filter(e => e.report_type === 'STOCK');
 

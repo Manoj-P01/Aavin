@@ -12,13 +12,47 @@ interface Schema {
   separation_details: SeparationDetails[];
 }
 
-export function initDb(): Schema {
-  if (fs.existsSync(DB_FILE_PATH)) {
+const KV_REST_API_URL = process.env.KV_REST_API_URL;
+const KV_REST_API_TOKEN = process.env.KV_REST_API_TOKEN;
+const isVercelKvAvailable = !!KV_REST_API_URL && !!KV_REST_API_TOKEN;
+const KV_KEY = 'aavin_db';
+
+async function fetchFromKv(command: string[]): Promise<any> {
+  const res = await fetch(KV_REST_API_URL!, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${KV_REST_API_TOKEN}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(command),
+    cache: 'no-store',
+  });
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`Vercel KV REST Error: ${res.statusText} - ${text}`);
+  }
+  const json = await res.json();
+  return json.result;
+}
+
+export async function initDb(): Promise<Schema> {
+  if (isVercelKvAvailable) {
     try {
-      const content = fs.readFileSync(DB_FILE_PATH, 'utf-8');
-      return JSON.parse(content);
-    } catch {
-      // corrupt JSON, start clean
+      const content = await fetchFromKv(['GET', KV_KEY]);
+      if (content) {
+        return typeof content === 'string' ? JSON.parse(content) : content;
+      }
+    } catch (e) {
+      console.error('Failed to load from Vercel KV, falling back to clean database', e);
+    }
+  } else {
+    if (fs.existsSync(DB_FILE_PATH)) {
+      try {
+        const content = fs.readFileSync(DB_FILE_PATH, 'utf-8');
+        return JSON.parse(content);
+      } catch {
+        // corrupt JSON, start clean
+      }
     }
   }
 
@@ -29,12 +63,25 @@ export function initDb(): Schema {
     stock_rows: [],
     separation_details: [],
   };
-  fs.writeFileSync(DB_FILE_PATH, JSON.stringify(defaultDb, null, 2), 'utf-8');
+
+  if (isVercelKvAvailable) {
+    try {
+      await fetchFromKv(['SET', KV_KEY, JSON.stringify(defaultDb)]);
+    } catch (e) {
+      console.error('Failed to initialize Vercel KV database schema', e);
+    }
+  } else {
+    fs.writeFileSync(DB_FILE_PATH, JSON.stringify(defaultDb, null, 2), 'utf-8');
+  }
   return defaultDb;
 }
 
-export function saveDb(data: Schema) {
-  fs.writeFileSync(DB_FILE_PATH, JSON.stringify(data, null, 2), 'utf-8');
+export async function saveDb(data: Schema) {
+  if (isVercelKvAvailable) {
+    await fetchFromKv(['SET', KV_KEY, JSON.stringify(data)]);
+  } else {
+    fs.writeFileSync(DB_FILE_PATH, JSON.stringify(data, null, 2), 'utf-8');
+  }
 }
 
 export function isLocalDbEnabled(): boolean {
@@ -45,8 +92,8 @@ export function isLocalDbEnabled(): boolean {
 
 // ─── Query Operations ─────────────────────────────────────────────────────────
 
-export function getLocalEntries(reportType?: ReportType, month?: string, date?: string, shift?: Shift | null): Entry[] {
-  const db = initDb();
+export async function getLocalEntries(reportType?: ReportType, month?: string, date?: string, shift?: Shift | null): Promise<Entry[]> {
+  const db = await initDb();
   let result = [...db.entries];
 
   if (reportType) {
@@ -65,8 +112,8 @@ export function getLocalEntries(reportType?: ReportType, month?: string, date?: 
   return result.sort((a, b) => b.entry_date.localeCompare(a.entry_date));
 }
 
-export function createLocalEntry(entry_date: string, shift: Shift | null, report_type: ReportType, notes?: string | null): Entry {
-  const db = initDb();
+export async function createLocalEntry(entry_date: string, shift: Shift | null, report_type: ReportType, notes?: string | null): Promise<Entry> {
+  const db = await initDb();
 
   // Guard duplicate
   const exists = db.entries.find(e => e.entry_date === entry_date && e.shift === shift && e.report_type === report_type);
@@ -83,19 +130,19 @@ export function createLocalEntry(entry_date: string, shift: Shift | null, report
   };
 
   db.entries.push(newEntry);
-  saveDb(db);
+  await saveDb(db);
   return newEntry;
 }
 
-export function getLocalTSData(entryId: string) {
-  const db = initDb();
+export async function getLocalTSData(entryId: string) {
+  const db = await initDb();
   const ts_rows = db.ts_milk_rows.filter(r => r.entry_id === entryId).sort((a, b) => a.sort_order - b.sort_order);
   const stg_rows = db.stg_rows.filter(r => r.entry_id === entryId).sort((a, b) => a.sort_order - b.sort_order);
   return { ts_rows, stg_rows };
 }
 
-export function saveLocalTSData(entryId: string, tsRows: any[], stgRows?: any[], section?: string) {
-  const db = initDb();
+export async function saveLocalTSData(entryId: string, tsRows: any[], stgRows?: any[], section?: string) {
+  const db = await initDb();
 
   if (section) {
     // Delete only for this section
@@ -143,19 +190,19 @@ export function saveLocalTSData(entryId: string, tsRows: any[], stgRows?: any[],
     db.stg_rows.push(...stgToInsert);
   }
 
-  saveDb(db);
+  await saveDb(db);
   return rowsToInsert;
 }
 
-export function getLocalStockData(entryId: string) {
-  const db = initDb();
+export async function getLocalStockData(entryId: string) {
+  const db = await initDb();
   const stock_rows = db.stock_rows.filter(r => r.entry_id === entryId).sort((a, b) => a.sort_order - b.sort_order);
   const separation_details = db.separation_details.find(r => r.entry_id === entryId) || null;
   return { stock_rows, separation_details };
 }
 
-export function saveLocalStockData(entryId: string, stockRows: any[], separationDetails?: any) {
-  const db = initDb();
+export async function saveLocalStockData(entryId: string, stockRows: any[], separationDetails?: any) {
+  const db = await initDb();
 
   // Delete existing
   db.stock_rows = db.stock_rows.filter(r => r.entry_id !== entryId);
@@ -198,12 +245,12 @@ export function saveLocalStockData(entryId: string, stockRows: any[], separation
     });
   }
 
-  saveDb(db);
+  await saveDb(db);
   return { row_count: rowsToInsert.length };
 }
 
-export function getLocalAggregatedStock(type: string, date?: string, month?: string, year?: string, from?: string, to?: string) {
-  const db = initDb();
+export async function getLocalAggregatedStock(type: string, date?: string, month?: string, year?: string, from?: string, to?: string) {
+  const db = await initDb();
   let entries = [...db.entries].filter(e => e.report_type === 'STOCK');
 
   if (type === 'day' && date) {

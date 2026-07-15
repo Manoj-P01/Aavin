@@ -14,7 +14,7 @@ export async function GET(req: NextRequest) {
 
     if (isLocalDbEnabled()) {
       const resolvedShift = searchParams.has('shift') ? shift : undefined;
-      const data = getLocalEntries(report_type || undefined, month || undefined, date || undefined, resolvedShift);
+      const data = await getLocalEntries(report_type || undefined, month || undefined, date || undefined, resolvedShift);
       return NextResponse.json({ data });
     }
 
@@ -60,7 +60,7 @@ export async function POST(req: NextRequest) {
     }
 
     if (isLocalDbEnabled()) {
-      const db = initDb();
+      const db = await initDb();
       const exists = db.entries.find((e: any) => 
         e.entry_date === entry_date && 
         e.report_type === report_type &&
@@ -69,11 +69,11 @@ export async function POST(req: NextRequest) {
       if (exists) {
         exists.notes = notes || null;
         exists.updated_at = new Date().toISOString();
-        saveDb(db);
+        await saveDb(db);
         return NextResponse.json({ data: exists }, { status: 200 });
       }
 
-      const data = createLocalEntry(entry_date, shift, report_type, notes);
+      const data = await createLocalEntry(entry_date, shift, report_type, notes);
       return NextResponse.json({ data }, { status: 201 });
     }
 

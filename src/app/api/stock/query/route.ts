@@ -17,7 +17,7 @@ export async function GET(req: NextRequest) {
     }
 
     if (isLocalDbEnabled()) {
-      const data = getLocalAggregatedStock(type, date || undefined, month || undefined, year || undefined, from || undefined, to || undefined);
+      const data = await getLocalAggregatedStock(type, date || undefined, month || undefined, year || undefined, from || undefined, to || undefined);
       return NextResponse.json({ data });
     }
 
