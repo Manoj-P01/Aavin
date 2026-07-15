@@ -4,9 +4,9 @@
       "id": "qm13x52ho",
       "entry_date": "1970-01-01",
       "report_type": "TS",
-      "notes": "[]",
+      "notes": "[{\"key\":\"WM\",\"label\":\"TENTATIVE WHOLE MILK\"}]",
       "created_at": "2026-07-15T03:52:24.446Z",
-      "updated_at": "2026-07-15T03:52:24.446Z"
+      "updated_at": "2026-07-15T03:52:41.574Z"
     }
   ],
   "ts_milk_rows": [],
