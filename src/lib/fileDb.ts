@@ -36,26 +36,6 @@ async function fetchFromKv(command: string[]): Promise<any> {
 }
 
 export async function initDb(): Promise<Schema> {
-  if (isVercelKvAvailable) {
-    try {
-      const content = await fetchFromKv(['GET', KV_KEY]);
-      if (content) {
-        return typeof content === 'string' ? JSON.parse(content) : content;
-      }
-    } catch (e) {
-      console.error('Failed to load from Vercel KV, falling back to clean database', e);
-    }
-  } else {
-    if (fs.existsSync(DB_FILE_PATH)) {
-      try {
-        const content = fs.readFileSync(DB_FILE_PATH, 'utf-8');
-        return JSON.parse(content);
-      } catch {
-        // corrupt JSON, start clean
-      }
-    }
-  }
-
   const defaultDb: Schema = {
     entries: [],
     ts_milk_rows: [],
@@ -66,12 +46,51 @@ export async function initDb(): Promise<Schema> {
 
   if (isVercelKvAvailable) {
     try {
+      const content = await fetchFromKv(['GET', KV_KEY]);
+      if (content) {
+        const parsed = typeof content === 'string' ? JSON.parse(content) : content;
+        return {
+          entries: parsed.entries || [],
+          ts_milk_rows: parsed.ts_milk_rows || [],
+          stg_rows: parsed.stg_rows || [],
+          stock_rows: parsed.stock_rows || [],
+          separation_details: parsed.separation_details || [],
+        };
+      }
+    } catch (e) {
+      console.error('Failed to load from Vercel KV, falling back to clean database', e);
+    }
+  } else {
+    if (process.env.VERCEL === '1') {
+      console.warn('Vercel KV is not configured. Reads will return an empty database, writes will fail.');
+    }
+    if (fs.existsSync(DB_FILE_PATH)) {
+      try {
+        const content = fs.readFileSync(DB_FILE_PATH, 'utf-8');
+        const parsed = JSON.parse(content);
+        return {
+          entries: parsed.entries || [],
+          ts_milk_rows: parsed.ts_milk_rows || [],
+          stg_rows: parsed.stg_rows || [],
+          stock_rows: parsed.stock_rows || [],
+          separation_details: parsed.separation_details || [],
+        };
+      } catch {
+        // corrupt JSON, start clean
+      }
+    }
+  }
+
+  if (isVercelKvAvailable) {
+    try {
       await fetchFromKv(['SET', KV_KEY, JSON.stringify(defaultDb)]);
     } catch (e) {
       console.error('Failed to initialize Vercel KV database schema', e);
     }
   } else {
-    fs.writeFileSync(DB_FILE_PATH, JSON.stringify(defaultDb, null, 2), 'utf-8');
+    if (process.env.VERCEL !== '1') {
+      fs.writeFileSync(DB_FILE_PATH, JSON.stringify(defaultDb, null, 2), 'utf-8');
+    }
   }
   return defaultDb;
 }
@@ -80,9 +99,16 @@ export async function saveDb(data: Schema) {
   if (isVercelKvAvailable) {
     await fetchFromKv(['SET', KV_KEY, JSON.stringify(data)]);
   } else {
+    if (process.env.VERCEL === '1') {
+      throw new Error(
+        'Vercel KV is not configured. ' +
+        'Please link a Vercel KV database in your Vercel Project settings to enable persistent storage.'
+      );
+    }
     fs.writeFileSync(DB_FILE_PATH, JSON.stringify(data, null, 2), 'utf-8');
   }
 }
+
 
 export function isLocalDbEnabled(): boolean {
   return process.env.USE_LOCAL_STORAGE === 'true' ||
