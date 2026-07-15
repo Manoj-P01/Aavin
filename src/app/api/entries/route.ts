@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getSupabaseServiceClient } from '@/lib/supabase';
-import { isLocalDbEnabled, getLocalEntries, createLocalEntry } from '@/lib/fileDb';
+import { isLocalDbEnabled, getLocalEntries, createLocalEntry, initDb, saveDb } from '@/lib/fileDb';
 import type { ReportType, Shift } from '@/lib/types';
 
 // GET /api/entries?report_type=TS&month=2026-06
@@ -10,9 +10,11 @@ export async function GET(req: NextRequest) {
     const report_type = searchParams.get('report_type') as ReportType | null;
     const month = searchParams.get('month'); // YYYY-MM
     const date = searchParams.get('date');   // YYYY-MM-DD
+    const shift = searchParams.get('shift') as Shift | null;
 
     if (isLocalDbEnabled()) {
-      const data = getLocalEntries(report_type || undefined, month || undefined, date || undefined);
+      const resolvedShift = searchParams.has('shift') ? shift : undefined;
+      const data = getLocalEntries(report_type || undefined, month || undefined, date || undefined, resolvedShift);
       return NextResponse.json({ data });
     }
 
@@ -21,6 +23,11 @@ export async function GET(req: NextRequest) {
 
     if (report_type) query = query.eq('report_type', report_type);
     if (date) query = query.eq('entry_date', date);
+    if (shift) {
+      query = query.eq('shift', shift);
+    } else if (searchParams.has('shift') && !shift) {
+      query = query.is('shift', null);
+    }
     if (month) {
       const [y, m] = month.split('-');
       const start = `${y}-${m}-01`;
@@ -37,7 +44,7 @@ export async function GET(req: NextRequest) {
   }
 }
 
-// POST /api/entries – create a new entry
+// POST /api/entries – create or update an entry (upserts notes if duplicate)
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
@@ -53,11 +60,17 @@ export async function POST(req: NextRequest) {
     }
 
     if (isLocalDbEnabled()) {
-      // Guard duplicate
-      const entries = getLocalEntries(report_type, undefined, entry_date);
-      const exists = entries.find(e => e.shift === (shift || null));
+      const db = initDb();
+      const exists = db.entries.find((e: any) => 
+        e.entry_date === entry_date && 
+        e.report_type === report_type &&
+        (e.shift === shift || (!e.shift && !shift))
+      );
       if (exists) {
-        return NextResponse.json({ error: 'Entry for this date/shift already exists' }, { status: 409 });
+        exists.notes = notes || null;
+        exists.updated_at = new Date().toISOString();
+        saveDb(db);
+        return NextResponse.json({ data: exists }, { status: 200 });
       }
 
       const data = createLocalEntry(entry_date, shift, report_type, notes);
@@ -65,19 +78,43 @@ export async function POST(req: NextRequest) {
     }
 
     const supabase = getSupabaseServiceClient();
-    const { data, error } = await supabase
-      .from('entries')
-      .insert({ entry_date, shift: shift || null, report_type, notes: notes || null })
-      .select()
-      .single();
 
-    if (error) {
-      if (error.code === '23505') {
-        return NextResponse.json({ error: 'Entry for this date/shift already exists' }, { status: 409 });
-      }
-      throw error;
+    // Query if entry already exists
+    let query = supabase
+      .from('entries')
+      .select('id')
+      .eq('entry_date', entry_date)
+      .eq('report_type', report_type);
+    
+    if (shift) {
+      query = query.eq('shift', shift);
+    } else {
+      query = query.is('shift', null);
     }
-    return NextResponse.json({ data }, { status: 201 });
+
+    const { data: existing, error: findErr } = await query;
+    if (findErr) throw findErr;
+
+    if (existing && existing.length > 0) {
+      // Update existing entry's notes
+      const { data, error } = await supabase
+        .from('entries')
+        .update({ notes: notes || null })
+        .eq('id', existing[0].id)
+        .select()
+        .single();
+      if (error) throw error;
+      return NextResponse.json({ data }, { status: 200 });
+    } else {
+      // Insert new entry
+      const { data, error } = await supabase
+        .from('entries')
+        .insert({ entry_date, shift: shift || null, report_type, notes: notes || null })
+        .select()
+        .single();
+      if (error) throw error;
+      return NextResponse.json({ data }, { status: 201 });
+    }
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : 'Unknown error';
     return NextResponse.json({ error: msg }, { status: 500 });

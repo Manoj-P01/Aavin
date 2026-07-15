@@ -1,11 +1,16 @@
+// ─────────────────────────────────────────────────────────────────────────────
+// Aavin Dashboard – Milk & Cream Stock Statement Entry Form
+// Supports dynamic product columns (insert at middle, delete with warnings)
+// ─────────────────────────────────────────────────────────────────────────────
+
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import type { Shift } from '@/lib/types';
 import { STOCK_RECEIPT_LABELS, STOCK_DISPOSAL_LABELS, STOCK_PRODUCT_COLUMNS } from '@/lib/types';
 
-type ColKey = typeof STOCK_PRODUCT_COLUMNS[number]['key'];
+type ColKey = string;
 
 interface StockRowState {
   row_type: 'OB' | 'RECEIPT' | 'DISPOSAL' | 'PHYSICAL';
@@ -36,8 +41,13 @@ export default function StockEntryForm() {
   const router = useRouter();
   const [entryDate, setEntryDate] = useState(new Date().toISOString().split('T')[0]);
   const [shift, setShift] = useState<Shift>('D');
+  const [shiftConfigs, setShiftConfigs] = useState<any[]>([
+    { key: 'D', label: 'Day Shift', start: '06:00', end: '18:00' },
+    { key: 'N', label: 'Night Shift', start: '18:00', end: '06:00' },
+  ]);
   const [notes, setNotes] = useState('');
   const [rows, setRows] = useState<StockRowState[]>(makeDefaultRows);
+  const [columns, setColumns] = useState<Array<{ key: ColKey; label: string }>>(() => [...STOCK_PRODUCT_COLUMNS]);
   const [sep, setSep] = useState<SepState>({
     wm_fat_pct: '3.9', wm_snf_pct: '7.95',
     cream_lts: '', cream_fat_pct: '40', cream_snf_pct: '',
@@ -45,6 +55,150 @@ export default function StockEntryForm() {
   });
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+
+  // Load shifts config on mount
+  useEffect(() => {
+    async function loadShiftConfig() {
+      try {
+        const res = await fetch('/api/entries?report_type=STOCK&date=1970-01-01');
+        if (res.ok) {
+          const json = await res.json();
+          const configEntry = json.data?.[0];
+          if (configEntry && configEntry.notes) {
+            const parsed = JSON.parse(configEntry.notes);
+            if (Array.isArray(parsed) && parsed.length === 2) {
+              setShiftConfigs(parsed);
+              
+              // Auto-detect current shift based on local time
+              const now = new Date();
+              const currentHours = now.getHours();
+              const currentMinutes = now.getMinutes();
+              const currentTimeVal = currentHours * 60 + currentMinutes;
+
+              let detectedShift: Shift = 'D';
+              for (const s of parsed) {
+                const [startH, startM] = s.start.split(':').map(Number);
+                const [endH, endM] = s.end.split(':').map(Number);
+                const startVal = startH * 60 + startM;
+                const endVal = endH * 60 + endM;
+
+                if (startVal < endVal) {
+                  if (currentTimeVal >= startVal && currentTimeVal < endVal) {
+                    detectedShift = s.key;
+                    break;
+                  }
+                } else {
+                  if (currentTimeVal >= startVal || currentTimeVal < endVal) {
+                    detectedShift = s.key;
+                    break;
+                  }
+                }
+              }
+              setShift(detectedShift);
+            }
+          }
+        }
+      } catch (err) {
+        console.error('Error loading shift configuration:', err);
+      }
+    }
+    loadShiftConfig();
+  }, []);
+
+  useEffect(() => {
+    if (!entryDate || !shift) return;
+    let active = true;
+
+    async function loadData() {
+      try {
+        const res = await fetch(`/api/stock?date=${entryDate}&shift=${shift}`);
+        if (!res.ok) {
+          if (active) {
+            setRows(makeDefaultRows());
+            setColumns([...STOCK_PRODUCT_COLUMNS]);
+            setSep({
+              wm_fat_pct: '3.9', wm_snf_pct: '7.95',
+              cream_lts: '', cream_fat_pct: '40', cream_snf_pct: '',
+              ssm_lts: '', ssm_fat_pct: '0.05', ssm_snf_pct: '8.2',
+            });
+            setNotes('');
+          }
+          return;
+        }
+
+        const json = await res.json();
+        const entry = json.data?.entries?.[0];
+        if (!entry) return;
+
+        if (active) {
+          let parsedCols = [...STOCK_PRODUCT_COLUMNS];
+          let customVals: Record<string, Record<string, string>> = {};
+          let cleanNotes = entry.notes || '';
+
+          const notesParts = (entry.notes || '').split('\n');
+          notesParts.forEach((part: string) => {
+            if (part.includes('__METADATA__:') || part.includes('__METADATA__::')) {
+              const [, metaJson] = part.split('__METADATA__:');
+              try {
+                const meta = JSON.parse(metaJson);
+                if (meta.custom_columns) {
+                  parsedCols = [...parsedCols, ...meta.custom_columns];
+                }
+                if (meta.custom_values) {
+                  customVals = meta.custom_values;
+                }
+              } catch (e) {
+                console.error('Failed to parse metadata:', e);
+              }
+              cleanNotes = cleanNotes.replace(part, '').trim();
+            }
+          });
+
+          setColumns(parsedCols);
+          setNotes(cleanNotes);
+
+          const loadedRows = makeDefaultRows().map(r => {
+            const dbRow = json.data.stock_rows.find((dr: any) => dr.entry_id === entry.id && dr.row_type === r.row_type && dr.row_label === r.row_label);
+            const values: Record<string, string> = {};
+
+            STOCK_PRODUCT_COLUMNS.forEach(col => {
+              if (dbRow && dbRow[col.key] !== undefined && dbRow[col.key] !== null) {
+                values[col.key] = dbRow[col.key] === 0 ? '' : String(dbRow[col.key]);
+              }
+            });
+
+            if (customVals[r.row_label]) {
+              Object.entries(customVals[r.row_label]).forEach(([colKey, val]) => {
+                values[colKey] = val;
+              });
+            }
+
+            return { ...r, values };
+          });
+          setRows(loadedRows);
+
+          const sepData = json.data.separation_details.find((s: any) => s.entry_id === entry.id);
+          if (sepData) {
+            setSep({
+              wm_fat_pct: String(sepData.wm_fat_pct ?? ''),
+              wm_snf_pct: String(sepData.wm_snf_pct ?? ''),
+              cream_lts: String(sepData.cream_lts ?? ''),
+              cream_fat_pct: String(sepData.cream_fat_pct ?? ''),
+              cream_snf_pct: String(sepData.cream_snf_pct ?? ''),
+              ssm_lts: String(sepData.ssm_lts ?? ''),
+              ssm_fat_pct: String(sepData.ssm_fat_pct ?? ''),
+              ssm_snf_pct: String(sepData.ssm_snf_pct ?? ''),
+            });
+          }
+        }
+      } catch (err) {
+        console.error('Error loading existing stock data:', err);
+      }
+    }
+
+    loadData();
+    return () => { active = false; };
+  }, [entryDate, shift]);
 
   const updateCell = (rowIdx: number, col: ColKey, val: string) => {
     setRows(prev => {
@@ -54,20 +208,75 @@ export default function StockEntryForm() {
     });
   };
 
+  const addColumnAfter = (colKey: string) => {
+    const label = window.prompt("Enter new column header name:");
+    if (!label || label.trim() === '') return;
+
+    const newKey = 'custom_' + Date.now() + '_' + Math.random().toString(36).substring(2, 5);
+    setColumns(prev => {
+      const idx = prev.findIndex(c => c.key === colKey);
+      const next = [...prev];
+      if (idx === -1) {
+        next.push({ key: newKey, label: label.trim() });
+      } else {
+        next.splice(idx + 1, 0, { key: newKey, label: label.trim() });
+      }
+      return next;
+    });
+  };
+
+  const deleteColumn = (colKey: string) => {
+    const hasData = rows.some(r => r.values[colKey] && parseFloat(r.values[colKey]) !== 0);
+    if (hasData) {
+      const ok = window.confirm("Are you sure you want to remove this column and all its data?");
+      if (!ok) return;
+    }
+
+    setColumns(prev => prev.filter(c => c.key !== colKey));
+    setRows(prev => prev.map(r => {
+      const nextValues = { ...r.values };
+      delete nextValues[colKey];
+      return { ...r, values: nextValues };
+    }));
+  };
+
   const handleSave = async () => {
     if (!entryDate) { setError('Please select a date.'); return; }
     setSaving(true); setError('');
     try {
+      // 1. Extract custom columns and values metadata
+      const customCols = columns.filter(c => !STOCK_PRODUCT_COLUMNS.some(dc => dc.key === c.key));
+      const customValues: Record<string, Record<string, string>> = {}; // row_label -> colKey -> val
+      rows.forEach(r => {
+        const vals: Record<string, string> = {};
+        customCols.forEach(cc => {
+          if (r.values[cc.key]) {
+            vals[cc.key] = r.values[cc.key]!;
+          }
+        });
+        if (Object.keys(vals).length > 0) {
+          customValues[r.row_label] = vals;
+        }
+      });
+
+      // 2. Append metadata to notes for database-compatible serialization
+      const metadata = {
+        custom_columns: customCols,
+        custom_values: customValues,
+      };
+      const finalNotes = notes.trim() + "\n__METADATA__:" + JSON.stringify(metadata);
+
       const entryRes = await fetch('/api/entries', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ entry_date: entryDate, shift, report_type: 'STOCK', notes }),
+        body: JSON.stringify({ entry_date: entryDate, shift, report_type: 'STOCK', notes: finalNotes }),
       });
       const entryData = await entryRes.json();
       if (!entryRes.ok) throw new Error(entryData.error || 'Failed to create entry');
 
       const entry_id = entryData.data.id;
 
+      // 3. Map standard 12 columns to standard postgres fields
       const stockRows = rows.map((r, i) => ({
         row_type: r.row_type,
         row_label: r.row_label,
@@ -114,17 +323,44 @@ export default function StockEntryForm() {
           <table className="inline-table" style={{ minWidth: 1200 }}>
             <thead>
               <tr>
-                <th style={{ textAlign: 'left', minWidth: 180 }}>Particulars</th>
-                {STOCK_PRODUCT_COLUMNS.map(col => (
-                  <th key={col.key} style={{ minWidth: 90, fontSize: '0.65rem' }}>{col.label}</th>
-                ))}
+                <th style={{ textAlign: 'left', minWidth: 180 }}>Service Name</th>
+                {columns.map(col => {
+                  const isCustom = !STOCK_PRODUCT_COLUMNS.some(dc => dc.key === col.key);
+                  return (
+                    <th key={col.key} style={{ minWidth: 110, fontSize: '0.65rem', textAlign: 'center', padding: '8px 4px' }}>
+                      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4 }}>
+                        <div style={{ fontWeight: 700 }}>{col.label}</div>
+                        <div className="no-print" style={{ display: 'flex', gap: 6, marginTop: 2 }}>
+                          <button
+                            type="button"
+                            style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '0.8rem', padding: 0 }}
+                            title="Add column after this"
+                            onClick={() => addColumnAfter(col.key)}
+                          >
+                            ➕
+                          </button>
+                          {isCustom && (
+                            <button
+                              type="button"
+                              style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '0.8rem', padding: 0 }}
+                              title="Delete column"
+                              onClick={() => deleteColumn(col.key)}
+                            >
+                              ❌
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    </th>
+                  );
+                })}
               </tr>
             </thead>
             <tbody>
               {sRows.map(({ r, i }) => (
                 <tr key={i}>
                   <td className="product-label">{r.row_label}</td>
-                  {STOCK_PRODUCT_COLUMNS.map(col => (
+                  {columns.map(col => (
                     <td key={col.key}>
                       <input
                         type="number"
@@ -165,18 +401,30 @@ export default function StockEntryForm() {
           <div className="form-group">
             <label className="form-label">Shift *</label>
             <div style={{ display: 'flex', gap: 8, marginTop: 6 }}>
-              {(['D', 'N'] as Shift[]).map(s => (
-                <button
-                  key={s}
-                  id={`shift-${s}`}
-                  type="button"
-                  className={`btn ${shift === s ? 'btn-primary' : 'btn-secondary'}`}
-                  onClick={() => setShift(s)}
-                  style={{ flex: 1 }}
-                >
-                  {s === 'D' ? '☀️ Day' : '🌙 Night'}
-                </button>
-              ))}
+              {(['D', 'N'] as Shift[]).map(s => {
+                const cfg = shiftConfigs.find(c => c.key === s) || {
+                  label: s === 'D' ? 'Day Shift' : 'Night Shift',
+                  start: s === 'D' ? '06:00' : '18:00',
+                  end: s === 'D' ? '18:00' : '06:00'
+                };
+                return (
+                  <button
+                    key={s}
+                    id={`shift-${s}`}
+                    type="button"
+                    className={`btn ${shift === s ? 'btn-primary' : 'btn-secondary'}`}
+                    onClick={() => setShift(s)}
+                    style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 2, padding: '6px 12px', height: 'auto', alignItems: 'center', justifyContent: 'center' }}
+                  >
+                    <div style={{ fontWeight: 600, fontSize: '0.85rem' }}>
+                      {s === 'D' ? '☀️' : '🌙'} {cfg.label}
+                    </div>
+                    <div style={{ fontSize: '0.7rem', opacity: 0.85 }}>
+                      {cfg.start} - {cfg.end}
+                    </div>
+                  </button>
+                );
+              })}
             </div>
           </div>
           <div className="form-group">

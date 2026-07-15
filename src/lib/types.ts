@@ -13,7 +13,7 @@ export type TSSection =
   | 'OTHER_DISPOSAL'
   | 'CB';
 
-export type STGProductBlock = 'WM' | 'SSM' | 'CREAM' | 'SMP';
+export type STGProductBlock = string;
 export type STGSide = 'RECEIPT' | 'DISPOSAL';
 
 export type StockRowType = 'OB' | 'RECEIPT' | 'DISPOSAL' | 'PHYSICAL';
