@@ -17,6 +17,10 @@ const KV_REST_API_TOKEN = process.env.KV_REST_API_TOKEN;
 const isVercelKvAvailable = !!KV_REST_API_URL && !!KV_REST_API_TOKEN;
 const KV_KEY = 'aavin_db';
 
+const GITHUB_TOKEN = process.env.GITHUB_TOKEN;
+const isGitHubStorageAvailable = !!GITHUB_TOKEN;
+let cachedSha: string | null = null;
+
 async function fetchFromKv(command: string[]): Promise<any> {
   const res = await fetch(KV_REST_API_URL!, {
     method: 'POST',
@@ -35,6 +39,91 @@ async function fetchFromKv(command: string[]): Promise<any> {
   return json.result;
 }
 
+interface GitHubFileResponse {
+  content: string;
+  sha: string;
+}
+
+async function getFromGitHub(): Promise<{ data: Schema; sha: string }> {
+  const owner = process.env.VERCEL_GIT_REPO_OWNER || 'Manoj-P01';
+  const repo = process.env.VERCEL_GIT_REPO_SLUG || 'Aavin';
+  const branch = process.env.VERCEL_GIT_COMMIT_REF || 'feature/aavin-dashboard-updates';
+  const fileUrl = `https://api.github.com/repos/${owner}/${repo}/contents/aavin-dashboard/local_db.json?ref=${branch}`;
+
+  const res = await fetch(fileUrl, {
+    headers: {
+      Authorization: `token ${GITHUB_TOKEN}`,
+      Accept: 'application/vnd.github.v3+json',
+      'User-Agent': 'Aavin-Dashboard-Vercel',
+    },
+    cache: 'no-store',
+  });
+
+  if (!res.ok) {
+    throw new Error(`Failed to fetch from GitHub: ${res.status} ${res.statusText}`);
+  }
+
+  const json = await res.json() as GitHubFileResponse;
+  const decodedContent = Buffer.from(json.content, 'base64').toString('utf-8');
+  const parsed = JSON.parse(decodedContent);
+
+  return {
+    data: {
+      entries: parsed.entries || [],
+      ts_milk_rows: parsed.ts_milk_rows || [],
+      stg_rows: parsed.stg_rows || [],
+      stock_rows: parsed.stock_rows || [],
+      separation_details: parsed.separation_details || [],
+    },
+    sha: json.sha,
+  };
+}
+
+async function saveToGitHub(data: Schema) {
+  const owner = process.env.VERCEL_GIT_REPO_OWNER || 'Manoj-P01';
+  const repo = process.env.VERCEL_GIT_REPO_SLUG || 'Aavin';
+  const branch = process.env.VERCEL_GIT_COMMIT_REF || 'feature/aavin-dashboard-updates';
+  const fileUrl = `https://api.github.com/repos/${owner}/${repo}/contents/aavin-dashboard/local_db.json`;
+
+  let sha = cachedSha;
+  try {
+    const fresh = await getFromGitHub();
+    sha = fresh.sha;
+  } catch (e) {
+    console.warn('Could not find existing file or SHA on GitHub, writing fresh', e);
+  }
+
+  const contentBase64 = Buffer.from(JSON.stringify(data, null, 2)).toString('base64');
+
+  const body: any = {
+    message: 'Database update from Vercel',
+    content: contentBase64,
+    branch,
+  };
+  if (sha) {
+    body.sha = sha;
+  }
+
+  const res = await fetch(fileUrl, {
+    method: 'PUT',
+    headers: {
+      Authorization: `token ${GITHUB_TOKEN}`,
+      Accept: 'application/vnd.github.v3+json',
+      'Content-Type': 'application/json',
+      'User-Agent': 'Aavin-Dashboard-Vercel',
+    },
+    body: JSON.stringify(body),
+  });
+
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`Failed to save to GitHub: ${res.statusText} - ${text}`);
+  }
+
+  const resJson = await res.json();
+  cachedSha = resJson.content.sha;
+}
+
 export async function initDb(): Promise<Schema> {
   const defaultDb: Schema = {
     entries: [],
@@ -44,7 +133,15 @@ export async function initDb(): Promise<Schema> {
     separation_details: [],
   };
 
-  if (isVercelKvAvailable) {
+  if (isGitHubStorageAvailable) {
+    try {
+      const { data, sha } = await getFromGitHub();
+      cachedSha = sha;
+      return data;
+    } catch (e) {
+      console.error('Failed to load from GitHub storage, falling back to clean schema', e);
+    }
+  } else if (isVercelKvAvailable) {
     try {
       const content = await fetchFromKv(['GET', KV_KEY]);
       if (content) {
@@ -62,7 +159,7 @@ export async function initDb(): Promise<Schema> {
     }
   } else {
     if (process.env.VERCEL === '1') {
-      console.warn('Vercel KV is not configured. Reads will return an empty database, writes will fail.');
+      console.warn('Neither GITHUB_TOKEN nor Vercel KV is configured. Reads will return an empty database, writes will fail.');
     }
     if (fs.existsSync(DB_FILE_PATH)) {
       try {
@@ -81,7 +178,13 @@ export async function initDb(): Promise<Schema> {
     }
   }
 
-  if (isVercelKvAvailable) {
+  if (isGitHubStorageAvailable) {
+    try {
+      await saveToGitHub(defaultDb);
+    } catch (e) {
+      console.error('Failed to initialize default schema on GitHub', e);
+    }
+  } else if (isVercelKvAvailable) {
     try {
       await fetchFromKv(['SET', KV_KEY, JSON.stringify(defaultDb)]);
     } catch (e) {
@@ -96,13 +199,15 @@ export async function initDb(): Promise<Schema> {
 }
 
 export async function saveDb(data: Schema) {
-  if (isVercelKvAvailable) {
+  if (isGitHubStorageAvailable) {
+    await saveToGitHub(data);
+  } else if (isVercelKvAvailable) {
     await fetchFromKv(['SET', KV_KEY, JSON.stringify(data)]);
   } else {
     if (process.env.VERCEL === '1') {
       throw new Error(
-        'Vercel KV is not configured. ' +
-        'Please link a Vercel KV database in your Vercel Project settings to enable persistent storage.'
+        'Neither GITHUB_TOKEN nor Vercel KV is configured. ' +
+        'Please set GITHUB_TOKEN or link Vercel KV in your project settings to enable persistent storage.'
       );
     }
     fs.writeFileSync(DB_FILE_PATH, JSON.stringify(data, null, 2), 'utf-8');
