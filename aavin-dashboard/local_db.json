@@ -29,7 +29,7 @@
   ],
   "ts_milk_rows": [
     {
-      "id": "rxs9ikclm",
+      "id": "5w6nhqj57",
       "entry_id": "jp7s6b18t",
       "section": "OB",
       "product": "WM",
@@ -44,7 +44,7 @@
       "sort_order": 0
     },
     {
-      "id": "3k9cosc9u",
+      "id": "ew977y6i7",
       "entry_id": "jp7s6b18t",
       "section": "RECEIPT",
       "product": "BMC'S",
@@ -59,7 +59,7 @@
       "sort_order": 1
     },
     {
-      "id": "xubcvsu51",
+      "id": "6sfrl85x0",
       "entry_id": "jp7s6b18t",
       "section": "RECEIPT",
       "product": "WF",
@@ -74,7 +74,7 @@
       "sort_order": 2
     },
     {
-      "id": "u9pupycd0",
+      "id": "4110n911k",
       "entry_id": "jp7s6b18t",
       "section": "CB",
       "product": "WM",
@@ -91,7 +91,7 @@
   ],
   "stg_rows": [
     {
-      "id": "9d8l139hi",
+      "id": "mqh6p9sov",
       "entry_id": "jp7s6b18t",
       "product_block": "WM",
       "side": "RECEIPT",
@@ -106,7 +106,7 @@
       "sort_order": 0
     },
     {
-      "id": "evbw3rpse",
+      "id": "anujoayvt",
       "entry_id": "jp7s6b18t",
       "product_block": "WM",
       "side": "RECEIPT",
@@ -121,7 +121,7 @@
       "sort_order": 1
     },
     {
-      "id": "g5i4o559q",
+      "id": "4vxmq3eic",
       "entry_id": "jp7s6b18t",
       "product_block": "WM",
       "side": "RECEIPT",
@@ -136,7 +136,7 @@
       "sort_order": 2
     },
     {
-      "id": "tfq26ppx0",
+      "id": "04ql0bsvc",
       "entry_id": "jp7s6b18t",
       "product_block": "WM",
       "side": "RECEIPT",
@@ -151,7 +151,7 @@
       "sort_order": 3
     },
     {
-      "id": "ndezbqyll",
+      "id": "bgund7i1n",
       "entry_id": "jp7s6b18t",
       "product_block": "WM",
       "side": "DISPOSAL",
@@ -166,7 +166,7 @@
       "sort_order": 4
     },
     {
-      "id": "3l366ee83",
+      "id": "19vgbnvqc",
       "entry_id": "jp7s6b18t",
       "product_block": "WM",
       "side": "DISPOSAL",
