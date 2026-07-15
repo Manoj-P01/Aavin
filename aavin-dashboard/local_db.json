@@ -7,6 +7,15 @@
       "notes": "[{\"key\":\"WM\",\"label\":\"TENTATIVE WHOLE MILK\"}]",
       "created_at": "2026-07-15T03:52:24.446Z",
       "updated_at": "2026-07-15T03:52:41.574Z"
+    },
+    {
+      "id": "jp7s6b18t",
+      "entry_date": "2026-06-01",
+      "shift": "D",
+      "report_type": "TS",
+      "notes": "\n__METADATA__:{\"custom_statements\":[{\"key\":\"WM\",\"label\":\"TENTATIVE WHOLE MILK\"}],\"custom_blocks\":{},\"enabled_blocks\":[\"WM\"]}",
+      "created_at": "2026-07-15T03:56:14.294Z",
+      "updated_at": "2026-07-15T03:56:14.294Z"
     }
   ],
   "ts_milk_rows": [],
