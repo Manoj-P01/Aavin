@@ -21,20 +21,20 @@ export async function GET(req: NextRequest) {
       let resolvedEntryId = entry_id;
       let notes = '';
       if (!resolvedEntryId && date) {
-        let entries = getLocalEntries('TS', undefined, date, shift);
+        let entries = await getLocalEntries('TS', undefined, date, shift);
         if (entries.length === 0 && (shift === 'D' || shift === 'N')) {
           // Fallback to null shift for legacy entries
-          entries = getLocalEntries('TS', undefined, date, null);
+          entries = await getLocalEntries('TS', undefined, date, null);
         }
         if (entries.length === 0) return NextResponse.json({ error: 'TS entry not found for date' }, { status: 404 });
         resolvedEntryId = entries[0].id;
         notes = entries[0].notes || '';
       } else if (resolvedEntryId) {
-        const db = initDb();
+        const db = await initDb();
         const entry = db.entries.find((e: any) => e.id === resolvedEntryId);
         if (entry) notes = entry.notes || '';
       }
-      const tsData = getLocalTSData(resolvedEntryId!);
+      const tsData = await getLocalTSData(resolvedEntryId!);
       return NextResponse.json({ data: { ...tsData, notes } });
     }
 
@@ -113,7 +113,7 @@ export async function POST(req: NextRequest) {
     const { section } = body as { section?: string };
 
     if (isLocalDbEnabled()) {
-      const tsInsert = saveLocalTSData(entry_id, ts_rows, stg_rows, section);
+      const tsInsert = await saveLocalTSData(entry_id, ts_rows, stg_rows, section);
       return NextResponse.json({
         data: { ts_rows: tsInsert, stg_rows: stg_rows || [] },
       }, { status: 201 });

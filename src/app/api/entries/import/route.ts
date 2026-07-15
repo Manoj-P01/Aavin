@@ -206,8 +206,8 @@ export async function POST(req: NextRequest) {
 
       // Persist
       if (localEnabled) {
-        const entry = createLocalEntry(entryDate, null, 'TS');
-        saveLocalTSData(entry.id, tsRows, stgRows);
+        const entry = await createLocalEntry(entryDate, null, 'TS');
+        await saveLocalTSData(entry.id, tsRows, stgRows);
       } else {
         const { data: entry, error: entErr } = await supabase!
           .from('entries')
@@ -315,8 +315,8 @@ export async function POST(req: NextRequest) {
 
         // Persist
         if (localEnabled) {
-          const entry = createLocalEntry(entryDate, shift, 'STOCK');
-          saveLocalStockData(entry.id, stockRows, separationDetails);
+          const entry = await createLocalEntry(entryDate, shift, 'STOCK');
+          await saveLocalStockData(entry.id, stockRows, separationDetails);
         } else {
           const { data: entry, error: entErr } = await supabase!
             .from('entries')
