@@ -10,7 +10,8 @@ export async function GET(req: NextRequest) {
     const report_type = searchParams.get('report_type') as ReportType | null;
     const month = searchParams.get('month'); // YYYY-MM
     const date = searchParams.get('date');   // YYYY-MM-DD
-    const shift = searchParams.get('shift') as Shift | null;
+    const rawShift = searchParams.get('shift');
+    const shift = (rawShift === 'null' || !rawShift) ? null : rawShift as Shift;
 
     if (isLocalDbEnabled()) {
       const resolvedShift = searchParams.has('shift') ? shift : undefined;

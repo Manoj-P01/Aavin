@@ -15,7 +15,8 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: 'entry_id or date required' }, { status: 400 });
     }
 
-    const shift = searchParams.get('shift') as Shift | null;
+    const rawShift = searchParams.get('shift');
+    const shift = (rawShift === 'null' || !rawShift) ? null : rawShift as Shift;
 
     if (isLocalDbEnabled()) {
       let resolvedEntryId = entry_id;
