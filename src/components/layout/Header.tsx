@@ -22,7 +22,10 @@ export default function Header({ title, subtitle, actions }: HeaderProps) {
         <button
           type="button"
           className="sidebar-toggle-btn"
-          onClick={() => setSidebarOpen(!sidebarOpen)}
+          onClick={(e) => {
+            e.stopPropagation();
+            setSidebarOpen(!sidebarOpen);
+          }}
           aria-label="Toggle Sidebar"
           title={sidebarOpen ? "Collapse Sidebar" : "Expand Sidebar"}
         >

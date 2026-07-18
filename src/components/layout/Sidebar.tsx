@@ -30,6 +30,7 @@ const NAV_SECTIONS = [
     label: 'Configuration',
     items: [
       { href: '/dashboard/ts/manage-statements', icon: '⚙️', label: 'Manage Statements' },
+      { href: '/dashboard/ts/manage-formulas', icon: '🧮', label: 'Manage Formulas' },
       { action: 'settings', icon: '🔧', label: 'Shift Settings' },
     ],
   },
@@ -37,12 +38,16 @@ const NAV_SECTIONS = [
 
 export default function Sidebar() {
   const pathname = usePathname();
-  const { setConfigOpen } = useSidebar();
+  const { sidebarOpen, setSidebarOpen, setConfigOpen } = useSidebar();
+
+  const handleLinkClick = () => {
+    // Do not auto-close sidebar on link click.
+  };
 
   return (
     <aside className="sidebar">
       {/* Brand */}
-      <Link href="/dashboard" className="sidebar-brand">
+      <Link href="/dashboard" className="sidebar-brand" onClick={handleLinkClick}>
         <div className="brand-logo">🥛</div>
         <div className="brand-text">
           <span className="brand-name">Aavin Dashboard</span>
@@ -63,7 +68,10 @@ export default function Sidebar() {
                       <button
                         type="button"
                         className="sidebar-link"
-                        onClick={() => setConfigOpen(true)}
+                        onClick={() => {
+                          setConfigOpen(true);
+                          handleLinkClick();
+                        }}
                       >
                         <span className="icon">{item.icon}</span>
                         {item.label}
@@ -72,15 +80,31 @@ export default function Sidebar() {
                   );
                 }
                 const href = (item as any).href;
-                const isActive =
-                  href === '/dashboard'
-                    ? pathname === '/dashboard'
-                    : pathname.startsWith(href);
+                const isActive = (() => {
+                  if (href === '/dashboard') return pathname === '/dashboard';
+                  
+                  const hrefSegments = href.split('/');
+                  const pathSegments = pathname.split('/');
+                  
+                  if (href === '/dashboard/ts') {
+                    return pathSegments[1] === 'dashboard' && 
+                           pathSegments[2] === 'ts' && 
+                           !['new', 'new-stg', 'manage-statements', 'manage-formulas'].includes(pathSegments[3]);
+                  }
+                  if (href === '/dashboard/stock') {
+                    return pathSegments[1] === 'dashboard' && 
+                           pathSegments[2] === 'stock' && 
+                           pathSegments[3] !== 'new';
+                  }
+                  
+                  return hrefSegments.every((seg: string, idx: number) => pathSegments[idx] === seg);
+                })();
                 return (
                   <li key={href}>
                     <Link
                       href={href}
                       className={`sidebar-link ${isActive ? 'active' : ''}`}
+                      onClick={handleLinkClick}
                     >
                       <span className="icon">{item.icon}</span>
                       {item.label}

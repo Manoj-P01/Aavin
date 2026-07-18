@@ -6,7 +6,7 @@ import Header from '@/components/layout/Header';
 import TSReport from '@/components/reports/TSReport';
 import STGReport from '@/components/reports/STGReport';
 import Link from 'next/link';
-import { calcTSTotals, fmtDate } from '@/lib/calculations';
+import { calcTSTotals, fmtDate, generateDynamicBalanceRows } from '@/lib/calculations';
 import type { Entry, Shift, TSMilkRow, STGRow } from '@/lib/types';
 
 export default function TSViewPage() {
@@ -23,8 +23,10 @@ export default function TSViewPage() {
   const [error, setError] = useState('');
   const [selectedTab, setSelectedTab] = useState<'TS' | 'STG' | null>(null);
 
-  const [availableShifts, setAvailableShifts] = useState<Shift[]>([]);
+  const [availableShifts, setAvailableShifts] = useState<(Shift | null)[]>([]);
   const [shift, setShift] = useState<Shift | null>(null);
+  const [globalStatements, setGlobalStatements] = useState<Array<{ key: string; label: string }>>([]);
+  const [formulasConfig, setFormulasConfig] = useState<any>(null);
   const activeTab = selectedTab ?? ((tabParam === 'TS' || tabParam === 'ts') ? 'TS' : 'STG');
 
   useEffect(() => {
@@ -32,24 +34,54 @@ export default function TSViewPage() {
       setLoading(true);
       setError('');
       try {
+        // Fetch formulas configuration
+        try {
+          const formulasRes = await fetch('/api/formulas');
+          if (formulasRes.ok) {
+            const formulasJson = await formulasRes.json();
+            if (formulasJson.data && formulasJson.data.nested) {
+              setFormulasConfig(formulasJson.data.nested);
+            }
+          }
+        } catch (err) {
+          console.error('Failed to load formulas config:', err);
+        }
+
         // 1. Fetch available entries for this date
         const entriesRes = await fetch(`/api/entries?report_type=TS&date=${date}`);
         if (!entriesRes.ok) throw new Error('Failed to load entry shifts.');
         const entriesJson = await entriesRes.json();
         const entriesList = (entriesJson.data || []) as Entry[];
         
-        const shiftsFound = entriesList
-          .map(e => e.shift)
-          .filter((entryShift): entryShift is Shift => entryShift !== null);
+        const shiftsFound = entriesList.map(e => e.shift);
         setAvailableShifts(shiftsFound);
 
         // Determine which shift is active
-        const requestedShift = shiftParam === 'D' || shiftParam === 'N' ? shiftParam : null;
-        let activeShift: Shift | null = requestedShift;
-        if (!activeShift) {
-          activeShift = shiftsFound.length > 0 ? shiftsFound[0] : 'D';
+        let activeShift: Shift | null = null;
+        if (shiftParam === 'D' || shiftParam === 'N') {
+          activeShift = shiftParam;
+        } else if (shiftParam === 'null' || shiftParam === 'NULL') {
+          activeShift = null;
+        } else {
+          activeShift = entriesList.length > 0 ? entriesList[0].shift : null;
         }
         setShift(activeShift);
+
+        // Fetch global statements template config
+        let gStmts: any[] = [];
+        try {
+          const configRes = await fetch('/api/entries?report_type=TS&date=1970-01-01');
+          if (configRes.ok) {
+            const configJson = await configRes.json();
+            const configEntry = configJson.data?.[0];
+            if (configEntry && configEntry.notes) {
+              gStmts = JSON.parse(configEntry.notes) || [];
+              setGlobalStatements(gStmts);
+            }
+          }
+        } catch (err) {
+          console.error('Failed to load global statements config', err);
+        }
 
         // 2. Fetch TS details for active shift
         const res = await fetch(`/api/ts?date=${date}${activeShift ? `&shift=${activeShift}` : ''}`);
@@ -61,9 +93,17 @@ export default function TSViewPage() {
         } else if (!res.ok) {
           throw new Error(data.error || 'Not found');
         } else {
-          setRows(data.data.ts_rows || []);
-          setStgRows(data.data.stg_rows || []);
-          setEntryNotes(data.data.notes || null);
+          const rawTsRows = (data.data.ts_rows || []) as TSMilkRow[];
+          const rawStgRows = (data.data.stg_rows || []) as STGRow[];
+          const notes = data.data.notes || null;
+
+          const { obRows, cbRows } = generateDynamicBalanceRows(rawStgRows, notes, gStmts);
+          const otherTsRows = rawTsRows.filter(r => r.section !== 'OB' && r.section !== 'CB');
+          const mergedTsRows = [...obRows, ...otherTsRows, ...cbRows];
+
+          setRows(mergedTsRows);
+          setStgRows(rawStgRows);
+          setEntryNotes(notes);
         }
       } catch (e: unknown) {
         setError(e instanceof Error ? e.message : 'Failed to load');
@@ -74,7 +114,7 @@ export default function TSViewPage() {
     load();
   }, [date, shiftParam]);
 
-  const totals = calcTSTotals(rows);
+  const totals = calcTSTotals(rows, formulasConfig || undefined);
   const handlePrint = () => window.print();
 
   return (
@@ -85,11 +125,11 @@ export default function TSViewPage() {
         actions={
           <div style={{ display: 'flex', gap: 8 }} className="no-print">
             {activeTab === 'STG' ? (
-              <Link href={`/dashboard/ts/new-stg?date=${date}&shift=${shift || 'D'}`} className="btn btn-primary btn-sm">
+              <Link href={`/dashboard/ts/new-stg?date=${date}&shift=${shift ?? 'null'}`} className="btn btn-primary btn-sm">
                 ✏️ Edit STG Entry
               </Link>
             ) : (
-              <Link href={`/dashboard/ts/new?date=${date}&shift=${shift || 'D'}`} className="btn btn-primary btn-sm">
+              <Link href={`/dashboard/ts/new?date=${date}&shift=${shift ?? 'null'}`} className="btn btn-primary btn-sm">
                 ✏️ Edit TS Entry
               </Link>
             )}
@@ -111,7 +151,7 @@ export default function TSViewPage() {
               onChange={e => {
                 const newDate = e.target.value;
                 if (newDate) {
-                  router.push(`/dashboard/ts/${newDate}?tab=${activeTab}${shift ? `&shift=${shift}` : '&shift=D'}`);
+                  router.push(`/dashboard/ts/${newDate}?tab=${activeTab}&shift=${shift ?? 'null'}`);
                 }
               }}
               max={new Date().toISOString().split('T')[0]}
@@ -121,16 +161,20 @@ export default function TSViewPage() {
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
             <label style={{ fontWeight: 600, fontSize: '0.85rem', color: 'var(--text-secondary)' }}>Select Shift:</label>
             <div className="tabs" style={{ margin: 0 }}>
-              {(['D', 'N'] as Shift[]).map(s => (
+              {[
+                { label: '🗓️ Full Day', value: null },
+                { label: '☀️ Day Shift', value: 'D' },
+                { label: '🌙 Night Shift', value: 'N' }
+              ].map(s => (
                 <button
-                  key={s}
-                  className={`tab ${shift === s ? 'active' : ''}`}
+                  key={s.label}
+                  className={`tab ${shift === s.value ? 'active' : ''}`}
                   style={{ padding: '6px 14px', fontSize: '0.85rem' }}
                   onClick={() => {
-                    router.replace(`/dashboard/ts/${date}?tab=${activeTab}&shift=${s}`);
+                    router.replace(`/dashboard/ts/${date}?tab=${activeTab}&shift=${s.value ?? 'null'}`);
                   }}
                 >
-                  {s === 'D' ? '☀️ Day Shift' : '🌙 Night Shift'}
+                  {s.label}
                 </button>
               ))}
             </div>

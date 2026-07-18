@@ -25,24 +25,105 @@ export function safeDivide(numerator: number, denominator: number): number {
 // ─── Per-row calculations ─────────────────────────────────────────────────────
 
 /** Calculate Kg Fat and Kg SNF from Qty(Kg), Fat%, SNF% */
-export function calcKgFatSnf(qty_kg: number, fat_pct: number, snf_pct: number) {
+export function calcKgFatSnf(qty_kg: number, fat_pct: number, snf_pct: number, config = CALC_CONFIG) {
   return {
-    kg_fat: round((qty_kg * fat_pct) / CALC_CONFIG.KG_FAT.DIVISOR, CALC_CONFIG.KG_FAT.TS_DECIMALS),
-    kg_snf: round((qty_kg * snf_pct) / CALC_CONFIG.KG_SNF.DIVISOR, CALC_CONFIG.KG_SNF.TS_DECIMALS),
+    kg_fat: round((qty_kg * fat_pct) / config.KG_FAT.DIVISOR, config.KG_FAT.TS_DECIMALS),
+    kg_snf: round((qty_kg * snf_pct) / config.KG_SNF.DIVISOR, config.KG_SNF.TS_DECIMALS),
   };
 }
 
 /** Calculate Qty(Kg) from Qty(Lts) and Specific Gravity */
-export function calcQtyKg(qty_lts: number, sp_gr: number): number {
-  return round(qty_lts * sp_gr, CALC_CONFIG.TS_REPORT.QTY_KG_DECIMALS);
+export function calcQtyKg(qty_lts: number, sp_gr: number, config = CALC_CONFIG): number {
+  return round(qty_lts * sp_gr, config.TS_REPORT.QTY_KG_DECIMALS);
 }
 
 // ─── TS Report Totals ─────────────────────────────────────────────────────────
 
 const ARRIVAL_SECTIONS: TSSection[] = ['OB', 'RECEIPT'];
-const DISPOSAL_SECTIONS: TSSection[] = ['DISPOSAL_DESPATCH', 'LOCAL_SALE', 'OTHER_DISPOSAL'];
+const DISPOSAL_SECTIONS: TSSection[] = ['DISPOSAL_DESPATCH', 'LOCAL_SALE', 'OTHER_DISPOSAL', 'CB'];
 
-export function calcTSTotals(rows: TSMilkRow[]): TSTotals {
+export function getStatementShortName(stmt: { key: string; label: string }): string {
+  if (stmt.key === 'WM') return 'WM';
+  if (stmt.key === 'SSM') return 'SSM';
+  if (stmt.key === 'CREAM') return 'CREAM';
+  return stmt.label.toUpperCase();
+}
+
+export function generateDynamicBalanceRows(
+  stgRows: any[],
+  entryNotes: string | null,
+  globalStatements: Array<{ key: string; label: string }> = []
+) {
+  let customStatements: Array<{ key: string; label: string }> = [];
+  if (entryNotes) {
+    const parts = entryNotes.split('\n');
+    for (const part of parts) {
+      if (part.includes('__METADATA__:') || part.includes('__METADATA__::')) {
+        const [, metaJson] = part.split('__METADATA__:');
+        try {
+          const meta = JSON.parse(metaJson);
+          if (meta.custom_statements) {
+            customStatements = meta.custom_statements;
+          }
+        } catch {}
+      }
+    }
+  }
+
+  const stmtMap = new Map<string, { key: string; label: string }>();
+  globalStatements.forEach(s => stmtMap.set(s.key, s));
+  customStatements.forEach(s => stmtMap.set(s.key, s));
+  
+  if (stmtMap.size === 0) {
+    stmtMap.set('WM', { key: 'WM', label: 'TENTATIVE WHOLE MILK' });
+    stmtMap.set('SSM', { key: 'SSM', label: 'SKIMMED MILK' });
+    stmtMap.set('CREAM', { key: 'CREAM', label: 'CREAM' });
+  }
+
+  const statements = Array.from(stmtMap.values());
+  const obRows: any[] = [];
+  const cbRows: any[] = [];
+
+  statements.forEach(stmt => {
+    const shortName = getStatementShortName(stmt);
+    const stgOb = stgRows.find(r => r.product_block === stmt.key && r.item_name === 'OB');
+    const stgCb = stgRows.find(r => r.product_block === stmt.key && r.item_name === 'CB');
+
+    obRows.push({
+      id: stgOb?.id || `dynamic-ob-${stmt.key}`,
+      section: 'OB',
+      product: shortName,
+      qty_lts: stgOb?.qty_lts ?? 0,
+      qty_kg: stgOb?.qty_kg ?? 0,
+      fat_pct: stgOb?.fat_pct ?? 0,
+      snf_pct: stgOb?.snf_pct ?? 0,
+      sp_gr: stgOb?.sp_gr ?? 0,
+      kg_fat: stgOb?.kg_fat ?? 0,
+      kg_snf: stgOb?.kg_snf ?? 0,
+      remarks: '',
+      sort_order: 0,
+    });
+
+    cbRows.push({
+      id: stgCb?.id || `dynamic-cb-${stmt.key}`,
+      section: 'CB',
+      product: shortName,
+      qty_lts: stgCb?.qty_lts ?? 0,
+      qty_kg: stgCb?.qty_kg ?? 0,
+      fat_pct: stgCb?.fat_pct ?? 0,
+      snf_pct: stgCb?.snf_pct ?? 0,
+      sp_gr: stgCb?.sp_gr ?? 0,
+      kg_fat: stgCb?.kg_fat ?? 0,
+      kg_snf: stgCb?.kg_snf ?? 0,
+      remarks: '',
+      sort_order: 0,
+    });
+  });
+
+  return { obRows, cbRows };
+}
+
+export function calcTSTotals(rows: TSMilkRow[], config = CALC_CONFIG): TSTotals {
   const sum = (sections: TSSection[], field: keyof TSMilkRow) =>
     rows
       .filter(r => sections.includes(r.section))
@@ -58,23 +139,23 @@ export function calcTSTotals(rows: TSMilkRow[]): TSTotals {
   const disposal_fat  = sum(DISPOSAL_SECTIONS, 'kg_fat');
   const disposal_snf  = sum(DISPOSAL_SECTIONS, 'kg_snf');
 
-  const loss_fat  = round(arrival_fat - disposal_fat, CALC_CONFIG.KG_FAT.TS_DECIMALS);
-  const loss_snf  = round(arrival_snf - disposal_snf, CALC_CONFIG.KG_SNF.TS_DECIMALS);
+  const loss_fat  = round(arrival_fat - disposal_fat, config.KG_FAT.TS_DECIMALS);
+  const loss_snf  = round(arrival_snf - disposal_snf, config.KG_SNF.TS_DECIMALS);
 
   return {
-    grand_total_arrival_lts:     round(arrival_lts, CALC_CONFIG.TS_REPORT.QTY_LTS_DECIMALS),
-    grand_total_arrival_kg:      round(arrival_kg, CALC_CONFIG.TS_REPORT.QTY_KG_DECIMALS),
-    grand_total_arrival_kg_fat:  round(arrival_fat, CALC_CONFIG.KG_FAT.TS_DECIMALS),
-    grand_total_arrival_kg_snf:  round(arrival_snf, CALC_CONFIG.KG_SNF.TS_DECIMALS),
-    grand_total_disposal_lts:    round(disposal_lts, CALC_CONFIG.TS_REPORT.QTY_LTS_DECIMALS),
-    grand_total_disposal_kg:     round(disposal_kg, CALC_CONFIG.TS_REPORT.QTY_KG_DECIMALS),
-    grand_total_disposal_kg_fat: round(disposal_fat, CALC_CONFIG.KG_FAT.TS_DECIMALS),
-    grand_total_disposal_kg_snf: round(disposal_snf, CALC_CONFIG.KG_SNF.TS_DECIMALS),
+    grand_total_arrival_lts:     round(arrival_lts, config.TS_REPORT.QTY_LTS_DECIMALS),
+    grand_total_arrival_kg:      round(arrival_kg, config.TS_REPORT.QTY_KG_DECIMALS),
+    grand_total_arrival_kg_fat:  round(arrival_fat, config.KG_FAT.TS_DECIMALS),
+    grand_total_arrival_kg_snf:  round(arrival_snf, config.KG_SNF.TS_DECIMALS),
+    grand_total_disposal_lts:    round(disposal_lts, config.TS_REPORT.QTY_LTS_DECIMALS),
+    grand_total_disposal_kg:     round(disposal_kg, config.TS_REPORT.QTY_KG_DECIMALS),
+    grand_total_disposal_kg_fat: round(disposal_fat, config.KG_FAT.TS_DECIMALS),
+    grand_total_disposal_kg_snf: round(disposal_snf, config.KG_SNF.TS_DECIMALS),
     loss_kg_fat:                 loss_fat,
     loss_kg_snf:                 loss_snf,
-    loss_pct_fat:                round(safeDivide(loss_fat, arrival_fat) * 100, CALC_CONFIG.TS_REPORT.LOSS_PERCENTAGE_DECIMALS),
-    loss_pct_snf:                round(safeDivide(loss_snf, arrival_snf) * 100, CALC_CONFIG.TS_REPORT.LOSS_PERCENTAGE_DECIMALS),
-    cmpdd_norm_pct:              CALC_CONFIG.TS_REPORT.CMPDD_NORM_PCT,
+    loss_pct_fat:                round(safeDivide(loss_fat, arrival_fat) * 100, config.TS_REPORT.LOSS_PERCENTAGE_DECIMALS),
+    loss_pct_snf:                round(safeDivide(loss_snf, arrival_snf) * 100, config.TS_REPORT.LOSS_PERCENTAGE_DECIMALS),
+    cmpdd_norm_pct:              config.TS_REPORT.CMPDD_NORM_PCT,
   };
 }
 
@@ -82,7 +163,8 @@ export function calcTSTotals(rows: TSMilkRow[]): TSTotals {
 
 export function calcSTGProductTotals(
   rows: STGRow[],
-  product: STGRow['product_block']
+  product: STGRow['product_block'],
+  config = CALC_CONFIG
 ): STGProductTotals {
   const productRows = rows.filter(r => r.product_block === product);
   const receipts    = productRows.filter(r => r.side === 'RECEIPT');
@@ -103,21 +185,21 @@ export function calcSTGProductTotals(
   const grand_arrival_fat = r_fat;
   const grand_arrival_snf = r_snf;
 
-  const lg_fat = round(grand_arrival_fat - d_fat, CALC_CONFIG.KG_FAT.TS_DECIMALS);
-  const lg_snf = round(grand_arrival_snf - d_snf, CALC_CONFIG.KG_SNF.TS_DECIMALS);
+  const lg_fat = round(grand_arrival_fat - d_fat, config.KG_FAT.TS_DECIMALS);
+  const lg_snf = round(grand_arrival_snf - d_snf, config.KG_SNF.TS_DECIMALS);
 
   return {
     product,
-    receipt_kg_fat:    round(r_fat, CALC_CONFIG.KG_FAT.TS_DECIMALS),
-    receipt_kg_snf:    round(r_snf, CALC_CONFIG.KG_SNF.TS_DECIMALS),
-    disposal_kg_fat:   round(d_fat, CALC_CONFIG.KG_FAT.TS_DECIMALS),
-    disposal_kg_snf:   round(d_snf, CALC_CONFIG.KG_SNF.TS_DECIMALS),
-    ob_kg_fat:         round(ob_fat, CALC_CONFIG.KG_FAT.TS_DECIMALS),
-    ob_kg_snf:         round(ob_snf, CALC_CONFIG.KG_SNF.TS_DECIMALS),
+    receipt_kg_fat:    round(r_fat, config.KG_FAT.TS_DECIMALS),
+    receipt_kg_snf:    round(r_snf, config.KG_SNF.TS_DECIMALS),
+    disposal_kg_fat:   round(d_fat, config.KG_FAT.TS_DECIMALS),
+    disposal_kg_snf:   round(d_snf, config.KG_SNF.TS_DECIMALS),
+    ob_kg_fat:         round(ob_fat, config.KG_FAT.TS_DECIMALS),
+    ob_kg_snf:         round(ob_snf, config.KG_SNF.TS_DECIMALS),
     loss_gain_kg_fat:  lg_fat,
     loss_gain_kg_snf:  lg_snf,
-    loss_gain_pct_fat: round(safeDivide(lg_fat, grand_arrival_fat) * 100, CALC_CONFIG.TS_REPORT.LOSS_PERCENTAGE_DECIMALS),
-    loss_gain_pct_snf: round(safeDivide(lg_snf, grand_arrival_snf) * 100, CALC_CONFIG.TS_REPORT.LOSS_PERCENTAGE_DECIMALS),
+    loss_gain_pct_fat: round(safeDivide(lg_fat, grand_arrival_fat) * 100, config.TS_REPORT.LOSS_PERCENTAGE_DECIMALS),
+    loss_gain_pct_snf: round(safeDivide(lg_snf, grand_arrival_snf) * 100, config.TS_REPORT.LOSS_PERCENTAGE_DECIMALS),
   };
 }
 

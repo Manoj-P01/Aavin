@@ -77,9 +77,28 @@
   padding: 0;
 }
 
+/* Hide spin/scroll arrows on number inputs globally */
+input::-webkit-outer-spin-button,
+input::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+input[type=number] {
+  -moz-appearance: textfield;
+}
+
 html {
-  font-size: 14px;
+  font-size: 16.5px;
   scroll-behavior: smooth;
+}
+
+html.sidebar-collapsed {
+  font-size: 19px;
+}
+
+html.sidebar-collapsed .page-body {
+  max-width: 100%;
 }
 
 body {
@@ -122,6 +141,18 @@ body {
   max-width: 1600px;
   width: 100%;
   margin: 0 auto;
+  transition: max-width var(--transition-slow);
+}
+
+.form-container {
+  max-width: 1400px;
+  width: 100%;
+  margin: 0 auto;
+  transition: max-width var(--transition-slow);
+}
+
+html.sidebar-collapsed .form-container {
+  max-width: 100%;
 }
 
 /* ─── STG Fixed Footer ───────────────────────────────────────────────────────── */
@@ -341,7 +372,7 @@ h4 { font-size: 0.9375rem; font-weight: 600; }
 .data-table {
   width: 100%;
   border-collapse: collapse;
-  font-size: 0.8125rem;
+  font-size: 0.9rem;
   font-variant-numeric: tabular-nums;
 }
 
@@ -349,7 +380,7 @@ h4 { font-size: 0.9375rem; font-weight: 600; }
   background: var(--bg-base);
   color: var(--text-primary);
   font-weight: 600;
-  font-size: 0.75rem;
+  font-size: 0.85rem;
   text-transform: uppercase;
   letter-spacing: 0.05em;
   padding: 12px;
@@ -408,7 +439,7 @@ h4 { font-size: 0.9375rem; font-weight: 600; }
 .report-table {
   width: 100%;
   border-collapse: collapse;
-  font-size: 0.8125rem;
+  font-size: 0.9rem;
 }
 
 .report-table th,
@@ -422,7 +453,7 @@ h4 { font-size: 0.9375rem; font-weight: 600; }
   background: var(--bg-base);
   color: var(--text-primary);
   font-weight: 600;
-  font-size: 0.75rem;
+  font-size: 0.85rem;
   text-transform: uppercase;
   letter-spacing: 0.04em;
 }

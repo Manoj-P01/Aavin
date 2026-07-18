@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { calcKgFatSnf } from '@/lib/calculations';
+import { calcKgFatSnf, calcQtyKg, generateDynamicBalanceRows } from '@/lib/calculations';
 import type { TSSection, Shift } from '@/lib/types';
 
 interface RowState {
@@ -33,23 +33,24 @@ const DEFAULT_SNF: Record<string, number> = {
   'FC.MILK': 9, 'STD.Milk': 8.5, SMP: 96.3,
 };
 
-const INITIAL_OB = ['WM', 'SSM', 'CREAM', 'DLT MILK', 'FC.MILK', 'STD.Milk', 'SMP'];
-const INITIAL_RECEIPTS = ['P.VELUR CC', "BMC's", 'LAB SAMPLE RTN', 'WF', 'SMP', 'RINSE MILK', 'BUTTER MILK', 'DLT SACHET RTN', 'FCM SACHET RTN', 'STD SACHET RTN'];
-const INITIAL_DESPATCH = ['AMBATTUR-SSM', 'SNR-SSM', 'DCPP-SSM', 'ERODE-SSM', 'CBE-SSM'];
-const INITIAL_LOCAL = ['DLT MILK', 'FC.MILK', 'STD.Milk', 'OTHERS'];
-const INITIAL_OTHER = ['SMP', 'CURD/BM', 'TO KHOA', 'LAB SAMPLE', 'CREAM-CON'];
+const INITIAL_OB: string[] = [];
+const INITIAL_RECEIPTS: string[] = [];
+const INITIAL_DESPATCH: string[] = [];
+const INITIAL_LOCAL: string[] = [];
+const INITIAL_OTHER: string[] = [];
 
 function makeDefaultRows(): RowState[] {
   const rows: RowState[] = [];
   const addSection = (section: TSSection, products: string[]) => {
+    const isOBorCB = section === 'OB' || section === 'CB';
     products.forEach(product => {
       rows.push({
         section, product,
         qty_lts: '',
         qty_kg: '',
-        fat_pct: String(DEFAULT_FAT[product] || ''),
-        snf_pct: String(DEFAULT_SNF[product] || ''),
-        sp_gr: String(DEFAULT_SP_GR[product] || ''),
+        fat_pct: isOBorCB ? String(DEFAULT_FAT[product] || '') : '',
+        snf_pct: isOBorCB ? String(DEFAULT_SNF[product] || '') : '',
+        sp_gr: isOBorCB ? String(DEFAULT_SP_GR[product] || '') : '',
         kg_fat: '',
         kg_snf: '',
         remarks: '',
@@ -79,16 +80,23 @@ export default function TSEntryForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const paramDate = searchParams.get('date');
-  const paramShift = searchParams.get('shift') as Shift | null;
+  const paramShift = searchParams.get('shift');
+
+  const getInitialShift = (): Shift | null => {
+    if (paramShift === 'D' || paramShift === 'N') return paramShift;
+    if (paramShift === 'null' || paramShift === 'NULL') return null;
+    return null; // Default to Full Day if no shift is specified or it is invalid
+  };
 
   const [entryDate, setEntryDate] = useState(paramDate || new Date().toISOString().split('T')[0]);
-  const [shift, setShift] = useState<Shift>(paramShift || 'D');
+  const [shift, setShift] = useState<Shift | null>(getInitialShift());
   const [notes, setNotes] = useState('');
   const [rows, setRows] = useState<RowState[]>(makeDefaultRows);
   const [savingSection, setSavingSection] = useState<Record<string, boolean>>({});
   const [saveStatus, setSaveStatus] = useState<Record<string, string>>({});
   const [mainSaving, setMainSaving] = useState(false);
   const [error, setError] = useState('');
+  const [formulasConfig, setFormulasConfig] = useState<any>(null);
 
   // Load existing TS entry on mount or when entryDate or shift changes
   useEffect(() => {
@@ -97,12 +105,48 @@ export default function TSEntryForm() {
 
     async function loadData() {
       try {
-        const res = await fetch(`/api/ts?date=${entryDate}&shift=${shift}`);
+        // Fetch formulas configuration
+        try {
+          const formulasRes = await fetch('/api/formulas');
+          if (formulasRes.ok) {
+            const formulasJson = await formulasRes.json();
+            if (formulasJson.data && formulasJson.data.nested) {
+              setFormulasConfig(formulasJson.data.nested);
+            }
+          }
+        } catch (err) {
+          console.error('Failed to load formulas config:', err);
+        }
+
+        // Fetch global statements config
+        let gStmts: any[] = [];
+        try {
+          const configRes = await fetch('/api/entries?report_type=TS&date=1970-01-01');
+          if (configRes.ok) {
+            const configJson = await configRes.json();
+            const configEntry = configJson.data?.[0];
+            if (configEntry && configEntry.notes) {
+              gStmts = JSON.parse(configEntry.notes) || [];
+            }
+          }
+        } catch (err) {
+          console.error('Failed to load global config', err);
+        }
+
+        const res = await fetch(`/api/ts?date=${entryDate}${shift ? `&shift=${shift}` : ''}`);
+        let activeRows: RowState[] = [];
+        let hasSavedRows = false;
+        let entryNotes = '';
+        let stgRows: any[] = [];
+
         if (res.ok) {
           const data = await res.json();
           if (active && data.data) {
+            entryNotes = data.data.notes || '';
+            stgRows = data.data.stg_rows || [];
             if (data.data.ts_rows && data.data.ts_rows.length > 0) {
-              const mappedRows = data.data.ts_rows.map((row: any) => ({
+              hasSavedRows = true;
+              activeRows = data.data.ts_rows.map((row: any) => ({
                 section: row.section,
                 product: row.product || '',
                 qty_lts: row.qty_lts ? String(row.qty_lts) : '',
@@ -114,16 +158,46 @@ export default function TSEntryForm() {
                 kg_snf: row.kg_snf ? String(row.kg_snf) : '',
                 remarks: row.remarks || '',
               }));
-              setRows(mappedRows);
-              setNotes(data.data.notes || '');
-              return;
             }
           }
         }
-        // Fall back to default rows if no entry/data exists
+
+        if (!hasSavedRows) {
+          activeRows = makeDefaultRows();
+        }
+
+        const { obRows, cbRows } = generateDynamicBalanceRows(stgRows, entryNotes, gStmts);
+        const formObRows = obRows.map(r => ({
+          section: 'OB' as TSSection,
+          product: r.product,
+          qty_lts: r.qty_lts ? String(r.qty_lts) : '',
+          qty_kg: r.qty_kg ? String(r.qty_kg) : '',
+          fat_pct: r.fat_pct ? String(r.fat_pct) : '',
+          snf_pct: r.snf_pct ? String(r.snf_pct) : '',
+          sp_gr: r.sp_gr ? String(r.sp_gr) : '',
+          kg_fat: r.kg_fat ? String(r.kg_fat) : '',
+          kg_snf: r.kg_snf ? String(r.kg_snf) : '',
+          remarks: '',
+        }));
+        const formCbRows = cbRows.map(r => ({
+          section: 'CB' as TSSection,
+          product: r.product,
+          qty_lts: r.qty_lts ? String(r.qty_lts) : '',
+          qty_kg: r.qty_kg ? String(r.qty_kg) : '',
+          fat_pct: r.fat_pct ? String(r.fat_pct) : '',
+          snf_pct: r.snf_pct ? String(r.snf_pct) : '',
+          sp_gr: r.sp_gr ? String(r.sp_gr) : '',
+          kg_fat: r.kg_fat ? String(r.kg_fat) : '',
+          kg_snf: r.kg_snf ? String(r.kg_snf) : '',
+          remarks: '',
+        }));
+
+        const otherRows = activeRows.filter(r => r.section !== 'OB' && r.section !== 'CB');
+        const mergedRows = [...formObRows, ...otherRows, ...formCbRows];
+
         if (active) {
-          setRows(makeDefaultRows());
-          setNotes('');
+          setRows(mergedRows);
+          setNotes(entryNotes);
         }
       } catch (err) {
         console.error('Error loading TS data:', err);
@@ -149,7 +223,7 @@ export default function TSEntryForm() {
         const lts = parseFloat(field === 'qty_lts' ? value : next[idx].qty_lts) || 0;
         const spg = parseFloat(field === 'sp_gr' ? value : next[idx].sp_gr) || 0;
         if (lts && spg) {
-          next[idx].qty_kg = (lts * spg).toFixed(3);
+          next[idx].qty_kg = String(calcQtyKg(lts, spg, formulasConfig || undefined));
         }
       }
 
@@ -157,7 +231,7 @@ export default function TSEntryForm() {
       const kg = parseFloat(next[idx].qty_kg) || 0;
       const fat = parseFloat(next[idx].fat_pct) || 0;
       const snf = parseFloat(next[idx].snf_pct) || 0;
-      const calc = calcKgFatSnf(kg, fat, snf);
+      const calc = calcKgFatSnf(kg, fat, snf, formulasConfig || undefined);
 
       if (field === 'qty_kg' || field === 'qty_lts' || field === 'sp_gr' || field === 'fat_pct') {
         next[idx].kg_fat = calc.kg_fat > 0 ? String(calc.kg_fat) : '';
@@ -315,7 +389,7 @@ export default function TSEntryForm() {
         throw new Error(d.error || 'Failed to save TS report');
       }
 
-      router.push(`/dashboard/ts/${entryDate}?shift=${shift}`);
+      router.push(`/dashboard/ts/${entryDate}?shift=${shift ?? 'null'}`);
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : 'Save failed');
     } finally {
@@ -324,11 +398,11 @@ export default function TSEntryForm() {
   };
 
   return (
-    <div style={{ maxWidth: 1400 }}>
+    <div className="form-container">
       {/* Date / Shift / Notes */}
       <div className="card" style={{ marginBottom: 20 }}>
         <div className="section-title" style={{ marginBottom: 16 }}>Entry Details</div>
-        <div className="form-row" style={{ display: 'grid', gridTemplateColumns: '1.2fr 1.2fr 2.6fr', gap: 16 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 16 }}>
           <div className="form-group">
             <label className="form-label">Date *</label>
             <input
@@ -341,16 +415,47 @@ export default function TSEntryForm() {
             />
           </div>
           <div className="form-group">
-            <label className="form-label">Shift *</label>
-            <select
-              className="form-select"
-              value={shift}
-              onChange={e => setShift(e.target.value as Shift)}
-            >
-              <option value="D">☀️ Day Shift</option>
-              <option value="N">🌙 Night Shift</option>
-            </select>
+            <label className="form-label">Reporting Type *</label>
+            <div style={{ display: 'flex', gap: 8, marginTop: 6 }}>
+              <button
+                type="button"
+                className={`btn ${!shift ? 'btn-primary' : 'btn-secondary'}`}
+                onClick={() => setShift(null)}
+                style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '10px 16px' }}
+              >
+                <span style={{ fontWeight: 600, fontSize: '0.875rem' }}>🗓️ Full Day</span>
+              </button>
+              <button
+                type="button"
+                className={`btn ${shift ? 'btn-primary' : 'btn-secondary'}`}
+                onClick={() => setShift('D')}
+                style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '10px 16px' }}
+              >
+                <span style={{ fontWeight: 600, fontSize: '0.875rem' }}>⏱️ Shift-wise</span>
+              </button>
+            </div>
           </div>
+          {shift && (
+            <div className="form-group animate-fade-in">
+              <label className="form-label">Shift *</label>
+              <div style={{ display: 'flex', gap: 8, marginTop: 6 }}>
+                {[
+                  { label: '☀️ Day Shift', value: 'D' },
+                  { label: '🌙 Night Shift', value: 'N' }
+                ].map(s => (
+                  <button
+                    key={s.value}
+                    type="button"
+                    className={`btn ${shift === s.value ? 'btn-primary' : 'btn-secondary'}`}
+                    onClick={() => setShift(s.value as Shift)}
+                    style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '10px 16px' }}
+                  >
+                    <span style={{ fontWeight: 600, fontSize: '0.875rem' }}>{s.label}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
           <div className="form-group">
             <label className="form-label">Notes (optional)</label>
             <input
@@ -368,29 +473,41 @@ export default function TSEntryForm() {
 
       {/* Sections */}
       {SECTION_META.map(({ key, label, color }) => {
+        const isBalanceSection = key === 'OB' || key === 'CB';
         const sRowsWithIdx = rows
           .map((r, originalIdx) => ({ r, originalIdx }))
           .filter(x => x.r.section === key);
 
+        const disabledStyle = { backgroundColor: '#f1f5f9', cursor: 'not-allowed', color: '#64748b' };
+
         return (
           <div key={key} className="entry-form-section">
             <div className="entry-form-section-title" style={{ color, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <span>{label}</span>
+              <span>
+                {label}
+                {isBalanceSection && (
+                  <span style={{ fontSize: '0.75rem', fontWeight: 500, marginLeft: 8, opacity: 0.85, padding: '2px 6px', background: 'rgba(0,0,0,0.06)', border: '1px solid rgba(0,0,0,0.1)', borderRadius: 4, verticalAlign: 'middle', color: 'var(--text-secondary)' }}>
+                    🔗 Auto-populated from STG
+                  </span>
+                )}
+              </span>
               <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
                 {saveStatus[key] && (
                   <span style={{ fontSize: '0.8125rem', color: '#16a34a', fontWeight: 600 }}>
                     {saveStatus[key]}
                   </span>
                 )}
-                <button
-                  type="button"
-                  className="btn btn-primary btn-sm"
-                  style={{ background: color, border: 'none', boxShadow: 'none' }}
-                  onClick={() => handleSaveSection(key)}
-                  disabled={savingSection[key]}
-                >
-                  {savingSection[key] ? 'Saving...' : '💾 Save Section'}
-                </button>
+                {!isBalanceSection && (
+                  <button
+                    type="button"
+                    className="btn btn-primary btn-sm"
+                    style={{ background: color, border: 'none', boxShadow: 'none' }}
+                    onClick={() => handleSaveSection(key)}
+                    disabled={savingSection[key]}
+                  >
+                    {savingSection[key] ? 'Saving...' : '💾 Save Section'}
+                  </button>
+                )}
               </div>
             </div>
             <div className="table-wrapper">
@@ -399,13 +516,12 @@ export default function TSEntryForm() {
                   <tr>
                     <th style={{ textAlign: 'left', minWidth: 150 }}>Product</th>
                     <th style={{ minWidth: 90 }}>Qty (Lts)</th>
-                    <th style={{ minWidth: 90 }}>Qty (Kg)</th>
+                    <th style={{ minWidth: 90, backgroundColor: '#e0f2fe', color: '#0369a1' }}>Qty (Kg)</th>
                     <th style={{ minWidth: 70 }}>Fat %</th>
                     <th style={{ minWidth: 70 }}>SNF %</th>
-                    <th style={{ minWidth: 70 }}>Sp. Gr</th>
-                    <th style={{ minWidth: 90 }}>Kg Fat</th>
-                    <th style={{ minWidth: 90 }}>Kg SNF</th>
-                    <th style={{ minWidth: 150 }}>Remarks</th>
+                    <th style={{ minWidth: 70, backgroundColor: '#e0f2fe', color: '#0369a1' }}>Sp. Gr</th>
+                    <th style={{ minWidth: 90, backgroundColor: '#e0f2fe', color: '#0369a1' }}>Kg Fat</th>
+                    <th style={{ minWidth: 90, backgroundColor: '#e0f2fe', color: '#0369a1' }}>Kg SNF</th>
                     <th className="no-print" style={{ width: 70 }}>Actions</th>
                   </tr>
                 </thead>
@@ -417,8 +533,9 @@ export default function TSEntryForm() {
                           type="text"
                           value={r.product}
                           onChange={e => updateRow(originalIdx, 'product', e.target.value)}
-                          style={{ textAlign: 'left', fontWeight: 500, fontFamily: 'var(--font-sans)' }}
+                          style={{ textAlign: 'left', fontWeight: 500, fontFamily: 'var(--font-sans)', ...(isBalanceSection ? disabledStyle : {}) }}
                           id={`ts-${key}-${originalIdx}-product`}
+                          disabled={isBalanceSection}
                         />
                       </td>
                       <td>
@@ -429,6 +546,8 @@ export default function TSEntryForm() {
                           value={r.qty_lts}
                           onChange={e => updateRow(originalIdx, 'qty_lts', e.target.value)}
                           id={`ts-${key}-${originalIdx}-lts`}
+                          style={isBalanceSection ? disabledStyle : {}}
+                          disabled={isBalanceSection}
                         />
                       </td>
                       <td>
@@ -439,6 +558,8 @@ export default function TSEntryForm() {
                           value={r.qty_kg}
                           onChange={e => updateRow(originalIdx, 'qty_kg', e.target.value)}
                           id={`ts-${key}-${originalIdx}-kg`}
+                          style={isBalanceSection ? disabledStyle : {}}
+                          disabled={isBalanceSection}
                         />
                       </td>
                       <td>
@@ -448,6 +569,8 @@ export default function TSEntryForm() {
                           value={r.fat_pct}
                           onChange={e => updateRow(originalIdx, 'fat_pct', e.target.value)}
                           id={`ts-${key}-${originalIdx}-fat`}
+                          style={isBalanceSection ? disabledStyle : {}}
+                          disabled={isBalanceSection}
                         />
                       </td>
                       <td>
@@ -457,6 +580,8 @@ export default function TSEntryForm() {
                           value={r.snf_pct}
                           onChange={e => updateRow(originalIdx, 'snf_pct', e.target.value)}
                           id={`ts-${key}-${originalIdx}-snf`}
+                          style={isBalanceSection ? disabledStyle : {}}
+                          disabled={isBalanceSection}
                         />
                       </td>
                       <td>
@@ -466,6 +591,8 @@ export default function TSEntryForm() {
                           value={r.sp_gr}
                           onChange={e => updateRow(originalIdx, 'sp_gr', e.target.value)}
                           id={`ts-${key}-${originalIdx}-spg`}
+                          style={isBalanceSection ? disabledStyle : {}}
+                          disabled={isBalanceSection}
                         />
                       </td>
                       <td>
@@ -475,7 +602,8 @@ export default function TSEntryForm() {
                           value={r.kg_fat}
                           onChange={e => updateRow(originalIdx, 'kg_fat', e.target.value)}
                           id={`ts-${key}-${originalIdx}-kgfat`}
-                          style={{ fontWeight: 600, color }}
+                          style={isBalanceSection ? disabledStyle : {}}
+                          disabled={isBalanceSection}
                         />
                       </td>
                       <td>
@@ -485,50 +613,48 @@ export default function TSEntryForm() {
                           value={r.kg_snf}
                           onChange={e => updateRow(originalIdx, 'kg_snf', e.target.value)}
                           id={`ts-${key}-${originalIdx}-kgsnf`}
-                          style={{ fontWeight: 600, color }}
+                          style={isBalanceSection ? disabledStyle : {}}
+                          disabled={isBalanceSection}
                         />
                       </td>
-                      <td>
-                        <input
-                          type="text"
-                          placeholder="add remarks..."
-                          value={r.remarks}
-                          onChange={e => updateRow(originalIdx, 'remarks', e.target.value)}
-                          style={{ textAlign: 'left', fontFamily: 'var(--font-sans)' }}
-                          id={`ts-${key}-${originalIdx}-remarks`}
-                        />
-                      </td>
+
                       <td className="no-print">
-                        <div style={{ display: 'flex', gap: 8, justifyContent: 'center' }}>
-                          <button
-                            type="button"
-                            style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '1rem', padding: 0 }}
-                            title="Add row below"
-                            onClick={() => addRowAfter(key, originalIdx)}
-                          >
-                            ➕
-                          </button>
-                          <button
-                            type="button"
-                            style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '1rem', padding: 0 }}
-                            title="Delete row"
-                            onClick={() => deleteRow(originalIdx)}
-                          >
-                            ❌
-                          </button>
-                        </div>
+                        {isBalanceSection ? (
+                          <div style={{ textAlign: 'center', color: 'var(--text-muted)' }}>—</div>
+                        ) : (
+                          <div style={{ display: 'flex', gap: 8, justifyContent: 'center' }}>
+                            <button
+                              type="button"
+                              style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '1rem', padding: 0 }}
+                              title="Add row below"
+                              onClick={() => addRowAfter(key, originalIdx)}
+                            >
+                              ➕
+                            </button>
+                            <button
+                              type="button"
+                              style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '1rem', padding: 0 }}
+                              title="Delete row"
+                              onClick={() => deleteRow(originalIdx)}
+                            >
+                              ❌
+                            </button>
+                          </div>
+                        )}
                       </td>
                     </tr>
                   ))}
                   {/* Clickable inline Add Row */}
-                  <tr className="no-print" style={{ cursor: 'pointer', background: '#f8fafc' }} onClick={() => {
-                    const lastSecRow = sRowsWithIdx[sRowsWithIdx.length - 1];
-                    addRowAfter(key, lastSecRow ? lastSecRow.originalIdx : -1);
-                  }}>
-                    <td colSpan={10} style={{ textAlign: 'center', color: 'var(--brand-primary)', fontWeight: 600, padding: 8 }}>
-                      ➕ Add Row
-                    </td>
-                  </tr>
+                  {!isBalanceSection && (
+                    <tr className="no-print" style={{ cursor: 'pointer', background: '#f8fafc' }} onClick={() => {
+                      const lastSecRow = sRowsWithIdx[sRowsWithIdx.length - 1];
+                      addRowAfter(key, lastSecRow ? lastSecRow.originalIdx : -1);
+                    }}>
+                      <td colSpan={10} style={{ textAlign: 'center', color: 'var(--brand-primary)', fontWeight: 600, padding: 8 }}>
+                        ➕ Add Row
+                      </td>
+                    </tr>
+                  )}
                 </tbody>
               </table>
             </div>

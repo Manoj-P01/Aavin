@@ -31,8 +31,6 @@ function makeDefaultRows(): StockRowState[] {
 
   return [
     make('OB', 'Opening Balance'),
-    ...STOCK_RECEIPT_LABELS.map(l => make('RECEIPT', l)),
-    ...STOCK_DISPOSAL_LABELS.map(l => make('DISPOSAL', l)),
     make('PHYSICAL', 'Physical Count'),
   ];
 }
@@ -49,9 +47,9 @@ export default function StockEntryForm() {
   const [rows, setRows] = useState<StockRowState[]>(makeDefaultRows);
   const [columns, setColumns] = useState<Array<{ key: ColKey; label: string }>>(() => [...STOCK_PRODUCT_COLUMNS]);
   const [sep, setSep] = useState<SepState>({
-    wm_fat_pct: '3.9', wm_snf_pct: '7.95',
-    cream_lts: '', cream_fat_pct: '40', cream_snf_pct: '',
-    ssm_lts: '', ssm_fat_pct: '0.05', ssm_snf_pct: '8.2',
+    wm_fat_pct: '', wm_snf_pct: '',
+    cream_lts: '', cream_fat_pct: '', cream_snf_pct: '',
+    ssm_lts: '', ssm_fat_pct: '', ssm_snf_pct: '',
   });
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
@@ -117,9 +115,9 @@ export default function StockEntryForm() {
             setRows(makeDefaultRows());
             setColumns([...STOCK_PRODUCT_COLUMNS]);
             setSep({
-              wm_fat_pct: '3.9', wm_snf_pct: '7.95',
-              cream_lts: '', cream_fat_pct: '40', cream_snf_pct: '',
-              ssm_lts: '', ssm_fat_pct: '0.05', ssm_snf_pct: '8.2',
+              wm_fat_pct: '', wm_snf_pct: '',
+              cream_lts: '', cream_fat_pct: '', cream_snf_pct: '',
+              ssm_lts: '', ssm_fat_pct: '', ssm_snf_pct: '',
             });
             setNotes('');
           }
@@ -157,24 +155,32 @@ export default function StockEntryForm() {
           setColumns(parsedCols);
           setNotes(cleanNotes);
 
-          const loadedRows = makeDefaultRows().map(r => {
-            const dbRow = json.data.stock_rows.find((dr: any) => dr.entry_id === entry.id && dr.row_type === r.row_type && dr.row_label === r.row_label);
-            const values: Record<string, string> = {};
-
-            STOCK_PRODUCT_COLUMNS.forEach(col => {
-              if (dbRow && dbRow[col.key] !== undefined && dbRow[col.key] !== null) {
-                values[col.key] = dbRow[col.key] === 0 ? '' : String(dbRow[col.key]);
-              }
-            });
-
-            if (customVals[r.row_label]) {
-              Object.entries(customVals[r.row_label]).forEach(([colKey, val]) => {
-                values[colKey] = val;
+          const sortedDbRows = [...(json.data.stock_rows || [])].sort((a: any, b: any) => (a.sort_order ?? 0) - (b.sort_order ?? 0));
+          let loadedRows: StockRowState[] = [];
+          if (sortedDbRows.length > 0) {
+            loadedRows = sortedDbRows.map((dbRow: any) => {
+              const values: Record<string, string> = {};
+              parsedCols.forEach(col => {
+                if (dbRow[col.key] !== undefined && dbRow[col.key] !== null) {
+                  values[col.key] = dbRow[col.key] === 0 ? '' : String(dbRow[col.key]);
+                }
               });
-            }
 
-            return { ...r, values };
-          });
+              if (customVals[dbRow.row_label]) {
+                Object.entries(customVals[dbRow.row_label]).forEach(([colKey, val]) => {
+                  values[colKey] = val;
+                });
+              }
+
+              return {
+                row_type: dbRow.row_type,
+                row_label: dbRow.row_label,
+                values,
+              };
+            });
+          } else {
+            loadedRows = makeDefaultRows();
+          }
           setRows(loadedRows);
 
           const sepData = json.data.separation_details.find((s: any) => s.entry_id === entry.id);
@@ -204,6 +210,49 @@ export default function StockEntryForm() {
     setRows(prev => {
       const next = [...prev];
       next[rowIdx] = { ...next[rowIdx], values: { ...next[rowIdx].values, [col]: val } };
+      return next;
+    });
+  };
+
+  const addRowAfter = (row_type: StockRowState['row_type'], idx: number) => {
+    setRows(prev => {
+      const next = [...prev];
+      const newItem: StockRowState = {
+        row_type,
+        row_label: '',
+        values: {},
+      };
+      if (idx !== -1) {
+        next.splice(idx + 1, 0, newItem);
+      } else {
+        let insertAt = -1;
+        for (let i = prev.length - 1; i >= 0; i--) {
+          if (prev[i].row_type === row_type) {
+            insertAt = i;
+            break;
+          }
+        }
+        if (insertAt !== -1) {
+          next.splice(insertAt + 1, 0, newItem);
+        } else {
+          next.push(newItem);
+        }
+      }
+      return next;
+    });
+  };
+
+  const deleteRow = (idx: number) => {
+    setRows(prev => {
+      const item = prev[idx];
+      if (!item) return prev;
+      const hasData = Object.values(item.values).some(v => v && parseFloat(v) !== 0);
+      if (hasData || item.row_label.trim() !== '') {
+        const ok = window.confirm("Are you sure you want to remove this row containing data?");
+        if (!ok) return prev;
+      }
+      const next = [...prev];
+      next.splice(idx, 1);
       return next;
     });
   };
@@ -314,6 +363,9 @@ export default function StockEntryForm() {
     headerColor: string
   ) => {
     const sRows = rows.map((r, i) => ({ r, i })).filter(x => rowTypes.includes(x.r.row_type));
+    const isBalanceSection = rowTypes.includes('OB') || rowTypes.includes('PHYSICAL');
+    const rowType = rowTypes[0]; // 'RECEIPT' or 'DISPOSAL'
+
     return (
       <div key={sectionLabel} className="entry-form-section">
         <div className="entry-form-section-title" style={{ color: headerColor }}>
@@ -323,7 +375,7 @@ export default function StockEntryForm() {
           <table className="inline-table" style={{ minWidth: 1200 }}>
             <thead>
               <tr>
-                <th style={{ textAlign: 'left', minWidth: 180 }}>Service Name</th>
+                <th style={{ textAlign: 'left', minWidth: 220 }}>Service Name</th>
                 {columns.map(col => {
                   const isCustom = !STOCK_PRODUCT_COLUMNS.some(dc => dc.key === col.key);
                   return (
@@ -354,12 +406,32 @@ export default function StockEntryForm() {
                     </th>
                   );
                 })}
+                {!isBalanceSection && <th className="no-print" style={{ width: 70 }}>Actions</th>}
               </tr>
             </thead>
             <tbody>
               {sRows.map(({ r, i }) => (
                 <tr key={i}>
-                  <td className="product-label">{r.row_label}</td>
+                  <td className="product-label" style={{ padding: 4 }}>
+                    {isBalanceSection ? (
+                      <span style={{ fontWeight: 600, paddingLeft: 8 }}>{r.row_label}</span>
+                    ) : (
+                      <input
+                        type="text"
+                        placeholder="Enter Service Name..."
+                        value={r.row_label}
+                        onChange={e => {
+                          const val = e.target.value;
+                          setRows(prev => {
+                            const next = [...prev];
+                            next[i] = { ...next[i], row_label: val };
+                            return next;
+                          });
+                        }}
+                        style={{ textAlign: 'left', fontWeight: 500, border: 'none', background: 'transparent', width: '100%', padding: '6px 8px' }}
+                      />
+                    )}
+                  </td>
                   {columns.map(col => (
                     <td key={col.key}>
                       <input
@@ -368,12 +440,44 @@ export default function StockEntryForm() {
                         placeholder="0"
                         value={r.values[col.key] || ''}
                         onChange={e => updateCell(i, col.key, e.target.value)}
-                        id={`stock-${r.row_type}-${r.row_label}-${col.key}`}
+                        id={`stock-${r.row_type}-${i}-${col.key}`}
                       />
                     </td>
                   ))}
+                  {!isBalanceSection && (
+                    <td className="no-print" style={{ textAlign: 'center' }}>
+                      <div style={{ display: 'flex', gap: 8, justifyContent: 'center' }}>
+                        <button
+                          type="button"
+                          style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '1rem', padding: 0 }}
+                          title="Add row below"
+                          onClick={() => addRowAfter(rowType, i)}
+                        >
+                          ➕
+                        </button>
+                        <button
+                          type="button"
+                          style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '1rem', padding: 0 }}
+                          title="Delete row"
+                          onClick={() => deleteRow(i)}
+                        >
+                          ❌
+                        </button>
+                      </div>
+                    </td>
+                  )}
                 </tr>
               ))}
+              {!isBalanceSection && (
+                <tr className="no-print" style={{ cursor: 'pointer', background: '#f8fafc' }} onClick={() => {
+                  const lastRow = sRows[sRows.length - 1];
+                  addRowAfter(rowType, lastRow ? lastRow.i : -1);
+                }}>
+                  <td colSpan={columns.length + 2} style={{ textAlign: 'center', color: 'var(--brand-primary)', fontWeight: 600, padding: 8 }}>
+                    ➕ Add Row
+                  </td>
+                </tr>
+              )}
             </tbody>
           </table>
         </div>
@@ -382,7 +486,7 @@ export default function StockEntryForm() {
   };
 
   return (
-    <div style={{ maxWidth: 1400 }}>
+    <div className="form-container">
       {/* Header */}
       <div className="card" style={{ marginBottom: 20 }}>
         <div className="section-title" style={{ marginBottom: 16 }}>Entry Details</div>

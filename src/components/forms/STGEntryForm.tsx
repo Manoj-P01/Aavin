@@ -99,7 +99,9 @@ export default function STGEntryForm({
   const paramShift = searchParams.get('shift');
 
   const [entryDate, setEntryDate] = useState(paramDate || new Date().toISOString().split('T')[0]);
-  const [shift, setShift] = useState<Shift>((paramShift === 'D' || paramShift === 'N') ? paramShift : 'D');
+  const [shift, setShift] = useState<Shift | null>(
+    (paramShift === 'D' || paramShift === 'N') ? paramShift : null
+  );
   const [shiftConfigs, setShiftConfigs] = useState<any[]>([
     { key: 'D', label: 'Day Shift', start: '06:00', end: '18:00' },
     { key: 'N', label: 'Night Shift', start: '18:00', end: '06:00' },
@@ -114,6 +116,7 @@ export default function STGEntryForm({
   const [savedBlock, setSavedBlock] = useState<string | null>(null);
   const [error, setError] = useState('');
   const [obLocked, setObLocked] = useState<Record<string, boolean>>({});
+  const [blocksLocked, setBlocksLocked] = useState<Record<string, boolean>>({});
   const [mounted, setMounted] = useState(false);
   useEffect(() => {
     setMounted(true);
@@ -125,8 +128,11 @@ export default function STGEntryForm({
     itemName: string;
     targetBlockKey: string;
     qtyLts: string;
+    qtyKg: string;
     fatPct: string;
     snfPct: string;
+    shareMode: 'new' | 'aggregate';
+    targetRowIdx?: number;
   } | null>(null);
 
   // Load shifts config on mount
@@ -141,35 +147,6 @@ export default function STGEntryForm({
             const parsed = JSON.parse(configEntry.notes);
             if (Array.isArray(parsed) && parsed.length === 2) {
               setShiftConfigs(parsed);
-              
-              if (!paramShift) {
-                // Auto-detect current shift based on local time
-                const now = new Date();
-                const currentHours = now.getHours();
-                const currentMinutes = now.getMinutes();
-                const currentTimeVal = currentHours * 60 + currentMinutes;
-
-                let detectedShift: Shift = 'D';
-                for (const s of parsed) {
-                  const [startH, startM] = s.start.split(':').map(Number);
-                  const [endH, endM] = s.end.split(':').map(Number);
-                  const startVal = startH * 60 + startM;
-                  const endVal = endH * 60 + endM;
-
-                  if (startVal < endVal) {
-                    if (currentTimeVal >= startVal && currentTimeVal < endVal) {
-                      detectedShift = s.key;
-                      break;
-                    }
-                  } else {
-                    if (currentTimeVal >= startVal || currentTimeVal < endVal) {
-                      detectedShift = s.key;
-                      break;
-                    }
-                  }
-                }
-                setShift(detectedShift);
-              }
             }
           }
         }
@@ -178,10 +155,10 @@ export default function STGEntryForm({
       }
     }
     loadShiftConfig();
-  }, [paramShift]);
+  }, []);
 
   useEffect(() => {
-    if (!entryDate || !shift) return;
+    if (!entryDate) return;
     let active = true;
 
     async function loadData() {
@@ -212,19 +189,25 @@ export default function STGEntryForm({
 
         // 2. Query yesterday's CB to check lock status and carry forward
         let prevDateStr = entryDate;
-        let prevShift: Shift = 'D';
+        let prevShift: Shift | null = 'D';
 
         if (shift === 'N') {
           prevDateStr = entryDate;
           prevShift = 'D';
-        } else {
+        } else if (shift === 'D') {
           const prevDate = new Date(entryDate);
           prevDate.setDate(prevDate.getDate() - 1);
           prevDateStr = prevDate.toISOString().split('T')[0];
           prevShift = 'N';
+        } else {
+          // Full Day mode
+          const prevDate = new Date(entryDate);
+          prevDate.setDate(prevDate.getDate() - 1);
+          prevDateStr = prevDate.toISOString().split('T')[0];
+          prevShift = null;
         }
 
-        const prevRes = await fetch(`/api/ts?date=${prevDateStr}&shift=${prevShift}`);
+        const prevRes = await fetch(`/api/ts?date=${prevDateStr}${prevShift ? `&shift=${prevShift}` : ''}`);
         let yesterdayCBs: any[] = [];
         if (prevRes.ok) {
           const prevData = await prevRes.json();
@@ -240,7 +223,7 @@ export default function STGEntryForm({
         if (active) setObLocked(locks);
 
         // 3. Query today's entry
-        const res = await fetch(`/api/ts?date=${entryDate}&shift=${shift}`);
+        const res = await fetch(`/api/ts?date=${entryDate}${shift ? `&shift=${shift}` : ''}`);
         if (res.ok) {
           const data = await res.json();
           if (active && data.data) {
@@ -304,7 +287,7 @@ export default function STGEntryForm({
               const b = row.product_block;
               if (!newBlocks[b]) return;
 
-              const matchedStatement = combinedStatements.find(s => 
+              const matchedStatement = combinedStatements.find(s =>
                 s.label.toLowerCase().trim() === (row.item_name || '').toLowerCase().trim() ||
                 s.key.toLowerCase().trim() === (row.item_name || '').toLowerCase().trim()
               );
@@ -339,6 +322,16 @@ export default function STGEntryForm({
                 newBlocks[key] = state;
               }
             });
+
+            const initialLocked: Record<string, boolean> = {};
+            if (data.data.stg_rows && data.data.stg_rows.length > 0) {
+              data.data.stg_rows.forEach((row: any) => {
+                if (row.product_block) {
+                  initialLocked[row.product_block] = true;
+                }
+              });
+            }
+            setBlocksLocked(initialLocked);
 
             setBlocks(newBlocks);
             return;
@@ -385,12 +378,18 @@ export default function STGEntryForm({
     return () => { active = false; };
   }, [entryDate, shift]);
 
-  function calculateSTGRowValues<T extends { qty_lts: string; qty_kg: string; fat_pct: string; snf_pct: string; sp_gr: string; kg_fat: string; kg_snf: string }>(
+  function calculateSTGRowValues<T extends { item_name?: string; qty_lts: string; qty_kg: string; fat_pct: string; snf_pct: string; sp_gr: string; kg_fat: string; kg_snf: string }>(
     item: T,
     changedField: string,
-    newVal: string
+    newVal: string,
+    isSMPBlock: boolean = false
   ): T {
     const temp = { ...item, [changedField]: newVal };
+
+    const isSMP = isSMPBlock || (temp.item_name || '').toLowerCase().includes('smp');
+    if (isSMP) {
+      temp.qty_lts = '';
+    }
 
     // 1. If fat_pct or snf_pct changed, recalculate sp_gr
     if (changedField === 'fat_pct' || changedField === 'snf_pct') {
@@ -405,7 +404,7 @@ export default function STGEntryForm({
     }
 
     // 2. Recalculate Qty (Kg) only if Qty (Lts) or Sp. Gr changed
-    if (changedField === 'qty_lts' || changedField === 'sp_gr' || changedField === 'fat_pct' || changedField === 'snf_pct') {
+    if (!isSMP && (changedField === 'qty_lts' || changedField === 'sp_gr' || changedField === 'fat_pct' || changedField === 'snf_pct')) {
       const lts = parseFloat(temp.qty_lts) || 0;
       const spg = parseFloat(temp.sp_gr) || 0;
       if (lts && spg) {
@@ -415,29 +414,55 @@ export default function STGEntryForm({
       }
     }
 
-    // 3. Recalculate Kg Fat only if dependent values changed
-    if (changedField === 'qty_lts' || changedField === 'sp_gr' || changedField === 'fat_pct' || changedField === 'snf_pct') {
-      const lts = parseFloat(temp.qty_lts) || 0;
-      const spg = parseFloat(temp.sp_gr) || 0;
-      const fat = parseFloat(temp.fat_pct) || 0;
-      if (lts && spg && fat) {
-        const kgFat = (spg * fat * lts) / CALC_CONFIG.KG_FAT.DIVISOR;
-        temp.kg_fat = kgFat.toFixed(CALC_CONFIG.KG_FAT.DECIMALS);
-      } else {
-        temp.kg_fat = '';
+    // 3. Recalculate Kg Fat
+    if (isSMP) {
+      if (changedField === 'qty_kg' || changedField === 'fat_pct') {
+        const kg = parseFloat(temp.qty_kg) || 0;
+        const fat = parseFloat(temp.fat_pct) || 0;
+        if (kg && fat) {
+          const kgFat = (kg * fat) / 100;
+          temp.kg_fat = kgFat.toFixed(CALC_CONFIG.KG_FAT.DECIMALS);
+        } else {
+          temp.kg_fat = '';
+        }
+      }
+    } else {
+      if (changedField === 'qty_lts' || changedField === 'sp_gr' || changedField === 'fat_pct' || changedField === 'snf_pct') {
+        const lts = parseFloat(temp.qty_lts) || 0;
+        const spg = parseFloat(temp.sp_gr) || 0;
+        const fat = parseFloat(temp.fat_pct) || 0;
+        if (lts && spg && fat) {
+          const kgFat = (spg * fat * lts) / CALC_CONFIG.KG_FAT.DIVISOR;
+          temp.kg_fat = kgFat.toFixed(CALC_CONFIG.KG_FAT.DECIMALS);
+        } else {
+          temp.kg_fat = '';
+        }
       }
     }
 
-    // 4. Recalculate Kg SNF only if dependent values changed
-    if (changedField === 'qty_lts' || changedField === 'sp_gr' || changedField === 'snf_pct' || changedField === 'fat_pct') {
-      const lts = parseFloat(temp.qty_lts) || 0;
-      const spg = parseFloat(temp.sp_gr) || 0;
-      const snf = parseFloat(temp.snf_pct) || 0;
-      if (lts && spg && snf) {
-        const kgSnf = (spg * snf * lts) / CALC_CONFIG.KG_SNF.DIVISOR;
-        temp.kg_snf = kgSnf.toFixed(CALC_CONFIG.KG_SNF.DECIMALS);
-      } else {
-        temp.kg_snf = '';
+    // 4. Recalculate Kg SNF
+    if (isSMP) {
+      if (changedField === 'qty_kg' || changedField === 'snf_pct') {
+        const kg = parseFloat(temp.qty_kg) || 0;
+        const snf = parseFloat(temp.snf_pct) || 0;
+        if (kg && snf) {
+          const kgSnf = (kg * snf) / 100;
+          temp.kg_snf = kgSnf.toFixed(CALC_CONFIG.KG_SNF.DECIMALS);
+        } else {
+          temp.kg_snf = '';
+        }
+      }
+    } else {
+      if (changedField === 'qty_lts' || changedField === 'sp_gr' || changedField === 'snf_pct' || changedField === 'fat_pct') {
+        const lts = parseFloat(temp.qty_lts) || 0;
+        const spg = parseFloat(temp.sp_gr) || 0;
+        const snf = parseFloat(temp.snf_pct) || 0;
+        if (lts && spg && snf) {
+          const kgSnf = (spg * snf * lts) / CALC_CONFIG.KG_SNF.DIVISOR;
+          temp.kg_snf = kgSnf.toFixed(CALC_CONFIG.KG_SNF.DECIMALS);
+        } else {
+          temp.kg_snf = '';
+        }
       }
     }
 
@@ -500,13 +525,14 @@ export default function STGEntryForm({
     nextBlocks: Record<string, STGBlockState>,
     changedBlock: string,
     changedSide: 'RECEIPT' | 'DISPOSAL',
-    changedIdx: number
+    changedIdx: number,
+    oldRow?: STGItemInput
   ) => {
     const blockState = nextBlocks[changedBlock];
     if (!blockState) return;
 
-    const row = changedSide === 'RECEIPT' 
-      ? blockState.receipts[changedIdx] 
+    const row = changedSide === 'RECEIPT'
+      ? blockState.receipts[changedIdx]
       : blockState.disposals[changedIdx];
     if (!row || !row.linked_block) return;
 
@@ -520,8 +546,8 @@ export default function STGEntryForm({
 
     // Mirrored side is the opposite side
     const targetSide = changedSide === 'RECEIPT' ? 'DISPOSAL' : 'RECEIPT';
-    const targetList = targetSide === 'RECEIPT' 
-      ? [...targetBlockState.receipts] 
+    const targetList = targetSide === 'RECEIPT'
+      ? [...targetBlockState.receipts]
       : [...targetBlockState.disposals];
 
     // Mirror label matches current block's label/key
@@ -531,22 +557,77 @@ export default function STGEntryForm({
     // Find mirror row idx
     let targetIdx = targetList.findIndex(r => r.linked_block === changedBlock);
 
-    const mirroredRow = {
-      item_name: expectedMirrorName,
-      qty_lts: row.qty_lts,
-      qty_kg: row.qty_kg,
-      fat_pct: row.fat_pct,
-      snf_pct: row.snf_pct,
-      sp_gr: row.sp_gr,
-      kg_fat: row.kg_fat,
-      kg_snf: row.kg_snf,
-      linked_block: changedBlock,
-    };
+    const isTargetSMP =
+      changedBlock === 'SMP' ||
+      targetBlockKey === 'SMP' ||
+      (row.item_name || '').toLowerCase().includes('smp') ||
+      (targetIdx !== -1 && (targetList[targetIdx].item_name || '').toLowerCase().includes('smp'));
 
-    if (targetIdx === -1) {
-      targetList.push(mirroredRow);
+    if (targetIdx !== -1) {
+      const targetRow = { ...targetList[targetIdx] };
+      
+      const newLts = parseFloat(row.qty_lts) || 0;
+      const newKg = parseFloat(row.qty_kg) || 0;
+      const newFatKg = parseFloat(row.kg_fat) || 0;
+      const newSnfKg = parseFloat(row.kg_snf) || 0;
+
+      const oldLts = oldRow ? (parseFloat(oldRow.qty_lts) || 0) : 0;
+      const oldKg = oldRow ? (parseFloat(oldRow.qty_kg) || 0) : 0;
+      const oldFatKg = oldRow ? (parseFloat(oldRow.kg_fat) || 0) : 0;
+      const oldSnfKg = oldRow ? (parseFloat(oldRow.kg_snf) || 0) : 0;
+
+      const deltaLts = newLts - oldLts;
+      const deltaKg = newKg - oldKg;
+      const deltaFatKg = newFatKg - oldFatKg;
+      const deltaSnfKg = newSnfKg - oldSnfKg;
+
+      const targetLtsTotal = (parseFloat(targetRow.qty_lts) || 0) + deltaLts;
+      const targetKgTotal = (parseFloat(targetRow.qty_kg) || 0) + deltaKg;
+      const targetFatKgTotal = (parseFloat(targetRow.kg_fat) || 0) + deltaFatKg;
+      const targetSnfKgTotal = (parseFloat(targetRow.kg_snf) || 0) + deltaSnfKg;
+
+      targetRow.qty_lts = isTargetSMP ? '' : (targetLtsTotal > 0 ? targetLtsTotal.toString() : '');
+      targetRow.qty_kg = targetKgTotal > 0 ? targetKgTotal.toFixed(CALC_CONFIG.QTY_KG.DECIMALS) : '';
+      targetRow.kg_fat = targetFatKgTotal > 0 ? targetFatKgTotal.toFixed(CALC_CONFIG.KG_FAT.DECIMALS) : '';
+      targetRow.kg_snf = targetSnfKgTotal > 0 ? targetSnfKgTotal.toFixed(CALC_CONFIG.KG_SNF.DECIMALS) : '';
+
+      if (targetKgTotal > 0) {
+        targetRow.fat_pct = ((targetFatKgTotal * 100) / targetKgTotal).toFixed(2);
+        targetRow.snf_pct = ((targetSnfKgTotal * 100) / targetKgTotal).toFixed(2);
+      } else {
+        targetRow.fat_pct = '';
+        targetRow.snf_pct = '';
+      }
+
+      if (!isTargetSMP && targetLtsTotal > 0 && targetKgTotal > 0) {
+        targetRow.sp_gr = (targetKgTotal / targetLtsTotal).toFixed(CALC_CONFIG.SP_GR.DECIMALS);
+      } else if (!isTargetSMP) {
+        targetRow.sp_gr = '';
+      }
+
+      targetList[targetIdx] = targetRow;
     } else {
-      targetList[targetIdx] = mirroredRow;
+      let mirroredRow = makeInitialItem(expectedMirrorName, changedBlock);
+      if (isTargetSMP) {
+        mirroredRow.qty_lts = '';
+        mirroredRow.qty_kg = row.qty_kg;
+      } else {
+        mirroredRow.qty_lts = row.qty_lts;
+      }
+      mirroredRow.fat_pct = row.fat_pct;
+      mirroredRow.snf_pct = row.snf_pct;
+
+      if (isTargetSMP) {
+        mirroredRow = calculateSTGRowValues(mirroredRow, 'qty_kg', row.qty_kg, true);
+        mirroredRow = calculateSTGRowValues(mirroredRow, 'fat_pct', row.fat_pct, true);
+        mirroredRow = calculateSTGRowValues(mirroredRow, 'snf_pct', row.snf_pct, true);
+      } else {
+        mirroredRow = calculateSTGRowValues(mirroredRow, 'qty_lts', row.qty_lts, false);
+        mirroredRow = calculateSTGRowValues(mirroredRow, 'fat_pct', row.fat_pct, false);
+        mirroredRow = calculateSTGRowValues(mirroredRow, 'snf_pct', row.snf_pct, false);
+      }
+
+      targetList.push(mirroredRow);
     }
 
     if (targetSide === 'RECEIPT') {
@@ -563,7 +644,8 @@ export default function STGEntryForm({
     nextBlocks: Record<string, STGBlockState>,
     changedBlock: string,
     changedSide: 'RECEIPT' | 'DISPOSAL',
-    targetBlockKey: string
+    targetBlockKey: string,
+    deletedRow?: STGItemInput
   ) => {
     if (!targetBlockKey) return;
 
@@ -571,23 +653,70 @@ export default function STGEntryForm({
     if (!targetBlockState) return;
 
     const targetSide = changedSide === 'RECEIPT' ? 'DISPOSAL' : 'RECEIPT';
-    const targetList = targetSide === 'RECEIPT' 
-      ? [...targetBlockState.receipts] 
+    const targetList = targetSide === 'RECEIPT'
+      ? [...targetBlockState.receipts]
       : [...targetBlockState.disposals];
 
     const targetIdx = targetList.findIndex(r => r.linked_block === changedBlock);
+    if (targetIdx === -1) return;
 
-    if (targetIdx !== -1) {
-      targetList.splice(targetIdx, 1);
-      const updatedBlockState = { ...targetBlockState };
-      if (targetSide === 'RECEIPT') {
-        updatedBlockState.receipts = targetList;
+    const targetRow = { ...targetList[targetIdx] };
+    const isTargetSMP =
+      changedBlock === 'SMP' ||
+      targetBlockKey === 'SMP' ||
+      (targetRow.item_name || '').toLowerCase().includes('smp') ||
+      (deletedRow && (deletedRow.item_name || '').toLowerCase().includes('smp'));
+
+    if (deletedRow) {
+      const delLts = parseFloat(deletedRow.qty_lts) || 0;
+      const delKg = parseFloat(deletedRow.qty_kg) || 0;
+      const delFatKg = parseFloat(deletedRow.kg_fat) || 0;
+      const delSnfKg = parseFloat(deletedRow.kg_snf) || 0;
+
+      const currentLts = parseFloat(targetRow.qty_lts) || 0;
+      const currentKg = parseFloat(targetRow.qty_kg) || 0;
+      const currentFatKg = parseFloat(targetRow.kg_fat) || 0;
+      const currentSnfKg = parseFloat(targetRow.kg_snf) || 0;
+
+      const targetLtsTotal = currentLts - delLts;
+      const targetKgTotal = currentKg - delKg;
+      const targetFatKgTotal = currentFatKg - delFatKg;
+      const targetSnfKgTotal = currentSnfKg - delSnfKg;
+
+      if (targetKgTotal <= 0.01) {
+        targetList.splice(targetIdx, 1);
       } else {
-        updatedBlockState.disposals = targetList;
+        targetRow.qty_lts = isTargetSMP ? '' : (targetLtsTotal > 0 ? targetLtsTotal.toString() : '');
+        targetRow.qty_kg = targetKgTotal.toFixed(CALC_CONFIG.QTY_KG.DECIMALS);
+        targetRow.kg_fat = targetFatKgTotal.toFixed(CALC_CONFIG.KG_FAT.DECIMALS);
+        targetRow.kg_snf = targetSnfKgTotal.toFixed(CALC_CONFIG.KG_SNF.DECIMALS);
+
+        targetRow.fat_pct = ((targetFatKgTotal * 100) / targetKgTotal).toFixed(2);
+        targetRow.snf_pct = ((targetSnfKgTotal * 100) / targetKgTotal).toFixed(2);
+
+        if (!isTargetSMP && targetLtsTotal > 0) {
+          targetRow.sp_gr = (targetKgTotal / targetLtsTotal).toFixed(CALC_CONFIG.SP_GR.DECIMALS);
+        } else if (!isTargetSMP) {
+          targetRow.sp_gr = '';
+        }
+
+        // Clear link block to unassociate it from this source
+        targetRow.linked_block = undefined;
+
+        targetList[targetIdx] = targetRow;
       }
-      recalculateCB(updatedBlockState, targetBlockKey);
-      nextBlocks[targetBlockKey] = updatedBlockState;
+    } else {
+      targetList.splice(targetIdx, 1);
     }
+
+    if (targetSide === 'RECEIPT') {
+      targetBlockState.receipts = targetList;
+    } else {
+      targetBlockState.disposals = targetList;
+    }
+
+    recalculateCB(targetBlockState, targetBlockKey);
+    nextBlocks[targetBlockKey] = targetBlockState;
   };
 
   const handleLinkChange = (
@@ -623,7 +752,7 @@ export default function STGEntryForm({
 
       if (oldLinkedBlock && oldLinkedBlock !== targetBlockKey) {
         // Remove mirrored row in old target
-        syncDeletedRow(next, block, side, oldLinkedBlock);
+        syncDeletedRow(next, block, side, oldLinkedBlock, list[idx]);
       }
 
       if (targetBlockKey) {
@@ -649,17 +778,24 @@ export default function STGEntryForm({
 
       if (section === 'OB') {
         const current = { ...blockState.opening_balance };
-        blockState.opening_balance = calculateSTGRowValues(current, field, finalVal);
+        blockState.opening_balance = calculateSTGRowValues(current, field, finalVal, block === 'SMP');
       } else if (section === 'PHYSICAL') {
         const current = { ...blockState.physical_count };
-        blockState.physical_count = calculateSTGRowValues(current, field, finalVal);
+        blockState.physical_count = calculateSTGRowValues(current, field, finalVal, block === 'SMP');
       } else {
         const list = section === 'RECEIPT' ? [...blockState.receipts] : [...blockState.disposals];
         const current = { ...list[idx] };
-        list[idx] = calculateSTGRowValues(current, field, finalVal);
+        const oldRow = { ...current }; // Keep copy of old row for delta calculation
+        
+        list[idx] = calculateSTGRowValues(current, field, finalVal, block === 'SMP');
 
         if (section === 'RECEIPT') blockState.receipts = list;
         else blockState.disposals = list;
+
+        // Sync to target block if linked
+        if (list[idx].linked_block) {
+          syncLinkedRowsDirect(next, block, section, idx, oldRow);
+        }
       }
 
       // Keep manual CB edits intact; other sections still refresh the calculated CB.
@@ -730,7 +866,7 @@ export default function STGEntryForm({
       // Sync deletion to mirrored row
       if (side === 'RECEIPT' || side === 'DISPOSAL') {
         if (deletedLinkedBlock) {
-          syncDeletedRow(next, block, side, deletedLinkedBlock);
+          syncDeletedRow(next, block, side, deletedLinkedBlock, item);
         }
       }
 
@@ -740,7 +876,7 @@ export default function STGEntryForm({
 
   const handleShareSubmit = () => {
     if (!shareModal) return;
-    const { blockKey, side, idx, itemName, targetBlockKey, qtyLts, fatPct, snfPct } = shareModal;
+    const { blockKey, side, idx, itemName, targetBlockKey, qtyLts, qtyKg, fatPct, snfPct, shareMode, targetRowIdx } = shareModal;
 
     setBlocks(prev => {
       const next = { ...prev };
@@ -759,7 +895,8 @@ export default function STGEntryForm({
 
       // Remove mirrored row in old target
       if (oldTargetBlockKey) {
-        syncDeletedRow(next, blockKey, side, oldTargetBlockKey);
+        // Pass sourceRow to subtract its old values from the old target block
+        syncDeletedRow(next, blockKey, side, oldTargetBlockKey, sourceRow);
       }
 
       // Add mirror row in new target if selected
@@ -771,27 +908,86 @@ export default function STGEntryForm({
         const targetSide = side === 'RECEIPT' ? 'DISPOSAL' : 'RECEIPT';
         const targetList = targetSide === 'RECEIPT' ? [...targetBlockState.receipts] : [...targetBlockState.disposals];
 
-        let targetIdx = targetList.findIndex(r => r.linked_block === blockKey);
-
-        let mirroredRow = makeInitialItem(itemName, blockKey);
-        mirroredRow.qty_lts = qtyLts;
-        mirroredRow.fat_pct = fatPct;
-        mirroredRow.snf_pct = snfPct;
-        mirroredRow = calculateSTGRowValues(mirroredRow, 'qty_lts', qtyLts);
-        mirroredRow = calculateSTGRowValues(mirroredRow, 'fat_pct', fatPct);
-        mirroredRow = calculateSTGRowValues(mirroredRow, 'snf_pct', snfPct);
-
-        if (targetIdx === -1) {
-          const firstIsEmpty = targetList.length === 1 &&
-            targetList[0].item_name === '' &&
-            targetList[0].qty_lts === '';
-          if (firstIsEmpty) {
-            targetList[0] = mirroredRow;
-          } else {
-            targetList.push(mirroredRow);
-          }
+        const isTargetSMP =
+          blockKey === 'SMP' ||
+          targetBlockKey === 'SMP' ||
+          (itemName || '').toLowerCase().includes('smp') ||
+          (sourceRow.item_name || '').toLowerCase().includes('smp');
+        
+        let sharedPart = makeInitialItem(itemName, blockKey);
+        if (isTargetSMP) {
+          sharedPart.qty_lts = '';
+          sharedPart.qty_kg = qtyKg;
         } else {
-          targetList[targetIdx] = mirroredRow;
+          sharedPart.qty_lts = qtyLts;
+        }
+        sharedPart.fat_pct = fatPct;
+        sharedPart.snf_pct = snfPct;
+
+        if (isTargetSMP) {
+          sharedPart = calculateSTGRowValues(sharedPart, 'qty_kg', qtyKg, true);
+          sharedPart = calculateSTGRowValues(sharedPart, 'fat_pct', fatPct, true);
+          sharedPart = calculateSTGRowValues(sharedPart, 'snf_pct', snfPct, true);
+        } else {
+          sharedPart = calculateSTGRowValues(sharedPart, 'qty_lts', qtyLts, false);
+          sharedPart = calculateSTGRowValues(sharedPart, 'fat_pct', fatPct, false);
+          sharedPart = calculateSTGRowValues(sharedPart, 'snf_pct', snfPct, false);
+        }
+
+        if (shareMode === 'aggregate' && targetRowIdx !== undefined && targetList[targetRowIdx]) {
+          const existingRow = { ...targetList[targetRowIdx] };
+          
+          const oldLts = parseFloat(existingRow.qty_lts) || 0;
+          const oldKg = parseFloat(existingRow.qty_kg) || 0;
+          const oldFatKg = parseFloat(existingRow.kg_fat) || 0;
+          const oldSnfKg = parseFloat(existingRow.kg_snf) || 0;
+
+          const shareLts = parseFloat(sharedPart.qty_lts) || 0;
+          const shareKg = parseFloat(sharedPart.qty_kg) || 0;
+          const shareFatKg = parseFloat(sharedPart.kg_fat) || 0;
+          const shareSnfKg = parseFloat(sharedPart.kg_snf) || 0;
+
+          const newLts = oldLts + shareLts;
+          const newKg = oldKg + shareKg;
+          const newFatKg = oldFatKg + shareFatKg;
+          const newSnfKg = oldSnfKg + shareSnfKg;
+
+          existingRow.qty_lts = isTargetSMP ? '' : (newLts > 0 ? newLts.toString() : '');
+          existingRow.qty_kg = newKg > 0 ? newKg.toFixed(CALC_CONFIG.QTY_KG.DECIMALS) : '';
+          existingRow.kg_fat = newFatKg > 0 ? newFatKg.toFixed(CALC_CONFIG.KG_FAT.DECIMALS) : '';
+          existingRow.kg_snf = newSnfKg > 0 ? newSnfKg.toFixed(CALC_CONFIG.KG_SNF.DECIMALS) : '';
+
+          if (newKg > 0) {
+            existingRow.fat_pct = ((newFatKg * 100) / newKg).toFixed(2);
+            existingRow.snf_pct = ((newSnfKg * 100) / newKg).toFixed(2);
+          } else {
+            existingRow.fat_pct = '';
+            existingRow.snf_pct = '';
+          }
+
+          if (!isTargetSMP && newLts > 0 && newKg > 0) {
+            existingRow.sp_gr = (newKg / newLts).toFixed(CALC_CONFIG.SP_GR.DECIMALS);
+          } else if (!isTargetSMP) {
+            existingRow.sp_gr = '';
+          }
+
+          existingRow.linked_block = blockKey;
+          targetList[targetRowIdx] = existingRow;
+        } else {
+          let targetIdx = targetList.findIndex(r => r.linked_block === blockKey);
+          if (targetIdx === -1) {
+            const firstIsEmpty = targetList.length === 1 &&
+              targetList[0].item_name === '' &&
+              targetList[0].qty_lts === '' &&
+              targetList[0].qty_kg === '';
+            if (firstIsEmpty) {
+              targetList[0] = sharedPart;
+            } else {
+              targetList.push(sharedPart);
+            }
+          } else {
+            targetList[targetIdx] = sharedPart;
+          }
         }
 
         if (targetSide === 'RECEIPT') targetBlockState.receipts = targetList;
@@ -1240,39 +1436,41 @@ export default function STGEntryForm({
         <div style={{ background: '#f8fafc', padding: 16, borderRadius: 8, marginBottom: 20, border: '1px solid var(--border)' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
             <div style={{ fontWeight: 600, fontSize: '0.875rem' }}>☀️ Opening Balance (OB)</div>
-            <div style={{ display: 'flex', gap: 8 }}>
-              {obLocked[blockKey] ? (
-                <button
-                  type="button"
-                  className="btn btn-secondary"
-                  style={{ padding: '2px 8px', fontSize: '0.75rem', height: 'auto', display: 'flex', alignItems: 'center', gap: 4 }}
-                  onClick={() => setObLocked(prev => ({ ...prev, [blockKey]: false }))}
-                >
-                  ✏️ Edit OB
-                </button>
-              ) : (
-                <button
-                  type="button"
-                  className="btn btn-primary"
-                  style={{ padding: '2px 8px', fontSize: '0.75rem', height: 'auto', display: 'flex', alignItems: 'center', gap: 4 }}
-                  onClick={async () => {
-                    setObLocked(prev => ({ ...prev, [blockKey]: true }));
-                    await triggerBackgroundSave();
-                  }}
-                >
-                  💾 Save OB
-                </button>
-              )}
-            </div>
+            {!blocksLocked[blockKey] && (
+              <div style={{ display: 'flex', gap: 8 }}>
+                {obLocked[blockKey] ? (
+                  <button
+                    type="button"
+                    className="btn btn-secondary"
+                    style={{ padding: '2px 8px', fontSize: '0.75rem', height: 'auto', display: 'flex', alignItems: 'center', gap: 4 }}
+                    onClick={() => setObLocked(prev => ({ ...prev, [blockKey]: false }))}
+                  >
+                    ✏️ Edit OB
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    className="btn btn-primary"
+                    style={{ padding: '2px 8px', fontSize: '0.75rem', height: 'auto', display: 'flex', alignItems: 'center', gap: 4 }}
+                    onClick={async () => {
+                      setObLocked(prev => ({ ...prev, [blockKey]: true }));
+                      await triggerBackgroundSave();
+                    }}
+                  >
+                    💾 Save OB
+                  </button>
+                )}
+              </div>
+            )}
           </div>
-          <div className="form-row" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(120px, 1fr))' }}>
+          <div className="form-row" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))' }}>
             <div className="form-group" style={{ margin: 0 }}>
               <label className="form-label">Qty (Lts)</label>
               <input
                 type="number" className="form-input" value={blockState.opening_balance.qty_lts}
                 onChange={e => updateVal(blockKey, 'OB', 0, 'qty_lts', e.target.value)}
-                disabled={obLocked[blockKey]}
-                style={obLocked[blockKey] ? { background: '#f1f5f9', cursor: 'not-allowed' } : undefined}
+                disabled={obLocked[blockKey] || blocksLocked[blockKey]}
+                style={(obLocked[blockKey] || blocksLocked[blockKey]) ? { background: '#f1f5f9', cursor: 'not-allowed' } : undefined}
               />
             </div>
             <div className="form-group" style={{ margin: 0 }}>
@@ -1280,8 +1478,8 @@ export default function STGEntryForm({
               <input
                 type="number" className="form-input" value={blockState.opening_balance.qty_kg}
                 onChange={e => updateVal(blockKey, 'OB', 0, 'qty_kg', e.target.value)}
-                disabled={obLocked[blockKey]}
-                style={obLocked[blockKey] ? { background: '#f1f5f9', cursor: 'not-allowed' } : undefined}
+                disabled={obLocked[blockKey] || blocksLocked[blockKey]}
+                style={(obLocked[blockKey] || blocksLocked[blockKey]) ? { background: '#f1f5f9', cursor: 'not-allowed' } : undefined}
               />
             </div>
             <div className="form-group" style={{ margin: 0 }}>
@@ -1289,8 +1487,8 @@ export default function STGEntryForm({
               <input
                 type="number" className="form-input" value={blockState.opening_balance.fat_pct}
                 onChange={e => updateVal(blockKey, 'OB', 0, 'fat_pct', e.target.value)}
-                disabled={obLocked[blockKey]}
-                style={obLocked[blockKey] ? { background: '#f1f5f9', cursor: 'not-allowed' } : undefined}
+                disabled={obLocked[blockKey] || blocksLocked[blockKey]}
+                style={(obLocked[blockKey] || blocksLocked[blockKey]) ? { background: '#f1f5f9', cursor: 'not-allowed' } : undefined}
               />
             </div>
             <div className="form-group" style={{ margin: 0 }}>
@@ -1298,8 +1496,8 @@ export default function STGEntryForm({
               <input
                 type="number" className="form-input" value={blockState.opening_balance.snf_pct}
                 onChange={e => updateVal(blockKey, 'OB', 0, 'snf_pct', e.target.value)}
-                disabled={obLocked[blockKey]}
-                style={obLocked[blockKey] ? { background: '#f1f5f9', cursor: 'not-allowed' } : undefined}
+                disabled={obLocked[blockKey] || blocksLocked[blockKey]}
+                style={(obLocked[blockKey] || blocksLocked[blockKey]) ? { background: '#f1f5f9', cursor: 'not-allowed' } : undefined}
               />
             </div>
             <div className="form-group" style={{ margin: 0 }}>
@@ -1307,8 +1505,8 @@ export default function STGEntryForm({
               <input
                 type="number" className="form-input" value={blockState.opening_balance.sp_gr}
                 onChange={e => updateVal(blockKey, 'OB', 0, 'sp_gr', e.target.value)}
-                disabled={obLocked[blockKey]}
-                style={obLocked[blockKey] ? { background: '#f1f5f9', cursor: 'not-allowed' } : undefined}
+                disabled={obLocked[blockKey] || blocksLocked[blockKey]}
+                style={(obLocked[blockKey] || blocksLocked[blockKey]) ? { background: '#f1f5f9', cursor: 'not-allowed' } : undefined}
               />
             </div>
             <div className="form-group" style={{ margin: 0 }}>
@@ -1316,8 +1514,8 @@ export default function STGEntryForm({
               <input
                 type="number" className="form-input" value={blockState.opening_balance.kg_fat}
                 onChange={e => updateVal(blockKey, 'OB', 0, 'kg_fat', e.target.value)}
-                disabled={obLocked[blockKey]}
-                style={obLocked[blockKey] ? { background: '#f1f5f9', cursor: 'not-allowed' } : undefined}
+                disabled={obLocked[blockKey] || blocksLocked[blockKey]}
+                style={(obLocked[blockKey] || blocksLocked[blockKey]) ? { background: '#f1f5f9', cursor: 'not-allowed' } : undefined}
               />
             </div>
             <div className="form-group" style={{ margin: 0 }}>
@@ -1325,8 +1523,8 @@ export default function STGEntryForm({
               <input
                 type="number" className="form-input" value={blockState.opening_balance.kg_snf}
                 onChange={e => updateVal(blockKey, 'OB', 0, 'kg_snf', e.target.value)}
-                disabled={obLocked[blockKey]}
-                style={obLocked[blockKey] ? { background: '#f1f5f9', cursor: 'not-allowed' } : undefined}
+                disabled={obLocked[blockKey] || blocksLocked[blockKey]}
+                style={(obLocked[blockKey] || blocksLocked[blockKey]) ? { background: '#f1f5f9', cursor: 'not-allowed' } : undefined}
               />
             </div>
           </div>
@@ -1346,125 +1544,158 @@ export default function STGEntryForm({
                   <th style={{ width: '5%', textAlign: 'center' }}>S.No</th>
                   <th style={{ width: '25%' }}>Receipt</th>
                   <th className="num">Qty (Lts)</th>
-                  <th className="num" title="Formula: Qty (Lts) × Sp. Gr">Qty (Kg)</th>
+                  <th className="num" title="Formula: Qty (Lts) × Sp. Gr" style={{ backgroundColor: '#e0f2fe', color: '#0369a1' }}>Qty (Kg)</th>
                   <th className="num">Fat %</th>
                   <th className="num">SNF %</th>
-                  <th className="num" title="=ROUND(1+(SNF %-(Fat %*0.2+0.36))/250,4)">Sp. Gr</th>
-                  <th className="num" title="=ROUND(Sp. Gr*Fat %*Qty (Lts)/100,3)">Kg.Fat</th>
-                  <th className="num" title="=ROUND(Sp. Gr*SNF %*Qty (Lts)/100,3)">Kg.SNF</th>
+                  <th className="num" title="=ROUND(1+(SNF %-(Fat %*0.2+0.36))/250,4)" style={{ backgroundColor: '#e0f2fe', color: '#0369a1' }}>Sp. Gr</th>
+                  <th className="num" title="=ROUND(Sp. Gr*Fat %*Qty (Lts)/100,3)" style={{ backgroundColor: '#e0f2fe', color: '#0369a1' }}>Kg.Fat</th>
+                  <th className="num" title="=ROUND(Sp. Gr*SNF %*Qty (Lts)/100,3)" style={{ backgroundColor: '#e0f2fe', color: '#0369a1' }}>Kg.SNF</th>
                   <th className="no-print" style={{ width: 100, textAlign: 'center' }}>Actions</th>
                 </tr>
               </thead>
               <tbody>
-                {blockState.receipts.map((r, idx) => (
-                  <tr key={idx}>
-                    <td style={{ textAlign: 'center', fontWeight: 600 }}>{idx + 1}</td>
-                    <td>
-                      <input
-                        type="text" placeholder="e.g. BMC Name" value={r.item_name}
-                        onChange={e => updateVal(blockKey, 'RECEIPT', idx, 'item_name', e.target.value)}
-                      />
-                    </td>
-                    <td>
-                      <input
-                        type="number" placeholder="0" value={r.qty_lts}
-                        onChange={e => updateVal(blockKey, 'RECEIPT', idx, 'qty_lts', e.target.value)}
-                      />
-                    </td>
-                    <td>
-                      <input
-                        type="number" placeholder="0" value={r.qty_kg}
-                        onChange={e => updateVal(blockKey, 'RECEIPT', idx, 'qty_kg', e.target.value)}
-                        title="Formula: Qty (Lts) × Sp. Gr"
-                      />
-                    </td>
-                    <td>
-                      <input
-                        type="number" placeholder="0" value={r.fat_pct}
-                        onChange={e => updateVal(blockKey, 'RECEIPT', idx, 'fat_pct', e.target.value)}
-                      />
-                    </td>
-                    <td>
-                      <input
-                        type="number" placeholder="0" value={r.snf_pct}
-                        onChange={e => updateVal(blockKey, 'RECEIPT', idx, 'snf_pct', e.target.value)}
-                      />
-                    </td>
-                    <td>
-                      <input
-                        type="number" placeholder="0" value={r.sp_gr}
-                        onChange={e => updateVal(blockKey, 'RECEIPT', idx, 'sp_gr', e.target.value)}
-                        title="=ROUND(1+(SNF %-(Fat %*0.2+0.36))/250,4)"
-                      />
-                    </td>
-                    <td>
-                      <input
-                        type="number" placeholder="0" value={r.kg_fat}
-                        onChange={e => updateVal(blockKey, 'RECEIPT', idx, 'kg_fat', e.target.value)}
-                        title="=ROUND(Sp. Gr*Fat %*Qty (Lts)/100,3)"
-                      />
-                    </td>
-                    <td>
-                      <input
-                        type="number" placeholder="0" value={r.kg_snf}
-                        onChange={e => updateVal(blockKey, 'RECEIPT', idx, 'kg_snf', e.target.value)}
-                        title="=ROUND(Sp. Gr*SNF %*Qty (Lts)/100,3)"
-                      />
-                    </td>
-                    <td className="no-print">
-                      <div style={{ display: 'flex', gap: 10, alignItems: 'center', justifyContent: 'center' }}>
-                        <button
-                          type="button"
-                          style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '1rem', padding: 0 }}
-                          title="Add row below"
-                          onClick={() => addRowAfter(blockKey, 'RECEIPT', idx)}
-                        >
-                          ➕
-                        </button>
-                        <button
-                          type="button"
-                          style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '1rem', padding: 0 }}
-                          title="Delete row"
-                          onClick={() => deleteRow(blockKey, 'RECEIPT', idx)}
-                        >
-                          ❌
-                        </button>
-                        <button
-                          type="button"
-                          style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '1.05rem', padding: 0, opacity: r.linked_block ? 1 : 0.6 }}
-                          title={r.linked_block ? `Shared to ${statements.find(s => s.key === r.linked_block)?.label || r.linked_block}` : "Share to statement"}
-                          onClick={() => setShareModal({
-                            blockKey,
-                            side: 'RECEIPT',
-                            idx,
-                            itemName: r.item_name,
-                            targetBlockKey: r.linked_block || '',
-                            qtyLts: r.qty_lts,
-                            fatPct: r.fat_pct,
-                            snfPct: r.snf_pct,
-                          })}
-                        >
-                          {r.linked_block ? '🔗' : '📤'}
-                        </button>
-                      </div>
+                {blockState.receipts.map((r, idx) => {
+                  const isSMPRow = blockKey === 'SMP' || r.item_name.toLowerCase().includes('smp');
+                  return (
+                    <tr key={idx}>
+                      <td style={{ textAlign: 'center', fontWeight: 600 }}>{idx + 1}</td>
+                      <td>
+                        <input
+                          type="text" placeholder="e.g. BMC Name" value={r.item_name}
+                          onChange={e => updateVal(blockKey, 'RECEIPT', idx, 'item_name', e.target.value)}
+                          disabled={blocksLocked[blockKey]}
+                          style={blocksLocked[blockKey] ? { background: '#f1f5f9', cursor: 'not-allowed' } : undefined}
+                        />
+                      </td>
+                      <td>
+                        <input
+                          type="number" placeholder="0" value={isSMPRow ? "" : r.qty_lts}
+                          onChange={e => updateVal(blockKey, 'RECEIPT', idx, 'qty_lts', e.target.value)}
+                          disabled={blocksLocked[blockKey] || isSMPRow}
+                          style={(blocksLocked[blockKey] || isSMPRow) ? { background: '#f1f5f9', cursor: 'not-allowed' } : undefined}
+                        />
+                      </td>
+                      <td>
+                        <input
+                          type="number" placeholder="0" value={r.qty_kg}
+                          onChange={e => updateVal(blockKey, 'RECEIPT', idx, 'qty_kg', e.target.value)}
+                          title={isSMPRow ? "Manual Input (Kg)" : "Formula: Qty (Lts) × Sp. Gr"}
+                          disabled={blocksLocked[blockKey]}
+                          style={blocksLocked[blockKey] ? { background: '#f1f5f9', cursor: 'not-allowed' } : undefined}
+                        />
+                      </td>
+                      <td>
+                        <input
+                          type="number" placeholder="0" value={r.fat_pct}
+                          onChange={e => updateVal(blockKey, 'RECEIPT', idx, 'fat_pct', e.target.value)}
+                          disabled={blocksLocked[blockKey]}
+                          style={blocksLocked[blockKey] ? { background: '#f1f5f9', cursor: 'not-allowed' } : undefined}
+                        />
+                      </td>
+                      <td>
+                        <input
+                          type="number" placeholder="0" value={r.snf_pct}
+                          onChange={e => updateVal(blockKey, 'RECEIPT', idx, 'snf_pct', e.target.value)}
+                          disabled={blocksLocked[blockKey]}
+                          style={blocksLocked[blockKey] ? { background: '#f1f5f9', cursor: 'not-allowed' } : undefined}
+                        />
+                      </td>
+                      <td>
+                        <input
+                          type="number" placeholder="0" value={r.sp_gr}
+                          onChange={e => updateVal(blockKey, 'RECEIPT', idx, 'sp_gr', e.target.value)}
+                          title="=ROUND(1+(SNF %-(Fat %*0.2+0.36))/250,4)"
+                          disabled={blocksLocked[blockKey]}
+                          style={blocksLocked[blockKey] ? { background: '#f1f5f9', cursor: 'not-allowed' } : undefined}
+                        />
+                      </td>
+                      <td>
+                        <input
+                          type="number" placeholder="0" value={r.kg_fat}
+                          onChange={e => updateVal(blockKey, 'RECEIPT', idx, 'kg_fat', e.target.value)}
+                          title={isSMPRow ? "=ROUND(Qty (Kg)*Fat %/100,3)" : "=ROUND(Sp. Gr*Fat %*Qty (Lts)/100,3)"}
+                          disabled={blocksLocked[blockKey]}
+                          style={blocksLocked[blockKey] ? { background: '#f1f5f9', cursor: 'not-allowed' } : undefined}
+                        />
+                      </td>
+                      <td>
+                        <input
+                          type="number" placeholder="0" value={r.kg_snf}
+                          onChange={e => updateVal(blockKey, 'RECEIPT', idx, 'kg_snf', e.target.value)}
+                          title={isSMPRow ? "=ROUND(Qty (Kg)*SNF %/100,3)" : "=ROUND(Sp. Gr*SNF %*Qty (Lts)/100,3)"}
+                          disabled={blocksLocked[blockKey]}
+                          style={blocksLocked[blockKey] ? { background: '#f1f5f9', cursor: 'not-allowed' } : undefined}
+                        />
+                      </td>
+                      <td className="no-print">
+                        {blocksLocked[blockKey] ? (
+                          <div style={{ textAlign: 'center', color: 'var(--text-muted)' }}>—</div>
+                        ) : (
+                          <div style={{ display: 'flex', gap: 10, alignItems: 'center', justifyContent: 'center' }}>
+                            <button
+                              type="button"
+                              style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '1rem', padding: 0 }}
+                              title="Add row below"
+                              onClick={() => addRowAfter(blockKey, 'RECEIPT', idx)}
+                            >
+                              ➕
+                            </button>
+                            <button
+                              type="button"
+                              style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '1rem', padding: 0 }}
+                              title="Delete row"
+                              onClick={() => deleteRow(blockKey, 'RECEIPT', idx)}
+                            >
+                              ❌
+                            </button>
+                            <button
+                              type="button"
+                              style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '1.05rem', padding: 0, opacity: r.linked_block ? 1 : 0.6 }}
+                              title={r.linked_block ? `Shared to ${statements.find(s => s.key === r.linked_block)?.label || r.linked_block}` : "Share to statement"}
+                              onClick={() => {
+                                const targetBlockKey = r.linked_block || '';
+                                const targetList = blocks[targetBlockKey]?.disposals || [];
+                                const tRowIdx = targetList.findIndex(x => x.linked_block === blockKey);
+                                setShareModal({
+                                  blockKey,
+                                  side: 'RECEIPT',
+                                  idx,
+                                  itemName: r.item_name,
+                                  targetBlockKey,
+                                  qtyLts: r.qty_lts,
+                                  qtyKg: r.qty_kg,
+                                  fatPct: r.fat_pct,
+                                  snfPct: r.snf_pct,
+                                  shareMode: tRowIdx !== -1 ? 'aggregate' : 'new',
+                                  targetRowIdx: tRowIdx !== -1 ? tRowIdx : undefined,
+                                });
+                              }}
+                            >
+                              {r.linked_block ? '🔗' : '📤'}
+                            </button>
+                          </div>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
+                {!blocksLocked[blockKey] && (
+                  <tr
+                    className="no-print"
+                    style={{
+                      cursor: canAddReceipt ? 'pointer' : 'not-allowed',
+                      background: '#f8fafc',
+                      opacity: canAddReceipt ? 1 : 0.5
+                    }}
+                    onClick={() => {
+                      if (canAddReceipt) addRowAfter(blockKey, 'RECEIPT', blockState.receipts.length - 1);
+                    }}
+                  >
+                    <td colSpan={10} style={{ textAlign: 'center', color: 'var(--brand-primary)', fontWeight: 600, padding: 8 }}>
+                      ➕ Add Row
                     </td>
                   </tr>
-                ))}
-                <tr 
-                  className="no-print" 
-                  style={{ 
-                    cursor: canAddReceipt ? 'pointer' : 'not-allowed', 
-                    background: '#f8fafc',
-                    opacity: canAddReceipt ? 1 : 0.5 
-                  }} 
-                  onClick={() => {
-                    if (canAddReceipt) addRowAfter(blockKey, 'RECEIPT', blockState.receipts.length - 1);
-                  }}
-                >
-                  <td colSpan={10} style={{ textAlign: 'center', color: 'var(--brand-primary)', fontWeight: 600, padding: 8 }}>
-                    ➕ Add Row
-                  </td>
-                </tr>
+                )}
               </tbody>
             </table>
           </div>
@@ -1484,125 +1715,158 @@ export default function STGEntryForm({
                   <th style={{ width: '5%', textAlign: 'center' }}>S.No</th>
                   <th style={{ width: '25%' }}>Disposal</th>
                   <th className="num">Qty (Lts)</th>
-                  <th className="num" title="Formula: Qty (Lts) × Sp. Gr">Qty (Kg)</th>
+                  <th className="num" title="Formula: Qty (Lts) × Sp. Gr" style={{ backgroundColor: '#e0f2fe', color: '#0369a1' }}>Qty (Kg)</th>
                   <th className="num">Fat %</th>
                   <th className="num">SNF %</th>
-                  <th className="num" title="=ROUND(1+(SNF %-(Fat %*0.2+0.36))/250,4)">Sp. Gr</th>
-                  <th className="num" title="=ROUND(Sp. Gr*Fat %*Qty (Lts)/100,3)">Kg.Fat</th>
-                  <th className="num" title="=ROUND(Sp. Gr*SNF %*Qty (Lts)/100,3)">Kg.SNF</th>
+                  <th className="num" title="=ROUND(1+(SNF %-(Fat %*0.2+0.36))/250,4)" style={{ backgroundColor: '#e0f2fe', color: '#0369a1' }}>Sp. Gr</th>
+                  <th className="num" title="=ROUND(Sp. Gr*Fat %*Qty (Lts)/100,3)" style={{ backgroundColor: '#e0f2fe', color: '#0369a1' }}>Kg.Fat</th>
+                  <th className="num" title="=ROUND(Sp. Gr*SNF %*Qty (Lts)/100,3)" style={{ backgroundColor: '#e0f2fe', color: '#0369a1' }}>Kg.SNF</th>
                   <th className="no-print" style={{ width: 100, textAlign: 'center' }}>Actions</th>
                 </tr>
               </thead>
               <tbody>
-                {blockState.disposals.map((d, idx) => (
-                  <tr key={idx}>
-                    <td style={{ textAlign: 'center', fontWeight: 600 }}>{idx + 1}</td>
-                    <td>
-                      <input
-                        type="text" placeholder="e.g. Sachet Name" value={d.item_name}
-                        onChange={e => updateVal(blockKey, 'DISPOSAL', idx, 'item_name', e.target.value)}
-                      />
-                    </td>
-                    <td>
-                      <input
-                        type="number" placeholder="0" value={d.qty_lts}
-                        onChange={e => updateVal(blockKey, 'DISPOSAL', idx, 'qty_lts', e.target.value)}
-                      />
-                    </td>
-                    <td>
-                      <input
-                        type="number" placeholder="0" value={d.qty_kg}
-                        onChange={e => updateVal(blockKey, 'DISPOSAL', idx, 'qty_kg', e.target.value)}
-                        title="Formula: Qty (Lts) × Sp. Gr"
-                      />
-                    </td>
-                    <td>
-                      <input
-                        type="number" placeholder="0" value={d.fat_pct}
-                        onChange={e => updateVal(blockKey, 'DISPOSAL', idx, 'fat_pct', e.target.value)}
-                      />
-                    </td>
-                    <td>
-                      <input
-                        type="number" placeholder="0" value={d.snf_pct}
-                        onChange={e => updateVal(blockKey, 'DISPOSAL', idx, 'snf_pct', e.target.value)}
-                      />
-                    </td>
-                    <td>
-                      <input
-                        type="number" placeholder="0" value={d.sp_gr}
-                        onChange={e => updateVal(blockKey, 'DISPOSAL', idx, 'sp_gr', e.target.value)}
-                        title="=ROUND(1+(SNF %-(Fat %*0.2+0.36))/250,4)"
-                      />
-                    </td>
-                    <td>
-                      <input
-                        type="number" placeholder="0" value={d.kg_fat}
-                        onChange={e => updateVal(blockKey, 'DISPOSAL', idx, 'kg_fat', e.target.value)}
-                        title="=ROUND(Sp. Gr*Fat %*Qty (Lts)/100,3)"
-                      />
-                    </td>
-                    <td>
-                      <input
-                        type="number" placeholder="0" value={d.kg_snf}
-                        onChange={e => updateVal(blockKey, 'DISPOSAL', idx, 'kg_snf', e.target.value)}
-                        title="=ROUND(Sp. Gr*SNF %*Qty (Lts)/100,3)"
-                      />
-                    </td>
-                    <td className="no-print">
-                      <div style={{ display: 'flex', gap: 10, alignItems: 'center', justifyContent: 'center' }}>
-                        <button
-                          type="button"
-                          style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '1rem', padding: 0 }}
-                          title="Add row below"
-                          onClick={() => addRowAfter(blockKey, 'DISPOSAL', idx)}
-                        >
-                          ➕
-                        </button>
-                        <button
-                          type="button"
-                          style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '1rem', padding: 0 }}
-                          title="Delete row"
-                          onClick={() => deleteRow(blockKey, 'DISPOSAL', idx)}
-                        >
-                          ❌
-                        </button>
-                        <button
-                          type="button"
-                          style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '1.05rem', padding: 0, opacity: d.linked_block ? 1 : 0.6 }}
-                          title={d.linked_block ? `Shared to ${statements.find(s => s.key === d.linked_block)?.label || d.linked_block}` : "Share to statement"}
-                          onClick={() => setShareModal({
-                            blockKey,
-                            side: 'DISPOSAL',
-                            idx,
-                            itemName: d.item_name,
-                            targetBlockKey: d.linked_block || '',
-                            qtyLts: d.qty_lts,
-                            fatPct: d.fat_pct,
-                            snfPct: d.snf_pct,
-                          })}
-                        >
-                          {d.linked_block ? '🔗' : '📤'}
-                        </button>
-                      </div>
+                {blockState.disposals.map((d, idx) => {
+                  const isSMPRow = blockKey === 'SMP' || d.item_name.toLowerCase().includes('smp');
+                  return (
+                    <tr key={idx}>
+                      <td style={{ textAlign: 'center', fontWeight: 600 }}>{idx + 1}</td>
+                      <td>
+                        <input
+                          type="text" placeholder="e.g. Sachet Name" value={d.item_name}
+                          onChange={e => updateVal(blockKey, 'DISPOSAL', idx, 'item_name', e.target.value)}
+                          disabled={blocksLocked[blockKey]}
+                          style={blocksLocked[blockKey] ? { background: '#f1f5f9', cursor: 'not-allowed' } : undefined}
+                        />
+                      </td>
+                      <td>
+                        <input
+                          type="number" placeholder="0" value={isSMPRow ? "" : d.qty_lts}
+                          onChange={e => updateVal(blockKey, 'DISPOSAL', idx, 'qty_lts', e.target.value)}
+                          disabled={blocksLocked[blockKey] || isSMPRow}
+                          style={(blocksLocked[blockKey] || isSMPRow) ? { background: '#f1f5f9', cursor: 'not-allowed' } : undefined}
+                        />
+                      </td>
+                      <td>
+                        <input
+                          type="number" placeholder="0" value={d.qty_kg}
+                          onChange={e => updateVal(blockKey, 'DISPOSAL', idx, 'qty_kg', e.target.value)}
+                          title={isSMPRow ? "Manual Input (Kg)" : "Formula: Qty (Lts) × Sp. Gr"}
+                          disabled={blocksLocked[blockKey]}
+                          style={blocksLocked[blockKey] ? { background: '#f1f5f9', cursor: 'not-allowed' } : undefined}
+                        />
+                      </td>
+                      <td>
+                        <input
+                          type="number" placeholder="0" value={d.fat_pct}
+                          onChange={e => updateVal(blockKey, 'DISPOSAL', idx, 'fat_pct', e.target.value)}
+                          disabled={blocksLocked[blockKey]}
+                          style={blocksLocked[blockKey] ? { background: '#f1f5f9', cursor: 'not-allowed' } : undefined}
+                        />
+                      </td>
+                      <td>
+                        <input
+                          type="number" placeholder="0" value={d.snf_pct}
+                          onChange={e => updateVal(blockKey, 'DISPOSAL', idx, 'snf_pct', e.target.value)}
+                          disabled={blocksLocked[blockKey]}
+                          style={blocksLocked[blockKey] ? { background: '#f1f5f9', cursor: 'not-allowed' } : undefined}
+                        />
+                      </td>
+                      <td>
+                        <input
+                          type="number" placeholder="0" value={d.sp_gr}
+                          onChange={e => updateVal(blockKey, 'DISPOSAL', idx, 'sp_gr', e.target.value)}
+                          title="=ROUND(1+(SNF %-(Fat %*0.2+0.36))/250,4)"
+                          disabled={blocksLocked[blockKey]}
+                          style={blocksLocked[blockKey] ? { background: '#f1f5f9', cursor: 'not-allowed' } : undefined}
+                        />
+                      </td>
+                      <td>
+                        <input
+                          type="number" placeholder="0" value={d.kg_fat}
+                          onChange={e => updateVal(blockKey, 'DISPOSAL', idx, 'kg_fat', e.target.value)}
+                          title={isSMPRow ? "=ROUND(Qty (Kg)*Fat %/100,3)" : "=ROUND(Sp. Gr*Fat %*Qty (Lts)/100,3)"}
+                          disabled={blocksLocked[blockKey]}
+                          style={blocksLocked[blockKey] ? { background: '#f1f5f9', cursor: 'not-allowed' } : undefined}
+                        />
+                      </td>
+                      <td>
+                        <input
+                          type="number" placeholder="0" value={d.kg_snf}
+                          onChange={e => updateVal(blockKey, 'DISPOSAL', idx, 'kg_snf', e.target.value)}
+                          title={isSMPRow ? "=ROUND(Qty (Kg)*SNF %/100,3)" : "=ROUND(Sp. Gr*SNF %*Qty (Lts)/100,3)"}
+                          disabled={blocksLocked[blockKey]}
+                          style={blocksLocked[blockKey] ? { background: '#f1f5f9', cursor: 'not-allowed' } : undefined}
+                        />
+                      </td>
+                      <td className="no-print">
+                        {blocksLocked[blockKey] ? (
+                          <div style={{ textAlign: 'center', color: 'var(--text-muted)' }}>—</div>
+                        ) : (
+                          <div style={{ display: 'flex', gap: 10, alignItems: 'center', justifyContent: 'center' }}>
+                            <button
+                              type="button"
+                              style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '1rem', padding: 0 }}
+                              title="Add row below"
+                              onClick={() => addRowAfter(blockKey, 'DISPOSAL', idx)}
+                            >
+                              ➕
+                            </button>
+                            <button
+                              type="button"
+                              style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '1rem', padding: 0 }}
+                              title="Delete row"
+                              onClick={() => deleteRow(blockKey, 'DISPOSAL', idx)}
+                            >
+                              ❌
+                            </button>
+                            <button
+                              type="button"
+                              style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '1.05rem', padding: 0, opacity: d.linked_block ? 1 : 0.6 }}
+                              title={d.linked_block ? `Shared to ${statements.find(s => s.key === d.linked_block)?.label || d.linked_block}` : "Share to statement"}
+                              onClick={() => {
+                                const targetBlockKey = d.linked_block || '';
+                                const targetList = blocks[targetBlockKey]?.receipts || [];
+                                const tRowIdx = targetList.findIndex(x => x.linked_block === blockKey);
+                                setShareModal({
+                                  blockKey,
+                                  side: 'DISPOSAL',
+                                  idx,
+                                  itemName: d.item_name,
+                                  targetBlockKey,
+                                  qtyLts: d.qty_lts,
+                                  qtyKg: d.qty_kg,
+                                  fatPct: d.fat_pct,
+                                  snfPct: d.snf_pct,
+                                  shareMode: tRowIdx !== -1 ? 'aggregate' : 'new',
+                                  targetRowIdx: tRowIdx !== -1 ? tRowIdx : undefined,
+                                });
+                              }}
+                            >
+                              {d.linked_block ? '🔗' : '📤'}
+                            </button>
+                          </div>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
+                {!blocksLocked[blockKey] && (
+                  <tr
+                    className="no-print"
+                    style={{
+                      cursor: canAddDisposal ? 'pointer' : 'not-allowed',
+                      background: '#f8fafc',
+                      opacity: canAddDisposal ? 1 : 0.5
+                    }}
+                    onClick={() => {
+                      if (canAddDisposal) addRowAfter(blockKey, 'DISPOSAL', blockState.disposals.length - 1);
+                    }}
+                  >
+                    <td colSpan={10} style={{ textAlign: 'center', color: 'var(--brand-primary)', fontWeight: 600, padding: 8 }}>
+                      ➕ Add Row
                     </td>
                   </tr>
-                ))}
-                <tr 
-                  className="no-print" 
-                  style={{ 
-                    cursor: canAddDisposal ? 'pointer' : 'not-allowed', 
-                    background: '#f8fafc',
-                    opacity: canAddDisposal ? 1 : 0.5 
-                  }} 
-                  onClick={() => {
-                    if (canAddDisposal) addRowAfter(blockKey, 'DISPOSAL', blockState.disposals.length - 1);
-                  }}
-                >
-                  <td colSpan={10} style={{ textAlign: 'center', color: 'var(--brand-primary)', fontWeight: 600, padding: 8 }}>
-                    ➕ Add Row
-                  </td>
-                </tr>
+                )}
               </tbody>
             </table>
           </div>
@@ -1614,7 +1878,7 @@ export default function STGEntryForm({
         <div style={{ marginTop: 28, padding: '18px 22px', background: 'rgba(2, 132, 199, 0.02)', borderTop: '3px solid var(--brand-primary)', borderRadius: 8 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
             <h4 style={{ margin: 0, color: 'var(--brand-primary)', fontSize: '0.85rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-              📊 Excel-Style Summary & Balance Calculations
+              📊 Summary & Balance Calculations
             </h4>
             <button
               type="button"
@@ -1647,7 +1911,7 @@ export default function STGEntryForm({
                   <th className="num">Qty (Kg)</th>
                   <th className="num">Kg Fat</th>
                   <th className="num" style={{ borderRight: '2px solid var(--border)' }}>Kg SNF</th>
-                  
+
                   <th>Category</th>
                   <th className="num">Qty (Lts)</th>
                   <th className="num">Qty (Kg)</th>
@@ -1663,7 +1927,7 @@ export default function STGEntryForm({
                   <td className="num" title="Total Receipts = Sum of all receipt rows">{fmtNum(blockSummary.recSum.kg)}</td>
                   <td className="num" title="Total Receipts = Sum of all receipt rows">{fmtNum(blockSummary.recSum.fat, 3)}</td>
                   <td className="num" style={{ borderRight: '2px solid var(--border)' }} title="Total Receipts = Sum of all receipt rows">{fmtNum(blockSummary.recSum.snf, 3)}</td>
-                  
+
                   <td style={{ fontWeight: 600 }} title="Total Disposals = Sum of all disposal rows">Total Disposals</td>
                   <td className="num" title="Total Disposals = Sum of all disposal rows">{fmtNum(blockSummary.dispSum.lts)}</td>
                   <td className="num" title="Total Disposals = Sum of all disposal rows">{fmtNum(blockSummary.dispSum.kg)}</td>
@@ -1678,7 +1942,7 @@ export default function STGEntryForm({
                   <td className="num" title="Opening Balance (OB) = Opening Balance from input field">{fmtNum(blockSummary.ob.kg)}</td>
                   <td className="num" title="Opening Balance (OB) = Opening Balance from input field">{fmtNum(blockSummary.ob.fat, 3)}</td>
                   <td className="num" style={{ borderRight: '2px solid var(--border)' }} title="Opening Balance (OB) = Opening Balance from input field">{fmtNum(blockSummary.ob.snf, 3)}</td>
-                  
+
                   <td style={{ fontWeight: 600 }} title="Closing Balance (CB) = Editable CB value from the balance section">Closing Balance (CB)</td>
                   <td className="num" title="Closing Balance (CB) = Editable CB value from the balance section">{fmtNum(closingBalance.lts)}</td>
                   <td className="num" title="Closing Balance (CB) = Editable CB value from the balance section">{fmtNum(closingBalance.kg)}</td>
@@ -1693,7 +1957,7 @@ export default function STGEntryForm({
                   <td className="num" title="Grand Total (RECEIPTS SIDE) = Opening Balance + Total Receipts">{fmtNum(receiptsSideGrandTotal.kg)}</td>
                   <td className="num" title="Grand Total (RECEIPTS SIDE) = Opening Balance + Total Receipts">{fmtNum(receiptsSideGrandTotal.fat, 3)}</td>
                   <td className="num" style={{ borderRight: '2px solid var(--border)' }} title="Grand Total (RECEIPTS SIDE) = Opening Balance + Total Receipts">{fmtNum(receiptsSideGrandTotal.snf, 3)}</td>
-                  
+
                   <td title="Grand Total (DISPOSALS SIDE) = Total Disposals + Closing Balance (CB)">Grand Total (Disposals)</td>
                   <td className="num" title="Grand Total (DISPOSALS SIDE) = Total Disposals + Closing Balance (CB)">{fmtNum(disposalsSideGrandTotal.lts)}</td>
                   <td className="num" title="Grand Total (DISPOSALS SIDE) = Total Disposals + Closing Balance (CB)">{fmtNum(disposalsSideGrandTotal.kg)}</td>
@@ -1710,41 +1974,65 @@ export default function STGEntryForm({
           {savedBlock === blockKey && (
             <span style={{ fontSize: '0.82rem', color: 'var(--brand-success)', fontWeight: 600 }}>✅ Saved!</span>
           )}
-          <button
-            type="button"
-            className="btn btn-secondary btn-sm"
-            onClick={() => router.back()}
-            disabled={savingBlock === blockKey}
-          >
-            Cancel
-          </button>
-          <button
-            type="button"
-            className="btn btn-primary btn-sm"
-            disabled={savingBlock === blockKey}
-            onClick={async () => {
-              setSavingBlock(blockKey);
-              setSavedBlock(null);
-              await triggerBackgroundSave();
-              setSavingBlock(null);
-              setSavedBlock(blockKey);
-              setTimeout(() => setSavedBlock(null), 2500);
-            }}
-            style={{ display: 'flex', alignItems: 'center', gap: 6 }}
-          >
-            {savingBlock === blockKey ? (
-              <><span style={{ animation: 'spin 1s linear infinite', display: 'inline-block' }}>⏳</span> Saving...</>
-            ) : (
-              <>💾 Save {s.label}</>
-            )}
-          </button>
+          {blocksLocked[blockKey] ? (
+            <button
+              type="button"
+              className="btn btn-secondary btn-sm"
+              onClick={() => {
+                setBlocksLocked(prev => ({ ...prev, [blockKey]: false }));
+              }}
+              style={{ display: 'flex', alignItems: 'center', gap: 6 }}
+            >
+              ✏️ Edit {s.label}
+            </button>
+          ) : (
+            <>
+              <button
+                type="button"
+                className="btn btn-secondary btn-sm"
+                onClick={() => {
+                  // Re-lock the block on cancel if there is data
+                  const hasData = blockState.receipts.some(r => r.item_name) || blockState.disposals.some(d => d.item_name);
+                  if (hasData) {
+                    setBlocksLocked(prev => ({ ...prev, [blockKey]: true }));
+                  } else {
+                    router.back();
+                  }
+                }}
+                disabled={savingBlock === blockKey}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="btn btn-primary btn-sm"
+                disabled={savingBlock === blockKey}
+                onClick={async () => {
+                  setSavingBlock(blockKey);
+                  setSavedBlock(null);
+                  await triggerBackgroundSave();
+                  setSavingBlock(null);
+                  setSavedBlock(blockKey);
+                  setBlocksLocked(prev => ({ ...prev, [blockKey]: true }));
+                  setTimeout(() => setSavedBlock(null), 2500);
+                }}
+                style={{ display: 'flex', alignItems: 'center', gap: 6 }}
+              >
+                {savingBlock === blockKey ? (
+                  <><span style={{ animation: 'spin 1s linear infinite', display: 'inline-block' }}>⏳</span> Saving...</>
+                ) : (
+                  <>💾 Save {s.label}</>
+                )}
+              </button>
+            </>
+          )}
         </div>
       </div>
     );
   };
 
   return (
-    <div style={{ maxWidth: 1400 }}>
+    <div className="form-container">
       {/* Top action buttons */}
       <div ref={saveButtonRef} className="no-print" style={{ display: 'flex', gap: 12, justifyContent: 'flex-end', alignItems: 'center', marginBottom: 20 }}>
         {error && <span style={{ fontSize: '0.82rem', color: 'var(--brand-danger)', fontWeight: 600 }}>⚠️ {error}</span>}
@@ -1767,7 +2055,7 @@ export default function STGEntryForm({
       {/* Date & Details */}
       <div className="card" style={{ marginBottom: 20 }}>
         <div className="section-title" style={{ marginBottom: 16 }}>Register Date & Details</div>
-        <div className="form-row form-row-3">
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 16 }}>
           <div className="form-group">
             <label className="form-label">Date *</label>
             <input
@@ -1779,31 +2067,54 @@ export default function STGEntryForm({
             />
           </div>
           <div className="form-group">
-            <label className="form-label">Shift *</label>
+            <label className="form-label">Reporting Type *</label>
             <div style={{ display: 'flex', gap: 8, marginTop: 6 }}>
-              {(['D', 'N'] as Shift[]).map(s => {
-                const cfg = shiftConfigs.find(c => c.key === s) || {
-                  label: s === 'D' ? 'Day Shift' : 'Night Shift',
-                  start: s === 'D' ? '06:00' : '18:00',
-                  end: s === 'D' ? '18:00' : '06:00'
-                };
-                return (
-                  <button
-                    key={s}
-                    id={`shift-${s}`}
-                    type="button"
-                    className={`btn ${shift === s ? 'btn-primary' : 'btn-secondary'}`}
-                    onClick={() => setShift(s)}
-                    style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '10px 16px' }}
-                  >
-                    <span style={{ fontWeight: 600, fontSize: '0.875rem' }}>
-                      {s === 'D' ? '☀️' : '🌙'} {cfg.label}
-                    </span>
-                  </button>
-                );
-              })}
+              <button
+                type="button"
+                className={`btn ${!shift ? 'btn-primary' : 'btn-secondary'}`}
+                onClick={() => setShift(null)}
+                style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '10px 16px' }}
+              >
+                <span style={{ fontWeight: 600, fontSize: '0.875rem' }}>🗓️ Full Day</span>
+              </button>
+              <button
+                type="button"
+                className={`btn ${shift ? 'btn-primary' : 'btn-secondary'}`}
+                onClick={() => setShift('D')}
+                style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '10px 16px' }}
+              >
+                <span style={{ fontWeight: 600, fontSize: '0.875rem' }}>⏱️ Shift-wise</span>
+              </button>
             </div>
           </div>
+          {shift && (
+            <div className="form-group animate-fade-in">
+              <label className="form-label">Shift *</label>
+              <div style={{ display: 'flex', gap: 8, marginTop: 6 }}>
+                {(['D', 'N'] as Shift[]).map(s => {
+                  const cfg = shiftConfigs.find(c => c.key === s) || {
+                    label: s === 'D' ? 'Day Shift' : 'Night Shift',
+                    start: s === 'D' ? '06:00' : '18:00',
+                    end: s === 'D' ? '18:00' : '06:00'
+                  };
+                  return (
+                    <button
+                      key={s}
+                      id={`shift-${s}`}
+                      type="button"
+                      className={`btn ${shift === s ? 'btn-primary' : 'btn-secondary'}`}
+                      onClick={() => setShift(s)}
+                      style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '10px 16px' }}
+                    >
+                      <span style={{ fontWeight: 600, fontSize: '0.875rem' }}>
+                        {s === 'D' ? '☀️' : '🌙'} {cfg.label}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
           <div className="form-group">
             <label className="form-label">Notes (optional)</label>
             <input
@@ -1842,7 +2153,7 @@ export default function STGEntryForm({
         {statements.filter(s => enabledBlockKeys.includes(s.key)).map(s => (
           <React.Fragment key={s.key}>{renderStatementBlock(s)}</React.Fragment>
         ))}
-        
+
         {enabledBlockKeys.length === 0 && (
           <div className="card" style={{ padding: 40, textAlign: 'center', color: 'var(--text-muted)' }}>
             ⚠️ All statements have been excluded for this shift. Please add at least one statement block above.
@@ -1860,94 +2171,278 @@ export default function STGEntryForm({
           justifyContent: 'center',
           zIndex: 9999,
         }}>
-          <div className="card animate-fade-in" style={{
-            width: '100%',
-            maxWidth: 500,
-            background: 'var(--bg-surface)',
-            boxShadow: 'var(--shadow-lg)',
-            border: '1px solid var(--border)',
-            padding: 24,
-            borderRadius: 12,
-          }}>
-            <h3 style={{ margin: 0, marginBottom: 12, color: 'var(--brand-primary)', fontSize: '1.2rem', display: 'flex', alignItems: 'center', gap: 8 }}>
-              <span>📤</span> Share Statement Row
-            </h3>
-            <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', marginBottom: 20 }}>
-              Share <strong>{shareModal.itemName || 'Unnamed Item'}</strong> as a Disposal/Receipt to another statement.
-            </p>
+          {(() => {
+            const targetSide = shareModal.side === 'RECEIPT' ? 'DISPOSAL' : 'RECEIPT';
+            const targetBlockState = blocks[shareModal.targetBlockKey];
+            const targetRows = targetBlockState
+              ? (targetSide === 'RECEIPT' ? targetBlockState.receipts : targetBlockState.disposals).filter(r => r.item_name.trim() !== '')
+              : [];
 
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-              <div className="form-group" style={{ margin: 0 }}>
-                <label className="form-label" style={{ fontSize: '0.75rem', fontWeight: 600 }}>Target Statement *</label>
-                <select
-                  className="form-input"
-                  value={shareModal.targetBlockKey}
-                  onChange={e => setShareModal(prev => prev ? { ...prev, targetBlockKey: e.target.value } : null)}
-                  style={{ display: 'block', width: '100%', padding: '8px 12px', fontSize: '0.9rem' }}
-                >
-                  <option value="">No Share (Unlink)</option>
-                  {statements.filter(s => s.key !== shareModal.blockKey).map(s => (
-                    <option key={s.key} value={s.key}>{s.label}</option>
-                  ))}
-                </select>
+            return (
+              <div className="card animate-fade-in" style={{
+                width: '100%',
+                maxWidth: 500,
+                background: 'var(--bg-surface)',
+                boxShadow: 'var(--shadow-lg)',
+                border: '1px solid var(--border)',
+                padding: 24,
+                borderRadius: 12,
+                maxHeight: '90vh',
+                overflowY: 'auto',
+              }}>
+                <h3 style={{ margin: 0, marginBottom: 12, color: 'var(--brand-primary)', fontSize: '1.2rem', display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <span>📤</span> Share Statement Row
+                </h3>
+                <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', marginBottom: 20 }}>
+                  Share <strong>{shareModal.itemName || 'Unnamed Item'}</strong> as a {targetSide} to another statement.
+                </p>
+
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+                  <div className="form-group" style={{ margin: 0 }}>
+                    <label className="form-label" style={{ fontSize: '0.75rem', fontWeight: 600 }}>Target Statement *</label>
+                    <select
+                      className="form-input"
+                      value={shareModal.targetBlockKey}
+                      onChange={e => {
+                        const targetKey = e.target.value;
+                        const oppositeSide = shareModal.side === 'RECEIPT' ? 'DISPOSAL' : 'RECEIPT';
+                        const tList = blocks[targetKey]?.[oppositeSide === 'RECEIPT' ? 'receipts' : 'disposals'] || [];
+                        const hasExisting = tList.some(r => r.item_name.trim() !== '');
+                        setShareModal(prev => prev ? {
+                          ...prev,
+                          targetBlockKey: targetKey,
+                          shareMode: hasExisting ? 'aggregate' : 'new',
+                          targetRowIdx: undefined,
+                        } : null);
+                      }}
+                      style={{ display: 'block', width: '100%', padding: '8px 12px', fontSize: '0.9rem' }}
+                    >
+                      <option value="">No Share (Unlink)</option>
+                      {statements.filter(s => s.key !== shareModal.blockKey).map(s => (
+                        <option key={s.key} value={s.key}>{s.label}</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  {shareModal.targetBlockKey && targetRows.length > 0 && (
+                    <div style={{ padding: 12, background: 'rgba(2, 132, 199, 0.03)', borderRadius: 8, border: '1px solid var(--border)' }}>
+                      <div style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--brand-primary)', marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.02em' }}>
+                        📋 Existing {targetSide}s in Target block:
+                      </div>
+                      <table style={{ width: '100%', fontSize: '0.8rem', borderCollapse: 'collapse' }}>
+                        <thead>
+                          <tr style={{ borderBottom: '1px solid var(--border)', textAlign: 'left', color: 'var(--text-muted)' }}>
+                            <th style={{ padding: '4px 0' }}>Product</th>
+                            <th style={{ padding: '4px 0', textAlign: 'right' }}>Qty Lts</th>
+                            <th style={{ padding: '4px 0', textAlign: 'right' }}>Qty Kg</th>
+                            <th style={{ padding: '4px 0', textAlign: 'right' }}>Fat %</th>
+                            <th style={{ padding: '4px 0', textAlign: 'right' }}>SNF %</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {targetRows.map((tr, trIdx) => (
+                            <tr key={trIdx} style={{ borderBottom: trIdx === targetRows.length - 1 ? 'none' : '1px dashed var(--border)' }}>
+                              <td style={{ padding: '6px 0', fontWeight: 600 }}>{tr.item_name}</td>
+                              <td style={{ padding: '6px 0', textAlign: 'right' }}>{tr.qty_lts || '—'}</td>
+                              <td style={{ padding: '6px 0', textAlign: 'right' }}>{tr.qty_kg || '—'}</td>
+                              <td style={{ padding: '6px 0', textAlign: 'right' }}>{tr.fat_pct || '—'}</td>
+                              <td style={{ padding: '6px 0', textAlign: 'right' }}>{tr.snf_pct || '—'}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+
+                  {shareModal.targetBlockKey && targetRows.length > 0 && (
+                    <div className="form-group" style={{ margin: 0 }}>
+                      <label className="form-label" style={{ fontSize: '0.75rem', fontWeight: 600 }}>Share Option</label>
+                      <div style={{ display: 'flex', gap: 16, marginTop: 4 }}>
+                        <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: '0.85rem', cursor: 'pointer' }}>
+                          <input
+                            type="radio"
+                            name="shareMode"
+                            checked={shareModal.shareMode === 'aggregate'}
+                            onChange={() => setShareModal(prev => prev ? { ...prev, shareMode: 'aggregate', targetRowIdx: undefined } : null)}
+                          />
+                          Add values to existing row
+                        </label>
+                        <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: '0.85rem', cursor: 'pointer' }}>
+                          <input
+                            type="radio"
+                            name="shareMode"
+                            checked={shareModal.shareMode === 'new'}
+                            onChange={() => setShareModal(prev => prev ? { ...prev, shareMode: 'new', targetRowIdx: undefined } : null)}
+                          />
+                          Create new separate row
+                        </label>
+                      </div>
+                    </div>
+                  )}
+
+                  {shareModal.targetBlockKey && (shareModal.shareMode === 'new' || targetRows.length === 0) && (
+                    <div className="form-group" style={{ margin: 0 }}>
+                      <label className="form-label" style={{ fontSize: '0.75rem', fontWeight: 600 }}>Target Product Name *</label>
+                      <input
+                        type="text"
+                        className="form-input"
+                        value={shareModal.itemName}
+                        onChange={e => setShareModal(prev => prev ? { ...prev, itemName: e.target.value.toUpperCase() } : null)}
+                        placeholder="e.g. FCM"
+                        style={{ padding: '8px 12px', fontSize: '0.9rem' }}
+                      />
+                    </div>
+                  )}
+
+                  {shareModal.targetBlockKey && shareModal.shareMode === 'aggregate' && targetRows.length > 0 && (
+                    <div className="form-group" style={{ margin: 0 }}>
+                      <label className="form-label" style={{ fontSize: '0.75rem', fontWeight: 600 }}>Select Target Row to Merge *</label>
+                      <select
+                        className="form-input"
+                        value={shareModal.targetRowIdx ?? ''}
+                        onChange={e => {
+                          const idxVal = e.target.value === '' ? undefined : parseInt(e.target.value);
+                          setShareModal(prev => prev ? { ...prev, targetRowIdx: idxVal } : null);
+                        }}
+                        style={{ display: 'block', width: '100%', padding: '8px 12px', fontSize: '0.9rem' }}
+                      >
+                        <option value="">-- Select Row --</option>
+                        {targetRows.map((tr, trIdx) => (
+                          <option key={trIdx} value={trIdx}>{tr.item_name} (Lts: {tr.qty_lts || '0'}, Kg: {tr.qty_kg || '0'})</option>
+                        ))}
+                      </select>
+                    </div>
+                  )}
+
+                  {shareModal.targetBlockKey && shareModal.shareMode === 'aggregate' && shareModal.targetRowIdx !== undefined && targetRows[shareModal.targetRowIdx] && (() => {
+                    const tr = targetRows[shareModal.targetRowIdx];
+                    const isTargetSMP =
+                      shareModal.blockKey === 'SMP' ||
+                      shareModal.targetBlockKey === 'SMP' ||
+                      (shareModal.itemName || '').toLowerCase().includes('smp');
+
+                    const oldLts = parseFloat(tr.qty_lts) || 0;
+                    const oldKg = parseFloat(tr.qty_kg) || 0;
+                    const oldFatKg = parseFloat(tr.kg_fat) || 0;
+                    const oldSnfKg = parseFloat(tr.kg_snf) || 0;
+
+                    const shareLts = parseFloat(shareModal.qtyLts) || 0;
+                    const shareKg = parseFloat(shareModal.qtyKg) || 0;
+                    const shareFat = parseFloat(shareModal.fatPct) || 0;
+                    const shareSnf = parseFloat(shareModal.snfPct) || 0;
+
+                    let shareFatKg = 0;
+                    let shareSnfKg = 0;
+                    if (isTargetSMP) {
+                      shareFatKg = (shareKg * shareFat) / 100;
+                      shareSnfKg = (shareKg * shareSnf) / 100;
+                    } else {
+                      const spg = parseFloat(tr.sp_gr) || 1.03;
+                      shareFatKg = (spg * shareFat * shareLts) / 100;
+                      shareSnfKg = (spg * shareSnf * shareLts) / 100;
+                    }
+
+                    const newLts = oldLts + shareLts;
+                    const newKg = oldKg + shareKg;
+                    const newFatKg = oldFatKg + shareFatKg;
+                    const newSnfKg = oldSnfKg + shareSnfKg;
+
+                    const newFatPct = newKg > 0 ? ((newFatKg * 100) / newKg).toFixed(2) : '0';
+                    const newSnfPct = newKg > 0 ? ((newSnfKg * 100) / newKg).toFixed(2) : '0';
+
+                    return (
+                      <div style={{ padding: '10px 14px', background: 'rgba(16, 185, 129, 0.05)', borderRadius: 8, border: '1px solid rgba(16, 185, 129, 0.2)' }}>
+                        <div style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--brand-success)', marginBottom: 4, textTransform: 'uppercase' }}>
+                          📈 Recalculated Merge Preview:
+                        </div>
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px 16px', fontSize: '0.8rem' }}>
+                          <div>Qty (Lts): <strong style={{ color: 'var(--text-primary)' }}>{isTargetSMP ? '—' : `${oldLts} ➔ ${newLts}`}</strong></div>
+                          <div>Qty (Kg): <strong style={{ color: 'var(--text-primary)' }}>{oldKg.toFixed(2)} ➔ {newKg.toFixed(2)}</strong></div>
+                          <div>Fat %: <strong style={{ color: 'var(--text-primary)' }}>{tr.fat_pct || '0'}% ➔ {newFatPct}%</strong></div>
+                          <div>SNF %: <strong style={{ color: 'var(--text-primary)' }}>{tr.snf_pct || '0'}% ➔ {newSnfPct}%</strong></div>
+                        </div>
+                      </div>
+                    );
+                  })()}
+
+                  {shareModal.targetBlockKey && (
+                    <div className="form-row form-row-3" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12 }}>
+                      <div className="form-group" style={{ margin: 0 }}>
+                        {shareModal.blockKey === 'SMP' ||
+                        shareModal.targetBlockKey === 'SMP' ||
+                        (shareModal.itemName || '').toLowerCase().includes('smp') ? (
+                          <>
+                            <label className="form-label" style={{ fontSize: '0.75rem', fontWeight: 600 }}>Qty (Kg)</label>
+                            <input
+                              type="number"
+                              className="form-input"
+                              value={shareModal.qtyKg}
+                              onChange={e => setShareModal(prev => prev ? { ...prev, qtyKg: e.target.value } : null)}
+                              placeholder="0"
+                              style={{ padding: '8px 12px', fontSize: '0.9rem' }}
+                            />
+                          </>
+                        ) : (
+                          <>
+                            <label className="form-label" style={{ fontSize: '0.75rem', fontWeight: 600 }}>Qty (Lts)</label>
+                            <input
+                              type="number"
+                              className="form-input"
+                              value={shareModal.qtyLts}
+                              onChange={e => setShareModal(prev => prev ? { ...prev, qtyLts: e.target.value } : null)}
+                              placeholder="0"
+                              style={{ padding: '8px 12px', fontSize: '0.9rem' }}
+                            />
+                          </>
+                        )}
+                      </div>
+                      <div className="form-group" style={{ margin: 0 }}>
+                        <label className="form-label" style={{ fontSize: '0.75rem', fontWeight: 600 }}>Fat %</label>
+                        <input
+                          type="number"
+                          className="form-input"
+                          value={shareModal.fatPct}
+                          onChange={e => setShareModal(prev => prev ? { ...prev, fatPct: e.target.value } : null)}
+                          placeholder="0"
+                          style={{ padding: '8px 12px', fontSize: '0.9rem' }}
+                        />
+                      </div>
+                      <div className="form-group" style={{ margin: 0 }}>
+                        <label className="form-label" style={{ fontSize: '0.75rem', fontWeight: 600 }}>SNF %</label>
+                        <input
+                          type="number"
+                          className="form-input"
+                          value={shareModal.snfPct}
+                          onChange={e => setShareModal(prev => prev ? { ...prev, snfPct: e.target.value } : null)}
+                          placeholder="0"
+                          style={{ padding: '8px 12px', fontSize: '0.9rem' }}
+                        />
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                <div style={{ display: 'flex', gap: 12, justifyContent: 'flex-end', marginTop: 24, borderTop: '1px solid var(--border)', paddingTop: 16 }}>
+                  <button
+                    type="button"
+                    className="btn btn-secondary"
+                    onClick={() => setShareModal(null)}
+                    style={{ padding: '8px 16px', fontSize: '0.85rem' }}
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    className="btn btn-primary"
+                    onClick={handleShareSubmit}
+                    style={{ padding: '8px 18px', fontSize: '0.85rem', fontWeight: 600 }}
+                  >
+                    💾 Apply Share
+                  </button>
+                </div>
               </div>
-
-              <div className="form-row form-row-3" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12 }}>
-                <div className="form-group" style={{ margin: 0 }}>
-                  <label className="form-label" style={{ fontSize: '0.75rem', fontWeight: 600 }}>Qty (Lts)</label>
-                  <input
-                    type="number"
-                    className="form-input"
-                    value={shareModal.qtyLts}
-                    onChange={e => setShareModal(prev => prev ? { ...prev, qtyLts: e.target.value } : null)}
-                    placeholder="0"
-                    style={{ padding: '8px 12px', fontSize: '0.9rem' }}
-                  />
-                </div>
-                <div className="form-group" style={{ margin: 0 }}>
-                  <label className="form-label" style={{ fontSize: '0.75rem', fontWeight: 600 }}>Fat %</label>
-                  <input
-                    type="number"
-                    className="form-input"
-                    value={shareModal.fatPct}
-                    onChange={e => setShareModal(prev => prev ? { ...prev, fatPct: e.target.value } : null)}
-                    placeholder="0"
-                    style={{ padding: '8px 12px', fontSize: '0.9rem' }}
-                  />
-                </div>
-                <div className="form-group" style={{ margin: 0 }}>
-                  <label className="form-label" style={{ fontSize: '0.75rem', fontWeight: 600 }}>SNF %</label>
-                  <input
-                    type="number"
-                    className="form-input"
-                    value={shareModal.snfPct}
-                    onChange={e => setShareModal(prev => prev ? { ...prev, snfPct: e.target.value } : null)}
-                    placeholder="0"
-                    style={{ padding: '8px 12px', fontSize: '0.9rem' }}
-                  />
-                </div>
-              </div>
-            </div>
-
-            <div style={{ display: 'flex', gap: 12, justifyContent: 'flex-end', marginTop: 24, borderTop: '1px solid var(--border)', paddingTop: 16 }}>
-              <button
-                type="button"
-                className="btn btn-secondary"
-                onClick={() => setShareModal(null)}
-                style={{ padding: '8px 16px', fontSize: '0.85rem' }}
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                className="btn btn-primary"
-                onClick={handleShareSubmit}
-                style={{ padding: '8px 18px', fontSize: '0.85rem', fontWeight: 600 }}
-              >
-                💾 Apply Share
-              </button>
-            </div>
-          </div>
+            );
+          })()}
         </div>,
         document.body
       )}
