@@ -96,6 +96,36 @@
       "kg_snf": 11214.929,
       "remarks": "",
       "sort_order": 3
+    },
+    {
+      "id": "d9vllc4y3",
+      "entry_id": "6g1g8byj9",
+      "section": "OB",
+      "product": "WM",
+      "qty_lts": 0,
+      "qty_kg": 0,
+      "fat_pct": 0,
+      "snf_pct": 0,
+      "sp_gr": 0,
+      "kg_fat": 0,
+      "kg_snf": 0,
+      "remarks": "",
+      "sort_order": 0
+    },
+    {
+      "id": "l8sri94hd",
+      "entry_id": "6g1g8byj9",
+      "section": "CB",
+      "product": "WM",
+      "qty_lts": 0,
+      "qty_kg": 0,
+      "fat_pct": 0,
+      "snf_pct": 0,
+      "sp_gr": 1.027,
+      "kg_fat": 0,
+      "kg_snf": 0,
+      "remarks": "",
+      "sort_order": 1
     }
   ],
   "stg_rows": [
@@ -188,6 +218,36 @@
       "kg_fat": 5568.039,
       "kg_snf": 11214.929,
       "sort_order": 5
+    },
+    {
+      "id": "on3kkt4na",
+      "entry_id": "6g1g8byj9",
+      "product_block": "WM",
+      "side": "RECEIPT",
+      "item_name": "OB",
+      "qty_lts": 0,
+      "qty_kg": 0,
+      "fat_pct": 0,
+      "snf_pct": 0,
+      "sp_gr": 0,
+      "kg_fat": 0,
+      "kg_snf": 0,
+      "sort_order": 0
+    },
+    {
+      "id": "jjiehcogk",
+      "entry_id": "6g1g8byj9",
+      "product_block": "WM",
+      "side": "DISPOSAL",
+      "item_name": "CB",
+      "qty_lts": 0,
+      "qty_kg": 0,
+      "fat_pct": 0,
+      "snf_pct": 0,
+      "sp_gr": 0,
+      "kg_fat": 0,
+      "kg_snf": 0,
+      "sort_order": 1
     }
   ],
   "stock_rows": [
