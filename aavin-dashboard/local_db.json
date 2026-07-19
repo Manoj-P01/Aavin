@@ -22,9 +22,9 @@
       "entry_date": "2026-06-01",
       "shift": "D",
       "report_type": "STOCK",
-      "notes": "\n__METADATA__:{\"custom_statements\":[{\"key\":\"WM\",\"label\":\"TENTATIVE WHOLE MILK\"},{\"key\":\"SP\",\"label\":\"SEPARATION\"}],\"custom_blocks\":{\"SP\":{\"opening_balance\":{\"item_name\":\"OB\",\"qty_lts\":\"\",\"qty_kg\":\"\",\"fat_pct\":\"\",\"snf_pct\":\"\",\"sp_gr\":\"\",\"kg_fat\":\"\",\"kg_snf\":\"\",\"linked_block\":\"\"},\"receipts\":[{\"item_name\":\"WHOLE MILK\",\"qty_lts\":\"22000\",\"qty_kg\":\"22598.400\",\"fat_pct\":\"3.95\",\"snf_pct\":\"7.96\",\"sp_gr\":\"1.0272\",\"kg_fat\":\"892.637\",\"kg_snf\":\"1798.833\",\"linked_block\":\"WM\"}],\"disposals\":[],\"physical_count\":{\"item_name\":\"CB\",\"qty_lts\":\"22000\",\"qty_kg\":\"22598.400\",\"kg_fat\":\"892.637\",\"kg_snf\":\"1798.833\",\"sp_gr\":\"1.0272\",\"fat_pct\":\"3.95\",\"snf_pct\":\"7.96\"}}},\"enabled_blocks\":[\"WM\",\"SP\"]}",
+      "notes": "\n__METADATA__:{\"custom_statements\":[{\"key\":\"WM\",\"label\":\"TENTATIVE WHOLE MILK\"},{\"key\":\"SP\",\"label\":\"SEPARATION\"}],\"custom_blocks\":{\"SP\":{\"opening_balance\":{\"item_name\":\"OB\",\"qty_lts\":\"\",\"qty_kg\":\"\",\"fat_pct\":\"\",\"snf_pct\":\"\",\"sp_gr\":\"\",\"kg_fat\":\"\",\"kg_snf\":\"\",\"linked_block\":\"\"},\"receipts\":[{\"item_name\":\"WHOLE MILK\",\"qty_lts\":\"22000\",\"qty_kg\":\"22598.400\",\"fat_pct\":\"3.95\",\"snf_pct\":\"7.96\",\"sp_gr\":\"1.0272\",\"kg_fat\":\"892.637\",\"kg_snf\":\"1798.833\",\"linked_block\":\"WM\"}],\"disposals\":[],\"physical_count\":{\"item_name\":\"CB\",\"qty_lts\":\"22000\",\"qty_kg\":\"22598.400\",\"kg_fat\":\"892.637\",\"kg_snf\":\"1798.833\",\"sp_gr\":\"1.0272\",\"fat_pct\":\"3.95\",\"snf_pct\":\"7.96\"}}},\"enabled_blocks\":[\"WM\",\"SP\"],\"manual_rows\":{\"WM\":{\"receipts\":[false,false,false],\"disposals\":[false]}}}",
       "created_at": "2026-07-15T03:56:16.941Z",
-      "updated_at": "2026-07-15T03:58:28.141Z"
+      "updated_at": "2026-07-19T07:13:22.434Z"
     },
     {
       "id": "6g1g8byj9",
