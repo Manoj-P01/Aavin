@@ -1,11 +1,56 @@
 import { NextRequest, NextResponse } from 'next/server';
 import fs from 'fs';
 import path from 'path';
-import * as XLSX from 'xlsx';
+import XLSX from 'xlsx-js-style';
 import { getSupabaseServiceClient } from '@/lib/supabase';
 import { isLocalDbEnabled, initDb } from '@/lib/fileDb';
-import { generateDynamicBalanceRows, calcTSTotals, fmtNum } from '@/lib/calculations';
+import { generateDynamicBalanceRows, calcTSTotals } from '@/lib/calculations';
 import type { Shift, TSMilkRow, STGRow } from '@/lib/types';
+
+// Helper to create styled cell objects
+function cell(value: any, opts?: { isHeader?: boolean; isBold?: boolean; isNum?: boolean; isTitle?: boolean; alignment?: string; noBorder?: boolean }) {
+  const isHeader = opts?.isHeader ?? false;
+  const isBold = opts?.isBold ?? false;
+  const isNum = opts?.isNum ?? false;
+  const isTitle = opts?.isTitle ?? false;
+  const noBorder = opts?.noBorder ?? false;
+
+  let type = 's';
+  if (typeof value === 'number') {
+    type = 'n';
+  } else if (typeof value === 'boolean') {
+    type = 'b';
+  }
+
+  const style: any = {
+    font: {
+      name: 'Calibri',
+      sz: isTitle ? 11 : 10,
+      bold: isHeader || isBold || isTitle,
+    },
+    alignment: {
+      vertical: 'center',
+      horizontal: opts?.alignment || (isNum ? 'right' : (isHeader || isTitle ? 'center' : 'left')),
+    }
+  };
+
+  if (!noBorder) {
+    style.border = {
+      top: { style: 'thin', color: { rgb: 'A0A0A0' } },
+      bottom: { style: 'thin', color: { rgb: 'A0A0A0' } },
+      left: { style: 'thin', color: { rgb: 'A0A0A0' } },
+      right: { style: 'thin', color: { rgb: 'A0A0A0' } }
+    };
+  }
+
+  if (isTitle) {
+    style.fill = { fgColor: { rgb: 'F1F5F9' } };
+  } else if (isHeader) {
+    style.fill = { fgColor: { rgb: 'E2E8F0' } };
+  }
+
+  return { v: value === null || value === undefined ? '' : value, t: type, s: style };
+}
 
 export async function GET(req: NextRequest) {
   try {
@@ -113,7 +158,7 @@ export async function GET(req: NextRequest) {
 
     // Format helper to format values as numbers/strings
     const val = (v: number | null | undefined, decimals = 3) => {
-      if (v === null || v === undefined || isNaN(v)) return '';
+      if (v === null || v === undefined || isNaN(v)) return 0;
       return Number(v.toFixed(decimals));
     };
 
@@ -135,7 +180,7 @@ export async function GET(req: NextRequest) {
         }
       }
 
-      const { obRows, cbRows } = generateDynamicBalanceRows(stgRowsData, entryNotes, gStmts);
+      const { obRows, cbRows } = generateDynamicBalanceRows(tsRowsData, entryNotes, gStmts);
       const otherTsRows = tsRowsData.filter(r => r.section !== 'OB' && r.section !== 'CB');
       const rows = [...obRows, ...otherTsRows, ...cbRows];
       const totals = calcTSTotals(rows);
@@ -168,36 +213,36 @@ export async function GET(req: NextRequest) {
 
       // Pop left
       if (rowsBySection.OB.length > 0) {
-        leftList.push({ type: 'header', label: 'O/B (Opening Balance)' });
+        leftList.push({ type: 'header', label: 'O/B' });
         rowsBySection.OB.forEach((r, i) => leftList.push({ type: 'item', index: i + 1, data: r }));
-        leftList.push({ type: 'total', label: 'O/B Total', ...getSectionTotal(rowsBySection.OB) });
+        leftList.push({ type: 'total', label: 'TOTAL', ...getSectionTotal(rowsBySection.OB) });
       }
       if (rowsBySection.RECEIPT.length > 0) {
-        leftList.push({ type: 'header', label: 'Receipts' });
+        leftList.push({ type: 'header', label: 'RECEIPTS' });
         rowsBySection.RECEIPT.forEach((r, i) => leftList.push({ type: 'item', index: i + 1, data: r }));
-        leftList.push({ type: 'total', label: 'Receipts Total', ...getSectionTotal(rowsBySection.RECEIPT) });
+        leftList.push({ type: 'total', label: 'TOTAL', ...getSectionTotal(rowsBySection.RECEIPT) });
       }
 
       // Pop right
       if (rowsBySection.DISPOSAL_DESPATCH.length > 0) {
-        rightList.push({ type: 'header', label: 'Disposal - Despatch / Sale' });
+        rightList.push({ type: 'header', label: 'DESPATCH/SALE' });
         rowsBySection.DISPOSAL_DESPATCH.forEach((r, i) => rightList.push({ type: 'item', index: i + 1, data: r }));
-        rightList.push({ type: 'total', label: 'Despatch Total', ...getSectionTotal(rowsBySection.DISPOSAL_DESPATCH) });
+        rightList.push({ type: 'total', label: 'TOTAL', ...getSectionTotal(rowsBySection.DISPOSAL_DESPATCH) });
       }
       if (rowsBySection.LOCAL_SALE.length > 0) {
-        rightList.push({ type: 'header', label: 'Local Sales' });
+        rightList.push({ type: 'header', label: 'LOCAL SALES' });
         rowsBySection.LOCAL_SALE.forEach((r, i) => rightList.push({ type: 'item', index: i + 1, data: r }));
-        rightList.push({ type: 'total', label: 'Local Sales Total', ...getSectionTotal(rowsBySection.LOCAL_SALE) });
+        rightList.push({ type: 'total', label: 'TOTAL', ...getSectionTotal(rowsBySection.LOCAL_SALE) });
       }
       if (rowsBySection.OTHER_DISPOSAL.length > 0) {
-        rightList.push({ type: 'header', label: 'Other Disposal' });
+        rightList.push({ type: 'header', label: 'OTHER DISPOSAL' });
         rowsBySection.OTHER_DISPOSAL.forEach((r, i) => rightList.push({ type: 'item', index: i + 1, data: r }));
-        rightList.push({ type: 'total', label: 'Other Disposal Total', ...getSectionTotal(rowsBySection.OTHER_DISPOSAL) });
+        rightList.push({ type: 'total', label: 'TOTAL', ...getSectionTotal(rowsBySection.OTHER_DISPOSAL) });
       }
       if (rowsBySection.CB.length > 0) {
-        rightList.push({ type: 'header', label: 'C/B (Closing Balance)' });
+        rightList.push({ type: 'header', label: 'C/B' });
         rowsBySection.CB.forEach((r, i) => rightList.push({ type: 'item', index: i + 1, data: r }));
-        rightList.push({ type: 'total', label: 'C/B Total', ...getSectionTotal(rowsBySection.CB) });
+        rightList.push({ type: 'total', label: 'TOTAL', ...getSectionTotal(rowsBySection.CB) });
       }
 
       const alignedRows: AlignedRow[] = [];
@@ -211,81 +256,91 @@ export async function GET(req: NextRequest) {
 
       // Build Sheet Data
       const tsData: any[][] = [
-        ['NAMAKKAL DISTRICT CO-OPERATIVE MILK PRODUCERS\' UNION LTD'],
-        ['TOTAL SOLIDS DETAILS'],
-        [`DATE: ${new Date(date).toLocaleDateString('en-IN')} | SHIFT: ${shiftText}`],
-        [],
-        ['ARRIVAL', '', '', '', '', '', '', '', '', 'DISPOSAL'],
         [
-          'S.No', 'Arrival', 'Milk (Lit)', 'Milk (Kg)', 'Avg Fat %', 'Avg SNF %', 'Sp. Gr', 'Kg Fat', 'Kg SNF',
-          'S.No', 'Disposal', 'Milk (Lit)', 'Milk (Kg)', 'Avg Fat %', 'Avg SNF %', 'Sp. Gr', 'Kg Fat', 'Kg SNF'
+          cell('NAMAKKAL DISTRICT CO-OPERATIVE MILK PRODUCERS\' UNION LTD', { isBold: true, noBorder: true })
+        ],
+        [
+          cell('                         TOTAL SOLIDS DETAILS ', { isBold: true, noBorder: true }),
+          ...new Array(16).fill(cell('', { noBorder: true })),
+          cell(new Date(date).toLocaleDateString('en-IN'), { isBold: true, noBorder: true, alignment: 'right' })
+        ],
+        [
+          cell('S.no', { isHeader: true }), cell('Arrival', { isHeader: true }), cell('Milk (Lit)', { isHeader: true }), cell('Milk (Kg)', { isHeader: true }), cell('Avg Fat %', { isHeader: true }), cell('Avg SNF %', { isHeader: true }), cell('Sp. Gr', { isHeader: true }), cell('Kg Fat', { isHeader: true }), cell('Kg SNF', { isHeader: true }),
+          cell('S.no', { isHeader: true }), cell('Disposal', { isHeader: true }), cell('Milk (Lit)', { isHeader: true }), cell('Milk (Kg)', { isHeader: true }), cell('Avg Fat %', { isHeader: true }), cell('Avg SNF %', { isHeader: true }), cell('Sp. Gr', { isHeader: true }), cell('Kg Fat', { isHeader: true }), cell('Kg SNF', { isHeader: true })
         ]
       ];
 
       const merges: XLSX.Range[] = [
         { s: { r: 0, c: 0 }, e: { r: 0, c: 17 } },
-        { s: { r: 1, c: 0 }, e: { r: 1, c: 17 } },
-        { s: { r: 2, c: 0 }, e: { r: 2, c: 17 } },
-        { s: { r: 4, c: 0 }, e: { r: 4, c: 8 } },
-        { s: { r: 4, c: 9 }, e: { r: 4, c: 17 } },
+        { s: { r: 1, c: 0 }, e: { r: 1, c: 15 } },
       ];
 
       alignedRows.forEach((row, i) => {
-        const rIndex = 6 + i;
+        const rIndex = 3 + i;
         const rowVal: any[] = new Array(18).fill('');
 
         // Left side
         if (row.left.type === 'header') {
-          rowVal[0] = row.left.label;
-          merges.push({ s: { r: rIndex, c: 0 }, e: { r: rIndex, c: 8 } });
+          rowVal[0] = cell('');
+          rowVal[1] = cell(row.left.label, { isBold: true });
+          for (let c = 2; c < 9; c++) rowVal[c] = cell('');
+          merges.push({ s: { r: rIndex, c: 1 }, e: { r: rIndex, c: 8 } });
         } else if (row.left.type === 'total') {
-          rowVal[1] = row.left.label;
-          rowVal[2] = val(row.left.qty_lts);
-          rowVal[3] = val(row.left.qty_kg);
-          rowVal[4] = '-';
-          rowVal[5] = '-';
-          rowVal[6] = '-';
-          rowVal[7] = val(row.left.kg_fat, 4);
-          rowVal[8] = val(row.left.kg_snf, 4);
+          rowVal[0] = cell('');
+          rowVal[1] = cell(row.left.label, { isBold: true });
+          rowVal[2] = cell(val(row.left.qty_lts), { isBold: true, isNum: true });
+          rowVal[3] = cell(val(row.left.qty_kg), { isBold: true, isNum: true });
+          rowVal[4] = cell('');
+          rowVal[5] = cell('');
+          rowVal[6] = cell('');
+          rowVal[7] = cell(val(row.left.kg_fat, 4), { isBold: true, isNum: true });
+          rowVal[8] = cell(val(row.left.kg_snf, 4), { isBold: true, isNum: true });
           merges.push({ s: { r: rIndex, c: 0 }, e: { r: rIndex, c: 1 } });
         } else if (row.left.type === 'item') {
           const item = row.left.data;
-          rowVal[0] = row.left.index;
-          rowVal[1] = item.product;
-          rowVal[2] = val(item.qty_lts);
-          rowVal[3] = val(item.qty_kg);
-          rowVal[4] = val(item.fat_pct, 4);
-          rowVal[5] = val(item.snf_pct, 4);
-          rowVal[6] = val(item.sp_gr, 4);
-          rowVal[7] = val(item.kg_fat, 4);
-          rowVal[8] = val(item.kg_snf, 4);
+          rowVal[0] = cell(row.left.index);
+          rowVal[1] = cell(item.product);
+          rowVal[2] = cell(val(item.qty_lts), { isNum: true });
+          rowVal[3] = cell(val(item.qty_kg), { isNum: true });
+          rowVal[4] = cell(val(item.fat_pct, 4), { isNum: true });
+          rowVal[5] = cell(val(item.snf_pct, 4), { isNum: true });
+          rowVal[6] = cell(val(item.sp_gr, 4), { isNum: true });
+          rowVal[7] = cell(val(item.kg_fat, 4), { isNum: true });
+          rowVal[8] = cell(val(item.kg_snf, 4), { isNum: true });
+        } else {
+          for (let c = 0; c < 9; c++) rowVal[c] = cell('');
         }
 
         // Right side
         if (row.right.type === 'header') {
-          rowVal[9] = row.right.label;
-          merges.push({ s: { r: rIndex, c: 9 }, e: { r: rIndex, c: 17 } });
+          rowVal[9] = cell('');
+          rowVal[10] = cell(row.right.label, { isBold: true });
+          for (let c = 11; c < 18; c++) rowVal[c] = cell('');
+          merges.push({ s: { r: rIndex, c: 10 }, e: { r: rIndex, c: 17 } });
         } else if (row.right.type === 'total') {
-          rowVal[10] = row.right.label;
-          rowVal[11] = val(row.right.qty_lts);
-          rowVal[12] = val(row.right.qty_kg);
-          rowVal[13] = '-';
-          rowVal[14] = '-';
-          rowVal[15] = '-';
-          rowVal[16] = val(row.right.kg_fat, 4);
-          rowVal[17] = val(row.right.kg_snf, 4);
+          rowVal[9] = cell('');
+          rowVal[10] = cell(row.right.label, { isBold: true });
+          rowVal[11] = cell(val(row.right.qty_lts), { isBold: true, isNum: true });
+          rowVal[12] = cell(val(row.right.qty_kg), { isBold: true, isNum: true });
+          rowVal[13] = cell('');
+          rowVal[14] = cell('');
+          rowVal[15] = cell('');
+          rowVal[16] = cell(val(row.right.kg_fat, 4), { isBold: true, isNum: true });
+          rowVal[17] = cell(val(row.right.kg_snf, 4), { isBold: true, isNum: true });
           merges.push({ s: { r: rIndex, c: 9 }, e: { r: rIndex, c: 10 } });
         } else if (row.right.type === 'item') {
           const item = row.right.data;
-          rowVal[9] = row.right.index;
-          rowVal[10] = item.product;
-          rowVal[11] = val(item.qty_lts);
-          rowVal[12] = val(item.qty_kg);
-          rowVal[13] = val(item.fat_pct, 4);
-          rowVal[14] = val(item.snf_pct, 4);
-          rowVal[15] = val(item.sp_gr, 4);
-          rowVal[16] = val(item.kg_fat, 4);
-          rowVal[17] = val(item.kg_snf, 4);
+          rowVal[9] = cell(row.right.index);
+          rowVal[10] = cell(item.product);
+          rowVal[11] = cell(val(item.qty_lts), { isNum: true });
+          rowVal[12] = cell(val(item.qty_kg), { isNum: true });
+          rowVal[13] = cell(val(item.fat_pct, 4), { isNum: true });
+          rowVal[14] = cell(val(item.snf_pct, 4), { isNum: true });
+          rowVal[15] = cell(val(item.sp_gr, 4), { isNum: true });
+          rowVal[16] = cell(val(item.kg_fat, 4), { isNum: true });
+          rowVal[17] = cell(val(item.kg_snf, 4), { isNum: true });
+        } else {
+          for (let c = 9; c < 18; c++) rowVal[c] = cell('');
         }
 
         tsData.push(rowVal);
@@ -294,8 +349,8 @@ export async function GET(req: NextRequest) {
       // Add Grand Totals
       const gtRowIdx = tsData.length;
       tsData.push([
-        '', 'G. TOTAL (Arrival)', val(totals.grand_total_arrival_lts), val(totals.grand_total_arrival_kg), '-', '-', '-', val(totals.grand_total_arrival_kg_fat, 4), val(totals.grand_total_arrival_kg_snf, 4),
-        '', 'G. TOTAL (Disposal)', val(totals.grand_total_disposal_lts), val(totals.grand_total_disposal_kg), '-', '-', '-', val(totals.grand_total_disposal_kg_fat, 4), val(totals.grand_total_disposal_kg_snf, 4)
+        cell(''), cell('G.TOTAL', { isBold: true }), cell(val(totals.grand_total_arrival_lts), { isBold: true, isNum: true }), cell(val(totals.grand_total_arrival_kg), { isBold: true, isNum: true }), cell(''), cell(''), cell(''), cell(val(totals.grand_total_arrival_kg_fat, 4), { isBold: true, isNum: true }), cell(val(totals.grand_total_arrival_kg_snf, 4), { isBold: true, isNum: true }),
+        cell(''), cell('G.TOTAL', { isBold: true }), cell(val(totals.grand_total_disposal_lts), { isBold: true, isNum: true }), cell(val(totals.grand_total_disposal_kg), { isBold: true, isNum: true }), cell(''), cell(''), cell(''), cell(val(totals.grand_total_disposal_kg_fat, 4), { isBold: true, isNum: true }), cell(val(totals.grand_total_disposal_kg_snf, 4), { isBold: true, isNum: true })
       ]);
       merges.push({ s: { r: gtRowIdx, c: 0 }, e: { r: gtRowIdx, c: 1 } });
       merges.push({ s: { r: gtRowIdx, c: 9 }, e: { r: gtRowIdx, c: 10 } });
@@ -303,39 +358,35 @@ export async function GET(req: NextRequest) {
       // Add Loss/Gain
       const lgRowIdx = tsData.length;
       tsData.push([
-        '', '', '', '', '', '', '', '', '',
-        '', totals.loss_kg_fat >= 0 ? 'LOSS' : 'GAIN', '-', '-', '-', '-', '-', val(Math.abs(totals.loss_kg_fat), 4), val(Math.abs(totals.loss_kg_snf), 4)
+        cell('', { noBorder: true }), cell('', { noBorder: true }), cell('', { noBorder: true }), cell('', { noBorder: true }), cell('', { noBorder: true }), cell('', { noBorder: true }), cell('', { noBorder: true }), cell('', { noBorder: true }), cell('', { noBorder: true }),
+        cell(''), cell('LOSS', { isBold: true }), cell(''), cell(''), cell(''), cell(''), cell(''), cell(val(Math.abs(totals.loss_kg_fat), 4), { isBold: true, isNum: true }), cell(val(Math.abs(totals.loss_kg_snf), 4), { isBold: true, isNum: true })
       ]);
-      merges.push({ s: { r: lgRowIdx, c: 0 }, e: { r: lgRowIdx, c: 8 } });
-      merges.push({ s: { r: lgRowIdx, c: 9 }, e: { r: lgRowIdx, c: 10 } });
+      merges.push({ s: { r: lgRowIdx, c: 10 }, e: { r: lgRowIdx, c: 15 } });
 
       // Add Loss %
       const lpRowIdx = tsData.length;
       tsData.push([
-        '', '', '', '', '', '', '', '', '',
-        '', 'LOSS %', '', '', '', '', '', val(totals.loss_pct_fat, 4), val(totals.loss_pct_snf, 4)
+        cell('', { noBorder: true }), cell('', { noBorder: true }), cell('', { noBorder: true }), cell('', { noBorder: true }), cell('', { noBorder: true }), cell('', { noBorder: true }), cell('', { noBorder: true }), cell('', { noBorder: true }), cell('', { noBorder: true }),
+        cell(''), cell('LOSS%', { isBold: true }), cell(''), cell(''), cell(''), cell(''), cell(''), cell(val(totals.loss_pct_fat, 4), { isBold: true, isNum: true }), cell(val(totals.loss_pct_snf, 4), { isBold: true, isNum: true })
       ]);
-      merges.push({ s: { r: lpRowIdx, c: 0 }, e: { r: lpRowIdx, c: 8 } });
       merges.push({ s: { r: lpRowIdx, c: 10 }, e: { r: lpRowIdx, c: 15 } });
 
       // Add Norm
       const normRowIdx = tsData.length;
       tsData.push([
-        '', '', '', '', '', '', '', '', '',
-        '', 'CMPDD NORM (0.5%)', '', '', '', '', '', val(totals.cmpdd_norm_pct, 2), val(totals.cmpdd_norm_pct, 2)
+        cell('', { noBorder: true }), cell('', { noBorder: true }), cell('', { noBorder: true }), cell('', { noBorder: true }), cell('', { noBorder: true }), cell('', { noBorder: true }), cell('', { noBorder: true }), cell('', { noBorder: true }), cell('', { noBorder: true }),
+        cell(''), cell('CMPDD LOSS %', { isBold: true }), cell(''), cell(''), cell(''), cell(''), cell(''), cell(val(totals.cmpdd_norm_pct, 2), { isBold: true, isNum: true }), cell(val(totals.cmpdd_norm_pct, 2), { isBold: true, isNum: true })
       ]);
-      merges.push({ s: { r: normRowIdx, c: 0 }, e: { r: normRowIdx, c: 8 } });
       merges.push({ s: { r: normRowIdx, c: 10 }, e: { r: normRowIdx, c: 15 } });
 
       const tsWs = XLSX.utils.aoa_to_sheet(tsData);
       tsWs['!cols'] = colWidths;
       tsWs['!merges'] = merges;
-      XLSX.utils.book_append_sheet(wb, tsWs, 'TS Report');
+      XLSX.utils.book_append_sheet(wb, tsWs, 'TS');
     }
 
-    // 4. Build STG Report Sheets (each block in a separate sheet)
+    // 4. Build STG Report Sheet (All blocks inside a single sheet named 'STG')
     if (includeStg && stgRowsData.length > 0) {
-      // Parse custom statements and custom blocks
       let customStatements: Array<{ key: string; label: string }> = [];
       let customBlocks: Record<string, any> = {};
 
@@ -364,7 +415,24 @@ export async function GET(req: NextRequest) {
       customStatements.forEach(s => { if (s && s.key) blockMap.set(s.key, s); });
       const allBlocks = Array.from(blockMap.values());
 
-      allBlocks.forEach(blockInfo => {
+      // Master array for single STG sheet data
+      const stgSheetData: any[][] = [
+        [
+          cell('NAMAKKAL DISTRICT CO-OPERATIVE MILK PRODUCERS\' UNION LTD', { isBold: true, noBorder: true })
+        ],
+        [
+          cell('SOLID BALANCE DETAILS (STG)', { isBold: true, noBorder: true }),
+          ...new Array(16).fill(cell('', { noBorder: true })),
+          cell(new Date(date).toLocaleDateString('en-IN'), { isBold: true, noBorder: true, alignment: 'right' })
+        ]
+      ];
+
+      const stgMerges: XLSX.Range[] = [
+        { s: { r: 0, c: 0 }, e: { r: 0, c: 17 } },
+        { s: { r: 1, c: 0 }, e: { r: 1, c: 15 } }
+      ];
+
+      allBlocks.forEach((blockInfo, blockIndex) => {
         const block = blockInfo.key;
         let blockRows = stgRowsData.filter(r => r.product_block === block);
 
@@ -475,123 +543,121 @@ export async function GET(req: NextRequest) {
           snf: cbCalculated.snf !== 0 ? (lossGain.snf / cbCalculated.snf) * 100 : 0,
         };
 
-        // Build STG Data Block
+        // Add spacer empty row if not first block
+        if (blockIndex > 0) {
+          stgSheetData.push(new Array(18).fill(cell('', { noBorder: true })));
+        }
+
+        // Add Block Header
+        const startRowIdx = stgSheetData.length;
         const blockLabel = BLOCK_LABELS[block] || `${blockInfo.label.toUpperCase()} – RECEIPT AND DISPOSAL STATEMENT`;
+        stgSheetData.push([
+          cell(blockLabel, { isBold: true, noBorder: true }),
+          ...new Array(17).fill(cell('', { noBorder: true }))
+        ]);
+        stgMerges.push({ s: { r: startRowIdx, c: 0 }, e: { r: startRowIdx, c: 17 } });
 
-        const stgData: any[][] = [
-          ['NAMAKKAL DISTRICT CO-OPERATIVE MILK PRODUCERS\' UNION LTD'],
-          ['SOLID BALANCE DETAILS (STG)'],
-          [`DATE: ${new Date(date).toLocaleDateString('en-IN')} | SHIFT: ${shiftText}`],
-          [blockLabel],
-          [],
-          ['RECEIPTS', '', '', '', '', '', '', '', '', 'DISPOSALS'],
-          [
-            'S.No', 'Receipt', 'Qty (Lts)', 'Qty (Kg)', 'Fat %', 'SNF %', 'Sp. Gr', 'Kg.Fat', 'Kg.SNF',
-            'S.No', 'Disposal', 'Qty (Lts)', 'Qty (Kg)', 'Fat %', 'SNF %', 'Sp. Gr', 'Kg.Fat', 'Kg.SNF'
-          ]
-        ];
+        // Add Headers row
+        const headersRowIdx = stgSheetData.length;
+        stgSheetData.push([
+          cell('S.No.', { isHeader: true }), cell('Receipt', { isHeader: true }), cell('Qty (Lts)', { isHeader: true }), cell('Qty (Kg)', { isHeader: true }), cell('Fat%', { isHeader: true }), cell('Snf%', { isHeader: true }), cell('SP.G', { isHeader: true }), cell('Kg.Fat', { isHeader: true }), cell('Kg.Snf', { isHeader: true }),
+          cell('S.No.', { isHeader: true }), cell('Disposal', { isHeader: true }), cell('Qty (Lts)', { isHeader: true }), cell('Qty (Kg)', { isHeader: true }), cell('Fat%', { isHeader: true }), cell('Snf%', { isHeader: true }), cell('SP.G', { isHeader: true }), cell('Kg.Fat', { isHeader: true }), cell('Kg.Snf', { isHeader: true })
+        ]);
 
-        const stgMerges: XLSX.Range[] = [
-          { s: { r: 0, c: 0 }, e: { r: 0, c: 17 } },
-          { s: { r: 1, c: 0 }, e: { r: 1, c: 17 } },
-          { s: { r: 2, c: 0 }, e: { r: 2, c: 17 } },
-          { s: { r: 3, c: 0 }, e: { r: 3, c: 17 } },
-          { s: { r: 5, c: 0 }, e: { r: 5, c: 8 } },
-          { s: { r: 5, c: 9 }, e: { r: 5, c: 17 } },
-        ];
-
+        // Add aligned rows
         alignedRows.forEach((row, i) => {
-          const rIndex = 7 + i;
           const rowVal: any[] = new Array(18).fill('');
 
           // Left: Receipt
           if (row.r) {
-            rowVal[0] = i + 1;
-            rowVal[1] = row.r.item_name;
-            rowVal[2] = val(row.r.qty_lts);
-            rowVal[3] = val(row.r.qty_kg);
-            rowVal[4] = val(row.r.fat_pct, 4);
-            rowVal[5] = val(row.r.snf_pct, 4);
-            rowVal[6] = val(row.r.sp_gr, 4);
-            rowVal[7] = val(row.r.kg_fat, 4);
-            rowVal[8] = val(row.r.kg_snf, 4);
+            rowVal[0] = cell(i + 1);
+            rowVal[1] = cell(row.r.item_name);
+            rowVal[2] = cell(val(row.r.qty_lts), { isNum: true });
+            rowVal[3] = cell(val(row.r.qty_kg), { isNum: true });
+            rowVal[4] = cell(val(row.r.fat_pct, 4), { isNum: true });
+            rowVal[5] = cell(val(row.r.snf_pct, 4), { isNum: true });
+            rowVal[6] = cell(val(row.r.sp_gr, 4), { isNum: true });
+            rowVal[7] = cell(val(row.r.kg_fat, 4), { isNum: true });
+            rowVal[8] = cell(val(row.r.kg_snf, 4), { isNum: true });
+          } else {
+            for (let c = 0; c < 9; c++) rowVal[c] = cell('');
           }
 
           // Right: Disposal
           if (row.d) {
-            rowVal[9] = i + 1;
-            rowVal[10] = row.d.item_name;
-            rowVal[11] = val(row.d.qty_lts);
-            rowVal[12] = val(row.d.qty_kg);
-            rowVal[13] = val(row.d.fat_pct, 4);
-            rowVal[14] = val(row.d.snf_pct, 4);
-            rowVal[15] = val(row.d.sp_gr, 4);
-            rowVal[16] = val(row.d.kg_fat, 4);
-            rowVal[17] = val(row.d.kg_snf, 4);
+            rowVal[9] = cell(i + 1);
+            rowVal[10] = cell(row.d.item_name);
+            rowVal[11] = cell(val(row.d.qty_lts), { isNum: true });
+            rowVal[12] = cell(val(row.d.qty_kg), { isNum: true });
+            rowVal[13] = cell(val(row.d.fat_pct, 4), { isNum: true });
+            rowVal[14] = cell(val(row.d.snf_pct, 4), { isNum: true });
+            rowVal[15] = cell(val(row.d.sp_gr, 4), { isNum: true });
+            rowVal[16] = cell(val(row.d.kg_fat, 4), { isNum: true });
+            rowVal[17] = cell(val(row.d.kg_snf, 4), { isNum: true });
+          } else {
+            for (let c = 9; c < 18; c++) rowVal[c] = cell('');
           }
 
-          stgData.push(rowVal);
+          stgSheetData.push(rowVal);
         });
 
-        // Add subtotal
-        const subRowIdx = stgData.length;
-        stgData.push([
-          '', 'Total', val(totRec.lts), val(totRec.kg), '', '', '', val(totRec.fat, 4), val(totRec.snf, 4),
-          '', 'Total', val(totDisp.lts), val(totDisp.kg), '', '', '', val(totDisp.fat, 4), val(totDisp.snf, 4)
+        // Add Staggered totals
+        // Row D1: Disposal Total row (on the right)
+        const d1Idx = stgSheetData.length;
+        stgSheetData.push([
+          cell('', { noBorder: true }), cell('', { noBorder: true }), cell('', { noBorder: true }), cell('', { noBorder: true }), cell('', { noBorder: true }), cell('', { noBorder: true }), cell('', { noBorder: true }), cell('', { noBorder: true }), cell('', { noBorder: true }), // Left empty
+          cell(''), cell('Total', { isBold: true }), cell(val(totDisp.lts), { isBold: true, isNum: true }), cell(val(totDisp.kg), { isBold: true, isNum: true }), cell(''), cell(''), cell(''), cell(val(totDisp.fat, 4), { isBold: true, isNum: true }), cell(val(totDisp.snf, 4), { isBold: true, isNum: true })
         ]);
-        stgMerges.push({ s: { r: subRowIdx, c: 0 }, e: { r: subRowIdx, c: 1 } });
-        stgMerges.push({ s: { r: subRowIdx, c: 9 }, e: { r: subRowIdx, c: 10 } });
+        stgMerges.push({ s: { r: d1Idx, c: 9 }, e: { r: d1Idx, c: 10 } });
 
-        // Add OB / CB
-        const obcbRowIdx = stgData.length;
-        stgData.push([
-          '', 'Opening Balance (OB)', val(obVal.lts), val(obVal.kg), val(obVal.fat_pct, 4), val(obVal.snf_pct, 4), val(obVal.sp_gr, 4), val(obVal.fat, 4), val(obVal.snf, 4),
-          '', 'Closing Balance (CB)', val(physicalCB.lts), val(physicalCB.kg), '', '', '', val(physicalCB.fat, 4), val(physicalCB.snf, 4)
+        // Row D2: CB row (on the right)
+        const d2Idx = stgSheetData.length;
+        stgSheetData.push([
+          cell('', { noBorder: true }), cell('', { noBorder: true }), cell('', { noBorder: true }), cell('', { noBorder: true }), cell('', { noBorder: true }), cell('', { noBorder: true }), cell('', { noBorder: true }), cell('', { noBorder: true }), cell('', { noBorder: true }), // Left empty
+          cell(''), cell('CB', { isBold: true }), cell(val(physicalCB.lts), { isBold: true, isNum: true }), cell(val(physicalCB.kg), { isBold: true, isNum: true }), cell(val(physicalCB.fat_pct, 4), { isBold: true, isNum: true }), cell(val(physicalCB.snf_pct, 4), { isBold: true, isNum: true }), cell(val(physicalCB.sp_gr, 4), { isBold: true, isNum: true }), cell(val(physicalCB.fat, 4), { isBold: true, isNum: true }), cell(val(physicalCB.snf, 4), { isBold: true, isNum: true })
         ]);
-        stgMerges.push({ s: { r: obcbRowIdx, c: 0 }, e: { r: obcbRowIdx, c: 1 } });
-        stgMerges.push({ s: { r: obcbRowIdx, c: 9 }, e: { r: obcbRowIdx, c: 10 } });
+        stgMerges.push({ s: { r: d2Idx, c: 9 }, e: { r: d2Idx, c: 10 } });
 
-        // Add Grand Total
-        const gRowIdx = stgData.length;
-        stgData.push([
-          '', 'Grand Total', val(grandRec.lts), val(grandRec.kg), '', '', '', val(grandRec.fat, 4), val(grandRec.snf, 4),
-          '', 'Grand Total', val(grandDisp.lts), val(grandDisp.kg), '', '', '', val(grandDisp.fat, 4), val(grandDisp.snf, 4)
+        // Row D3: Grand Total row (on the right)
+        const d3Idx = stgSheetData.length;
+        stgSheetData.push([
+          cell('', { noBorder: true }), cell('', { noBorder: true }), cell('', { noBorder: true }), cell('', { noBorder: true }), cell('', { noBorder: true }), cell('', { noBorder: true }), cell('', { noBorder: true }), cell('', { noBorder: true }), cell('', { noBorder: true }), // Left empty
+          cell(''), cell('Grand Total', { isBold: true }), cell(val(grandDisp.lts), { isBold: true, isNum: true }), cell(val(grandDisp.kg), { isBold: true, isNum: true }), cell(''), cell(''), cell(''), cell(val(grandDisp.fat, 4), { isBold: true, isNum: true }), cell(val(grandDisp.snf, 4), { isBold: true, isNum: true })
         ]);
-        stgMerges.push({ s: { r: gRowIdx, c: 0 }, e: { r: gRowIdx, c: 1 } });
-        stgMerges.push({ s: { r: gRowIdx, c: 9 }, e: { r: gRowIdx, c: 10 } });
+        stgMerges.push({ s: { r: d3Idx, c: 9 }, e: { r: d3Idx, c: 10 } });
 
-        // Add Physical Count
-        const pRowIdx = stgData.length;
-        stgData.push([
-          '', '', '', '', '', '', '', '', '',
-          '', 'Physical Count (CB)', val(physicalCB.lts), val(physicalCB.kg), val(physicalCB.fat_pct, 4), val(physicalCB.snf_pct, 4), val(physicalCB.sp_gr, 4), val(physicalCB.fat, 4), val(physicalCB.snf, 4)
+        // Row R1: Receipt Total (left) / Loss/Gain (right)
+        const r1Idx = stgSheetData.length;
+        stgSheetData.push([
+          cell(''), cell('Total', { isBold: true }), cell(val(totRec.lts), { isBold: true, isNum: true }), cell(val(totRec.kg), { isBold: true, isNum: true }), cell(''), cell(''), cell(''), cell(val(totRec.fat, 4), { isBold: true, isNum: true }), cell(val(totRec.snf, 4), { isBold: true, isNum: true }),
+          cell(''), cell('Loss/Gain', { isBold: true }), cell(val(lossGain.lts), { isBold: true, isNum: true }), cell(val(lossGain.kg), { isBold: true, isNum: true }), cell(''), cell(''), cell(''), cell(val(lossGain.fat, 4), { isBold: true, isNum: true }), cell(val(lossGain.snf, 4), { isBold: true, isNum: true })
         ]);
-        stgMerges.push({ s: { r: pRowIdx, c: 0 }, e: { r: pRowIdx, c: 8 } });
-        stgMerges.push({ s: { r: pRowIdx, c: 9 }, e: { r: pRowIdx, c: 10 } });
+        stgMerges.push({ s: { r: r1Idx, c: 0 }, e: { r: r1Idx, c: 1 } });
+        stgMerges.push({ s: { r: r1Idx, c: 9 }, e: { r: r1Idx, c: 10 } });
 
-        // Add Loss/Gain
-        const lossRowIdx = stgData.length;
-        stgData.push([
-          '', '', '', '', '', '', '', '', '',
-          '', 'Loss / Gain', val(lossGain.lts), val(lossGain.kg), '', '', '', val(lossGain.fat, 4), val(lossGain.snf, 4)
+        // Row R2: OB (left) / Loss/Gain % (right)
+        const r2Idx = stgSheetData.length;
+        stgSheetData.push([
+          cell(''), cell('OB', { isBold: true }), cell(val(obVal.lts), { isBold: true, isNum: true }), cell(val(obVal.kg), { isBold: true, isNum: true }), cell(val(obVal.fat_pct, 4), { isBold: true, isNum: true }), cell(val(obVal.snf_pct, 4), { isBold: true, isNum: true }), cell(val(obVal.sp_gr, 4), { isBold: true, isNum: true }), cell(val(obVal.fat, 4), { isBold: true, isNum: true }), cell(val(obVal.snf, 4), { isBold: true, isNum: true }),
+          cell(''), cell('Loss/Gain %', { isBold: true }), cell(''), cell(''), cell(''), cell(''), cell(''), cell(`${val(lossGainPct.fat)}%`, { isBold: true, alignment: 'right' }), cell(`${val(lossGainPct.snf)}%`, { isBold: true, alignment: 'right' })
         ]);
-        stgMerges.push({ s: { r: lossRowIdx, c: 0 }, e: { r: lossRowIdx, c: 8 } });
-        stgMerges.push({ s: { r: lossRowIdx, c: 9 }, e: { r: lossRowIdx, c: 10 } });
+        stgMerges.push({ s: { r: r2Idx, c: 0 }, e: { r: r2Idx, c: 1 } });
+        stgMerges.push({ s: { r: r2Idx, c: 9 }, e: { r: r2Idx, c: 10 } });
 
-        // Add Loss/Gain %
-        const lossPctRowIdx = stgData.length;
-        stgData.push([
-          '', '', '', '', '', '', '', '', '',
-          '', 'Loss / Gain %', `${val(lossGainPct.lts)}%`, `${val(lossGainPct.kg)}%`, '', '', '', `${val(lossGainPct.fat)}%`, `${val(lossGainPct.snf)}%`
+        // Row R3: Grand Total (left) / CMPDD Norms (right)
+        const r3Idx = stgSheetData.length;
+        stgSheetData.push([
+          cell(''), cell('Grand Total', { isBold: true }), cell(val(grandRec.lts), { isBold: true, isNum: true }), cell(val(grandRec.kg), { isBold: true, isNum: true }), cell(''), cell(''), cell(''), cell(val(grandRec.fat, 4), { isBold: true, isNum: true }), cell(val(grandRec.snf, 4), { isBold: true, isNum: true }),
+          cell(''), cell('CMPDD Norms %', { isBold: true }), cell(''), cell(''), cell(''), cell(''), cell(''), cell('0.5%', { isBold: true, alignment: 'right' }), cell('0.5%', { isBold: true, alignment: 'right' })
         ]);
-        stgMerges.push({ s: { r: lossPctRowIdx, c: 0 }, e: { r: lossPctRowIdx, c: 8 } });
-        stgMerges.push({ s: { r: lossPctRowIdx, c: 9 }, e: { r: lossPctRowIdx, c: 10 } });
-
-        const stgWs = XLSX.utils.aoa_to_sheet(stgData);
-        stgWs['!cols'] = colWidths;
-        stgWs['!merges'] = stgMerges;
-        XLSX.utils.book_append_sheet(wb, stgWs, `STG - ${block}`);
+        stgMerges.push({ s: { r: r3Idx, c: 0 }, e: { r: r3Idx, c: 1 } });
+        stgMerges.push({ s: { r: r3Idx, c: 9 }, e: { r: r3Idx, c: 10 } });
       });
+
+      const stgWs = XLSX.utils.aoa_to_sheet(stgSheetData);
+      stgWs['!cols'] = colWidths;
+      stgWs['!merges'] = stgMerges;
+      XLSX.utils.book_append_sheet(wb, stgWs, 'STG');
     }
 
     const excelBuffer = XLSX.write(wb, { bookType: 'xlsx', type: 'buffer' });
