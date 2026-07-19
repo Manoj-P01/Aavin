@@ -24,6 +24,7 @@ interface STGItemInput {
   kg_fat: string;
   kg_snf: string;
   linked_block?: string;
+  manual_calc?: boolean;
 }
 
 interface STGBlockState {
@@ -58,6 +59,7 @@ function makeInitialItem(name = '', linked_block = ''): STGItemInput {
     kg_fat: '',
     kg_snf: '',
     linked_block,
+    manual_calc: false,
   };
 }
 
@@ -232,6 +234,7 @@ export default function STGEntryForm({
             let customBlocksState: Record<string, any> = {};
             let cleanNotes = data.data.notes || '';
             let savedEnabledKeys: string[] | null = null;
+            let todayManualRows: Record<string, { receipts: boolean[]; disposals: boolean[] }> = {};
 
             const notesParts = (data.data.notes || '').split('\n');
             notesParts.forEach((part: string) => {
@@ -247,6 +250,9 @@ export default function STGEntryForm({
                   }
                   if (meta.enabled_blocks) {
                     savedEnabledKeys = meta.enabled_blocks;
+                  }
+                  if (meta.manual_rows) {
+                    todayManualRows = meta.manual_rows;
                   }
                 } catch (e) {
                   console.error('Failed to parse STG metadata:', e);
@@ -301,6 +307,7 @@ export default function STGEntryForm({
                 kg_fat: row.kg_fat ? String(row.kg_fat) : '',
                 kg_snf: row.kg_snf ? String(row.kg_snf) : '',
                 linked_block: matchedStatement ? matchedStatement.key : '',
+                manual_calc: false,
               };
 
               if (row.item_name === 'OB') {
@@ -312,6 +319,26 @@ export default function STGEntryForm({
                   newBlocks[b].receipts.push(item);
                 } else {
                   newBlocks[b].disposals.push(item);
+                }
+              }
+            });
+
+            // Assign manual_calc statuses from todayManualRows (for standard blocks)
+            Object.entries(todayManualRows).forEach(([bKey, manualState]) => {
+              if (newBlocks[bKey] && ['WM', 'SSM', 'CREAM', 'SMP'].includes(bKey)) {
+                if (manualState.receipts) {
+                  newBlocks[bKey].receipts.forEach((r: any, idx: number) => {
+                    if (manualState.receipts[idx] !== undefined) {
+                      r.manual_calc = manualState.receipts[idx];
+                    }
+                  });
+                }
+                if (manualState.disposals) {
+                  newBlocks[bKey].disposals.forEach((d: any, idx: number) => {
+                    if (manualState.disposals[idx] !== undefined) {
+                      d.manual_calc = manualState.disposals[idx];
+                    }
+                  });
                 }
               }
             });
@@ -787,7 +814,11 @@ export default function STGEntryForm({
         const current = { ...list[idx] };
         const oldRow = { ...current }; // Keep copy of old row for delta calculation
         
-        list[idx] = calculateSTGRowValues(current, field, finalVal, block === 'SMP');
+        if (current.manual_calc) {
+          list[idx] = { ...current, [field]: finalVal };
+        } else {
+          list[idx] = calculateSTGRowValues(current, field, finalVal, block === 'SMP');
+        }
 
         if (section === 'RECEIPT') blockState.receipts = list;
         else blockState.disposals = list;
@@ -1118,10 +1149,21 @@ export default function STGEntryForm({
         }
       });
 
+      const manualRows: Record<string, { receipts: boolean[]; disposals: boolean[] }> = {};
+      ['WM', 'SSM', 'CREAM', 'SMP'].forEach(k => {
+        if (blocks[k]) {
+          manualRows[k] = {
+            receipts: blocks[k].receipts.map(r => !!r.manual_calc),
+            disposals: blocks[k].disposals.map(d => !!d.manual_calc),
+          };
+        }
+      });
+
       const metadata = {
         custom_statements: statements.filter(s => enabledBlockKeys.includes(s.key)),
         custom_blocks: customBlocks,
         enabled_blocks: enabledBlockKeys,
+        manual_rows: manualRows,
       };
       const finalNotes = notes.trim() + "\n__METADATA__:" + JSON.stringify(metadata);
 
@@ -1542,7 +1584,8 @@ export default function STGEntryForm({
               <thead>
                 <tr>
                   <th style={{ width: '5%', textAlign: 'center' }}>S.No</th>
-                  <th style={{ width: '25%' }}>Receipt</th>
+                  <th style={{ width: '22%' }}>Receipt</th>
+                  <th className="no-print" style={{ width: '8%', textAlign: 'center' }}>Calc</th>
                   <th className="num">Qty (Lts)</th>
                   <th className="num" title="Formula: Qty (Lts) × Sp. Gr" style={{ backgroundColor: '#e0f2fe', color: '#0369a1' }}>Qty (Kg)</th>
                   <th className="num">Fat %</th>
@@ -1556,6 +1599,11 @@ export default function STGEntryForm({
               <tbody>
                 {blockState.receipts.map((r, idx) => {
                   const isSMPRow = blockKey === 'SMP' || r.item_name.toLowerCase().includes('smp');
+                  const isQtyKgCalculated = !isSMPRow && !r.manual_calc;
+                  const isSpGrCalculated = !isSMPRow && !r.manual_calc;
+                  const isKgFatCalculated = !r.manual_calc;
+                  const isKgSnfCalculated = !r.manual_calc;
+
                   return (
                     <tr key={idx}>
                       <td style={{ textAlign: 'center', fontWeight: 600 }}>{idx + 1}</td>
@@ -1566,6 +1614,55 @@ export default function STGEntryForm({
                           disabled={blocksLocked[blockKey]}
                           style={blocksLocked[blockKey] ? { background: '#f1f5f9', cursor: 'not-allowed' } : undefined}
                         />
+                      </td>
+                      <td className="no-print" style={{ textAlign: 'center' }}>
+                        <button
+                          type="button"
+                          className={`btn ${r.manual_calc ? 'btn-secondary' : 'btn-primary'}`}
+                          style={{
+                            padding: '2px 6px',
+                            fontSize: '0.7rem',
+                            height: 'auto',
+                            lineHeight: '1.2',
+                            minWidth: '55px',
+                            borderRadius: '4px',
+                            fontWeight: 600,
+                            textTransform: 'uppercase',
+                            letterSpacing: '0.03em',
+                            cursor: blocksLocked[blockKey] ? 'not-allowed' : 'pointer'
+                          }}
+                          disabled={blocksLocked[blockKey]}
+                          onClick={() => {
+                            setBlocks(prev => {
+                              const next = { ...prev };
+                              const blockState = { ...next[blockKey] };
+                              const list = [...blockState.receipts];
+                              const current = { ...list[idx] };
+                              
+                              current.manual_calc = !current.manual_calc;
+                              
+                              if (!current.manual_calc) {
+                                const isSMP = blockKey === 'SMP' || (current.item_name || '').toLowerCase().includes('smp');
+                                if (isSMP) {
+                                  list[idx] = calculateSTGRowValues(current, 'qty_kg', current.qty_kg, true);
+                                } else {
+                                  const temp = calculateSTGRowValues(current, 'fat_pct', current.fat_pct, false);
+                                  list[idx] = calculateSTGRowValues(temp, 'qty_lts', current.qty_lts, false);
+                                }
+                              } else {
+                                list[idx] = current;
+                              }
+                              
+                              blockState.receipts = list;
+                              recalculateCB(blockState, blockKey);
+                              next[blockKey] = blockState;
+                              return next;
+                            });
+                          }}
+                          title={r.manual_calc ? "Switch to Auto-Calculation mode" : "Switch to Manual entry mode"}
+                        >
+                          {r.manual_calc ? '✏️ Man' : '🤖 Auto'}
+                        </button>
                       </td>
                       <td>
                         <input
@@ -1581,7 +1678,13 @@ export default function STGEntryForm({
                           onChange={e => updateVal(blockKey, 'RECEIPT', idx, 'qty_kg', e.target.value)}
                           title={isSMPRow ? "Manual Input (Kg)" : "Formula: Qty (Lts) × Sp. Gr"}
                           disabled={blocksLocked[blockKey]}
-                          style={blocksLocked[blockKey] ? { background: '#f1f5f9', cursor: 'not-allowed' } : undefined}
+                          style={
+                            blocksLocked[blockKey]
+                              ? { background: '#f1f5f9', cursor: 'not-allowed' }
+                              : (isQtyKgCalculated
+                                ? { backgroundColor: '#f0f9ff', borderColor: '#bae6fd', color: '#0369a1' }
+                                : undefined)
+                          }
                         />
                       </td>
                       <td>
@@ -1606,7 +1709,13 @@ export default function STGEntryForm({
                           onChange={e => updateVal(blockKey, 'RECEIPT', idx, 'sp_gr', e.target.value)}
                           title="=ROUND(1+(SNF %-(Fat %*0.2+0.36))/250,4)"
                           disabled={blocksLocked[blockKey]}
-                          style={blocksLocked[blockKey] ? { background: '#f1f5f9', cursor: 'not-allowed' } : undefined}
+                          style={
+                            blocksLocked[blockKey]
+                              ? { background: '#f1f5f9', cursor: 'not-allowed' }
+                              : (isSpGrCalculated
+                                ? { backgroundColor: '#f0f9ff', borderColor: '#bae6fd', color: '#0369a1' }
+                                : undefined)
+                          }
                         />
                       </td>
                       <td>
@@ -1615,7 +1724,13 @@ export default function STGEntryForm({
                           onChange={e => updateVal(blockKey, 'RECEIPT', idx, 'kg_fat', e.target.value)}
                           title={isSMPRow ? "=ROUND(Qty (Kg)*Fat %/100,3)" : "=ROUND(Sp. Gr*Fat %*Qty (Lts)/100,3)"}
                           disabled={blocksLocked[blockKey]}
-                          style={blocksLocked[blockKey] ? { background: '#f1f5f9', cursor: 'not-allowed' } : undefined}
+                          style={
+                            blocksLocked[blockKey]
+                              ? { background: '#f1f5f9', cursor: 'not-allowed' }
+                              : (isKgFatCalculated
+                                ? { backgroundColor: '#f0f9ff', borderColor: '#bae6fd', color: '#0369a1' }
+                                : undefined)
+                          }
                         />
                       </td>
                       <td>
@@ -1624,7 +1739,13 @@ export default function STGEntryForm({
                           onChange={e => updateVal(blockKey, 'RECEIPT', idx, 'kg_snf', e.target.value)}
                           title={isSMPRow ? "=ROUND(Qty (Kg)*SNF %/100,3)" : "=ROUND(Sp. Gr*SNF %*Qty (Lts)/100,3)"}
                           disabled={blocksLocked[blockKey]}
-                          style={blocksLocked[blockKey] ? { background: '#f1f5f9', cursor: 'not-allowed' } : undefined}
+                          style={
+                            blocksLocked[blockKey]
+                              ? { background: '#f1f5f9', cursor: 'not-allowed' }
+                              : (isKgSnfCalculated
+                                ? { backgroundColor: '#f0f9ff', borderColor: '#bae6fd', color: '#0369a1' }
+                                : undefined)
+                          }
                         />
                       </td>
                       <td className="no-print">
@@ -1633,46 +1754,46 @@ export default function STGEntryForm({
                         ) : (
                           <div style={{ display: 'flex', gap: 10, alignItems: 'center', justifyContent: 'center' }}>
                             <button
-                              type="button"
-                              style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '1rem', padding: 0 }}
-                              title="Add row below"
-                              onClick={() => addRowAfter(blockKey, 'RECEIPT', idx)}
-                            >
-                              ➕
-                            </button>
-                            <button
-                              type="button"
-                              style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '1rem', padding: 0 }}
-                              title="Delete row"
-                              onClick={() => deleteRow(blockKey, 'RECEIPT', idx)}
-                            >
-                              ❌
-                            </button>
-                            <button
-                              type="button"
-                              style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '1.05rem', padding: 0, opacity: r.linked_block ? 1 : 0.6 }}
-                              title={r.linked_block ? `Shared to ${statements.find(s => s.key === r.linked_block)?.label || r.linked_block}` : "Share to statement"}
-                              onClick={() => {
-                                const targetBlockKey = r.linked_block || '';
-                                const targetList = blocks[targetBlockKey]?.disposals || [];
-                                const tRowIdx = targetList.findIndex(x => x.linked_block === blockKey);
-                                setShareModal({
-                                  blockKey,
-                                  side: 'RECEIPT',
-                                  idx,
-                                  itemName: r.item_name,
-                                  targetBlockKey,
-                                  qtyLts: r.qty_lts,
-                                  qtyKg: r.qty_kg,
-                                  fatPct: r.fat_pct,
-                                  snfPct: r.snf_pct,
-                                  shareMode: tRowIdx !== -1 ? 'aggregate' : 'new',
-                                  targetRowIdx: tRowIdx !== -1 ? tRowIdx : undefined,
-                                });
-                              }}
-                            >
-                              {r.linked_block ? '🔗' : '📤'}
-                            </button>
+                               type="button"
+                               style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '1rem', padding: 0 }}
+                               title="Add row below"
+                               onClick={() => addRowAfter(blockKey, 'RECEIPT', idx)}
+                             >
+                               ➕
+                             </button>
+                             <button
+                               type="button"
+                               style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '1rem', padding: 0 }}
+                               title="Delete row"
+                               onClick={() => deleteRow(blockKey, 'RECEIPT', idx)}
+                             >
+                               ❌
+                             </button>
+                             <button
+                               type="button"
+                               style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '1.05rem', padding: 0, opacity: r.linked_block ? 1 : 0.6 }}
+                               title={r.linked_block ? `Shared to ${statements.find(s => s.key === r.linked_block)?.label || r.linked_block}` : "Share to statement"}
+                               onClick={() => {
+                                 const targetBlockKey = r.linked_block || '';
+                                 const targetList = blocks[targetBlockKey]?.disposals || [];
+                                 const tRowIdx = targetList.findIndex(x => x.linked_block === blockKey);
+                                 setShareModal({
+                                   blockKey,
+                                   side: 'RECEIPT',
+                                   idx,
+                                   itemName: r.item_name,
+                                   targetBlockKey,
+                                   qtyLts: r.qty_lts,
+                                   qtyKg: r.qty_kg,
+                                   fatPct: r.fat_pct,
+                                   snfPct: r.snf_pct,
+                                   shareMode: tRowIdx !== -1 ? 'aggregate' : 'new',
+                                   targetRowIdx: tRowIdx !== -1 ? tRowIdx : undefined,
+                                 });
+                               }}
+                             >
+                               {r.linked_block ? '🔗' : '📤'}
+                             </button>
                           </div>
                         )}
                       </td>
@@ -1691,7 +1812,7 @@ export default function STGEntryForm({
                       if (canAddReceipt) addRowAfter(blockKey, 'RECEIPT', blockState.receipts.length - 1);
                     }}
                   >
-                    <td colSpan={10} style={{ textAlign: 'center', color: 'var(--brand-primary)', fontWeight: 600, padding: 8 }}>
+                    <td colSpan={11} style={{ textAlign: 'center', color: 'var(--brand-primary)', fontWeight: 600, padding: 8 }}>
                       ➕ Add Row
                     </td>
                   </tr>
@@ -1713,7 +1834,8 @@ export default function STGEntryForm({
               <thead>
                 <tr>
                   <th style={{ width: '5%', textAlign: 'center' }}>S.No</th>
-                  <th style={{ width: '25%' }}>Disposal</th>
+                  <th style={{ width: '22%' }}>Disposal</th>
+                  <th className="no-print" style={{ width: '8%', textAlign: 'center' }}>Calc</th>
                   <th className="num">Qty (Lts)</th>
                   <th className="num" title="Formula: Qty (Lts) × Sp. Gr" style={{ backgroundColor: '#e0f2fe', color: '#0369a1' }}>Qty (Kg)</th>
                   <th className="num">Fat %</th>
@@ -1727,6 +1849,11 @@ export default function STGEntryForm({
               <tbody>
                 {blockState.disposals.map((d, idx) => {
                   const isSMPRow = blockKey === 'SMP' || d.item_name.toLowerCase().includes('smp');
+                  const isQtyKgCalculated = !isSMPRow && !d.manual_calc;
+                  const isSpGrCalculated = !isSMPRow && !d.manual_calc;
+                  const isKgFatCalculated = !d.manual_calc;
+                  const isKgSnfCalculated = !d.manual_calc;
+
                   return (
                     <tr key={idx}>
                       <td style={{ textAlign: 'center', fontWeight: 600 }}>{idx + 1}</td>
@@ -1737,6 +1864,55 @@ export default function STGEntryForm({
                           disabled={blocksLocked[blockKey]}
                           style={blocksLocked[blockKey] ? { background: '#f1f5f9', cursor: 'not-allowed' } : undefined}
                         />
+                      </td>
+                      <td className="no-print" style={{ textAlign: 'center' }}>
+                        <button
+                          type="button"
+                          className={`btn ${d.manual_calc ? 'btn-secondary' : 'btn-primary'}`}
+                          style={{
+                            padding: '2px 6px',
+                            fontSize: '0.7rem',
+                            height: 'auto',
+                            lineHeight: '1.2',
+                            minWidth: '55px',
+                            borderRadius: '4px',
+                            fontWeight: 600,
+                            textTransform: 'uppercase',
+                            letterSpacing: '0.03em',
+                            cursor: blocksLocked[blockKey] ? 'not-allowed' : 'pointer'
+                          }}
+                          disabled={blocksLocked[blockKey]}
+                          onClick={() => {
+                            setBlocks(prev => {
+                              const next = { ...prev };
+                              const blockState = { ...next[blockKey] };
+                              const list = [...blockState.disposals];
+                              const current = { ...list[idx] };
+                              
+                              current.manual_calc = !current.manual_calc;
+                              
+                              if (!current.manual_calc) {
+                                const isSMP = blockKey === 'SMP' || (current.item_name || '').toLowerCase().includes('smp');
+                                if (isSMP) {
+                                  list[idx] = calculateSTGRowValues(current, 'qty_kg', current.qty_kg, true);
+                                } else {
+                                  const temp = calculateSTGRowValues(current, 'fat_pct', current.fat_pct, false);
+                                  list[idx] = calculateSTGRowValues(temp, 'qty_lts', current.qty_lts, false);
+                                }
+                              } else {
+                                list[idx] = current;
+                              }
+                              
+                              blockState.disposals = list;
+                              recalculateCB(blockState, blockKey);
+                              next[blockKey] = blockState;
+                              return next;
+                            });
+                          }}
+                          title={d.manual_calc ? "Switch to Auto-Calculation mode" : "Switch to Manual entry mode"}
+                        >
+                          {d.manual_calc ? '✏️ Man' : '🤖 Auto'}
+                        </button>
                       </td>
                       <td>
                         <input
@@ -1752,7 +1928,13 @@ export default function STGEntryForm({
                           onChange={e => updateVal(blockKey, 'DISPOSAL', idx, 'qty_kg', e.target.value)}
                           title={isSMPRow ? "Manual Input (Kg)" : "Formula: Qty (Lts) × Sp. Gr"}
                           disabled={blocksLocked[blockKey]}
-                          style={blocksLocked[blockKey] ? { background: '#f1f5f9', cursor: 'not-allowed' } : undefined}
+                          style={
+                            blocksLocked[blockKey]
+                              ? { background: '#f1f5f9', cursor: 'not-allowed' }
+                              : (isQtyKgCalculated
+                                ? { backgroundColor: '#f0f9ff', borderColor: '#bae6fd', color: '#0369a1' }
+                                : undefined)
+                          }
                         />
                       </td>
                       <td>
@@ -1777,7 +1959,13 @@ export default function STGEntryForm({
                           onChange={e => updateVal(blockKey, 'DISPOSAL', idx, 'sp_gr', e.target.value)}
                           title="=ROUND(1+(SNF %-(Fat %*0.2+0.36))/250,4)"
                           disabled={blocksLocked[blockKey]}
-                          style={blocksLocked[blockKey] ? { background: '#f1f5f9', cursor: 'not-allowed' } : undefined}
+                          style={
+                            blocksLocked[blockKey]
+                              ? { background: '#f1f5f9', cursor: 'not-allowed' }
+                              : (isSpGrCalculated
+                                ? { backgroundColor: '#f0f9ff', borderColor: '#bae6fd', color: '#0369a1' }
+                                : undefined)
+                          }
                         />
                       </td>
                       <td>
@@ -1786,7 +1974,13 @@ export default function STGEntryForm({
                           onChange={e => updateVal(blockKey, 'DISPOSAL', idx, 'kg_fat', e.target.value)}
                           title={isSMPRow ? "=ROUND(Qty (Kg)*Fat %/100,3)" : "=ROUND(Sp. Gr*Fat %*Qty (Lts)/100,3)"}
                           disabled={blocksLocked[blockKey]}
-                          style={blocksLocked[blockKey] ? { background: '#f1f5f9', cursor: 'not-allowed' } : undefined}
+                          style={
+                            blocksLocked[blockKey]
+                              ? { background: '#f1f5f9', cursor: 'not-allowed' }
+                              : (isKgFatCalculated
+                                ? { backgroundColor: '#f0f9ff', borderColor: '#bae6fd', color: '#0369a1' }
+                                : undefined)
+                          }
                         />
                       </td>
                       <td>
@@ -1795,7 +1989,13 @@ export default function STGEntryForm({
                           onChange={e => updateVal(blockKey, 'DISPOSAL', idx, 'kg_snf', e.target.value)}
                           title={isSMPRow ? "=ROUND(Qty (Kg)*SNF %/100,3)" : "=ROUND(Sp. Gr*SNF %*Qty (Lts)/100,3)"}
                           disabled={blocksLocked[blockKey]}
-                          style={blocksLocked[blockKey] ? { background: '#f1f5f9', cursor: 'not-allowed' } : undefined}
+                          style={
+                            blocksLocked[blockKey]
+                              ? { background: '#f1f5f9', cursor: 'not-allowed' }
+                              : (isKgSnfCalculated
+                                ? { backgroundColor: '#f0f9ff', borderColor: '#bae6fd', color: '#0369a1' }
+                                : undefined)
+                          }
                         />
                       </td>
                       <td className="no-print">
@@ -1804,46 +2004,46 @@ export default function STGEntryForm({
                         ) : (
                           <div style={{ display: 'flex', gap: 10, alignItems: 'center', justifyContent: 'center' }}>
                             <button
-                              type="button"
-                              style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '1rem', padding: 0 }}
-                              title="Add row below"
-                              onClick={() => addRowAfter(blockKey, 'DISPOSAL', idx)}
-                            >
-                              ➕
-                            </button>
-                            <button
-                              type="button"
-                              style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '1rem', padding: 0 }}
-                              title="Delete row"
-                              onClick={() => deleteRow(blockKey, 'DISPOSAL', idx)}
-                            >
-                              ❌
-                            </button>
-                            <button
-                              type="button"
-                              style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '1.05rem', padding: 0, opacity: d.linked_block ? 1 : 0.6 }}
-                              title={d.linked_block ? `Shared to ${statements.find(s => s.key === d.linked_block)?.label || d.linked_block}` : "Share to statement"}
-                              onClick={() => {
-                                const targetBlockKey = d.linked_block || '';
-                                const targetList = blocks[targetBlockKey]?.receipts || [];
-                                const tRowIdx = targetList.findIndex(x => x.linked_block === blockKey);
-                                setShareModal({
-                                  blockKey,
-                                  side: 'DISPOSAL',
-                                  idx,
-                                  itemName: d.item_name,
-                                  targetBlockKey,
-                                  qtyLts: d.qty_lts,
-                                  qtyKg: d.qty_kg,
-                                  fatPct: d.fat_pct,
-                                  snfPct: d.snf_pct,
-                                  shareMode: tRowIdx !== -1 ? 'aggregate' : 'new',
-                                  targetRowIdx: tRowIdx !== -1 ? tRowIdx : undefined,
-                                });
-                              }}
-                            >
-                              {d.linked_block ? '🔗' : '📤'}
-                            </button>
+                               type="button"
+                               style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '1rem', padding: 0 }}
+                               title="Add row below"
+                               onClick={() => addRowAfter(blockKey, 'DISPOSAL', idx)}
+                             >
+                               ➕
+                             </button>
+                             <button
+                               type="button"
+                               style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '1rem', padding: 0 }}
+                               title="Delete row"
+                               onClick={() => deleteRow(blockKey, 'DISPOSAL', idx)}
+                             >
+                               ❌
+                             </button>
+                             <button
+                               type="button"
+                               style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '1.05rem', padding: 0, opacity: d.linked_block ? 1 : 0.6 }}
+                               title={d.linked_block ? `Shared to ${statements.find(s => s.key === d.linked_block)?.label || d.linked_block}` : "Share to statement"}
+                               onClick={() => {
+                                 const targetBlockKey = d.linked_block || '';
+                                 const targetList = blocks[targetBlockKey]?.receipts || [];
+                                 const tRowIdx = targetList.findIndex(x => x.linked_block === blockKey);
+                                 setShareModal({
+                                   blockKey,
+                                   side: 'DISPOSAL',
+                                   idx,
+                                   itemName: d.item_name,
+                                   targetBlockKey,
+                                   qtyLts: d.qty_lts,
+                                   qtyKg: d.qty_kg,
+                                   fatPct: d.fat_pct,
+                                   snfPct: d.snf_pct,
+                                   shareMode: tRowIdx !== -1 ? 'aggregate' : 'new',
+                                   targetRowIdx: tRowIdx !== -1 ? tRowIdx : undefined,
+                                 });
+                               }}
+                             >
+                               {d.linked_block ? '🔗' : '📤'}
+                             </button>
                           </div>
                         )}
                       </td>
@@ -1862,7 +2062,7 @@ export default function STGEntryForm({
                       if (canAddDisposal) addRowAfter(blockKey, 'DISPOSAL', blockState.disposals.length - 1);
                     }}
                   >
-                    <td colSpan={10} style={{ textAlign: 'center', color: 'var(--brand-primary)', fontWeight: 600, padding: 8 }}>
+                    <td colSpan={11} style={{ textAlign: 'center', color: 'var(--brand-primary)', fontWeight: 600, padding: 8 }}>
                       ➕ Add Row
                     </td>
                   </tr>
