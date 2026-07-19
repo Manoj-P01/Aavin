@@ -47,51 +47,6 @@
   ],
   "ts_milk_rows": [
     {
-      "id": "ecw3l17wi",
-      "entry_id": "6g1g8byj9",
-      "section": "OB",
-      "product": "WM",
-      "qty_lts": 0,
-      "qty_kg": 0,
-      "fat_pct": 0,
-      "snf_pct": 0,
-      "sp_gr": 0,
-      "kg_fat": 0,
-      "kg_snf": 0,
-      "remarks": "",
-      "sort_order": 0
-    },
-    {
-      "id": "mty5gb09k",
-      "entry_id": "6g1g8byj9",
-      "section": "RECEIPT",
-      "product": "BMC",
-      "qty_lts": 3000,
-      "qty_kg": 3015,
-      "fat_pct": 9.5,
-      "snf_pct": 3.52,
-      "sp_gr": 1.005,
-      "kg_fat": 286.425,
-      "kg_snf": 106.128,
-      "remarks": "",
-      "sort_order": 1
-    },
-    {
-      "id": "471mk1vme",
-      "entry_id": "6g1g8byj9",
-      "section": "CB",
-      "product": "WM",
-      "qty_lts": 3000,
-      "qty_kg": 3015,
-      "fat_pct": 9.5,
-      "snf_pct": 3.52,
-      "sp_gr": 1.005,
-      "kg_fat": 286.425,
-      "kg_snf": 106.128,
-      "remarks": "",
-      "sort_order": 2
-    },
-    {
       "id": "8liizdq50",
       "entry_id": "jp7s6b18t",
       "section": "OB",
@@ -150,15 +105,12 @@
       "kg_snf": 11214.929,
       "remarks": "",
       "sort_order": 3
-    }
-  ],
-  "stg_rows": [
+    },
     {
-      "id": "pn8cpzxt3",
+      "id": "17m6mucxm",
       "entry_id": "6g1g8byj9",
-      "product_block": "WM",
-      "side": "RECEIPT",
-      "item_name": "OB",
+      "section": "OB",
+      "product": "WM",
       "qty_lts": 0,
       "qty_kg": 0,
       "fat_pct": 0,
@@ -166,14 +118,14 @@
       "sp_gr": 0,
       "kg_fat": 0,
       "kg_snf": 0,
+      "remarks": "",
       "sort_order": 0
     },
     {
-      "id": "vaquvz3fy",
+      "id": "ol894cf2q",
       "entry_id": "6g1g8byj9",
-      "product_block": "WM",
-      "side": "RECEIPT",
-      "item_name": "BMC",
+      "section": "RECEIPT",
+      "product": "BMC",
       "qty_lts": 3000,
       "qty_kg": 3015,
       "fat_pct": 9.5,
@@ -181,14 +133,14 @@
       "sp_gr": 1.005,
       "kg_fat": 286.425,
       "kg_snf": 106.128,
+      "remarks": "",
       "sort_order": 1
     },
     {
-      "id": "byuf85xlq",
+      "id": "d9kggvp57",
       "entry_id": "6g1g8byj9",
-      "product_block": "WM",
-      "side": "DISPOSAL",
-      "item_name": "CB",
+      "section": "CB",
+      "product": "WM",
       "qty_lts": 3000,
       "qty_kg": 3015,
       "fat_pct": 9.5,
@@ -196,8 +148,11 @@
       "sp_gr": 1.005,
       "kg_fat": 286.425,
       "kg_snf": 106.128,
+      "remarks": "",
       "sort_order": 2
-    },
+    }
+  ],
+  "stg_rows": [
     {
       "id": "5h5a5lnw9",
       "entry_id": "jp7s6b18t",
@@ -287,6 +242,51 @@
       "kg_fat": 5568.039,
       "kg_snf": 11214.929,
       "sort_order": 5
+    },
+    {
+      "id": "qfv6tvkrg",
+      "entry_id": "6g1g8byj9",
+      "product_block": "WM",
+      "side": "RECEIPT",
+      "item_name": "OB",
+      "qty_lts": 0,
+      "qty_kg": 0,
+      "fat_pct": 0,
+      "snf_pct": 0,
+      "sp_gr": 0,
+      "kg_fat": 0,
+      "kg_snf": 0,
+      "sort_order": 0
+    },
+    {
+      "id": "quzi56sdl",
+      "entry_id": "6g1g8byj9",
+      "product_block": "WM",
+      "side": "RECEIPT",
+      "item_name": "BMC",
+      "qty_lts": 3000,
+      "qty_kg": 3015,
+      "fat_pct": 9.5,
+      "snf_pct": 3.52,
+      "sp_gr": 1.005,
+      "kg_fat": 286.425,
+      "kg_snf": 106.128,
+      "sort_order": 1
+    },
+    {
+      "id": "etexe200z",
+      "entry_id": "6g1g8byj9",
+      "product_block": "WM",
+      "side": "DISPOSAL",
+      "item_name": "CB",
+      "qty_lts": 3000,
+      "qty_kg": 3015,
+      "fat_pct": 9.5,
+      "snf_pct": 3.52,
+      "sp_gr": 1.005,
+      "kg_fat": 286.425,
+      "kg_snf": 106.128,
+      "sort_order": 2
     }
   ],
   "stock_rows": [
