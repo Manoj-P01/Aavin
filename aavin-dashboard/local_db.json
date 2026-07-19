@@ -33,7 +33,7 @@
       "report_type": "TS",
       "notes": "\n__METADATA__:{\"custom_statements\":[{\"key\":\"WM\",\"label\":\"TENTATIVE WHOLE MILK\"},{\"key\":\"SP\",\"label\":\"SEPARATION\"}],\"custom_blocks\":{\"SP\":{\"opening_balance\":{\"item_name\":\"OB\",\"qty_lts\":\"\",\"qty_kg\":\"\",\"fat_pct\":\"\",\"snf_pct\":\"\",\"sp_gr\":\"\",\"kg_fat\":\"\",\"kg_snf\":\"\",\"linked_block\":\"\"},\"receipts\":[{\"item_name\":\"\",\"qty_lts\":\"\",\"qty_kg\":\"\",\"fat_pct\":\"\",\"snf_pct\":\"\",\"sp_gr\":\"\",\"kg_fat\":\"\",\"kg_snf\":\"\",\"linked_block\":\"\"}],\"disposals\":[{\"item_name\":\"CREAM\",\"qty_lts\":\"300\",\"qty_kg\":\"308.220\",\"fat_pct\":\"4.0\",\"snf_pct\":\"8\",\"sp_gr\":\"1.0274\",\"kg_fat\":\"12.329\",\"kg_snf\":\"24.658\",\"linked_block\":\"WM\",\"manual_calc\":false}],\"physical_count\":{\"item_name\":\"CB\",\"qty_lts\":\"\",\"qty_kg\":\"\",\"kg_fat\":\"\",\"kg_snf\":\"\",\"sp_gr\":\"\",\"fat_pct\":\"\",\"snf_pct\":\"\"}}},\"enabled_blocks\":[\"WM\",\"SP\"],\"manual_rows\":{\"WM\":{\"receipts\":[false,false],\"disposals\":[false]}}}",
       "created_at": "2026-07-19T01:46:18.546Z",
-      "updated_at": "2026-07-19T11:52:22.639Z"
+      "updated_at": "2026-07-19T11:52:38.193Z"
     },
     {
       "id": "v23kcntdp",
