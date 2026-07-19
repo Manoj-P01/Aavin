@@ -128,7 +128,7 @@ export default function TSReport({ rows, totals, date, shift }: Props) {
         </div>
         <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginTop: 4 }}>
           DATE: {new Date(date).toLocaleDateString('en-IN', { day: '2-digit', month: '2-digit', year: 'numeric' })}
-          {shift ? ` | SHIFT: ${shift === 'D' ? 'Day' : 'Night'}` : ''}
+          {` | SHIFT: ${shift ? (shift === 'D' ? 'Day' : 'Night') : 'Full Day'}`}
         </div>
       </div>
 

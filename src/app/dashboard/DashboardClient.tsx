@@ -107,7 +107,6 @@ export default function DashboardClient() {
                   <th>Date</th>
                   <th>Report Type</th>
                   <th>Shift</th>
-                  <th>Notes</th>
                   <th>Created</th>
                   <th>Action</th>
                 </tr>
@@ -126,9 +125,10 @@ export default function DashboardClient() {
                         <span className={`badge ${entry.shift === 'D' ? 'badge-day' : 'badge-night'}`}>
                           {entry.shift === 'D' ? '☀️ Day' : '🌙 Night'}
                         </span>
-                      ) : '—'}
+                      ) : (
+                        <span className="badge badge-blue">🗓️ Full Day</span>
+                      )}
                     </td>
-                    <td style={{ color: 'var(--text-muted)' }}>{entry.notes || '—'}</td>
                     <td style={{ color: 'var(--text-muted)', fontSize: '0.75rem' }}>
                       {new Date(entry.created_at).toLocaleDateString('en-IN')}
                     </td>
