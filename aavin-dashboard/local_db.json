@@ -107,7 +107,7 @@
       "sort_order": 3
     },
     {
-      "id": "d9vllc4y3",
+      "id": "dkocn6kj0",
       "entry_id": "6g1g8byj9",
       "section": "OB",
       "product": "WM",
@@ -122,19 +122,34 @@
       "sort_order": 0
     },
     {
-      "id": "l8sri94hd",
+      "id": "uuw6owiml",
+      "entry_id": "6g1g8byj9",
+      "section": "RECEIPT",
+      "product": "BMC",
+      "qty_lts": 3000,
+      "qty_kg": 3015,
+      "fat_pct": 9.5,
+      "snf_pct": 3.52,
+      "sp_gr": 1.005,
+      "kg_fat": 286.425,
+      "kg_snf": 106.128,
+      "remarks": "",
+      "sort_order": 1
+    },
+    {
+      "id": "tk99xs2i7",
       "entry_id": "6g1g8byj9",
       "section": "CB",
       "product": "WM",
-      "qty_lts": 0,
-      "qty_kg": 0,
-      "fat_pct": 0,
-      "snf_pct": 0,
-      "sp_gr": 1.027,
-      "kg_fat": 0,
-      "kg_snf": 0,
+      "qty_lts": 3000,
+      "qty_kg": 3015,
+      "fat_pct": 9.5,
+      "snf_pct": 3.52,
+      "sp_gr": 1.005,
+      "kg_fat": 286.425,
+      "kg_snf": 106.128,
       "remarks": "",
-      "sort_order": 1
+      "sort_order": 2
     }
   ],
   "stg_rows": [
@@ -229,7 +244,7 @@
       "sort_order": 5
     },
     {
-      "id": "on3kkt4na",
+      "id": "83kkmwtt2",
       "entry_id": "6g1g8byj9",
       "product_block": "WM",
       "side": "RECEIPT",
@@ -244,19 +259,34 @@
       "sort_order": 0
     },
     {
-      "id": "jjiehcogk",
+      "id": "gu86gm3e4",
+      "entry_id": "6g1g8byj9",
+      "product_block": "WM",
+      "side": "RECEIPT",
+      "item_name": "BMC",
+      "qty_lts": 3000,
+      "qty_kg": 3015,
+      "fat_pct": 9.5,
+      "snf_pct": 3.52,
+      "sp_gr": 1.005,
+      "kg_fat": 286.425,
+      "kg_snf": 106.128,
+      "sort_order": 1
+    },
+    {
+      "id": "suqduioyb",
       "entry_id": "6g1g8byj9",
       "product_block": "WM",
       "side": "DISPOSAL",
       "item_name": "CB",
-      "qty_lts": 0,
-      "qty_kg": 0,
-      "fat_pct": 0,
-      "snf_pct": 0,
-      "sp_gr": 0,
-      "kg_fat": 0,
-      "kg_snf": 0,
-      "sort_order": 1
+      "qty_lts": 3000,
+      "qty_kg": 3015,
+      "fat_pct": 9.5,
+      "snf_pct": 3.52,
+      "sp_gr": 1.005,
+      "kg_fat": 286.425,
+      "kg_snf": 106.128,
+      "sort_order": 2
     }
   ],
   "stock_rows": [
