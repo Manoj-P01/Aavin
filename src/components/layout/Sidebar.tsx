@@ -14,9 +14,9 @@ const NAV_SECTIONS = [
   {
     label: 'Daily Reports',
     items: [
-      { href: '/dashboard/ts', icon: '🧪', label: 'Total Solids (TS)' },
       { href: '/dashboard/ts/new-stg', icon: '⚖️', label: 'New STG Entry' },
       { href: '/dashboard/ts/new', icon: '🧪', label: 'New TS Entry' },
+      { href: '/dashboard/ts', icon: '🧪', label: 'Total Solids (TS)' },
     ],
   },
   {

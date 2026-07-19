@@ -29,6 +29,11 @@ export default function TSViewPage() {
   const [formulasConfig, setFormulasConfig] = useState<any>(null);
   const activeTab = selectedTab ?? ((tabParam === 'TS' || tabParam === 'ts') ? 'TS' : 'STG');
 
+  const [exportModalOpen, setExportModalOpen] = useState(false);
+  const [exportSTG, setExportSTG] = useState(true);
+  const [exportTS, setExportTS] = useState(true);
+  const [exporting, setExporting] = useState(false);
+
   useEffect(() => {
     async function load() {
       setLoading(true);
@@ -117,6 +122,35 @@ export default function TSViewPage() {
   const totals = calcTSTotals(rows, formulasConfig || undefined);
   const handlePrint = () => window.print();
 
+  const handleExportExcel = async () => {
+    setExporting(true);
+    try {
+      const url = `/api/export-excel?date=${date}&shift=${shift ?? 'null'}&stg=${exportSTG}&ts=${exportTS}`;
+      const res = await fetch(url);
+      if (!res.ok) throw new Error('Export failed');
+      const blob = await res.blob();
+      const downloadUrl = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = downloadUrl;
+      const dateParts = date.split('-');
+      const formattedDate = `${dateParts[2]}-${dateParts[1]}-${dateParts[0]}`;
+      const shiftStr = shift ? `-${shift}` : '';
+      a.download = `${formattedDate}${shiftStr}-TS.xlsx`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      window.URL.revokeObjectURL(downloadUrl);
+      
+      alert(`Report exported successfully!`);
+      setExportModalOpen(false);
+    } catch (err) {
+      console.error(err);
+      alert('Failed to export Excel report.');
+    } finally {
+      setExporting(false);
+    }
+  };
+
   return (
     <>
       <Header
@@ -134,6 +168,7 @@ export default function TSViewPage() {
               </Link>
             )}
             <button className="btn btn-secondary btn-sm" onClick={handlePrint}>🖨 Print / PDF</button>
+            <button className="btn btn-secondary btn-sm" style={{ borderColor: '#16a34a', color: '#16a34a' }} onClick={() => setExportModalOpen(true)}>📥 Export Excel</button>
             <Link href="/dashboard/ts" className="btn btn-ghost btn-sm">← Back</Link>
           </div>
         }
@@ -165,18 +200,31 @@ export default function TSViewPage() {
                 { label: '🗓️ Full Day', value: null },
                 { label: '☀️ Day Shift', value: 'D' },
                 { label: '🌙 Night Shift', value: 'N' }
-              ].map(s => (
-                <button
-                  key={s.label}
-                  className={`tab ${shift === s.value ? 'active' : ''}`}
-                  style={{ padding: '6px 14px', fontSize: '0.85rem' }}
-                  onClick={() => {
-                    router.replace(`/dashboard/ts/${date}?tab=${activeTab}&shift=${s.value ?? 'null'}`);
-                  }}
-                >
-                  {s.label}
-                </button>
-              ))}
+              ].map(s => {
+                const isSelected = shift === s.value;
+                return (
+                  <button
+                    key={s.label}
+                    className={`tab ${isSelected ? 'active' : ''}`}
+                    style={{
+                      padding: '6px 14px',
+                      fontSize: '0.85rem',
+                      borderRadius: 'var(--radius-sm)',
+                      ...(isSelected ? {
+                        backgroundColor: 'var(--brand-primary)',
+                        color: '#ffffff',
+                        fontWeight: 700,
+                        boxShadow: '0 2px 6px rgba(14,165,233,0.3)',
+                      } : {})
+                    }}
+                    onClick={() => {
+                      router.replace(`/dashboard/ts/${date}?tab=${activeTab}&shift=${s.value ?? 'null'}`);
+                    }}
+                  >
+                    {s.label}
+                  </button>
+                );
+              })}
             </div>
           </div>
         </div>
@@ -235,6 +283,65 @@ export default function TSViewPage() {
           </div>
         )}
       </div>
+
+      {exportModalOpen && (
+        <div style={{
+          position: 'fixed',
+          inset: 0,
+          backgroundColor: 'rgba(0,0,0,0.5)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          zIndex: 9999,
+          backdropFilter: 'blur(4px)',
+        }} className="no-print">
+          <div className="card" style={{ width: '100%', maxWidth: 400, padding: 24, boxShadow: 'var(--shadow-xl)' }}>
+            <div className="section-title" style={{ marginBottom: 16 }}>Export to Excel</div>
+            <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', marginBottom: 20 }}>
+              Select which reports you would like to include in the exported Excel spreadsheet:
+            </p>
+            
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 12, marginBottom: 24 }}>
+              <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: '0.9rem', cursor: 'pointer' }}>
+                <input
+                  type="checkbox"
+                  checked={exportSTG}
+                  onChange={e => setExportSTG(e.target.checked)}
+                  style={{ width: 18, height: 18 }}
+                />
+                Solid Balance (STG) Sheets
+              </label>
+              <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: '0.9rem', cursor: 'pointer' }}>
+                <input
+                  type="checkbox"
+                  checked={exportTS}
+                  onChange={e => setExportTS(e.target.checked)}
+                  style={{ width: 18, height: 18 }}
+                />
+                Total Solids (TS) Report Sheet
+              </label>
+            </div>
+            
+            <div style={{ display: 'flex', gap: 12, justifyContent: 'flex-end' }}>
+              <button
+                className="btn btn-secondary btn-sm"
+                onClick={() => setExportModalOpen(false)}
+                disabled={exporting}
+              >
+                Cancel
+              </button>
+              <button
+                className="btn btn-primary btn-sm"
+                style={{ backgroundColor: '#16a34a', backgroundImage: 'none', boxShadow: 'none' }}
+                onClick={handleExportExcel}
+                disabled={exporting || (!exportSTG && !exportTS)}
+              >
+                {exporting ? 'Exporting...' : '💾 Export Now'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </>
   );
 }

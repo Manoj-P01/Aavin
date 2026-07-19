@@ -141,7 +141,7 @@ export default function TSReport({ rows, totals, date, shift }: Props) {
             </tr>
             <tr>
               {/* Left Side Headers */}
-              <th>S.No</th>
+              <th>S.no</th>
               <th>Arrival</th>
               <th className="num">Milk (Lit)</th>
               <th className="num">Milk (Kg)</th>
@@ -152,7 +152,7 @@ export default function TSReport({ rows, totals, date, shift }: Props) {
               <th className="num" style={{ borderRight: '2px solid var(--border)' }}>Kg SNF</th>
 
               {/* Right Side Headers */}
-              <th>S.No</th>
+              <th>S.no</th>
               <th>Disposal</th>
               <th className="num">Milk (Lit)</th>
               <th className="num">Milk (Kg)</th>

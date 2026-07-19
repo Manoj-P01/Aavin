@@ -220,26 +220,26 @@ export default function STGReport({ stgRows, date, notes, shift }: Props) {
                   </tr>
                   <tr>
                     {/* Receipts headers */}
-                    <th style={{ width: 30 }}>S.No</th>
+                    <th style={{ width: 30 }}>S.No.</th>
                     <th style={{ width: 150 }}>Receipt</th>
                     <th className="num">Qty (Lts)</th>
                     <th className="num">Qty (Kg)</th>
-                    <th className="num">Fat %</th>
-                    <th className="num">SNF %</th>
-                    <th className="num">Sp. Gr</th>
+                    <th className="num">Fat%</th>
+                    <th className="num">Snf%</th>
+                    <th className="num">SP.G</th>
                     <th className="num">Kg.Fat</th>
-                    <th className="num" style={{ borderRight: '2px solid var(--border)' }}>Kg.SNF</th>
+                    <th className="num" style={{ borderRight: '2px solid var(--border)' }}>Kg.Snf</th>
 
                     {/* Disposals headers */}
-                    <th style={{ width: 30 }}>S.No</th>
+                    <th style={{ width: 30 }}>S.No.</th>
                     <th style={{ width: 150 }}>Disposal</th>
                     <th className="num">Qty (Lts)</th>
                     <th className="num">Qty (Kg)</th>
-                    <th className="num">Fat %</th>
-                    <th className="num">SNF %</th>
-                    <th className="num">Sp. Gr</th>
+                    <th className="num">Fat%</th>
+                    <th className="num">Snf%</th>
+                    <th className="num">SP.G</th>
                     <th className="num">Kg.Fat</th>
-                    <th className="num">Kg.SNF</th>
+                    <th className="num">Kg.Snf</th>
                   </tr>
                 </thead>
                 <tbody>
