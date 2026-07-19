@@ -281,13 +281,15 @@ export async function GET(req: NextRequest) {
 
         // Left side
         if (row.left.type === 'header') {
+          // Label goes to column index 1 because the merge is from 1 to 8
           rowVal[0] = cell('');
           rowVal[1] = cell(row.left.label, { isBold: true });
           for (let c = 2; c < 9; c++) rowVal[c] = cell('');
           merges.push({ s: { r: rIndex, c: 1 }, e: { r: rIndex, c: 8 } });
         } else if (row.left.type === 'total') {
-          rowVal[0] = cell('');
-          rowVal[1] = cell(row.left.label, { isBold: true });
+          // Merge is from 0 to 1, so the label MUST go into column index 0!
+          rowVal[0] = cell(row.left.label, { isBold: true });
+          rowVal[1] = cell('');
           rowVal[2] = cell(val(row.left.qty_lts), { isBold: true, isNum: true });
           rowVal[3] = cell(val(row.left.qty_kg), { isBold: true, isNum: true });
           rowVal[4] = cell('');
@@ -313,13 +315,15 @@ export async function GET(req: NextRequest) {
 
         // Right side
         if (row.right.type === 'header') {
+          // Label goes to column index 10 because the merge is from 10 to 17
           rowVal[9] = cell('');
           rowVal[10] = cell(row.right.label, { isBold: true });
           for (let c = 11; c < 18; c++) rowVal[c] = cell('');
           merges.push({ s: { r: rIndex, c: 10 }, e: { r: rIndex, c: 17 } });
         } else if (row.right.type === 'total') {
-          rowVal[9] = cell('');
-          rowVal[10] = cell(row.right.label, { isBold: true });
+          // Merge is from 9 to 10, so the label MUST go into column index 9!
+          rowVal[9] = cell(row.right.label, { isBold: true });
+          rowVal[10] = cell('');
           rowVal[11] = cell(val(row.right.qty_lts), { isBold: true, isNum: true });
           rowVal[12] = cell(val(row.right.qty_kg), { isBold: true, isNum: true });
           rowVal[13] = cell('');
@@ -347,15 +351,17 @@ export async function GET(req: NextRequest) {
       });
 
       // Add Grand Totals
+      // Merge is from 0 to 1, and 9 to 10. Labels go to index 0 and 9 respectively!
       const gtRowIdx = tsData.length;
       tsData.push([
-        cell(''), cell('G.TOTAL', { isBold: true }), cell(val(totals.grand_total_arrival_lts), { isBold: true, isNum: true }), cell(val(totals.grand_total_arrival_kg), { isBold: true, isNum: true }), cell(''), cell(''), cell(''), cell(val(totals.grand_total_arrival_kg_fat, 4), { isBold: true, isNum: true }), cell(val(totals.grand_total_arrival_kg_snf, 4), { isBold: true, isNum: true }),
-        cell(''), cell('G.TOTAL', { isBold: true }), cell(val(totals.grand_total_disposal_lts), { isBold: true, isNum: true }), cell(val(totals.grand_total_disposal_kg), { isBold: true, isNum: true }), cell(''), cell(''), cell(''), cell(val(totals.grand_total_disposal_kg_fat, 4), { isBold: true, isNum: true }), cell(val(totals.grand_total_disposal_kg_snf, 4), { isBold: true, isNum: true })
+        cell('G.TOTAL', { isBold: true }), cell(''), cell(val(totals.grand_total_arrival_lts), { isBold: true, isNum: true }), cell(val(totals.grand_total_arrival_kg), { isBold: true, isNum: true }), cell('-'), cell('-'), cell('-'), cell(val(totals.grand_total_arrival_kg_fat, 4), { isBold: true, isNum: true }), cell(val(totals.grand_total_arrival_kg_snf, 4), { isBold: true, isNum: true }),
+        cell('G.TOTAL', { isBold: true }), cell(''), cell(val(totals.grand_total_disposal_lts), { isBold: true, isNum: true }), cell(val(totals.grand_total_disposal_kg), { isBold: true, isNum: true }), cell('-'), cell('-'), cell('-'), cell(val(totals.grand_total_disposal_kg_fat, 4), { isBold: true, isNum: true }), cell(val(totals.grand_total_disposal_kg_snf, 4), { isBold: true, isNum: true })
       ]);
       merges.push({ s: { r: gtRowIdx, c: 0 }, e: { r: gtRowIdx, c: 1 } });
       merges.push({ s: { r: gtRowIdx, c: 9 }, e: { r: gtRowIdx, c: 10 } });
 
       // Add Loss/Gain
+      // Merge is from 10 to 15. Label goes to index 10!
       const lgRowIdx = tsData.length;
       tsData.push([
         cell('', { noBorder: true }), cell('', { noBorder: true }), cell('', { noBorder: true }), cell('', { noBorder: true }), cell('', { noBorder: true }), cell('', { noBorder: true }), cell('', { noBorder: true }), cell('', { noBorder: true }), cell('', { noBorder: true }),
@@ -364,6 +370,7 @@ export async function GET(req: NextRequest) {
       merges.push({ s: { r: lgRowIdx, c: 10 }, e: { r: lgRowIdx, c: 15 } });
 
       // Add Loss %
+      // Merge is from 10 to 15. Label goes to index 10!
       const lpRowIdx = tsData.length;
       tsData.push([
         cell('', { noBorder: true }), cell('', { noBorder: true }), cell('', { noBorder: true }), cell('', { noBorder: true }), cell('', { noBorder: true }), cell('', { noBorder: true }), cell('', { noBorder: true }), cell('', { noBorder: true }), cell('', { noBorder: true }),
@@ -372,6 +379,7 @@ export async function GET(req: NextRequest) {
       merges.push({ s: { r: lpRowIdx, c: 10 }, e: { r: lpRowIdx, c: 15 } });
 
       // Add Norm
+      // Merge is from 10 to 15. Label goes to index 10!
       const normRowIdx = tsData.length;
       tsData.push([
         cell('', { noBorder: true }), cell('', { noBorder: true }), cell('', { noBorder: true }), cell('', { noBorder: true }), cell('', { noBorder: true }), cell('', { noBorder: true }), cell('', { noBorder: true }), cell('', { noBorder: true }), cell('', { noBorder: true }),
@@ -558,10 +566,9 @@ export async function GET(req: NextRequest) {
         stgMerges.push({ s: { r: startRowIdx, c: 0 }, e: { r: startRowIdx, c: 17 } });
 
         // Add Headers row
-        const headersRowIdx = stgSheetData.length;
         stgSheetData.push([
-          cell('S.No.', { isHeader: true }), cell('Receipt', { isHeader: true }), cell('Qty (Lts)', { isHeader: true }), cell('Qty (Kg)', { isHeader: true }), cell('Fat%', { isHeader: true }), cell('Snf%', { isHeader: true }), cell('SP.G', { isHeader: true }), cell('Kg.Fat', { isHeader: true }), cell('Kg.Snf', { isHeader: true }),
-          cell('S.No.', { isHeader: true }), cell('Disposal', { isHeader: true }), cell('Qty (Lts)', { isHeader: true }), cell('Qty (Kg)', { isHeader: true }), cell('Fat%', { isHeader: true }), cell('Snf%', { isHeader: true }), cell('SP.G', { isHeader: true }), cell('Kg.Fat', { isHeader: true }), cell('Kg.Snf', { isHeader: true })
+          cell('S.No.', { isHeader: true }), cell('Receipt', { isHeader: true }), cell('Qty (Lts)', { isHeader: true }), cell('Qty (Kg)', { isHeader: true }), cell('Fat%', { isHeader: true }), cell('Snf%', { isHeader: true }), cell('SP.G', { isHeader: true }), cell('Kg.Fat', { isHeader: true }), cell('Kg.SNF', { isHeader: true }),
+          cell('S.No.', { isHeader: true }), cell('Disposal', { isHeader: true }), cell('Qty (Lts)', { isHeader: true }), cell('Qty (Kg)', { isHeader: true }), cell('Fat%', { isHeader: true }), cell('Snf%', { isHeader: true }), cell('SP.G', { isHeader: true }), cell('Kg.Fat', { isHeader: true }), cell('Kg.SNF', { isHeader: true })
         ]);
 
         // Add aligned rows
@@ -603,52 +610,61 @@ export async function GET(req: NextRequest) {
 
         // Add Staggered totals
         // Row D1: Disposal Total row (on the right)
+        // Merge is J to K (9 to 10), so label goes into index 9, index 10 is empty!
         const d1Idx = stgSheetData.length;
         stgSheetData.push([
           cell('', { noBorder: true }), cell('', { noBorder: true }), cell('', { noBorder: true }), cell('', { noBorder: true }), cell('', { noBorder: true }), cell('', { noBorder: true }), cell('', { noBorder: true }), cell('', { noBorder: true }), cell('', { noBorder: true }), // Left empty
-          cell(''), cell('Total', { isBold: true }), cell(val(totDisp.lts), { isBold: true, isNum: true }), cell(val(totDisp.kg), { isBold: true, isNum: true }), cell(''), cell(''), cell(''), cell(val(totDisp.fat, 4), { isBold: true, isNum: true }), cell(val(totDisp.snf, 4), { isBold: true, isNum: true })
+          cell('Total', { isBold: true }), cell(''), cell(val(totDisp.lts), { isBold: true, isNum: true }), cell(val(totDisp.kg), { isBold: true, isNum: true }), cell(''), cell(''), cell(''), cell(val(totDisp.fat, 4), { isBold: true, isNum: true }), cell(val(totDisp.snf, 4), { isBold: true, isNum: true })
         ]);
         stgMerges.push({ s: { r: d1Idx, c: 9 }, e: { r: d1Idx, c: 10 } });
 
         // Row D2: CB row (on the right)
+        // Merge is J to K (9 to 10), so label goes into index 9, index 10 is empty!
         const d2Idx = stgSheetData.length;
         stgSheetData.push([
           cell('', { noBorder: true }), cell('', { noBorder: true }), cell('', { noBorder: true }), cell('', { noBorder: true }), cell('', { noBorder: true }), cell('', { noBorder: true }), cell('', { noBorder: true }), cell('', { noBorder: true }), cell('', { noBorder: true }), // Left empty
-          cell(''), cell('CB', { isBold: true }), cell(val(physicalCB.lts), { isBold: true, isNum: true }), cell(val(physicalCB.kg), { isBold: true, isNum: true }), cell(val(physicalCB.fat_pct, 4), { isBold: true, isNum: true }), cell(val(physicalCB.snf_pct, 4), { isBold: true, isNum: true }), cell(val(physicalCB.sp_gr, 4), { isBold: true, isNum: true }), cell(val(physicalCB.fat, 4), { isBold: true, isNum: true }), cell(val(physicalCB.snf, 4), { isBold: true, isNum: true })
+          cell('CB', { isBold: true }), cell(''), cell(val(physicalCB.lts), { isBold: true, isNum: true }), cell(val(physicalCB.kg), { isBold: true, isNum: true }), cell(val(physicalCB.fat_pct, 4), { isBold: true, isNum: true }), cell(val(physicalCB.snf_pct, 4), { isBold: true, isNum: true }), cell(val(physicalCB.sp_gr, 4), { isBold: true, isNum: true }), cell(val(physicalCB.fat, 4), { isBold: true, isNum: true }), cell(val(physicalCB.snf, 4), { isBold: true, isNum: true })
         ]);
         stgMerges.push({ s: { r: d2Idx, c: 9 }, e: { r: d2Idx, c: 10 } });
 
         // Row D3: Grand Total row (on the right)
+        // Merge is J to K (9 to 10), so label goes into index 9, index 10 is empty!
         const d3Idx = stgSheetData.length;
         stgSheetData.push([
           cell('', { noBorder: true }), cell('', { noBorder: true }), cell('', { noBorder: true }), cell('', { noBorder: true }), cell('', { noBorder: true }), cell('', { noBorder: true }), cell('', { noBorder: true }), cell('', { noBorder: true }), cell('', { noBorder: true }), // Left empty
-          cell(''), cell('Grand Total', { isBold: true }), cell(val(grandDisp.lts), { isBold: true, isNum: true }), cell(val(grandDisp.kg), { isBold: true, isNum: true }), cell(''), cell(''), cell(''), cell(val(grandDisp.fat, 4), { isBold: true, isNum: true }), cell(val(grandDisp.snf, 4), { isBold: true, isNum: true })
+          cell('Grand Total', { isBold: true }), cell(''), cell(val(grandDisp.lts), { isBold: true, isNum: true }), cell(val(grandDisp.kg), { isBold: true, isNum: true }), cell(''), cell(''), cell(''), cell(val(grandDisp.fat, 4), { isBold: true, isNum: true }), cell(val(grandDisp.snf, 4), { isBold: true, isNum: true })
         ]);
         stgMerges.push({ s: { r: d3Idx, c: 9 }, e: { r: d3Idx, c: 10 } });
 
         // Row R1: Receipt Total (left) / Loss/Gain (right)
+        // Left merge 0 to 1, label goes to index 0, index 1 is empty!
+        // Right merge 9 to 10, label goes to index 9, index 10 is empty!
         const r1Idx = stgSheetData.length;
         stgSheetData.push([
-          cell(''), cell('Total', { isBold: true }), cell(val(totRec.lts), { isBold: true, isNum: true }), cell(val(totRec.kg), { isBold: true, isNum: true }), cell(''), cell(''), cell(''), cell(val(totRec.fat, 4), { isBold: true, isNum: true }), cell(val(totRec.snf, 4), { isBold: true, isNum: true }),
-          cell(''), cell('Loss/Gain', { isBold: true }), cell(val(lossGain.lts), { isBold: true, isNum: true }), cell(val(lossGain.kg), { isBold: true, isNum: true }), cell(''), cell(''), cell(''), cell(val(lossGain.fat, 4), { isBold: true, isNum: true }), cell(val(lossGain.snf, 4), { isBold: true, isNum: true })
+          cell('Total', { isBold: true }), cell(''), cell(val(totRec.lts), { isBold: true, isNum: true }), cell(val(totRec.kg), { isBold: true, isNum: true }), cell(''), cell(''), cell(''), cell(val(totRec.fat, 4), { isBold: true, isNum: true }), cell(val(totRec.snf, 4), { isBold: true, isNum: true }),
+          cell('Loss/Gain', { isBold: true }), cell(''), cell(val(lossGain.lts), { isBold: true, isNum: true }), cell(val(lossGain.kg), { isBold: true, isNum: true }), cell(''), cell(''), cell(''), cell(val(lossGain.fat, 4), { isBold: true, isNum: true }), cell(val(lossGain.snf, 4), { isBold: true, isNum: true })
         ]);
         stgMerges.push({ s: { r: r1Idx, c: 0 }, e: { r: r1Idx, c: 1 } });
         stgMerges.push({ s: { r: r1Idx, c: 9 }, e: { r: r1Idx, c: 10 } });
 
         // Row R2: OB (left) / Loss/Gain % (right)
+        // Left merge 0 to 1, label goes to index 0, index 1 is empty!
+        // Right merge 9 to 10, label goes to index 9, index 10 is empty!
         const r2Idx = stgSheetData.length;
         stgSheetData.push([
-          cell(''), cell('OB', { isBold: true }), cell(val(obVal.lts), { isBold: true, isNum: true }), cell(val(obVal.kg), { isBold: true, isNum: true }), cell(val(obVal.fat_pct, 4), { isBold: true, isNum: true }), cell(val(obVal.snf_pct, 4), { isBold: true, isNum: true }), cell(val(obVal.sp_gr, 4), { isBold: true, isNum: true }), cell(val(obVal.fat, 4), { isBold: true, isNum: true }), cell(val(obVal.snf, 4), { isBold: true, isNum: true }),
-          cell(''), cell('Loss/Gain %', { isBold: true }), cell(''), cell(''), cell(''), cell(''), cell(''), cell(`${val(lossGainPct.fat)}%`, { isBold: true, alignment: 'right' }), cell(`${val(lossGainPct.snf)}%`, { isBold: true, alignment: 'right' })
+          cell('OB', { isBold: true }), cell(''), cell(val(obVal.lts), { isBold: true, isNum: true }), cell(val(obVal.kg), { isBold: true, isNum: true }), cell(val(obVal.fat_pct, 4), { isBold: true, isNum: true }), cell(val(obVal.snf_pct, 4), { isBold: true, isNum: true }), cell(val(obVal.sp_gr, 4), { isBold: true, isNum: true }), cell(val(obVal.fat, 4), { isBold: true, isNum: true }), cell(val(obVal.snf, 4), { isBold: true, isNum: true }),
+          cell('Loss/Gain %', { isBold: true }), cell(''), cell(''), cell(''), cell(''), cell(''), cell(''), cell(`${val(lossGainPct.fat)}%`, { isBold: true, alignment: 'right' }), cell(`${val(lossGainPct.snf)}%`, { isBold: true, alignment: 'right' })
         ]);
         stgMerges.push({ s: { r: r2Idx, c: 0 }, e: { r: r2Idx, c: 1 } });
         stgMerges.push({ s: { r: r2Idx, c: 9 }, e: { r: r2Idx, c: 10 } });
 
         // Row R3: Grand Total (left) / CMPDD Norms (right)
+        // Left merge 0 to 1, label goes to index 0, index 1 is empty!
+        // Right merge 9 to 10, label goes to index 9, index 10 is empty!
         const r3Idx = stgSheetData.length;
         stgSheetData.push([
-          cell(''), cell('Grand Total', { isBold: true }), cell(val(grandRec.lts), { isBold: true, isNum: true }), cell(val(grandRec.kg), { isBold: true, isNum: true }), cell(''), cell(''), cell(''), cell(val(grandRec.fat, 4), { isBold: true, isNum: true }), cell(val(grandRec.snf, 4), { isBold: true, isNum: true }),
-          cell(''), cell('CMPDD Norms %', { isBold: true }), cell(''), cell(''), cell(''), cell(''), cell(''), cell('0.5%', { isBold: true, alignment: 'right' }), cell('0.5%', { isBold: true, alignment: 'right' })
+          cell('Grand Total', { isBold: true }), cell(''), cell(val(grandRec.lts), { isBold: true, isNum: true }), cell(val(grandRec.kg), { isBold: true, isNum: true }), cell(''), cell(''), cell(''), cell(val(grandRec.fat, 4), { isBold: true, isNum: true }), cell(val(grandRec.snf, 4), { isBold: true, isNum: true }),
+          cell('CMPDD Norms %', { isBold: true }), cell(''), cell(''), cell(''), cell(''), cell(''), cell(''), cell('0.5%', { isBold: true, alignment: 'right' }), cell('0.5%', { isBold: true, alignment: 'right' })
         ]);
         stgMerges.push({ s: { r: r3Idx, c: 0 }, e: { r: r3Idx, c: 1 } });
         stgMerges.push({ s: { r: r3Idx, c: 9 }, e: { r: r3Idx, c: 10 } });
