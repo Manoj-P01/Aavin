@@ -80,7 +80,6 @@ export default function TSListPage() {
                     <th>Date</th>
                     <th>Day</th>
                     <th>Shift</th>
-                    <th>Notes</th>
                     <th>Created</th>
                     <th>Actions</th>
                   </tr>
@@ -111,9 +110,10 @@ export default function TSListPage() {
                             <span className={`badge ${e.shift === 'D' ? 'badge-day' : 'badge-night'}`}>
                               {e.shift === 'D' ? '☀️ Day' : '🌙 Night'}
                             </span>
-                          ) : '—'}
+                          ) : (
+                            <span className="badge badge-blue">🗓️ Full Day</span>
+                          )}
                         </td>
-                        <td style={{ color: 'var(--text-muted)' }}>{e.notes || '—'}</td>
                         <td style={{ color: 'var(--text-muted)', fontSize: '0.75rem' }}>
                           {new Date(e.created_at).toLocaleDateString('en-IN')}
                         </td>

@@ -121,7 +121,7 @@ export default function TSViewPage() {
     <>
       <Header
         title={`Daily Statement – ${date ? fmtDate(date) : ''}`}
-        subtitle="Total Solids and Solid Balance Details"
+        subtitle={`Total Solids and Solid Balance Details (${shift ? (shift === 'D' ? 'Day Shift' : 'Night Shift') : 'Full Day'})`}
         actions={
           <div style={{ display: 'flex', gap: 8 }} className="no-print">
             {activeTab === 'STG' ? (
@@ -230,7 +230,7 @@ export default function TSViewPage() {
             {activeTab === 'TS' ? (
               <TSReport rows={rows} totals={totals} date={date} shift={shift} />
             ) : (
-              <STGReport stgRows={stgRows} date={date} notes={entryNotes} />
+              <STGReport stgRows={stgRows} date={date} notes={entryNotes} shift={shift} />
             )}
           </div>
         )}

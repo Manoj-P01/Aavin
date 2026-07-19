@@ -13,6 +13,7 @@ interface Props {
   stgRows: STGRow[];
   date: string;
   notes?: string | null;
+  shift?: string | null;
 }
 
 const BLOCK_LABELS: Record<string, string> = {
@@ -22,7 +23,7 @@ const BLOCK_LABELS: Record<string, string> = {
   SMP: 'SMP / OTHER – RECEIPT AND DISPOSAL STATEMENT',
 };
 
-export default function STGReport({ stgRows, date, notes }: Props) {
+export default function STGReport({ stgRows, date, notes, shift }: Props) {
   // Parse custom statements from notes
   let customStatements: Array<{ key: string; label: string }> = [];
   let customBlocks: Record<string, any> = {};
@@ -87,6 +88,7 @@ export default function STGReport({ stgRows, date, notes }: Props) {
         </div>
         <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginTop: 4 }}>
           DATE: {new Date(date).toLocaleDateString('en-IN', { day: '2-digit', month: '2-digit', year: 'numeric' })}
+          {` | SHIFT: ${shift ? (shift === 'D' ? 'Day' : 'Night') : 'Full Day'}`}
         </div>
       </div>
 
