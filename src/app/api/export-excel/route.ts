@@ -678,22 +678,10 @@ export async function GET(req: NextRequest) {
 
     const excelBuffer = XLSX.write(wb, { bookType: 'xlsx', type: 'buffer' });
 
-    // 5. Save locally in "d:\Manoj_Personal\Aavin\excel"
-    const targetDir = 'd:\\Manoj_Personal\\Aavin\\excel';
     const [y, m, d] = date.split('-');
     const formattedDate = `${d}-${m}-${y}`;
     const shiftStr = shift ? `-${shift}` : '';
     const fileName = `${formattedDate}${shiftStr}-TS.xlsx`;
-
-    try {
-      if (!fs.existsSync(targetDir)) {
-        fs.mkdirSync(targetDir, { recursive: true });
-      }
-      const localPath = path.join(targetDir, fileName);
-      fs.writeFileSync(localPath, excelBuffer);
-    } catch (fsErr) {
-      console.error('Failed to save Excel file locally:', fsErr);
-    }
 
     // 6. Return response for client download
     return new NextResponse(excelBuffer, {

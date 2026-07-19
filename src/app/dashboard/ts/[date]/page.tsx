@@ -141,7 +141,7 @@ export default function TSViewPage() {
       document.body.removeChild(a);
       window.URL.revokeObjectURL(downloadUrl);
       
-      alert(`Report exported successfully!\n\nAlso saved locally to:\nd:\\Manoj_Personal\\Aavin\\excel\\${formattedDate}${shiftStr}-TS.xlsx`);
+      alert(`Report exported successfully!`);
       setExportModalOpen(false);
     } catch (err) {
       console.error(err);
