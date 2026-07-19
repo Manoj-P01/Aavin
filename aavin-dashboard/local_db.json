@@ -34,6 +34,15 @@
       "notes": "\n__METADATA__:{\"custom_statements\":[{\"key\":\"WM\",\"label\":\"TENTATIVE WHOLE MILK\"},{\"key\":\"SP\",\"label\":\"SEPARATION\"}],\"custom_blocks\":{\"SP\":{\"opening_balance\":{\"item_name\":\"OB\",\"qty_lts\":\"\",\"qty_kg\":\"\",\"fat_pct\":\"\",\"snf_pct\":\"\",\"sp_gr\":\"\",\"kg_fat\":\"\",\"kg_snf\":\"\",\"linked_block\":\"\"},\"receipts\":[{\"item_name\":\"\",\"qty_lts\":\"\",\"qty_kg\":\"\",\"fat_pct\":\"\",\"snf_pct\":\"\",\"sp_gr\":\"\",\"kg_fat\":\"\",\"kg_snf\":\"\",\"linked_block\":\"\"}],\"disposals\":[{\"item_name\":\"\",\"qty_lts\":\"\",\"qty_kg\":\"\",\"fat_pct\":\"\",\"snf_pct\":\"\",\"sp_gr\":\"\",\"kg_fat\":\"\",\"kg_snf\":\"\",\"linked_block\":\"\"}],\"physical_count\":{\"item_name\":\"CB\",\"qty_lts\":\"\",\"qty_kg\":\"\",\"fat_pct\":\"\",\"snf_pct\":\"\",\"sp_gr\":\"\",\"kg_fat\":\"\",\"kg_snf\":\"\",\"linked_block\":\"\"}}},\"enabled_blocks\":[\"WM\",\"SP\"]}",
       "created_at": "2026-07-19T01:46:18.546Z",
       "updated_at": "2026-07-19T01:46:18.546Z"
+    },
+    {
+      "id": "v23kcntdp",
+      "entry_date": "2026-07-19",
+      "shift": null,
+      "report_type": "STOCK",
+      "notes": "\n__METADATA__:{\"custom_statements\":[{\"key\":\"WM\",\"label\":\"TENTATIVE WHOLE MILK\"},{\"key\":\"SP\",\"label\":\"SEPARATION\"}],\"custom_blocks\":{\"SP\":{\"opening_balance\":{\"item_name\":\"OB\",\"qty_lts\":\"\",\"qty_kg\":\"\",\"fat_pct\":\"\",\"snf_pct\":\"\",\"sp_gr\":\"\",\"kg_fat\":\"\",\"kg_snf\":\"\",\"linked_block\":\"\"},\"receipts\":[{\"item_name\":\"\",\"qty_lts\":\"\",\"qty_kg\":\"\",\"fat_pct\":\"\",\"snf_pct\":\"\",\"sp_gr\":\"\",\"kg_fat\":\"\",\"kg_snf\":\"\",\"linked_block\":\"\"}],\"disposals\":[{\"item_name\":\"\",\"qty_lts\":\"\",\"qty_kg\":\"\",\"fat_pct\":\"\",\"snf_pct\":\"\",\"sp_gr\":\"\",\"kg_fat\":\"\",\"kg_snf\":\"\",\"linked_block\":\"\"}],\"physical_count\":{\"item_name\":\"CB\",\"qty_lts\":\"\",\"qty_kg\":\"\",\"fat_pct\":\"\",\"snf_pct\":\"\",\"sp_gr\":\"\",\"kg_fat\":\"\",\"kg_snf\":\"\",\"linked_block\":\"\"}}},\"enabled_blocks\":[\"WM\",\"SP\"]}",
+      "created_at": "2026-07-19T01:46:21.146Z",
+      "updated_at": "2026-07-19T01:46:21.146Z"
     }
   ],
   "ts_milk_rows": [
