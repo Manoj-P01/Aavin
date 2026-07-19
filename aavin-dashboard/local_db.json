@@ -424,7 +424,7 @@
       "sort_order": 6
     },
     {
-      "id": "jo3m82a24",
+      "id": "kg5aoj8rh",
       "entry_id": "v23kcntdp",
       "row_type": "OB",
       "row_label": "Opening Balance",
@@ -443,11 +443,11 @@
       "sort_order": 0
     },
     {
-      "id": "pznkns5d9",
+      "id": "pwk4q5usr",
       "entry_id": "v23kcntdp",
       "row_type": "RECEIPT",
       "row_label": "BMC's",
-      "wh_milk": 0,
+      "wh_milk": 3000,
       "dlt_milk": 0,
       "fc_milk": 0,
       "std_milk": 0,
@@ -462,7 +462,7 @@
       "sort_order": 1
     },
     {
-      "id": "s8irvi2gh",
+      "id": "fr20y9x5p",
       "entry_id": "v23kcntdp",
       "row_type": "RECEIPT",
       "row_label": "P.VELUR CC",
@@ -481,7 +481,7 @@
       "sort_order": 2
     },
     {
-      "id": "39bbd1jtx",
+      "id": "v01udny1i",
       "entry_id": "v23kcntdp",
       "row_type": "RECEIPT",
       "row_label": "Separation",
@@ -500,7 +500,7 @@
       "sort_order": 3
     },
     {
-      "id": "c61tf1wzn",
+      "id": "ot7089xqk",
       "entry_id": "v23kcntdp",
       "row_type": "DISPOSAL",
       "row_label": "Separation",
@@ -519,7 +519,7 @@
       "sort_order": 4
     },
     {
-      "id": "fk9h6tik0",
+      "id": "35n7m2z6t",
       "entry_id": "v23kcntdp",
       "row_type": "DISPOSAL",
       "row_label": "Sachet Filling",
@@ -538,11 +538,11 @@
       "sort_order": 5
     },
     {
-      "id": "mgt9lgia8",
+      "id": "ym3tj4nnw",
       "entry_id": "v23kcntdp",
       "row_type": "PHYSICAL",
       "row_label": "physical",
-      "wh_milk": 0,
+      "wh_milk": 3000,
       "dlt_milk": 0,
       "fc_milk": 0,
       "std_milk": 0,
