@@ -424,7 +424,7 @@
       "sort_order": 6
     },
     {
-      "id": "kg5aoj8rh",
+      "id": "n0tgfzb5n",
       "entry_id": "v23kcntdp",
       "row_type": "OB",
       "row_label": "Opening Balance",
@@ -443,7 +443,7 @@
       "sort_order": 0
     },
     {
-      "id": "pwk4q5usr",
+      "id": "9m95puwrg",
       "entry_id": "v23kcntdp",
       "row_type": "RECEIPT",
       "row_label": "BMC's",
@@ -462,7 +462,7 @@
       "sort_order": 1
     },
     {
-      "id": "fr20y9x5p",
+      "id": "7frws2kfs",
       "entry_id": "v23kcntdp",
       "row_type": "RECEIPT",
       "row_label": "P.VELUR CC",
@@ -481,7 +481,7 @@
       "sort_order": 2
     },
     {
-      "id": "v01udny1i",
+      "id": "hrqq531s5",
       "entry_id": "v23kcntdp",
       "row_type": "RECEIPT",
       "row_label": "Separation",
@@ -500,7 +500,7 @@
       "sort_order": 3
     },
     {
-      "id": "ot7089xqk",
+      "id": "jwpy7g0az",
       "entry_id": "v23kcntdp",
       "row_type": "DISPOSAL",
       "row_label": "Separation",
@@ -519,7 +519,7 @@
       "sort_order": 4
     },
     {
-      "id": "35n7m2z6t",
+      "id": "ov5sc1afl",
       "entry_id": "v23kcntdp",
       "row_type": "DISPOSAL",
       "row_label": "Sachet Filling",
@@ -538,7 +538,7 @@
       "sort_order": 5
     },
     {
-      "id": "ym3tj4nnw",
+      "id": "uk6xczf7v",
       "entry_id": "v23kcntdp",
       "row_type": "PHYSICAL",
       "row_label": "physical",
