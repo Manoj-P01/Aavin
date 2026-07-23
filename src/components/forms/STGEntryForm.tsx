@@ -113,6 +113,7 @@ export default function STGEntryForm({
   const [enabledBlockKeys, setEnabledBlockKeys] = useState<string[]>([]);
   const [activeBlock, setActiveBlock] = useState<STGProductBlock>('');
   const [blocks, setBlocks] = useState<Record<string, STGBlockState>>({});
+  const [reportMode, setReportMode] = useState<'full_day' | 'shift'>('full_day');
   const [saving, setSaving] = useState(false);
   const [savingBlock, setSavingBlock] = useState<string | null>(null);
   const [savedBlock, setSavedBlock] = useState<string | null>(null);
@@ -141,14 +142,50 @@ export default function STGEntryForm({
   useEffect(() => {
     async function loadShiftConfig() {
       try {
-        const res = await fetch('/api/entries?report_type=STOCK&date=1970-01-01');
+        const res = await fetch('/api/entries?report_type=STOCK');
         if (res.ok) {
           const json = await res.json();
-          const configEntry = json.data?.[0];
+          const entries: any[] = json.data || [];
+          const configEntry = entries.find((e: any) => {
+            if (!e.notes || e.notes.includes('__METADATA__:')) return false;
+            try {
+              const parsed = JSON.parse(e.notes);
+              return parsed && typeof parsed === 'object' && !Array.isArray(parsed);
+            } catch { return false; }
+          });
           if (configEntry && configEntry.notes) {
-            const parsed = JSON.parse(configEntry.notes);
-            if (Array.isArray(parsed) && parsed.length === 2) {
-              setShiftConfigs(parsed);
+            try {
+              const parsed = JSON.parse(configEntry.notes);
+              let parsedShifts = [
+                { key: 'D', label: 'Day Shift', start: '06:00', end: '18:00' },
+                { key: 'N', label: 'Night Shift', start: '18:00', end: '06:00' },
+              ];
+              let parsedMode: 'full_day' | 'shift' = 'full_day';
+              
+              if (parsed && typeof parsed === 'object') {
+                if (parsed.mode) {
+                  parsedMode = parsed.mode;
+                } else if (Array.isArray(parsed) && parsed.length === 2) {
+                  parsedMode = 'shift';
+                }
+                if (Array.isArray(parsed.shifts)) {
+                  parsedShifts = parsed.shifts;
+                } else if (Array.isArray(parsed) && parsed.length === 2) {
+                  parsedShifts = parsed;
+                }
+              }
+              
+              setShiftConfigs(parsedShifts);
+              setReportMode(parsedMode);
+              
+              // Set default shift based on reportMode config
+              if (parsedMode === 'full_day') {
+                setShift(null);
+              } else {
+                setShift(prev => (prev === null ? 'D' : prev));
+              }
+            } catch (e) {
+              console.error('Failed to parse shift config notes:', e);
             }
           }
         }
@@ -166,11 +203,18 @@ export default function STGEntryForm({
     async function loadData() {
       try {
         // 1. Fetch the global statements template configuration first
-        const configRes = await fetch('/api/entries?report_type=TS&date=1970-01-01');
+        const configRes = await fetch('/api/entries?report_type=TS');
         let globalStatements: any[] = [];
         if (configRes.ok) {
           const configJson = await configRes.json();
-          const configEntry = configJson.data?.[0];
+          const entries: any[] = configJson.data || [];
+          const configEntry = entries.find((e: any) => {
+            if (!e.notes || e.notes.includes('__METADATA__:')) return false;
+            try {
+              const parsed = JSON.parse(e.notes);
+              return Array.isArray(parsed) && (parsed.length === 0 || parsed[0]?.key !== undefined);
+            } catch { return false; }
+          });
           if (configEntry && configEntry.notes) {
             try {
               const list = JSON.parse(configEntry.notes);
@@ -193,19 +237,24 @@ export default function STGEntryForm({
         let prevDateStr = entryDate;
         let prevShift: Shift | null = 'D';
 
+        const [year, month, day] = entryDate.split('-').map(Number);
+        const getPrevDateStr = () => {
+          const prevDate = new Date(year, month - 1, day - 1);
+          const yyyy = prevDate.getFullYear();
+          const mm = String(prevDate.getMonth() + 1).padStart(2, '0');
+          const dd = String(prevDate.getDate()).padStart(2, '0');
+          return `${yyyy}-${mm}-${dd}`;
+        };
+
         if (shift === 'N') {
           prevDateStr = entryDate;
           prevShift = 'D';
         } else if (shift === 'D') {
-          const prevDate = new Date(entryDate);
-          prevDate.setDate(prevDate.getDate() - 1);
-          prevDateStr = prevDate.toISOString().split('T')[0];
+          prevDateStr = getPrevDateStr();
           prevShift = 'N';
         } else {
           // Full Day mode
-          const prevDate = new Date(entryDate);
-          prevDate.setDate(prevDate.getDate() - 1);
-          prevDateStr = prevDate.toISOString().split('T')[0];
+          prevDateStr = getPrevDateStr();
           prevShift = null;
         }
 
@@ -360,7 +409,9 @@ export default function STGEntryForm({
             }
             setBlocksLocked(initialLocked);
 
-            setBlocks(newBlocks);
+            // Sync mapped values from Stock Statement Entry if present
+            const { blocks: mappedBlocks } = await syncFromStockEntry(newBlocks, entryDate, shift);
+            setBlocks(mappedBlocks);
             return;
           }
         }
@@ -394,7 +445,9 @@ export default function STGEntryForm({
             }
           });
 
-          setBlocks(initialBlocks);
+          // Fetch Stock Statement Entry for today and apply statement mappings
+          const { blocks: mappedBlocks, count } = await syncFromStockEntry(initialBlocks, entryDate, shift);
+          setBlocks(mappedBlocks);
         }
       } catch (err) {
         console.error('Error loading OB data:', err);
@@ -404,6 +457,152 @@ export default function STGEntryForm({
     loadData();
     return () => { active = false; };
   }, [entryDate, shift]);
+
+  const syncFromStockEntry = async (
+    targetBlocks: Record<string, STGBlockState>,
+    targetDate: string = entryDate,
+    targetShift: Shift | null = shift
+  ) => {
+    try {
+      let stockUrl = `/api/stock?date=${targetDate}${targetShift ? `&shift=${targetShift}` : ''}`;
+      let stockRes = await fetch(stockUrl);
+      if (!stockRes.ok && targetShift) {
+        stockUrl = `/api/stock?date=${targetDate}`;
+        stockRes = await fetch(stockUrl);
+      }
+      if (!stockRes.ok) return { blocks: targetBlocks, count: 0 };
+
+      const stockJson = await stockRes.json();
+      const stockRows: any[] = stockJson.data?.stock_rows || [];
+      if (stockRows.length === 0) return { blocks: targetBlocks, count: 0 };
+
+      let customVals: Record<string, Record<string, string>> = {};
+      const stockEntries = stockJson.data?.entries || [];
+      if (stockEntries.length > 0 && stockEntries[0].notes) {
+        const parts = stockEntries[0].notes.split('\n');
+        parts.forEach((p: string) => {
+          if (p.includes('__METADATA__:')) {
+            try {
+              const meta = JSON.parse(p.split('__METADATA__:')[1]);
+              if (meta.custom_values) customVals = meta.custom_values;
+            } catch {}
+          }
+        });
+      }
+
+      let mappingRules: any[] = [];
+      const mapRes = await fetch('/api/entries?report_type=STOCK_MAPPING');
+      if (mapRes.ok) {
+        const mapJson = await mapRes.json();
+        const mapEntry = mapJson.data?.[0];
+        if (mapEntry && mapEntry.notes) {
+          try {
+            const list = JSON.parse(mapEntry.notes);
+            if (Array.isArray(list) && list.length > 0) mappingRules = list;
+          } catch {}
+        }
+      }
+
+      if (mappingRules.length === 0) {
+        mappingRules = [
+          { stockProductKey: 'wh_milk', stockSection: 'OB', stockParticular: 'Opening Balance', stgBlockKey: 'WM', stgSection: 'OB', stgItemName: 'OB', stgTargetField: 'qty_lts' },
+          { stockProductKey: 'wh_milk', stockSection: 'RECEIPT', stockParticular: 'Receipts:', stgBlockKey: 'WM', stgSection: 'RECEIPT', stgItemName: 'Receipt', stgTargetField: 'qty_lts' },
+          { stockProductKey: 'wh_milk', stockSection: 'DISPOSAL', stockParticular: 'To DLT Milk', stgBlockKey: 'WM', stgSection: 'DISPOSAL', stgItemName: 'To DLT Milk', stgTargetField: 'qty_lts' },
+          { stockProductKey: 'wh_milk', stockSection: 'DISPOSAL', stockParticular: 'To FC Milk', stgBlockKey: 'WM', stgSection: 'DISPOSAL', stgItemName: 'To FC Milk', stgTargetField: 'qty_lts' },
+          { stockProductKey: 'wh_milk', stockSection: 'DISPOSAL', stockParticular: 'To STD Milk', stgBlockKey: 'WM', stgSection: 'DISPOSAL', stgItemName: 'To STD Milk', stgTargetField: 'qty_lts' },
+          { stockProductKey: 'wh_milk', stockSection: 'DISPOSAL', stockParticular: 'To MKT', stgBlockKey: 'WM', stgSection: 'DISPOSAL', stgItemName: 'To MKT', stgTargetField: 'qty_lts' },
+          { stockProductKey: 'skim_milk', stockSection: 'OB', stockParticular: 'Opening Balance', stgBlockKey: 'SSM', stgSection: 'OB', stgItemName: 'OB', stgTargetField: 'qty_lts' },
+          { stockProductKey: 'skim_milk', stockSection: 'RECEIPT', stockParticular: 'Receipts:', stgBlockKey: 'SSM', stgSection: 'RECEIPT', stgItemName: 'Receipt', stgTargetField: 'qty_lts' },
+          { stockProductKey: 'cream', stockSection: 'OB', stockParticular: 'Opening Balance', stgBlockKey: 'CREAM', stgSection: 'OB', stgItemName: 'OB', stgTargetField: 'qty_kg' },
+          { stockProductKey: 'smp', stockSection: 'OB', stockParticular: 'Opening Balance', stgBlockKey: 'SMP', stgSection: 'OB', stgItemName: 'OB', stgTargetField: 'qty_kg' },
+        ];
+      }
+
+      const nextBlocks = JSON.parse(JSON.stringify(targetBlocks));
+      let count = 0;
+
+      const normalizeStr = (str: string) => (str || '').toLowerCase().replace(/[:\s]+/g, ' ').trim();
+
+      mappingRules.forEach((rule: any) => {
+        const { stockProductKey, stockSection, stockParticular, stgBlockKey, stgSection, stgItemName, stgTargetField } = rule;
+        if (!nextBlocks[stgBlockKey]) {
+          nextBlocks[stgBlockKey] = makeInitialBlockState(stgBlockKey);
+        }
+
+        const normParticular = normalizeStr(stockParticular);
+        const stockRow = stockRows.find((r: any) => {
+          if (r.row_type !== stockSection) return false;
+          const normLabel = normalizeStr(r.row_label);
+          return normLabel === normParticular || normLabel.includes(normParticular) || normParticular.includes(normLabel);
+        });
+        if (!stockRow) return;
+
+        const extractRawVal = (row: any, key: string, rowLabel: string) => {
+          if (!row) return 0;
+          let v = row[key];
+          if (v === undefined || v === null) {
+            const cleanKey = key.toLowerCase().replace(/[^a-z0-9]/g, '_');
+            v = row[cleanKey];
+          }
+          if (v === undefined || v === null) {
+            const foundKey = Object.keys(row).find(k => k.toLowerCase() === key.toLowerCase() || k.toLowerCase().replace(/[^a-z0-9]/g, '_') === key.toLowerCase().replace(/[^a-z0-9]/g, '_'));
+            if (foundKey) v = row[foundKey];
+          }
+          if ((v === undefined || v === null || Number(v) === 0) && customVals[rowLabel]) {
+            const cRow = customVals[rowLabel];
+            const cleanKey = key.toLowerCase().replace(/[^a-z0-9]/g, '_');
+            v = cRow[key] ?? cRow[cleanKey];
+            if (v === undefined || v === null) {
+              const fk = Object.keys(cRow).find(k => k.toLowerCase() === key.toLowerCase() || k.toLowerCase().replace(/[^a-z0-9]/g, '_') === cleanKey);
+              if (fk) v = cRow[fk];
+            }
+          }
+          return v;
+        };
+
+        const rawVal = extractRawVal(stockRow, stockProductKey, stockRow.row_label);
+        const valNum = parseFloat(String(rawVal || 0));
+        if (!valNum || isNaN(valNum)) return;
+
+        const bState = nextBlocks[stgBlockKey];
+        const fieldKey = (stgTargetField as keyof STGItemInput) || 'qty_lts';
+
+        if (stgSection === 'OB') {
+          bState.opening_balance = calculateSTGRowValues(bState.opening_balance, fieldKey, String(valNum), stgBlockKey === 'SMP');
+          count++;
+        } else if (stgSection === 'CB') {
+          bState.physical_count = calculateSTGRowValues(bState.physical_count, fieldKey, String(valNum), stgBlockKey === 'SMP');
+          count++;
+        } else {
+          const list: STGItemInput[] = stgSection === 'RECEIPT' ? bState.receipts : bState.disposals;
+          let idx = list.findIndex(r => r.item_name.toLowerCase().trim() === stgItemName.toLowerCase().trim());
+
+          if (idx === -1) {
+            if (list.length === 1 && !list[0].item_name && !list[0].qty_lts && !list[0].qty_kg) {
+              idx = 0;
+              list[0].item_name = stgItemName;
+            } else {
+              const newItem = makeInitialItem(stgItemName);
+              list.push(newItem);
+              idx = list.length - 1;
+            }
+          }
+
+          list[idx] = calculateSTGRowValues(list[idx], fieldKey, String(valNum), stgBlockKey === 'SMP');
+          count++;
+        }
+      });
+
+      Object.keys(nextBlocks).forEach(bKey => {
+        recalculateCB(nextBlocks[bKey], bKey);
+      });
+
+      return { blocks: nextBlocks, count };
+    } catch (err) {
+      console.error('Error syncing from Stock Statement Entry:', err);
+      return { blocks: targetBlocks, count: 0 };
+    }
+  };
 
   function calculateSTGRowValues<T extends { item_name?: string; qty_lts: string; qty_kg: string; fat_pct: string; snf_pct: string; sp_gr: string; kg_fat: string; kg_snf: string }>(
     item: T,
@@ -2254,7 +2453,25 @@ export default function STGEntryForm({
 
       {/* Date & Details */}
       <div className="card" style={{ marginBottom: 20 }}>
-        <div className="section-title" style={{ marginBottom: 16 }}>Register Date & Details</div>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16, flexWrap: 'wrap', gap: 10 }}>
+          <div className="section-title" style={{ margin: 0 }}>Register Date & Details</div>
+          <button
+            type="button"
+            className="btn btn-secondary btn-sm"
+            style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: '0.8rem', fontWeight: 600, color: 'var(--brand-primary)', border: '1px solid var(--brand-primary)' }}
+            onClick={async () => {
+              const { blocks: mapped, count } = await syncFromStockEntry(blocks, entryDate, shift);
+              setBlocks(mapped);
+              if (count > 0) {
+                alert(`Successfully synced ${count} mapped field(s) from Stock Statement Entry for ${entryDate}!`);
+              } else {
+                alert(`No matching Stock Statement Entry data found for ${entryDate}. Please ensure a Stock Statement Entry exists for this date.`);
+              }
+            }}
+          >
+            ⚡ Sync from Stock Statement Entry
+          </button>
+        </div>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 16 }}>
           <div className="form-group">
             <label className="form-label">Date *</label>
@@ -2266,54 +2483,58 @@ export default function STGEntryForm({
               max={new Date().toISOString().split('T')[0]}
             />
           </div>
-          <div className="form-group">
-            <label className="form-label">Reporting Type *</label>
-            <div style={{ display: 'flex', gap: 8, marginTop: 6 }}>
-              <button
-                type="button"
-                className={`btn ${!shift ? 'btn-primary' : 'btn-secondary'}`}
-                onClick={() => setShift(null)}
-                style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '10px 16px' }}
-              >
-                <span style={{ fontWeight: 600, fontSize: '0.875rem' }}>🗓️ Full Day</span>
-              </button>
-              <button
-                type="button"
-                className={`btn ${shift ? 'btn-primary' : 'btn-secondary'}`}
-                onClick={() => setShift('D')}
-                style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '10px 16px' }}
-              >
-                <span style={{ fontWeight: 600, fontSize: '0.875rem' }}>⏱️ Shift-wise</span>
-              </button>
-            </div>
-          </div>
-          {shift && (
-            <div className="form-group animate-fade-in">
-              <label className="form-label">Shift *</label>
-              <div style={{ display: 'flex', gap: 8, marginTop: 6 }}>
-                {(['D', 'N'] as Shift[]).map(s => {
-                  const cfg = shiftConfigs.find(c => c.key === s) || {
-                    label: s === 'D' ? 'Day Shift' : 'Night Shift',
-                    start: s === 'D' ? '06:00' : '18:00',
-                    end: s === 'D' ? '18:00' : '06:00'
-                  };
-                  return (
-                    <button
-                      key={s}
-                      id={`shift-${s}`}
-                      type="button"
-                      className={`btn ${shift === s ? 'btn-primary' : 'btn-secondary'}`}
-                      onClick={() => setShift(s)}
-                      style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '10px 16px' }}
-                    >
-                      <span style={{ fontWeight: 600, fontSize: '0.875rem' }}>
-                        {s === 'D' ? '☀️' : '🌙'} {cfg.label}
-                      </span>
-                    </button>
-                  );
-                })}
+          {reportMode === 'shift' && (
+            <>
+              <div className="form-group">
+                <label className="form-label">Reporting Type *</label>
+                <div style={{ display: 'flex', gap: 8, marginTop: 6 }}>
+                  <button
+                    type="button"
+                    className={`btn ${!shift ? 'btn-primary' : 'btn-secondary'}`}
+                    onClick={() => setShift(null)}
+                    style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '10px 16px' }}
+                  >
+                    <span style={{ fontWeight: 600, fontSize: '0.875rem' }}>🗓️ Full Day</span>
+                  </button>
+                  <button
+                    type="button"
+                    className={`btn ${shift ? 'btn-primary' : 'btn-secondary'}`}
+                    onClick={() => setShift('D')}
+                    style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '10px 16px' }}
+                  >
+                    <span style={{ fontWeight: 600, fontSize: '0.875rem' }}>⏱️ Shift-wise</span>
+                  </button>
+                </div>
               </div>
-            </div>
+              {shift && (
+                <div className="form-group animate-fade-in">
+                  <label className="form-label">Shift *</label>
+                  <div style={{ display: 'flex', gap: 8, marginTop: 6 }}>
+                    {(['D', 'N'] as Shift[]).map(s => {
+                      const cfg = shiftConfigs.find(c => c.key === s) || {
+                        label: s === 'D' ? 'Day Shift' : 'Night Shift',
+                        start: s === 'D' ? '06:00' : '18:00',
+                        end: s === 'D' ? '18:00' : '06:00'
+                      };
+                      return (
+                        <button
+                          key={s}
+                          id={`shift-${s}`}
+                          type="button"
+                          className={`btn ${shift === s ? 'btn-primary' : 'btn-secondary'}`}
+                          onClick={() => setShift(s)}
+                          style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '10px 16px' }}
+                        >
+                          <span style={{ fontWeight: 600, fontSize: '0.875rem' }}>
+                            {s === 'D' ? '☀️' : '🌙'} {cfg.label}
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+            </>
           )}
           <div className="form-group">
             <label className="form-label">Notes (optional)</label>

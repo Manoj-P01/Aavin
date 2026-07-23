@@ -214,17 +214,21 @@ function zeroColumns(): StockColumns {
 }
 
 function addColumns(a: StockColumns, b: Partial<StockColumns>): StockColumns {
-  const result = { ...a };
-  for (const { key } of STOCK_PRODUCT_COLUMNS) {
-    result[key] = (result[key] || 0) + (Number(b[key]) || 0);
+  const result = { ...a } as any;
+  const bAny = b as any;
+  const keys = new Set([...Object.keys(result), ...Object.keys(bAny)]);
+  for (const key of keys) {
+    result[key] = (Number(result[key]) || 0) + (Number(bAny[key]) || 0);
   }
   return result;
 }
 
 function subtractColumns(a: StockColumns, b: StockColumns): StockColumns {
-  const result = { ...a };
-  for (const { key } of STOCK_PRODUCT_COLUMNS) {
-    result[key] = (result[key] || 0) - (b[key] || 0);
+  const result = { ...a } as any;
+  const bAny = b as any;
+  const keys = new Set([...Object.keys(result), ...Object.keys(bAny)]);
+  for (const key of keys) {
+    result[key] = (Number(result[key]) || 0) - (Number(bAny[key]) || 0);
   }
   return result;
 }
@@ -233,7 +237,6 @@ export function calcStockSummary(rows: StockRow[]): StockSummary {
   const obRows       = rows.filter(r => r.row_type === 'OB');
   const receiptRows  = rows.filter(r => r.row_type === 'RECEIPT');
   const disposalRows = rows.filter(r => r.row_type === 'DISPOSAL');
-  const physicalRows = rows.filter(r => r.row_type === 'PHYSICAL');
 
   const sumRows = (arr: StockRow[]) =>
     arr.reduce((acc, r) => addColumns(acc, r as unknown as Partial<StockColumns>), zeroColumns());
@@ -241,21 +244,15 @@ export function calcStockSummary(rows: StockRow[]): StockSummary {
   const ob       = sumRows(obRows);
   const receipts = sumRows(receiptRows);
   const disposals = sumRows(disposalRows);
-  const physical = sumRows(physicalRows);
 
   // Closing Balance = OB + Total Receipts - Total Disposals
   const closing = subtractColumns(addColumns(ob, receipts), disposals);
-
-  // Difference = Physical - Closing
-  const difference = subtractColumns(physical, closing);
 
   return {
     opening_balance: ob,
     total_receipts:  receipts,
     total_disposals: disposals,
     closing_balance: closing,
-    physical_count:  physical,
-    difference,
   };
 }
 
@@ -267,8 +264,6 @@ export function combineShiftSummaries(day: StockSummary, night: StockSummary): S
     total_receipts:  addColumns(day.total_receipts, night.total_receipts),
     total_disposals: addColumns(day.total_disposals, night.total_disposals),
     closing_balance: night.closing_balance, // Night shift CB is end of day
-    physical_count:  night.physical_count,
-    difference:      night.difference,
   };
 }
 
@@ -276,8 +271,16 @@ export function combineShiftSummaries(day: StockSummary, night: StockSummary): S
 
 export function fmtNum(val: number | null | undefined, decimals = 3): string {
   if (val === null || val === undefined || isNaN(val)) return '-';
+  // If the number is an integer, do not display decimals
+  if (val % 1 === 0) {
+    return val.toLocaleString('en-IN', {
+      minimumFractionDigits: 0,
+      maximumFractionDigits: 0,
+    });
+  }
+  // Otherwise format with decimals up to the specified maximum limit
   return val.toLocaleString('en-IN', {
-    minimumFractionDigits: decimals,
+    minimumFractionDigits: 1,
     maximumFractionDigits: decimals,
   });
 }

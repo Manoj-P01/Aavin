@@ -16,7 +16,7 @@ export type TSSection =
 export type STGProductBlock = string;
 export type STGSide = 'RECEIPT' | 'DISPOSAL';
 
-export type StockRowType = 'OB' | 'RECEIPT' | 'DISPOSAL' | 'PHYSICAL';
+export type StockRowType = 'OB' | 'RECEIPT' | 'DISPOSAL';
 
 // ─── Database Row Types ────────────────────────────────────────────────────────
 
@@ -147,8 +147,6 @@ export interface StockSummary {
   total_receipts: StockColumns;
   total_disposals: StockColumns;
   closing_balance: StockColumns;  // OB + Receipts - Disposals
-  physical_count: StockColumns;
-  difference: StockColumns;  // Physical - Closing
 }
 
 // ─── Form Input Types ────────────────────────────────────────────────────────────
@@ -253,17 +251,17 @@ export const STOCK_DISPOSAL_LABELS = [
   'To Lab Sampling',
 ] as const;
 
-export const STOCK_PRODUCT_COLUMNS: { key: keyof StockColumns; label: string }[] = [
-  { key: 'wh_milk',     label: 'WH.Milk' },
-  { key: 'dlt_milk',    label: 'DLT.Milk' },
-  { key: 'fc_milk',     label: 'FC. Milk' },
-  { key: 'std_milk',    label: 'STD.Milk' },
-  { key: 'toned_curd',  label: 'Toned Milk CURD' },
-  { key: 'dtm',         label: 'DTM' },
-  { key: 'skim_milk',   label: 'Skim Milk' },
-  { key: 'cream',       label: 'Cream' },
-  { key: 'butter_milk', label: 'Butter Milk' },
-  { key: 'r_con',       label: 'R.Con' },
-  { key: 'smp',         label: 'SMP' },
-  { key: 'water',       label: 'Water' },
+export const STOCK_PRODUCT_COLUMNS: { key: keyof StockColumns; label: string; full_name: string; short_name: string }[] = [
+  { key: 'wh_milk',     label: 'WH.Milk',          full_name: 'TENTATIVE WHOLE MILK', short_name: 'WH.Milk' },
+  { key: 'dlt_milk',    label: 'DLT.Milk',         full_name: 'DOUBLE TONED MILK',    short_name: 'DLT.Milk' },
+  { key: 'fc_milk',     label: 'FC. Milk',          full_name: 'FULL CREAM MILK',      short_name: 'FC. Milk' },
+  { key: 'std_milk',    label: 'STD.Milk',         full_name: 'STANDARDIZED MILK',    short_name: 'STD.Milk' },
+  { key: 'toned_curd',  label: 'Toned Milk CURD',  full_name: 'TONED MILK CURD',      short_name: 'TM Curd' },
+  { key: 'dtm',         label: 'DTM',              full_name: 'DOUBLE TONED MILK',    short_name: 'DTM' },
+  { key: 'skim_milk',   label: 'Skim Milk',        full_name: 'SKIMMED MILK',         short_name: 'Skim Milk' },
+  { key: 'cream',       label: 'Cream',            full_name: 'CREAM',                short_name: 'Cream' },
+  { key: 'butter_milk', label: 'Butter Milk',      full_name: 'BUTTER MILK',          short_name: 'BM' },
+  { key: 'r_con',       label: 'R.Con',            full_name: 'RECONSTITUTED MILK',   short_name: 'R.Con' },
+  { key: 'smp',         label: 'SMP',              full_name: 'SKIM MILK POWDER',     short_name: 'SMP' },
+  { key: 'water',       label: 'Water',            full_name: 'WATER',                short_name: 'Water' },
 ];

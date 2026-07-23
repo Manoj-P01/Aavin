@@ -12,6 +12,13 @@ const NAV_SECTIONS = [
     ],
   },
   {
+    label: 'Stock Statement',
+    items: [
+      { href: '/dashboard/stock/new', icon: '📦', label: 'New Stock Statement Entry' },
+      { href: '/dashboard/stock', icon: '📦', label: 'Stock Register' },
+    ],
+  },
+  {
     label: 'Daily Reports',
     items: [
       { href: '/dashboard/ts/new-stg', icon: '⚖️', label: 'New STG Entry' },
@@ -20,15 +27,10 @@ const NAV_SECTIONS = [
     ],
   },
   {
-    label: 'Stock Statement',
-    items: [
-      { href: '/dashboard/stock', icon: '📦', label: 'Stock Register' },
-      { href: '/dashboard/stock/new', icon: '📦', label: 'New Stock Entry' },
-    ],
-  },
-  {
     label: 'Configuration',
     items: [
+      { href: '/dashboard/stock/products', icon: '📦', label: 'Stock Products' },
+      { href: '/dashboard/stock/mappings', icon: '🔗', label: 'Statement Mapping' },
       { href: '/dashboard/ts/manage-statements', icon: '⚙️', label: 'Manage Statements' },
       { href: '/dashboard/ts/manage-formulas', icon: '🧮', label: 'Manage Formulas' },
       { action: 'settings', icon: '🔧', label: 'Shift Settings' },
@@ -94,7 +96,9 @@ export default function Sidebar() {
                   if (href === '/dashboard/stock') {
                     return pathSegments[1] === 'dashboard' && 
                            pathSegments[2] === 'stock' && 
-                           pathSegments[3] !== 'new';
+                           pathSegments[3] !== 'new' &&
+                           pathSegments[3] !== 'products' &&
+                           pathSegments[3] !== 'mappings';
                   }
                   
                   return hrefSegments.every((seg: string, idx: number) => pathSegments[idx] === seg);

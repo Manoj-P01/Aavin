@@ -13,9 +13,12 @@ export async function GET(req: NextRequest) {
     const rawShift = searchParams.get('shift');
     const shift = (rawShift === 'null' || !rawShift) ? null : rawShift as Shift;
 
+    const today = new Date().toISOString().split('T')[0];
+
     if (isLocalDbEnabled()) {
       const resolvedShift = searchParams.has('shift') ? shift : undefined;
-      const data = await getLocalEntries(report_type || undefined, month || undefined, date || undefined, resolvedShift);
+      const rawData = await getLocalEntries(report_type || undefined, month || undefined, date || undefined, resolvedShift);
+      const data = rawData.map((e: any) => e.entry_date === '1970-01-01' ? { ...e, entry_date: today } : e);
       return NextResponse.json({ data });
     }
 
@@ -32,12 +35,17 @@ export async function GET(req: NextRequest) {
     if (month) {
       const [y, m] = month.split('-');
       const start = `${y}-${m}-01`;
-      const end = new Date(Number(y), Number(m), 0).toISOString().split('T')[0];
+      const endDate = new Date(Number(y), Number(m), 0);
+      const endY = endDate.getFullYear();
+      const endM = String(endDate.getMonth() + 1).padStart(2, '0');
+      const endD = String(endDate.getDate()).padStart(2, '0');
+      const end = `${endY}-${endM}-${endD}`;
       query = query.gte('entry_date', start).lte('entry_date', end);
     }
 
-    const { data, error } = await query;
+    const { data: rawData, error } = await query;
     if (error) throw error;
+    const data = (rawData || []).map((e: any) => e.entry_date === '1970-01-01' ? { ...e, entry_date: today } : e);
     return NextResponse.json({ data });
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : 'Unknown error';
@@ -49,15 +57,17 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
-    const { entry_date, shift, report_type, notes } = body as {
-      entry_date: string;
+    const { shift, report_type, notes } = body as {
+      entry_date?: string;
       shift: Shift | null;
       report_type: ReportType;
       notes?: string;
     };
+    const today = new Date().toISOString().split('T')[0];
+    const entry_date = (!body.entry_date || body.entry_date === '1970-01-01') ? today : body.entry_date;
 
-    if (!entry_date || !report_type) {
-      return NextResponse.json({ error: 'entry_date and report_type are required' }, { status: 400 });
+    if (!report_type) {
+      return NextResponse.json({ error: 'report_type is required' }, { status: 400 });
     }
 
     if (isLocalDbEnabled()) {

@@ -290,7 +290,7 @@ export async function POST(req: NextRequest) {
             continue;
           }
           if (label === 'physical') {
-            currentType = 'PHYSICAL';
+            continue;
           }
 
           if (label === 'TOTAL' || label === 'difference' || label === 'Closing Balance' || label === 'DATE') continue;

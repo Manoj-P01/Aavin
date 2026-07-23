@@ -27,14 +27,17 @@ export async function GET(req: NextRequest) {
       if (!date) return NextResponse.json({ error: 'date or entry_id or month required' }, { status: 400 });
 
       let entries = await getLocalEntries('STOCK', undefined, date);
-      if (shift) entries = entries.filter(e => e.shift === shift);
-      if (entries.length === 0) return NextResponse.json({ error: 'No stock entries found' }, { status: 404 });
+      let matchedEntries = shift ? entries.filter(e => e.shift === shift) : entries;
+      if (matchedEntries.length === 0 && shift) {
+        matchedEntries = entries;
+      }
+      if (matchedEntries.length === 0) return NextResponse.json({ error: 'No stock entries found' }, { status: 404 });
 
       // Gather rows for all matching entries
       const stock_rows: StockRow[] = [];
       const separation_details: any[] = [];
 
-      for (const entry of entries) {
+      for (const entry of matchedEntries) {
         const d = await getLocalStockData(entry.id);
         stock_rows.push(...d.stock_rows);
         if (d.separation_details) separation_details.push(d.separation_details);
@@ -42,7 +45,7 @@ export async function GET(req: NextRequest) {
 
       return NextResponse.json({
         data: {
-          entries,
+          entries: matchedEntries,
           stock_rows,
           separation_details,
         },
@@ -71,7 +74,11 @@ export async function GET(req: NextRequest) {
     if (month) {
       const [y, m] = month.split('-');
       const start = `${y}-${m}-01`;
-      const end = new Date(Number(y), Number(m), 0).toISOString().split('T')[0];
+      const endDate = new Date(Number(y), Number(m), 0);
+      const endY = endDate.getFullYear();
+      const endM = String(endDate.getMonth() + 1).padStart(2, '0');
+      const endD = String(endDate.getDate()).padStart(2, '0');
+      const end = `${endY}-${endM}-${endD}`;
       const { data, error } = await supabase
         .from('entries')
         .select('id, entry_date, shift, notes, created_at')
@@ -95,8 +102,18 @@ export async function GET(req: NextRequest) {
 
     if (shift) entryQuery = entryQuery.eq('shift', shift);
 
-    const { data: entries, error: entryErr } = await entryQuery;
-    if (entryErr) throw entryErr;
+    let { data: entries, error: entryErr } = await entryQuery;
+    if ((entryErr || !entries || entries.length === 0) && shift) {
+      const fallbackQuery = supabase
+        .from('entries')
+        .select('id, entry_date, shift, notes')
+        .eq('entry_date', date)
+        .eq('report_type', 'STOCK');
+      const fallbackRes = await fallbackQuery;
+      if (!fallbackRes.error && fallbackRes.data && fallbackRes.data.length > 0) {
+        entries = fallbackRes.data;
+      }
+    }
     if (!entries?.length) return NextResponse.json({ error: 'No stock entries found' }, { status: 404 });
 
     // Fetch rows for all matching entries

@@ -32,7 +32,7 @@ export default function DashboardPage() {
               ➕ New TS Entry
             </Link>
             <Link href="/dashboard/stock/new" className="btn btn-secondary btn-sm">
-              ➕ New Stock Entry
+              ➕ New Stock Statement Entry
             </Link>
           </div>
         }

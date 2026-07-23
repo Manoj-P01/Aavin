@@ -25,6 +25,7 @@ export default function TSViewPage() {
 
   const [availableShifts, setAvailableShifts] = useState<(Shift | null)[]>([]);
   const [shift, setShift] = useState<Shift | null>(null);
+  const [reportMode, setReportMode] = useState<'full_day' | 'shift'>('full_day');
   const [globalStatements, setGlobalStatements] = useState<Array<{ key: string; label: string }>>([]);
   const [formulasConfig, setFormulasConfig] = useState<any>(null);
   const activeTab = selectedTab ?? ((tabParam === 'TS' || tabParam === 'ts') ? 'TS' : 'STG');
@@ -52,6 +53,34 @@ export default function TSViewPage() {
           console.error('Failed to load formulas config:', err);
         }
 
+        // Fetch global reportMode setting
+        let parsedMode: 'full_day' | 'shift' = 'full_day';
+        try {
+          const configRes = await fetch('/api/entries?report_type=STOCK');
+          if (configRes.ok) {
+            const configJson = await configRes.json();
+            const entries: any[] = configJson.data || [];
+            const configEntry = entries.find((e: any) => {
+              if (!e.notes || e.notes.includes('__METADATA__:')) return false;
+              try {
+                const parsed = JSON.parse(e.notes);
+                return parsed && typeof parsed === 'object' && !Array.isArray(parsed);
+              } catch { return false; }
+            });
+            if (configEntry && configEntry.notes) {
+              try {
+                const parsed = JSON.parse(configEntry.notes);
+                if (parsed && typeof parsed === 'object') {
+                  if (parsed.mode) parsedMode = parsed.mode;
+                }
+              } catch (e) {}
+            }
+          }
+        } catch (err) {
+          console.error('Failed to load shift mode config in TS page:', err);
+        }
+        setReportMode(parsedMode);
+
         // 1. Fetch available entries for this date
         const entriesRes = await fetch(`/api/entries?report_type=TS&date=${date}`);
         if (!entriesRes.ok) throw new Error('Failed to load entry shifts.');
@@ -63,7 +92,9 @@ export default function TSViewPage() {
 
         // Determine which shift is active
         let activeShift: Shift | null = null;
-        if (shiftParam === 'D' || shiftParam === 'N') {
+        if (parsedMode === 'full_day') {
+          activeShift = null;
+        } else if (shiftParam === 'D' || shiftParam === 'N') {
           activeShift = shiftParam;
         } else if (shiftParam === 'null' || shiftParam === 'NULL') {
           activeShift = null;
@@ -75,13 +106,22 @@ export default function TSViewPage() {
         // Fetch global statements template config
         let gStmts: any[] = [];
         try {
-          const configRes = await fetch('/api/entries?report_type=TS&date=1970-01-01');
+          const configRes = await fetch('/api/entries?report_type=TS');
           if (configRes.ok) {
             const configJson = await configRes.json();
-            const configEntry = configJson.data?.[0];
+            const entries: any[] = configJson.data || [];
+            const configEntry = entries.find((e: any) => {
+              if (!e.notes || e.notes.includes('__METADATA__:')) return false;
+              try {
+                const parsed = JSON.parse(e.notes);
+                return Array.isArray(parsed) && (parsed.length === 0 || parsed[0]?.key !== undefined);
+              } catch { return false; }
+            });
             if (configEntry && configEntry.notes) {
-              gStmts = JSON.parse(configEntry.notes) || [];
-              setGlobalStatements(gStmts);
+              try {
+                gStmts = JSON.parse(configEntry.notes) || [];
+                setGlobalStatements(gStmts);
+              } catch (e) {}
             }
           }
         } catch (err) {
@@ -193,40 +233,42 @@ export default function TSViewPage() {
             />
           </div>
 
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <label style={{ fontWeight: 600, fontSize: '0.85rem', color: 'var(--text-secondary)' }}>Select Shift:</label>
-            <div className="tabs" style={{ margin: 0 }}>
-              {[
-                { label: '🗓️ Full Day', value: null },
-                { label: '☀️ Day Shift', value: 'D' },
-                { label: '🌙 Night Shift', value: 'N' }
-              ].map(s => {
-                const isSelected = shift === s.value;
-                return (
-                  <button
-                    key={s.label}
-                    className={`tab ${isSelected ? 'active' : ''}`}
-                    style={{
-                      padding: '6px 14px',
-                      fontSize: '0.85rem',
-                      borderRadius: 'var(--radius-sm)',
-                      ...(isSelected ? {
-                        backgroundColor: 'var(--brand-primary)',
-                        color: '#ffffff',
-                        fontWeight: 700,
-                        boxShadow: '0 2px 6px rgba(14,165,233,0.3)',
-                      } : {})
-                    }}
-                    onClick={() => {
-                      router.replace(`/dashboard/ts/${date}?tab=${activeTab}&shift=${s.value ?? 'null'}`);
-                    }}
-                  >
-                    {s.label}
-                  </button>
-                );
-              })}
+          {reportMode === 'shift' && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <label style={{ fontWeight: 600, fontSize: '0.85rem', color: 'var(--text-secondary)' }}>Select Shift:</label>
+              <div className="tabs" style={{ margin: 0 }}>
+                {[
+                  { label: '🗓️ Full Day', value: null },
+                  { label: '☀️ Day Shift', value: 'D' },
+                  { label: '🌙 Night Shift', value: 'N' }
+                ].map(s => {
+                  const isSelected = shift === s.value;
+                  return (
+                    <button
+                      key={s.label}
+                      className={`tab ${isSelected ? 'active' : ''}`}
+                      style={{
+                        padding: '6px 14px',
+                        fontSize: '0.85rem',
+                        borderRadius: 'var(--radius-sm)',
+                        ...(isSelected ? {
+                          backgroundColor: 'var(--brand-primary)',
+                          color: '#ffffff',
+                          fontWeight: 700,
+                          boxShadow: '0 2px 6px rgba(14,165,233,0.3)',
+                        } : {})
+                      }}
+                      onClick={() => {
+                        router.replace(`/dashboard/ts/${date}?tab=${activeTab}&shift=${s.value ?? 'null'}`);
+                      }}
+                    >
+                      {s.label}
+                    </button>
+                  );
+                })}
+              </div>
             </div>
-          </div>
+          )}
         </div>
 
         {/* Tab Selector */}

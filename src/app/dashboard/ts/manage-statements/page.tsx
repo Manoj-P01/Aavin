@@ -23,17 +23,24 @@ export default function ManageStatementsPage() {
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
 
-  // Load global statements list template from DB (using 1970-01-01 TS entry)
+  // Load global statements list template from DB
   useEffect(() => {
     async function loadConfig() {
       try {
-        const res = await fetch('/api/entries?report_type=TS&date=1970-01-01');
+        const res = await fetch('/api/entries?report_type=TS');
         if (!res.ok) {
           setLoading(false);
           return;
         }
         const json = await res.json();
-        const configEntry = json.data?.[0];
+        const entries: any[] = json.data || [];
+        const configEntry = entries.find((e: any) => {
+          if (!e.notes || e.notes.includes('__METADATA__:')) return false;
+          try {
+            const parsed = JSON.parse(e.notes);
+            return Array.isArray(parsed) && (parsed.length === 0 || parsed[0]?.key !== undefined);
+          } catch { return false; }
+        });
         if (configEntry && configEntry.notes) {
           try {
             const list = JSON.parse(configEntry.notes);
@@ -84,7 +91,6 @@ export default function ManageStatementsPage() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          entry_date: '1970-01-01',
           report_type: 'TS',
           notes: JSON.stringify(statements),
         }),

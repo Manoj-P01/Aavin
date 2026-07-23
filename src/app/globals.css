@@ -68,6 +68,7 @@
   /* Font */
   --font-sans:         'Inter', system-ui, sans-serif;
   --font-mono:         'JetBrains Mono', 'Courier New', monospace;
+  --font-numbers:      Calibri, Arial, sans-serif;
 }
 
 /* ─── Reset ──────────────────────────────────────────────────────────────────── */

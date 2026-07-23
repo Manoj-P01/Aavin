@@ -168,15 +168,31 @@ export async function GET(req: NextRequest) {
       let gStmts: any[] = [];
       if (isLocalDbEnabled()) {
         const db = await initDb();
-        const configEntry = db.entries.find((e: any) => e.entry_date === '1970-01-01' && e.report_type === 'TS');
+        const tsEntries = db.entries.filter((e: any) => e.report_type === 'TS').sort((a: any, b: any) => (b.entry_date || '').localeCompare(a.entry_date || ''));
+        const configEntry = tsEntries.find((e: any) => {
+          if (!e.notes || e.notes.includes('__METADATA__:')) return false;
+          try {
+            const parsed = JSON.parse(e.notes);
+            return Array.isArray(parsed) && (parsed.length === 0 || parsed[0]?.key !== undefined);
+          } catch { return false; }
+        });
         if (configEntry && configEntry.notes) {
           try { gStmts = JSON.parse(configEntry.notes) || []; } catch {}
         }
       } else {
         const supabase = getSupabaseServiceClient();
-        const { data } = await supabase.from('entries').select('notes').eq('entry_date', '1970-01-01').eq('report_type', 'TS');
-        if (data && data.length > 0 && data[0].notes) {
-          try { gStmts = JSON.parse(data[0].notes) || []; } catch {}
+        const { data } = await supabase.from('entries').select('notes').eq('report_type', 'TS').order('entry_date', { ascending: false });
+        if (data && data.length > 0) {
+          const configRow = data.find((e: any) => {
+            if (!e.notes || e.notes.includes('__METADATA__:')) return false;
+            try {
+              const parsed = JSON.parse(e.notes);
+              return Array.isArray(parsed) && (parsed.length === 0 || parsed[0]?.key !== undefined);
+            } catch { return false; }
+          });
+          if (configRow && configRow.notes) {
+            try { gStmts = JSON.parse(configRow.notes) || []; } catch {}
+          }
         }
       }
 
