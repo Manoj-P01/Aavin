@@ -31,7 +31,6 @@ const NAV_SECTIONS = [
     items: [
       { href: '/dashboard/stock/products', icon: '📦', label: 'Stock Products' },
       { href: '/dashboard/stock/mappings', icon: '🔗', label: 'Statement Mapping' },
-      { href: '/dashboard/ts/manage-statements', icon: '⚙️', label: 'Manage Statements' },
       { href: '/dashboard/ts/manage-formulas', icon: '🧮', label: 'Manage Formulas' },
       { action: 'settings', icon: '🔧', label: 'Shift Settings' },
     ],
@@ -91,7 +90,7 @@ export default function Sidebar() {
                   if (href === '/dashboard/ts') {
                     return pathSegments[1] === 'dashboard' && 
                            pathSegments[2] === 'ts' && 
-                           !['new', 'new-stg', 'manage-statements', 'manage-formulas'].includes(pathSegments[3]);
+                           !['new', 'new-stg', 'manage-formulas'].includes(pathSegments[3]);
                   }
                   if (href === '/dashboard/stock') {
                     return pathSegments[1] === 'dashboard' && 
