@@ -34,6 +34,17 @@ interface STGBlockState {
   physical_count: STGItemInput;
 }
 
+const DEFAULT_STATEMENTS = [
+  { key: 'WM', label: 'TENTATIVE WHOLE MILK - RECEIPT AND DISPOSAL STATEMENT' },
+  { key: 'DLT_MILK', label: 'DOUBLE TONED MILK STATEMENT' },
+  { key: 'FC_MILK', label: 'FULL CREAM MILK STATEMENT' },
+  { key: 'STD_MILK', label: 'STANDARDIZED MILK STATEMENT' },
+  { key: 'SSM', label: 'SKIMMED MILK STATEMENT' },
+  { key: 'CREAM', label: 'CREAM STATEMENT' },
+  { key: 'SMP', label: 'SKIM MILK POWDER STATEMENT' },
+  { key: 'WATER', label: 'WATER STATEMENT' },
+];
+
 const DEFAULT_ITEMS_RECEIPT: Record<string, string[]> = {
   WM: [],
   SSM: [],
@@ -282,7 +293,7 @@ export default function STGEntryForm({
             let todayCustomStatements: any[] = [];
             let customBlocksState: Record<string, any> = {};
             let cleanNotes = data.data.notes || '';
-            let savedEnabledKeys: string[] | null = null;
+            let savedEnabledKeys: any = null;
             let todayManualRows: Record<string, { receipts: boolean[]; disposals: boolean[] }> = {};
 
             const notesParts = (data.data.notes || '').split('\n');
@@ -310,18 +321,28 @@ export default function STGEntryForm({
               }
             });
 
-            // Combine global template statements with today's saved statements.
-            // Use a Map keyed by statement key to guarantee uniqueness.
+            // Combine global template statements with today's saved statements and stg_rows blocks
             const stmtMap = new Map<string, { key: string; label: string }>();
             globalStatements.forEach((s: { key: string; label: string }) => stmtMap.set(s.key, s));
             todayCustomStatements.forEach((s: { key: string; label: string }) => {
-              if (!stmtMap.has(s.key)) stmtMap.set(s.key, s);
+              if (s && s.key) stmtMap.set(s.key, s);
             });
+            if (data.data.stg_rows && Array.isArray(data.data.stg_rows)) {
+              data.data.stg_rows.forEach((r: any) => {
+                if (r.product_block && !stmtMap.has(r.product_block)) {
+                  stmtMap.set(r.product_block, {
+                    key: r.product_block,
+                    label: `${r.product_block.toUpperCase()} STATEMENT`
+                  });
+                }
+              });
+            }
             const combinedStatements = Array.from(stmtMap.values());
 
             setStatements(combinedStatements);
-            if (savedEnabledKeys) {
-              setEnabledBlockKeys(savedEnabledKeys);
+            if (savedEnabledKeys && Array.isArray(savedEnabledKeys) && savedEnabledKeys.length > 0) {
+              const allKeys = Array.from(new Set([...(savedEnabledKeys as string[]), ...combinedStatements.map(s => s.key)]));
+              setEnabledBlockKeys(allKeys);
             } else {
               setEnabledBlockKeys(combinedStatements.map(s => s.key));
             }
@@ -340,7 +361,11 @@ export default function STGEntryForm({
             // Map data rows
             data.data.stg_rows.forEach((row: any) => {
               const b = row.product_block;
-              if (!newBlocks[b]) return;
+              if (!newBlocks[b]) {
+                newBlocks[b] = makeInitialBlockState(b);
+                newBlocks[b].receipts = [];
+                newBlocks[b].disposals = [];
+              }
 
               const matchedStatement = combinedStatements.find(s =>
                 s.label.toLowerCase().trim() === (row.item_name || '').toLowerCase().trim() ||
@@ -399,6 +424,27 @@ export default function STGEntryForm({
               }
             });
 
+            const applyMappedBlocks = (targetBlocks: Record<string, STGBlockState>, extraCustomStmts: any[] = []) => {
+              const stmtMap = new Map<string, { key: string; label: string }>();
+              DEFAULT_STATEMENTS.forEach(s => stmtMap.set(s.key, s));
+              globalStatements.forEach((s: { key: string; label: string }) => { if (s && s.key) stmtMap.set(s.key, s); });
+              extraCustomStmts.forEach((s: { key: string; label: string }) => { if (s && s.key) stmtMap.set(s.key, s); });
+
+              Object.entries(targetBlocks).forEach(([bKey, bVal]) => {
+                if (!stmtMap.has(bKey)) {
+                  stmtMap.set(bKey, { key: bKey, label: (bVal as any).label || `${bKey.toUpperCase()} STATEMENT` });
+                }
+              });
+
+              const finalStatements = Array.from(stmtMap.values());
+              setStatements(finalStatements);
+              setEnabledBlockKeys(finalStatements.map(s => s.key));
+              if (finalStatements.length > 0) {
+                setActiveBlock(prev => (prev && finalStatements.some(s => s.key === prev) ? prev : finalStatements[0].key));
+              }
+              setBlocks(targetBlocks);
+            };
+
             const initialLocked: Record<string, boolean> = {};
             if (data.data.stg_rows && data.data.stg_rows.length > 0) {
               data.data.stg_rows.forEach((row: any) => {
@@ -411,22 +457,21 @@ export default function STGEntryForm({
 
             // Sync mapped values from Stock Statement Entry if present
             const { blocks: mappedBlocks } = await syncFromStockEntry(newBlocks, entryDate, shift);
-            setBlocks(mappedBlocks);
+            applyMappedBlocks(mappedBlocks, todayCustomStatements);
             return;
           }
         }
 
         // 4. Otherwise it's a new entry. Set template and carry forward yesterday's CB.
         if (active) {
-          setStatements(globalStatements);
-          setEnabledBlockKeys(globalStatements.map(s => s.key));
-          if (globalStatements.length > 0) {
-            setActiveBlock(globalStatements[0].key);
-          }
-
           const initialBlocks: Record<string, STGBlockState> = {};
-          globalStatements.forEach(s => {
+          DEFAULT_STATEMENTS.forEach(s => {
             initialBlocks[s.key] = makeInitialBlockState(s.key);
+          });
+          globalStatements.forEach((s: any) => {
+            if (s && s.key && !initialBlocks[s.key]) {
+              initialBlocks[s.key] = makeInitialBlockState(s.key);
+            }
           });
 
           yesterdayCBs.forEach((row: any) => {
@@ -446,7 +491,23 @@ export default function STGEntryForm({
           });
 
           // Fetch Stock Statement Entry for today and apply statement mappings
-          const { blocks: mappedBlocks, count } = await syncFromStockEntry(initialBlocks, entryDate, shift);
+          const { blocks: mappedBlocks } = await syncFromStockEntry(initialBlocks, entryDate, shift);
+          
+          const stmtMap = new Map<string, { key: string; label: string }>();
+          DEFAULT_STATEMENTS.forEach(s => stmtMap.set(s.key, s));
+          globalStatements.forEach((s: { key: string; label: string }) => { if (s && s.key) stmtMap.set(s.key, s); });
+          Object.entries(mappedBlocks).forEach(([bKey, bVal]) => {
+            if (!stmtMap.has(bKey)) {
+              stmtMap.set(bKey, { key: bKey, label: (bVal as any).label || `${bKey.toUpperCase()} STATEMENT` });
+            }
+          });
+
+          const finalStatements = Array.from(stmtMap.values());
+          setStatements(finalStatements);
+          setEnabledBlockKeys(finalStatements.map(s => s.key));
+          if (finalStatements.length > 0) {
+            setActiveBlock(finalStatements[0].key);
+          }
           setBlocks(mappedBlocks);
         }
       } catch (err) {
@@ -501,21 +562,6 @@ export default function STGEntryForm({
             if (Array.isArray(list) && list.length > 0) mappingRules = list;
           } catch {}
         }
-      }
-
-      if (mappingRules.length === 0) {
-        mappingRules = [
-          { stockProductKey: 'wh_milk', stockSection: 'OB', stockParticular: 'Opening Balance', stgBlockKey: 'WM', stgSection: 'OB', stgItemName: 'OB', stgTargetField: 'qty_lts' },
-          { stockProductKey: 'wh_milk', stockSection: 'RECEIPT', stockParticular: 'Receipts:', stgBlockKey: 'WM', stgSection: 'RECEIPT', stgItemName: 'Receipt', stgTargetField: 'qty_lts' },
-          { stockProductKey: 'wh_milk', stockSection: 'DISPOSAL', stockParticular: 'To DLT Milk', stgBlockKey: 'WM', stgSection: 'DISPOSAL', stgItemName: 'To DLT Milk', stgTargetField: 'qty_lts' },
-          { stockProductKey: 'wh_milk', stockSection: 'DISPOSAL', stockParticular: 'To FC Milk', stgBlockKey: 'WM', stgSection: 'DISPOSAL', stgItemName: 'To FC Milk', stgTargetField: 'qty_lts' },
-          { stockProductKey: 'wh_milk', stockSection: 'DISPOSAL', stockParticular: 'To STD Milk', stgBlockKey: 'WM', stgSection: 'DISPOSAL', stgItemName: 'To STD Milk', stgTargetField: 'qty_lts' },
-          { stockProductKey: 'wh_milk', stockSection: 'DISPOSAL', stockParticular: 'To MKT', stgBlockKey: 'WM', stgSection: 'DISPOSAL', stgItemName: 'To MKT', stgTargetField: 'qty_lts' },
-          { stockProductKey: 'skim_milk', stockSection: 'OB', stockParticular: 'Opening Balance', stgBlockKey: 'SSM', stgSection: 'OB', stgItemName: 'OB', stgTargetField: 'qty_lts' },
-          { stockProductKey: 'skim_milk', stockSection: 'RECEIPT', stockParticular: 'Receipts:', stgBlockKey: 'SSM', stgSection: 'RECEIPT', stgItemName: 'Receipt', stgTargetField: 'qty_lts' },
-          { stockProductKey: 'cream', stockSection: 'OB', stockParticular: 'Opening Balance', stgBlockKey: 'CREAM', stgSection: 'OB', stgItemName: 'OB', stgTargetField: 'qty_kg' },
-          { stockProductKey: 'smp', stockSection: 'OB', stockParticular: 'Opening Balance', stgBlockKey: 'SMP', stgSection: 'OB', stgItemName: 'OB', stgTargetField: 'qty_kg' },
-        ];
       }
 
       const nextBlocks = JSON.parse(JSON.stringify(targetBlocks));
