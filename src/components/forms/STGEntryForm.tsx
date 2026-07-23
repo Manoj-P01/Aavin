@@ -523,73 +523,175 @@ export default function STGEntryForm({
 
       const normalizeStr = (str: string) => (str || '').toLowerCase().replace(/[:\s]+/g, ' ').trim();
 
-      mappingRules.forEach((rule: any) => {
-        const { stockProductKey, stockSection, stockParticular, stgBlockKey, stgSection, stgItemName, stgTargetField } = rule;
-        if (!nextBlocks[stgBlockKey]) {
-          nextBlocks[stgBlockKey] = makeInitialBlockState(stgBlockKey);
+      // Extract products definitions if available in stock entry metadata
+      let stockProducts: Array<{ key: string; label: string; full_name?: string; short_name?: string }> = [];
+      if (stockEntries.length > 0 && stockEntries[0].notes) {
+        const parts = stockEntries[0].notes.split('\n');
+        parts.forEach((p: string) => {
+          if (!p.includes('__METADATA__:')) {
+            try {
+              const meta = JSON.parse(p);
+              if (meta.products && Array.isArray(meta.products)) {
+                stockProducts = meta.products;
+              }
+            } catch {}
+          }
+        });
+      }
+
+      if (stockProducts.length === 0) {
+        stockProducts = [
+          { key: 'wh_milk', label: 'WH.Milk', full_name: 'TENTATIVE WHOLE MILK' },
+          { key: 'dlt_milk', label: 'DLT.Milk', full_name: 'DOUBLE TONED MILK' },
+          { key: 'fc_milk', label: 'FC. Milk', full_name: 'FULL CREAM MILK' },
+          { key: 'std_milk', label: 'STD.Milk', full_name: 'STANDARDIZED MILK' },
+          { key: 'toned_curd', label: 'TM Curd', full_name: 'TONED MILK CURD' },
+          { key: 'dtm', label: 'DTM', full_name: 'DOUBLE TONED MILK' },
+          { key: 'skim_milk', label: 'Skim Milk', full_name: 'SKIMMED MILK' },
+          { key: 'cream', label: 'Cream', full_name: 'CREAM' },
+          { key: 'butter_milk', label: 'BM', full_name: 'BUTTER MILK' },
+          { key: 'r_con', label: 'R.Con', full_name: 'RECONSTITUTED MILK' },
+          { key: 'smp', label: 'SMP', full_name: 'SKIM MILK POWDER' },
+          { key: 'water', label: 'Water', full_name: 'WATER' },
+        ];
+      }
+
+      const getBlockInfo = (prod: { key: string; label: string; full_name?: string; short_name?: string }) => {
+        const cleanKey = prod.key.toLowerCase().trim();
+        const rawFullName = (prod.full_name || prod.short_name || prod.label || prod.key).trim();
+        const fullNameUpper = rawFullName.toUpperCase();
+
+        let blockKey = cleanKey.toUpperCase();
+        if (cleanKey === 'wh_milk') blockKey = 'WM';
+        else if (cleanKey === 'skim_milk') blockKey = 'SSM';
+        else if (cleanKey === 'cream') blockKey = 'CREAM';
+        else if (cleanKey === 'smp') blockKey = 'SMP';
+
+        let blockLabel = `${fullNameUpper} STATEMENT`;
+        if (blockKey === 'WM') {
+          blockLabel = `${fullNameUpper} - RECEIPT AND DISPOSAL STATEMENT`;
         }
 
-        const normParticular = normalizeStr(stockParticular);
-        const stockRow = stockRows.find((r: any) => {
-          if (r.row_type !== stockSection) return false;
-          const normLabel = normalizeStr(r.row_label);
-          return normLabel === normParticular || normLabel.includes(normParticular) || normParticular.includes(normLabel);
+        const isSMP = blockKey === 'SMP' || fullNameUpper.includes('SMP') || fullNameUpper.includes('POWDER');
+
+        return { blockKey, blockLabel, isSMP };
+      };
+
+      // 1. Process custom rules if any
+      if (mappingRules.length > 0) {
+        mappingRules.forEach((rule: any) => {
+          const { stockProductKey, stockSection, stockParticular, stgBlockKey, stgSection, stgItemName, stgTargetField } = rule;
+          if (!nextBlocks[stgBlockKey]) {
+            nextBlocks[stgBlockKey] = makeInitialBlockState(stgBlockKey);
+          }
+
+          const normParticular = normalizeStr(stockParticular);
+          const stockRow = stockRows.find((r: any) => {
+            if (r.row_type !== stockSection) return false;
+            const normLabel = normalizeStr(r.row_label);
+            return normLabel === normParticular || normLabel.includes(normParticular) || normParticular.includes(normLabel);
+          });
+          if (!stockRow) return;
+
+          const rawVal = stockRow[stockProductKey] ?? (customVals[stockRow.row_label] ? customVals[stockRow.row_label][stockProductKey] : 0);
+          const valNum = parseFloat(String(rawVal || 0));
+          if (!valNum || isNaN(valNum)) return;
+
+          const bState = nextBlocks[stgBlockKey];
+          const fieldKey = (stgTargetField as keyof STGItemInput) || 'qty_lts';
+
+          if (stgSection === 'OB') {
+            bState.opening_balance = calculateSTGRowValues(bState.opening_balance, fieldKey, String(valNum), stgBlockKey === 'SMP');
+            count++;
+          } else if (stgSection === 'CB') {
+            bState.physical_count = calculateSTGRowValues(bState.physical_count, fieldKey, String(valNum), stgBlockKey === 'SMP');
+            count++;
+          } else {
+            const list: STGItemInput[] = stgSection === 'RECEIPT' ? bState.receipts : bState.disposals;
+            let idx = list.findIndex(r => r.item_name.toLowerCase().trim() === stgItemName.toLowerCase().trim());
+            if (idx === -1) {
+              if (list.length === 1 && !list[0].item_name && !list[0].qty_lts && !list[0].qty_kg) {
+                idx = 0;
+                list[0].item_name = stgItemName;
+              } else {
+                const newItem = makeInitialItem(stgItemName);
+                list.push(newItem);
+                idx = list.length - 1;
+              }
+            }
+            list[idx] = calculateSTGRowValues(list[idx], fieldKey, String(valNum), stgBlockKey === 'SMP');
+            count++;
+          }
         });
-        if (!stockRow) return;
+      }
 
-        const extractRawVal = (row: any, key: string, rowLabel: string) => {
-          if (!row) return 0;
-          let v = row[key];
-          if (v === undefined || v === null) {
-            const cleanKey = key.toLowerCase().replace(/[^a-z0-9]/g, '_');
-            v = row[cleanKey];
+      // 2. Dynamic Automatic Generator for ALL stock products
+      stockProducts.forEach(prod => {
+        const { blockKey, isSMP } = getBlockInfo(prod);
+
+        // Find OB
+        const obRow = stockRows.find((r: any) => r.row_type === 'OB');
+        const obVal = obRow ? parseFloat(String(obRow[prod.key] || (customVals[obRow.row_label] ? customVals[obRow.row_label][prod.key] : '0') || '0')) || 0 : 0;
+
+        // Find Receipts
+        const recRows = stockRows.filter((r: any) => r.row_type === 'RECEIPT');
+        const activeRecs: Array<{ item_name: string; val: number }> = [];
+        recRows.forEach((r: any) => {
+          const val = parseFloat(String(r[prod.key] || (customVals[r.row_label] ? customVals[r.row_label][prod.key] : '0') || '0')) || 0;
+          if (val > 0) activeRecs.push({ item_name: r.row_label, val });
+        });
+
+        // Find Disposals
+        const dispRows = stockRows.filter((r: any) => r.row_type === 'DISPOSAL');
+        const activeDisps: Array<{ item_name: string; val: number }> = [];
+        dispRows.forEach((r: any) => {
+          const val = parseFloat(String(r[prod.key] || (customVals[r.row_label] ? customVals[r.row_label][prod.key] : '0') || '0')) || 0;
+          if (val > 0) activeDisps.push({ item_name: r.row_label, val });
+        });
+
+        if (obVal > 0 || activeRecs.length > 0 || activeDisps.length > 0) {
+          if (!nextBlocks[blockKey]) {
+            nextBlocks[blockKey] = makeInitialBlockState(blockKey);
           }
-          if (v === undefined || v === null) {
-            const foundKey = Object.keys(row).find(k => k.toLowerCase() === key.toLowerCase() || k.toLowerCase().replace(/[^a-z0-9]/g, '_') === key.toLowerCase().replace(/[^a-z0-9]/g, '_'));
-            if (foundKey) v = row[foundKey];
+          const bState = nextBlocks[blockKey];
+
+          if (obVal > 0) {
+            const fieldKey = isSMP ? 'qty_kg' : 'qty_lts';
+            bState.opening_balance = calculateSTGRowValues(bState.opening_balance, fieldKey, String(obVal), isSMP);
+            count++;
           }
-          if ((v === undefined || v === null || Number(v) === 0) && customVals[rowLabel]) {
-            const cRow = customVals[rowLabel];
-            const cleanKey = key.toLowerCase().replace(/[^a-z0-9]/g, '_');
-            v = cRow[key] ?? cRow[cleanKey];
-            if (v === undefined || v === null) {
-              const fk = Object.keys(cRow).find(k => k.toLowerCase() === key.toLowerCase() || k.toLowerCase().replace(/[^a-z0-9]/g, '_') === cleanKey);
-              if (fk) v = cRow[fk];
+
+          activeRecs.forEach(r => {
+            let idx = bState.receipts.findIndex((x: any) => normalizeStr(x.item_name) === normalizeStr(r.item_name));
+            if (idx === -1) {
+              if (bState.receipts.length === 1 && !bState.receipts[0].item_name && !bState.receipts[0].qty_lts && !bState.receipts[0].qty_kg) {
+                idx = 0;
+                bState.receipts[0].item_name = r.item_name;
+              } else {
+                bState.receipts.push(makeInitialItem(r.item_name));
+                idx = bState.receipts.length - 1;
+              }
             }
-          }
-          return v;
-        };
+            const fieldKey = isSMP ? 'qty_kg' : 'qty_lts';
+            bState.receipts[idx] = calculateSTGRowValues(bState.receipts[idx], fieldKey, String(r.val), isSMP);
+            count++;
+          });
 
-        const rawVal = extractRawVal(stockRow, stockProductKey, stockRow.row_label);
-        const valNum = parseFloat(String(rawVal || 0));
-        if (!valNum || isNaN(valNum)) return;
-
-        const bState = nextBlocks[stgBlockKey];
-        const fieldKey = (stgTargetField as keyof STGItemInput) || 'qty_lts';
-
-        if (stgSection === 'OB') {
-          bState.opening_balance = calculateSTGRowValues(bState.opening_balance, fieldKey, String(valNum), stgBlockKey === 'SMP');
-          count++;
-        } else if (stgSection === 'CB') {
-          bState.physical_count = calculateSTGRowValues(bState.physical_count, fieldKey, String(valNum), stgBlockKey === 'SMP');
-          count++;
-        } else {
-          const list: STGItemInput[] = stgSection === 'RECEIPT' ? bState.receipts : bState.disposals;
-          let idx = list.findIndex(r => r.item_name.toLowerCase().trim() === stgItemName.toLowerCase().trim());
-
-          if (idx === -1) {
-            if (list.length === 1 && !list[0].item_name && !list[0].qty_lts && !list[0].qty_kg) {
-              idx = 0;
-              list[0].item_name = stgItemName;
-            } else {
-              const newItem = makeInitialItem(stgItemName);
-              list.push(newItem);
-              idx = list.length - 1;
+          activeDisps.forEach(d => {
+            let idx = bState.disposals.findIndex((x: any) => normalizeStr(x.item_name) === normalizeStr(d.item_name));
+            if (idx === -1) {
+              if (bState.disposals.length === 1 && !bState.disposals[0].item_name && !bState.disposals[0].qty_lts && !bState.disposals[0].qty_kg) {
+                idx = 0;
+                bState.disposals[0].item_name = d.item_name;
+              } else {
+                bState.disposals.push(makeInitialItem(d.item_name));
+                idx = bState.disposals.length - 1;
+              }
             }
-          }
-
-          list[idx] = calculateSTGRowValues(list[idx], fieldKey, String(valNum), stgBlockKey === 'SMP');
-          count++;
+            const fieldKey = isSMP ? 'qty_kg' : 'qty_lts';
+            bState.disposals[idx] = calculateSTGRowValues(bState.disposals[idx], fieldKey, String(d.val), isSMP);
+            count++;
+          });
         }
       });
 

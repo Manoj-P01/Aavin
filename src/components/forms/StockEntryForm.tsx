@@ -447,10 +447,10 @@ export default function StockEntryForm() {
   const autoCompileSTGFromStock = async (
     targetDate: string,
     targetShift: Shift | null,
-    stockCols: Array<{ key: string; label: string }>,
+    stockCols: Array<{ key: string; label: string; full_name?: string; short_name?: string }>,
     stockRowsState: StockRowState[]
   ) => {
-    // 1. Load active mapping rules without date parameter
+    // 1. Load active custom mapping rules if present in database
     let mappingRules: any[] = [];
     try {
       const mapRes = await fetch('/api/entries?report_type=STOCK_MAPPING');
@@ -466,23 +466,6 @@ export default function StockEntryForm() {
       console.error('Failed loading STOCK_MAPPING rules for autoCompile:', e);
     }
 
-    if (mappingRules.length === 0) {
-      mappingRules = [
-        { stockProductKey: 'wh_milk', stockSection: 'OB', stockParticular: 'Opening Balance', stgBlockKey: 'WM', stgBlockLabel: 'TENTATIVE WHOLE MILK - RECEIPT AND DISPOSAL STATEMENT', stgSection: 'OB', stgItemName: 'OB', stgTargetField: 'qty_lts' },
-        { stockProductKey: 'wh_milk', stockSection: 'RECEIPT', stockParticular: 'Receipts:', stgBlockKey: 'WM', stgBlockLabel: 'TENTATIVE WHOLE MILK - RECEIPT AND DISPOSAL STATEMENT', stgSection: 'RECEIPT', stgItemName: 'Receipt', stgTargetField: 'qty_lts' },
-        { stockProductKey: 'wh_milk', stockSection: 'DISPOSAL', stockParticular: 'To DLT Milk', stgBlockKey: 'WM', stgBlockLabel: 'TENTATIVE WHOLE MILK - RECEIPT AND DISPOSAL STATEMENT', stgSection: 'DISPOSAL', stgItemName: 'To DLT Milk', stgTargetField: 'qty_lts' },
-        { stockProductKey: 'wh_milk', stockSection: 'DISPOSAL', stockParticular: 'To FC Milk', stgBlockKey: 'WM', stgBlockLabel: 'TENTATIVE WHOLE MILK - RECEIPT AND DISPOSAL STATEMENT', stgSection: 'DISPOSAL', stgItemName: 'To FC Milk', stgTargetField: 'qty_lts' },
-        { stockProductKey: 'wh_milk', stockSection: 'DISPOSAL', stockParticular: 'To STD Milk', stgBlockKey: 'WM', stgBlockLabel: 'TENTATIVE WHOLE MILK - RECEIPT AND DISPOSAL STATEMENT', stgSection: 'DISPOSAL', stgItemName: 'To STD Milk', stgTargetField: 'qty_lts' },
-        { stockProductKey: 'wh_milk', stockSection: 'DISPOSAL', stockParticular: 'To MKT', stgBlockKey: 'WM', stgBlockLabel: 'TENTATIVE WHOLE MILK - RECEIPT AND DISPOSAL STATEMENT', stgSection: 'DISPOSAL', stgItemName: 'To MKT', stgTargetField: 'qty_lts' },
-        { stockProductKey: 'skim_milk', stockSection: 'OB', stockParticular: 'Opening Balance', stgBlockKey: 'SSM', stgBlockLabel: 'SKIM MILK STATEMENT', stgSection: 'OB', stgItemName: 'OB', stgTargetField: 'qty_lts' },
-        { stockProductKey: 'skim_milk', stockSection: 'RECEIPT', stockParticular: 'Receipts:', stgBlockKey: 'SSM', stgBlockLabel: 'SKIM MILK STATEMENT', stgSection: 'RECEIPT', stgItemName: 'Receipt', stgTargetField: 'qty_lts' },
-        { stockProductKey: 'cream', stockSection: 'OB', stockParticular: 'Opening Balance', stgBlockKey: 'CREAM', stgBlockLabel: 'CREAM STATEMENT', stgSection: 'OB', stgItemName: 'OB', stgTargetField: 'qty_kg' },
-        { stockProductKey: 'smp', stockSection: 'OB', stockParticular: 'Opening Balance', stgBlockKey: 'SMP', stgBlockLabel: 'SMP STATEMENT', stgSection: 'OB', stgItemName: 'OB', stgTargetField: 'qty_kg' },
-      ];
-    }
-
-    const normalizeStr = (str: string) => (str || '').toLowerCase().replace(/[:\s]+/g, ' ').trim();
-
     const blocksData: Record<string, {
       label: string;
       ob: any;
@@ -494,86 +477,173 @@ export default function StockEntryForm() {
     const customStatements: Array<{ key: string; label: string }> = [];
     const enabledBlockKeys: string[] = [];
 
-    mappingRules.forEach(rule => {
-      const { stockProductKey, stockSection, stockParticular, stgBlockKey, stgBlockLabel, stgSection, stgItemName, stgTargetField } = rule;
+    const getBlockInfo = (col: { key: string; label: string; full_name?: string; short_name?: string }) => {
+      const cleanKey = col.key.toLowerCase().trim();
+      const rawFullName = (col.full_name || col.short_name || col.label || col.key).trim();
+      const fullNameUpper = rawFullName.toUpperCase();
 
-      const normProductKey = normalizeStr(stockProductKey);
-      const col = stockCols.find(c =>
-        c.key.toLowerCase() === stockProductKey.toLowerCase() ||
-        normalizeStr(c.key) === normProductKey ||
-        normalizeStr(c.label) === normProductKey
-      );
+      let blockKey = cleanKey.toUpperCase();
+      if (cleanKey === 'wh_milk') blockKey = 'WM';
+      else if (cleanKey === 'skim_milk') blockKey = 'SSM';
+      else if (cleanKey === 'cream') blockKey = 'CREAM';
+      else if (cleanKey === 'smp') blockKey = 'SMP';
 
-      const normParticular = normalizeStr(stockParticular);
-      const stockRow = stockRowsState.find(r => {
-        if (r.row_type !== stockSection) return false;
-        const normLabel = normalizeStr(r.row_label);
-        return normLabel === normParticular || normLabel.includes(normParticular) || normParticular.includes(normLabel);
+      let blockLabel = `${fullNameUpper} STATEMENT`;
+      if (blockKey === 'WM') {
+        blockLabel = `${fullNameUpper} - RECEIPT AND DISPOSAL STATEMENT`;
+      }
+
+      const isSMP = blockKey === 'SMP' || fullNameUpper.includes('SMP') || fullNameUpper.includes('POWDER');
+
+      return { blockKey, blockLabel, isSMP };
+    };
+
+    // If explicit custom mapping rules exist, process them
+    if (mappingRules.length > 0) {
+      const normalizeStr = (str: string) => (str || '').toLowerCase().replace(/[:\s]+/g, ' ').trim();
+      mappingRules.forEach(rule => {
+        const { stockProductKey, stockSection, stockParticular, stgBlockKey, stgBlockLabel, stgSection, stgItemName, stgTargetField } = rule;
+        const normProductKey = normalizeStr(stockProductKey);
+        const col = stockCols.find(c =>
+          c.key.toLowerCase() === stockProductKey.toLowerCase() ||
+          normalizeStr(c.key) === normProductKey ||
+          normalizeStr(c.label) === normProductKey
+        );
+
+        const normParticular = normalizeStr(stockParticular);
+        const stockRow = stockRowsState.find(r => {
+          if (r.row_type !== stockSection) return false;
+          const normLabel = normalizeStr(r.row_label);
+          return normLabel === normParticular || normLabel.includes(normParticular) || normParticular.includes(normLabel);
+        });
+
+        if (!stockRow) return;
+
+        const valNum = parseFloat(stockRow.values[stockProductKey] || stockRow.values[col?.key || ''] || '0') || 0;
+        if (!valNum || isNaN(valNum)) return;
+
+        if (!blocksData[stgBlockKey]) {
+          blocksData[stgBlockKey] = {
+            label: stgBlockLabel || `${stgBlockKey} STATEMENT`,
+            ob: { item_name: 'OB', qty_lts: '', qty_kg: '', fat_pct: '', snf_pct: '', sp_gr: '1.0285', kg_fat: '', kg_snf: '' },
+            receipts: [],
+            disposals: [],
+            cb: { item_name: 'CB', qty_lts: '', qty_kg: '', fat_pct: '', snf_pct: '', sp_gr: '', kg_fat: '', kg_snf: '' },
+          };
+        }
+
+        if (!enabledBlockKeys.includes(stgBlockKey)) {
+          enabledBlockKeys.push(stgBlockKey);
+          customStatements.push({ key: stgBlockKey, label: stgBlockLabel || `${stgBlockKey} Statement` });
+        }
+
+        const b = blocksData[stgBlockKey];
+        const isSMP = stgBlockKey === 'SMP' || (stgBlockLabel || '').toUpperCase().includes('SMP');
+        const fieldKey = stgTargetField || (isSMP ? 'qty_kg' : 'qty_lts');
+
+        const assignVal = (targetObj: any) => {
+          targetObj[fieldKey] = String(valNum);
+          if (fieldKey === 'qty_lts' && !isSMP) {
+            targetObj.qty_kg = (valNum * 1.0285).toFixed(3);
+            targetObj.sp_gr = '1.0285';
+          } else if (fieldKey === 'qty_kg' && isSMP) {
+            targetObj.qty_lts = '';
+          }
+        };
+
+        if (stgSection === 'OB') {
+          assignVal(b.ob);
+        } else if (stgSection === 'CB') {
+          assignVal(b.cb);
+        } else {
+          const list = stgSection === 'RECEIPT' ? b.receipts : b.disposals;
+          let existing = list.find(r => normalizeStr(r.item_name) === normalizeStr(stgItemName));
+          if (!existing) {
+            existing = { item_name: stgItemName, qty_lts: '', qty_kg: '', fat_pct: '', snf_pct: '', sp_gr: isSMP ? '' : '1.0285', kg_fat: '', kg_snf: '' };
+            list.push(existing);
+          }
+          assignVal(existing);
+        }
+      });
+    }
+
+    // Dynamic Automatic Generator: Iterate through ALL stock columns and build STG statement blocks automatically
+    stockCols.forEach(col => {
+      const { blockKey, blockLabel, isSMP } = getBlockInfo(col);
+
+      // 1. Get OB value
+      const obRow = stockRowsState.find(r => r.row_type === 'OB');
+      const obVal = obRow && obRow.values[col.key] ? parseFloat(obRow.values[col.key] || '0') || 0 : 0;
+
+      // 2. Get Receipt rows
+      const receiptRows = stockRowsState.filter(r => r.row_type === 'RECEIPT');
+      const activeReceipts: Array<{ item_name: string; val: number }> = [];
+      receiptRows.forEach(r => {
+        const val = parseFloat(r.values[col.key] || '0') || 0;
+        if (val > 0) {
+          activeReceipts.push({ item_name: r.row_label.trim() || 'Receipt', val });
+        }
       });
 
-      if (!stockRow) return;
-
-      const getValFromRow = (r: StockRowState) => {
-        if (!r.values) return 0;
-        if (r.values[stockProductKey] !== undefined && r.values[stockProductKey] !== '') {
-          return parseFloat(r.values[stockProductKey] || '0') || 0;
+      // 3. Get Disposal rows
+      const disposalRows = stockRowsState.filter(r => r.row_type === 'DISPOSAL');
+      const activeDisposals: Array<{ item_name: string; val: number }> = [];
+      disposalRows.forEach(r => {
+        const val = parseFloat(r.values[col.key] || '0') || 0;
+        if (val > 0) {
+          activeDisposals.push({ item_name: r.row_label.trim() || 'Disposal', val });
         }
-        if (col && r.values[col.key] !== undefined && r.values[col.key] !== '') {
-          return parseFloat(r.values[col.key] || '0') || 0;
+      });
+
+      // If column has OB, Receipts, or Disposals, create/update statement block
+      if (obVal > 0 || activeReceipts.length > 0 || activeDisposals.length > 0) {
+        if (!enabledBlockKeys.includes(blockKey)) {
+          enabledBlockKeys.push(blockKey);
+          customStatements.push({ key: blockKey, label: blockLabel });
         }
-        for (const k of Object.keys(r.values)) {
-          if (k.toLowerCase() === stockProductKey.toLowerCase() || normalizeStr(k) === normProductKey) {
-            return parseFloat(r.values[k] || '0') || 0;
-          }
+
+        if (!blocksData[blockKey]) {
+          const bOb = {
+            item_name: 'OB',
+            qty_lts: !isSMP && obVal > 0 ? String(obVal) : '',
+            qty_kg: isSMP && obVal > 0 ? String(obVal) : (!isSMP && obVal > 0 ? (obVal * 1.0285).toFixed(3) : ''),
+            fat_pct: '',
+            snf_pct: '',
+            sp_gr: !isSMP && obVal > 0 ? '1.0285' : '',
+            kg_fat: '',
+            kg_snf: '',
+          };
+
+          const bReceipts = activeReceipts.map(r => ({
+            item_name: r.item_name,
+            qty_lts: !isSMP ? String(r.val) : '',
+            qty_kg: isSMP ? String(r.val) : (r.val * 1.0285).toFixed(3),
+            fat_pct: '',
+            snf_pct: '',
+            sp_gr: !isSMP ? '1.0285' : '',
+            kg_fat: '',
+            kg_snf: '',
+          }));
+
+          const bDisposals = activeDisposals.map(d => ({
+            item_name: d.item_name,
+            qty_lts: !isSMP ? String(d.val) : '',
+            qty_kg: isSMP ? String(d.val) : (d.val * 1.0285).toFixed(3),
+            fat_pct: '',
+            snf_pct: '',
+            sp_gr: !isSMP ? '1.0285' : '',
+            kg_fat: '',
+            kg_snf: '',
+          }));
+
+          blocksData[blockKey] = {
+            label: blockLabel,
+            ob: bOb,
+            receipts: bReceipts,
+            disposals: bDisposals,
+            cb: { item_name: 'CB', qty_lts: '', qty_kg: '', fat_pct: '', snf_pct: '', sp_gr: '', kg_fat: '', kg_snf: '' },
+          };
         }
-        return 0;
-      };
-
-      const valNum = getValFromRow(stockRow);
-      if (!valNum || isNaN(valNum)) return;
-
-      if (!blocksData[stgBlockKey]) {
-        blocksData[stgBlockKey] = {
-          label: stgBlockLabel || `${stgBlockKey} STATEMENT`,
-          ob: { item_name: 'OB', qty_lts: '', qty_kg: '', fat_pct: '', snf_pct: '', sp_gr: '1.0285', kg_fat: '', kg_snf: '' },
-          receipts: [],
-          disposals: [],
-          cb: { item_name: 'CB', qty_lts: '', qty_kg: '', fat_pct: '', snf_pct: '', sp_gr: '', kg_fat: '', kg_snf: '' },
-        };
-      }
-
-      if (!enabledBlockKeys.includes(stgBlockKey)) {
-        enabledBlockKeys.push(stgBlockKey);
-        customStatements.push({ key: stgBlockKey, label: stgBlockLabel || `${stgBlockKey} Statement` });
-      }
-
-      const b = blocksData[stgBlockKey];
-      const isSMP = stgBlockKey === 'SMP' || (stgBlockLabel || '').toUpperCase().includes('SMP');
-
-      const fieldKey = stgTargetField || (isSMP ? 'qty_kg' : 'qty_lts');
-
-      const assignVal = (targetObj: any) => {
-        targetObj[fieldKey] = String(valNum);
-        if (fieldKey === 'qty_lts' && !isSMP) {
-          targetObj.qty_kg = (valNum * 1.0285).toFixed(3);
-          targetObj.sp_gr = '1.0285';
-        } else if (fieldKey === 'qty_kg' && isSMP) {
-          targetObj.qty_lts = '';
-        }
-      };
-
-      if (stgSection === 'OB') {
-        assignVal(b.ob);
-      } else if (stgSection === 'CB') {
-        assignVal(b.cb);
-      } else {
-        const list = stgSection === 'RECEIPT' ? b.receipts : b.disposals;
-        let existing = list.find(r => normalizeStr(r.item_name) === normalizeStr(stgItemName));
-        if (!existing) {
-          existing = { item_name: stgItemName, qty_lts: '', qty_kg: '', fat_pct: '', snf_pct: '', sp_gr: isSMP ? '' : '1.0285', kg_fat: '', kg_snf: '' };
-          list.push(existing);
-        }
-        assignVal(existing);
       }
     });
 
