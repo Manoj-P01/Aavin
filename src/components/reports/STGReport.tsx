@@ -27,6 +27,7 @@ export default function STGReport({ stgRows, date, notes, shift }: Props) {
   // Parse custom statements from notes
   let customStatements: Array<{ key: string; label: string }> = [];
   let customBlocks: Record<string, any> = {};
+  let cmpddNorms: Record<string, string> = {};
 
   if (notes) {
     const notesParts = notes.split('\n');
@@ -41,6 +42,9 @@ export default function STGReport({ stgRows, date, notes, shift }: Props) {
           if (meta.custom_blocks) {
             customBlocks = meta.custom_blocks;
           }
+          if (meta.cmpdd_norms) {
+            cmpddNorms = meta.cmpdd_norms;
+          }
         } catch (e) {
           console.error('Failed to parse STG metadata in report:', e);
         }
@@ -52,15 +56,18 @@ export default function STGReport({ stgRows, date, notes, shift }: Props) {
     { key: 'WM', label: 'TENTATIVE WHOLE MILK – RECEIPT AND DISPOSAL STATEMENT' },
     { key: 'SSM', label: 'SKIMMED MILK – RECEIPT AND DISPOSAL STATEMENT' },
     { key: 'CREAM', label: 'CREAM – RECEIPT AND DISPOSAL STATEMENT' },
-    { key: 'SMP', label: 'SMP / OTHER – RECEIPT AND DISPOSAL STATEMENT' },
+    { key: 'SMP', label: 'SKIM MILK POWDER STATEMENT' },
   ];
   const blockMap = new Map<string, { key: string; label: string }>();
-  baseBlocks.forEach(b => blockMap.set(b.key, b));
-  customStatements.forEach(s => {
-    if (s && s.key) {
-      blockMap.set(s.key, s);
-    }
-  });
+  if (customStatements && customStatements.length > 0) {
+    customStatements.forEach(s => {
+      if (s && s.key) {
+        blockMap.set(s.key, s);
+      }
+    });
+  } else {
+    baseBlocks.forEach(b => blockMap.set(b.key, b));
+  }
 
   // Dynamically collect any block keys present in stgRows
   stgRows.forEach(r => {
@@ -75,8 +82,14 @@ export default function STGReport({ stgRows, date, notes, shift }: Props) {
   const allBlocks = Array.from(blockMap.values());
 
   const getBlockLabel = (blockKey: string, blockLabel: string) => {
+    const rawLabel = (blockLabel || (customStatements.find(s => s.key === blockKey)?.label) || '').trim();
+    if (rawLabel) {
+      const upperLabel = rawLabel.toUpperCase();
+      if (upperLabel.includes('STATEMENT')) return upperLabel;
+      return `${upperLabel} – RECEIPT AND DISPOSAL STATEMENT`;
+    }
     if (BLOCK_LABELS[blockKey]) return BLOCK_LABELS[blockKey];
-    const upperLabel = (blockLabel || blockKey).toUpperCase().trim();
+    const upperLabel = (blockKey).toUpperCase().trim();
     if (upperLabel.includes('STATEMENT')) return upperLabel;
     return `${upperLabel} – RECEIPT AND DISPOSAL STATEMENT`;
   };
@@ -107,6 +120,10 @@ export default function STGReport({ stgRows, date, notes, shift }: Props) {
 
       {allBlocks.map(blockInfo => {
         const block = blockInfo.key;
+        const bCmpddNormStr = (customBlocks[block] && customBlocks[block].cmpdd_norm)
+          ? customBlocks[block].cmpdd_norm
+          : (cmpddNorms[block] || '0.5');
+        const bCmpddNorm = parseFloat(bCmpddNormStr) || 0.5;
         let blockRows = stgRows.filter(r => r.product_block === block);
 
         // If it's a custom block, map the rows from customBlocks metadata
@@ -381,12 +398,21 @@ export default function STGReport({ stgRows, date, notes, shift }: Props) {
                       {lossGainPct.kg > 0 ? '+' : ''}{fmtDiff(lossGainPct.kg)}%
                     </td>
                     <td colSpan={3} style={{ background: '#fafafa' }} />
-                    <td className="num" style={{ color: lossGainPct.fat >= 0 ? 'var(--brand-success)' : 'var(--brand-danger)' }}>
+                    <td className="num" style={{ color: Math.abs(lossGainPct.fat) > bCmpddNorm ? 'var(--brand-danger)' : 'var(--brand-success)' }}>
                       {lossGainPct.fat > 0 ? '+' : ''}{fmtDiff(lossGainPct.fat)}%
                     </td>
-                    <td className="num" style={{ color: lossGainPct.snf >= 0 ? 'var(--brand-success)' : 'var(--brand-danger)' }}>
+                    <td className="num" style={{ color: Math.abs(lossGainPct.snf) > bCmpddNorm ? 'var(--brand-danger)' : 'var(--brand-success)' }}>
                       {lossGainPct.snf > 0 ? '+' : ''}{fmtDiff(lossGainPct.snf)}%
                     </td>
+                  </tr>
+
+                  {/* CMPDD Norm row */}
+                  <tr className="cmpdd-norm-row" style={{ background: 'rgba(0,0,0,0.02)', fontWeight: 600 }}>
+                    <td colSpan={9} style={{ borderRight: '2px solid var(--border)' }} />
+                    <td colSpan={2} style={{ textAlign: 'right', color: 'var(--text-muted)', fontSize: '0.8rem' }}>CMPDD NORM ({bCmpddNorm}%)</td>
+                    <td colSpan={5} style={{ background: '#fafafa' }} />
+                    <td className="num" style={{ color: 'var(--text-muted)' }}>{bCmpddNorm}%</td>
+                    <td className="num" style={{ color: 'var(--text-muted)' }}>{bCmpddNorm}%</td>
                   </tr>
                 </tbody>
               </table>

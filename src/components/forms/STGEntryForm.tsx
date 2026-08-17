@@ -7,6 +7,7 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
+import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { fmtNum } from '@/lib/calculations';
 import { CALC_CONFIG } from '@/lib/config';
@@ -32,6 +33,7 @@ interface STGBlockState {
   receipts: STGItemInput[];
   disposals: STGItemInput[];
   physical_count: STGItemInput;
+  cmpdd_norm?: string;
 }
 
 const DEFAULT_STATEMENTS = [
@@ -83,6 +85,7 @@ function makeInitialBlockState(blockKey: string): STGBlockState {
     receipts: receipts.length > 0 ? receipts : [makeInitialItem()],
     disposals: disposals.length > 0 ? disposals : [makeInitialItem()],
     physical_count: makeInitialItem('CB'),
+    cmpdd_norm: '0.5',
   };
 }
 
@@ -149,7 +152,18 @@ export default function STGEntryForm({
     targetRowIdx?: number;
   } | null>(null);
 
-  // Load shifts config on mount
+  // Calculation mode state for Fat / SNF bi-directional formulas
+  const [calcConfig, setCalcConfig] = useState<{
+    fatCalcMode: 'FROM_PCT' | 'FROM_KG';
+    snfCalcMode: 'FROM_PCT' | 'FROM_KG';
+    densityFactor: number;
+  }>({
+    fatCalcMode: 'FROM_PCT',
+    snfCalcMode: 'FROM_PCT',
+    densityFactor: 1.0275,
+  });
+
+  // Load shifts and calc config on mount
   useEffect(() => {
     async function loadShiftConfig() {
       try {
@@ -204,7 +218,34 @@ export default function STGEntryForm({
         console.error('Error loading shift configuration:', err);
       }
     }
+
+    async function loadCalcConfig() {
+      try {
+        const res = await fetch('/api/entries?report_type=STG_CALC_CONFIG');
+        if (res.ok) {
+          const json = await res.json();
+          const entries: any[] = json.data || [];
+          const configEntry = entries.find((e: any) => e.notes && !e.notes.includes('__METADATA__:'));
+          if (configEntry && configEntry.notes) {
+            try {
+              const parsed = JSON.parse(configEntry.notes);
+              if (parsed && typeof parsed === 'object') {
+                setCalcConfig({
+                  fatCalcMode: parsed.fatCalcMode === 'FROM_KG' ? 'FROM_KG' : 'FROM_PCT',
+                  snfCalcMode: parsed.snfCalcMode === 'FROM_KG' ? 'FROM_KG' : 'FROM_PCT',
+                  densityFactor: parseFloat(parsed.densityFactor) || 1.0275,
+                });
+              }
+            } catch (e) {}
+          }
+        }
+      } catch (err) {
+        console.error('Error loading STG calc config:', err);
+      }
+    }
+
     loadShiftConfig();
+    loadCalcConfig();
   }, []);
 
   useEffect(() => {
@@ -296,6 +337,7 @@ export default function STGEntryForm({
             let savedEnabledKeys: any = null;
             let todayManualRows: Record<string, { receipts: boolean[]; disposals: boolean[] }> = {};
 
+            let todayCmpddNorms: Record<string, string> = {};
             const notesParts = (data.data.notes || '').split('\n');
             notesParts.forEach((part: string) => {
               if (part.includes('__METADATA__:') || part.includes('__METADATA__::')) {
@@ -313,6 +355,9 @@ export default function STGEntryForm({
                   }
                   if (meta.manual_rows) {
                     todayManualRows = meta.manual_rows;
+                  }
+                  if (meta.cmpdd_norms) {
+                    todayCmpddNorms = meta.cmpdd_norms;
                   }
                 } catch (e) {
                   console.error('Failed to parse STG metadata:', e);
@@ -421,6 +466,13 @@ export default function STGEntryForm({
             Object.entries(customBlocksState).forEach(([key, state]) => {
               if (newBlocks[key]) {
                 newBlocks[key] = state;
+              }
+            });
+
+            // Assign saved cmpdd_norm values
+            Object.entries(todayCmpddNorms).forEach(([key, normVal]) => {
+              if (newBlocks[key]) {
+                newBlocks[key].cmpdd_norm = normVal;
               }
             });
 
@@ -756,17 +808,53 @@ export default function STGEntryForm({
     item: T,
     changedField: string,
     newVal: string,
-    isSMPBlock: boolean = false
+    isSMPBlock: boolean = false,
+    overrideConfig?: { fatCalcMode?: 'FROM_PCT' | 'FROM_KG'; snfCalcMode?: 'FROM_PCT' | 'FROM_KG'; densityFactor?: number }
   ): T {
     const temp = { ...item, [changedField]: newVal };
+
+    const effectiveConfig = {
+      fatCalcMode: overrideConfig?.fatCalcMode || calcConfig.fatCalcMode,
+      snfCalcMode: overrideConfig?.snfCalcMode || calcConfig.snfCalcMode,
+      densityFactor: overrideConfig?.densityFactor || calcConfig.densityFactor,
+    };
 
     const isSMP = isSMPBlock || (temp.item_name || '').toLowerCase().includes('smp');
     if (isSMP) {
       temp.qty_lts = '';
     }
 
-    // 1. If fat_pct or snf_pct changed, recalculate sp_gr
-    if (changedField === 'fat_pct' || changedField === 'snf_pct') {
+    // A. REVERSE FAT CALCULATIONS: Calculate Fat % from Kg.Fat
+    // Formula: Fat % = (Kg.Fat / Qty (Lts) / DensityFactor) * 100
+    if (!isSMP && effectiveConfig.fatCalcMode === 'FROM_KG' && (changedField === 'kg_fat' || changedField === 'qty_lts')) {
+      const kgFat = parseFloat(temp.kg_fat) || 0;
+      const lts = parseFloat(temp.qty_lts) || 0;
+      if (kgFat && lts && effectiveConfig.densityFactor > 0) {
+        const rawFatPct = (kgFat / lts / effectiveConfig.densityFactor) * 100;
+        temp.fat_pct = rawFatPct.toFixed(2);
+      } else if (!kgFat) {
+        temp.fat_pct = '';
+      }
+    }
+
+    // B. REVERSE SNF CALCULATIONS: Calculate SNF % from Kg.SNF
+    // Formula: SNF % = (Kg.SNF / Qty (Lts) / DensityFactor) * 100
+    if (!isSMP && effectiveConfig.snfCalcMode === 'FROM_KG' && (changedField === 'kg_snf' || changedField === 'qty_lts')) {
+      const kgSnf = parseFloat(temp.kg_snf) || 0;
+      const lts = parseFloat(temp.qty_lts) || 0;
+      if (kgSnf && lts && effectiveConfig.densityFactor > 0) {
+        const rawSnfPct = (kgSnf / lts / effectiveConfig.densityFactor) * 100;
+        temp.snf_pct = rawSnfPct.toFixed(2);
+      } else if (!kgSnf) {
+        temp.snf_pct = '';
+      }
+    }
+
+    // 1. If fat_pct or snf_pct changed (or recalculated above), recalculate sp_gr
+    const isFatUpdated = changedField === 'fat_pct' || (effectiveConfig.fatCalcMode === 'FROM_KG' && changedField === 'kg_fat');
+    const isSnfUpdated = changedField === 'snf_pct' || (effectiveConfig.snfCalcMode === 'FROM_KG' && changedField === 'kg_snf');
+
+    if (isFatUpdated || isSnfUpdated || changedField === 'qty_lts') {
       const fat = parseFloat(temp.fat_pct) || 0;
       const snf = parseFloat(temp.snf_pct) || 0;
       if (fat && snf) {
@@ -777,8 +865,8 @@ export default function STGEntryForm({
       }
     }
 
-    // 2. Recalculate Qty (Kg) only if Qty (Lts) or Sp. Gr changed
-    if (!isSMP && (changedField === 'qty_lts' || changedField === 'sp_gr' || changedField === 'fat_pct' || changedField === 'snf_pct')) {
+    // 2. Recalculate Qty (Kg)
+    if (!isSMP && (changedField === 'qty_lts' || changedField === 'sp_gr' || changedField === 'fat_pct' || changedField === 'snf_pct' || changedField === 'kg_fat' || changedField === 'kg_snf')) {
       const lts = parseFloat(temp.qty_lts) || 0;
       const spg = parseFloat(temp.sp_gr) || 0;
       if (lts && spg) {
@@ -788,7 +876,7 @@ export default function STGEntryForm({
       }
     }
 
-    // 3. Recalculate Kg Fat
+    // 3. Recalculate Kg Fat (Standard Mode)
     if (isSMP) {
       if (changedField === 'qty_kg' || changedField === 'fat_pct') {
         const kg = parseFloat(temp.qty_kg) || 0;
@@ -800,7 +888,7 @@ export default function STGEntryForm({
           temp.kg_fat = '';
         }
       }
-    } else {
+    } else if (effectiveConfig.fatCalcMode === 'FROM_PCT') {
       if (changedField === 'qty_lts' || changedField === 'sp_gr' || changedField === 'fat_pct' || changedField === 'snf_pct') {
         const lts = parseFloat(temp.qty_lts) || 0;
         const spg = parseFloat(temp.sp_gr) || 0;
@@ -814,7 +902,7 @@ export default function STGEntryForm({
       }
     }
 
-    // 4. Recalculate Kg SNF
+    // 4. Recalculate Kg SNF (Standard Mode)
     if (isSMP) {
       if (changedField === 'qty_kg' || changedField === 'snf_pct') {
         const kg = parseFloat(temp.qty_kg) || 0;
@@ -826,7 +914,7 @@ export default function STGEntryForm({
           temp.kg_snf = '';
         }
       }
-    } else {
+    } else if (effectiveConfig.snfCalcMode === 'FROM_PCT') {
       if (changedField === 'qty_lts' || changedField === 'sp_gr' || changedField === 'snf_pct' || changedField === 'fat_pct') {
         const lts = parseFloat(temp.qty_lts) || 0;
         const spg = parseFloat(temp.sp_gr) || 0;
@@ -1506,11 +1594,22 @@ export default function STGEntryForm({
         }
       });
 
+      const cmpddNorms: Record<string, string> = {};
+      Object.keys(blocks).forEach(k => {
+        if (blocks[k].cmpdd_norm !== undefined) {
+          cmpddNorms[k] = blocks[k].cmpdd_norm || '0.5';
+        }
+        if (customBlocks[k]) {
+          customBlocks[k].cmpdd_norm = blocks[k].cmpdd_norm || '0.5';
+        }
+      });
+
       const metadata = {
         custom_statements: statements.filter(s => enabledBlockKeys.includes(s.key)),
         custom_blocks: customBlocks,
         enabled_blocks: enabledBlockKeys,
         manual_rows: manualRows,
+        cmpdd_norms: cmpddNorms,
       };
       const finalNotes = notes.trim() + "\n__METADATA__:" + JSON.stringify(metadata);
 
@@ -1801,24 +1900,74 @@ export default function STGEntryForm({
 
     return (
       <div className="card animate-fade-in" style={{ marginBottom: 32 }}>
-        {/* Title & Delete button */}
+        {/* Title, CMPDD Norm & Delete button */}
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20, borderBottom: '1px solid var(--border)', paddingBottom: 16, flexWrap: 'wrap', gap: 12 }}>
           <h3 style={{ margin: 0, color: 'var(--brand-primary)', textTransform: 'uppercase', letterSpacing: '0.02em', fontSize: '0.95rem', fontWeight: 700 }}>
             {s.label.toUpperCase()} - RECEIPT AND DISPOSAL STATEMENT
           </h3>
-          <button
-            type="button"
-            className="btn btn-danger btn-sm no-print"
-            onClick={() => {
-              const ok = window.confirm(`Are you sure you want to remove "${s.label}" from this shift? All current values for this shift will be cleared.`);
-              if (ok) {
-                setEnabledBlockKeys(prev => prev.filter(k => k !== blockKey));
-              }
-            }}
-            style={{ fontSize: '0.75rem', padding: '4px 8px' }}
-          >
-            ❌ Remove Block
-          </button>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+            {/* Calculation direction toggles */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, background: '#f0f9ff', padding: '3px 8px', borderRadius: 6, border: '1px solid #bae6fd' }}>
+              <span style={{ fontSize: '0.75rem', fontWeight: 700, color: '#0369a1' }}>🧮 Calc:</span>
+              <button
+                type="button"
+                className={`btn btn-sm ${calcConfig.fatCalcMode === 'FROM_PCT' ? 'btn-primary' : 'btn-secondary'}`}
+                style={{ padding: '2px 6px', fontSize: '0.7rem', height: 'auto', lineHeight: '1.2' }}
+                onClick={() => setCalcConfig(prev => ({ ...prev, fatCalcMode: prev.fatCalcMode === 'FROM_PCT' ? 'FROM_KG' : 'FROM_PCT' }))}
+                title="Toggle Fat calculation direction: Fat% ➔ Kg.Fat vs Kg.Fat ➔ Fat%"
+              >
+                Fat: {calcConfig.fatCalcMode === 'FROM_PCT' ? 'Fat% ➔ Kg' : 'Kg ➔ Fat%'}
+              </button>
+              <button
+                type="button"
+                className={`btn btn-sm ${calcConfig.snfCalcMode === 'FROM_PCT' ? 'btn-primary' : 'btn-secondary'}`}
+                style={{ padding: '2px 6px', fontSize: '0.7rem', height: 'auto', lineHeight: '1.2' }}
+                onClick={() => setCalcConfig(prev => ({ ...prev, snfCalcMode: prev.snfCalcMode === 'FROM_PCT' ? 'FROM_KG' : 'FROM_PCT' }))}
+                title="Toggle SNF calculation direction: SNF% ➔ Kg.SNF vs Kg.SNF ➔ SNF%"
+              >
+                SNF: {calcConfig.snfCalcMode === 'FROM_PCT' ? 'SNF% ➔ Kg' : 'Kg ➔ SNF%'}
+              </button>
+              <Link href="/dashboard/ts/config" style={{ fontSize: '0.7rem', color: '#0284c7', textDecoration: 'none', marginLeft: 2 }} title="Open STG Calculation Settings">
+                ⚙️
+              </Link>
+            </div>
+
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: '0.825rem', background: '#f1f5f9', padding: '4px 10px', borderRadius: 6, border: '1px solid var(--border)' }}>
+              <label style={{ fontWeight: 600, color: 'var(--text-secondary)' }}>CMPDD Norms %:</label>
+              <input
+                type="number"
+                step="0.01"
+                min="0"
+                className="form-input"
+                style={{ width: 70, padding: '2px 6px', fontSize: '0.825rem', textAlign: 'right', fontWeight: 600 }}
+                value={blockState.cmpdd_norm ?? '0.5'}
+                onChange={e => {
+                  const val = e.target.value;
+                  setBlocks(prev => ({
+                    ...prev,
+                    [blockKey]: {
+                      ...prev[blockKey],
+                      cmpdd_norm: val
+                    }
+                  }));
+                }}
+              />
+              <span style={{ fontWeight: 600, color: 'var(--text-muted)' }}>%</span>
+            </div>
+            <button
+              type="button"
+              className="btn btn-danger btn-sm no-print"
+              onClick={() => {
+                const ok = window.confirm(`Are you sure you want to remove "${s.label}" from this shift? All current values for this shift will be cleared.`);
+                if (ok) {
+                  setEnabledBlockKeys(prev => prev.filter(k => k !== blockKey));
+                }
+              }}
+              style={{ fontSize: '0.75rem', padding: '4px 8px' }}
+            >
+              ❌ Remove Block
+            </button>
+          </div>
         </div>
 
         {/* Opening Balance inputs */}
@@ -2038,16 +2187,30 @@ export default function STGEntryForm({
                         <input
                           type="number" placeholder="0" value={r.fat_pct}
                           onChange={e => updateVal(blockKey, 'RECEIPT', idx, 'fat_pct', e.target.value)}
+                          title={calcConfig.fatCalcMode === 'FROM_KG' ? `Formula: (Kg.Fat / Qty (Lts) / ${calcConfig.densityFactor}) × 100` : "Manual Input (Fat %)"}
                           disabled={blocksLocked[blockKey]}
-                          style={blocksLocked[blockKey] ? { background: '#f1f5f9', cursor: 'not-allowed' } : undefined}
+                          style={
+                            blocksLocked[blockKey]
+                              ? { background: '#f1f5f9', cursor: 'not-allowed' }
+                              : (calcConfig.fatCalcMode === 'FROM_KG'
+                                ? { backgroundColor: '#f0f9ff', borderColor: '#bae6fd', color: '#0369a1', fontWeight: 600 }
+                                : undefined)
+                          }
                         />
                       </td>
                       <td>
                         <input
                           type="number" placeholder="0" value={r.snf_pct}
                           onChange={e => updateVal(blockKey, 'RECEIPT', idx, 'snf_pct', e.target.value)}
+                          title={calcConfig.snfCalcMode === 'FROM_KG' ? `Formula: (Kg.SNF / Qty (Lts) / ${calcConfig.densityFactor}) × 100` : "Manual Input (SNF %)"}
                           disabled={blocksLocked[blockKey]}
-                          style={blocksLocked[blockKey] ? { background: '#f1f5f9', cursor: 'not-allowed' } : undefined}
+                          style={
+                            blocksLocked[blockKey]
+                              ? { background: '#f1f5f9', cursor: 'not-allowed' }
+                              : (calcConfig.snfCalcMode === 'FROM_KG'
+                                ? { backgroundColor: '#f0f9ff', borderColor: '#bae6fd', color: '#0369a1', fontWeight: 600 }
+                                : undefined)
+                          }
                         />
                       </td>
                       <td>
@@ -2069,12 +2232,12 @@ export default function STGEntryForm({
                         <input
                           type="number" placeholder="0" value={r.kg_fat}
                           onChange={e => updateVal(blockKey, 'RECEIPT', idx, 'kg_fat', e.target.value)}
-                          title={isSMPRow ? "=ROUND(Qty (Kg)*Fat %/100,3)" : "=ROUND(Sp. Gr*Fat %*Qty (Lts)/100,3)"}
+                          title={calcConfig.fatCalcMode === 'FROM_KG' ? "Manual Input (Kg.Fat)" : (isSMPRow ? "=ROUND(Qty (Kg)*Fat %/100,3)" : "=ROUND(Sp. Gr*Fat %*Qty (Lts)/100,3)")}
                           disabled={blocksLocked[blockKey]}
                           style={
                             blocksLocked[blockKey]
                               ? { background: '#f1f5f9', cursor: 'not-allowed' }
-                              : (isKgFatCalculated
+                              : (isKgFatCalculated && calcConfig.fatCalcMode === 'FROM_PCT'
                                 ? { backgroundColor: '#f0f9ff', borderColor: '#bae6fd', color: '#0369a1' }
                                 : undefined)
                           }
@@ -2084,12 +2247,12 @@ export default function STGEntryForm({
                         <input
                           type="number" placeholder="0" value={r.kg_snf}
                           onChange={e => updateVal(blockKey, 'RECEIPT', idx, 'kg_snf', e.target.value)}
-                          title={isSMPRow ? "=ROUND(Qty (Kg)*SNF %/100,3)" : "=ROUND(Sp. Gr*SNF %*Qty (Lts)/100,3)"}
+                          title={calcConfig.snfCalcMode === 'FROM_KG' ? "Manual Input (Kg.SNF)" : (isSMPRow ? "=ROUND(Qty (Kg)*SNF %/100,3)" : "=ROUND(Sp. Gr*SNF %*Qty (Lts)/100,3)")}
                           disabled={blocksLocked[blockKey]}
                           style={
                             blocksLocked[blockKey]
                               ? { background: '#f1f5f9', cursor: 'not-allowed' }
-                              : (isKgSnfCalculated
+                              : (isKgSnfCalculated && calcConfig.snfCalcMode === 'FROM_PCT'
                                 ? { backgroundColor: '#f0f9ff', borderColor: '#bae6fd', color: '#0369a1' }
                                 : undefined)
                           }
@@ -2288,16 +2451,30 @@ export default function STGEntryForm({
                         <input
                           type="number" placeholder="0" value={d.fat_pct}
                           onChange={e => updateVal(blockKey, 'DISPOSAL', idx, 'fat_pct', e.target.value)}
+                          title={calcConfig.fatCalcMode === 'FROM_KG' ? `Formula: (Kg.Fat / Qty (Lts) / ${calcConfig.densityFactor}) × 100` : "Manual Input (Fat %)"}
                           disabled={blocksLocked[blockKey]}
-                          style={blocksLocked[blockKey] ? { background: '#f1f5f9', cursor: 'not-allowed' } : undefined}
+                          style={
+                            blocksLocked[blockKey]
+                              ? { background: '#f1f5f9', cursor: 'not-allowed' }
+                              : (calcConfig.fatCalcMode === 'FROM_KG'
+                                ? { backgroundColor: '#f0f9ff', borderColor: '#bae6fd', color: '#0369a1', fontWeight: 600 }
+                                : undefined)
+                          }
                         />
                       </td>
                       <td>
                         <input
                           type="number" placeholder="0" value={d.snf_pct}
                           onChange={e => updateVal(blockKey, 'DISPOSAL', idx, 'snf_pct', e.target.value)}
+                          title={calcConfig.snfCalcMode === 'FROM_KG' ? `Formula: (Kg.SNF / Qty (Lts) / ${calcConfig.densityFactor}) × 100` : "Manual Input (SNF %)"}
                           disabled={blocksLocked[blockKey]}
-                          style={blocksLocked[blockKey] ? { background: '#f1f5f9', cursor: 'not-allowed' } : undefined}
+                          style={
+                            blocksLocked[blockKey]
+                              ? { background: '#f1f5f9', cursor: 'not-allowed' }
+                              : (calcConfig.snfCalcMode === 'FROM_KG'
+                                ? { backgroundColor: '#f0f9ff', borderColor: '#bae6fd', color: '#0369a1', fontWeight: 600 }
+                                : undefined)
+                          }
                         />
                       </td>
                       <td>
@@ -2319,12 +2496,12 @@ export default function STGEntryForm({
                         <input
                           type="number" placeholder="0" value={d.kg_fat}
                           onChange={e => updateVal(blockKey, 'DISPOSAL', idx, 'kg_fat', e.target.value)}
-                          title={isSMPRow ? "=ROUND(Qty (Kg)*Fat %/100,3)" : "=ROUND(Sp. Gr*Fat %*Qty (Lts)/100,3)"}
+                          title={calcConfig.fatCalcMode === 'FROM_KG' ? "Manual Input (Kg.Fat)" : (isSMPRow ? "=ROUND(Qty (Kg)*Fat %/100,3)" : "=ROUND(Sp. Gr*Fat %*Qty (Lts)/100,3)")}
                           disabled={blocksLocked[blockKey]}
                           style={
                             blocksLocked[blockKey]
                               ? { background: '#f1f5f9', cursor: 'not-allowed' }
-                              : (isKgFatCalculated
+                              : (isKgFatCalculated && calcConfig.fatCalcMode === 'FROM_PCT'
                                 ? { backgroundColor: '#f0f9ff', borderColor: '#bae6fd', color: '#0369a1' }
                                 : undefined)
                           }
@@ -2334,12 +2511,12 @@ export default function STGEntryForm({
                         <input
                           type="number" placeholder="0" value={d.kg_snf}
                           onChange={e => updateVal(blockKey, 'DISPOSAL', idx, 'kg_snf', e.target.value)}
-                          title={isSMPRow ? "=ROUND(Qty (Kg)*SNF %/100,3)" : "=ROUND(Sp. Gr*SNF %*Qty (Lts)/100,3)"}
+                          title={calcConfig.snfCalcMode === 'FROM_KG' ? "Manual Input (Kg.SNF)" : (isSMPRow ? "=ROUND(Qty (Kg)*SNF %/100,3)" : "=ROUND(Sp. Gr*SNF %*Qty (Lts)/100,3)")}
                           disabled={blocksLocked[blockKey]}
                           style={
                             blocksLocked[blockKey]
                               ? { background: '#f1f5f9', cursor: 'not-allowed' }
-                              : (isKgSnfCalculated
+                              : (isKgSnfCalculated && calcConfig.snfCalcMode === 'FROM_PCT'
                                 ? { backgroundColor: '#f0f9ff', borderColor: '#bae6fd', color: '#0369a1' }
                                 : undefined)
                           }

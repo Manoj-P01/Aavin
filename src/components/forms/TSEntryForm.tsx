@@ -96,7 +96,6 @@ export default function TSEntryForm() {
   const [saveStatus, setSaveStatus] = useState<Record<string, string>>({});
   const [mainSaving, setMainSaving] = useState(false);
   const [error, setError] = useState('');
-  const [formulasConfig, setFormulasConfig] = useState<any>(null);
   const [reportMode, setReportMode] = useState<'full_day' | 'shift'>('full_day');
 
   // Load existing TS entry on mount or when entryDate or shift changes
@@ -135,19 +134,6 @@ export default function TSEntryForm() {
         setReportMode(parsedMode);
         if (parsedMode === 'full_day') {
           setShift(null);
-        }
-
-        // Fetch formulas configuration
-        try {
-          const formulasRes = await fetch('/api/formulas');
-          if (formulasRes.ok) {
-            const formulasJson = await formulasRes.json();
-            if (formulasJson.data && formulasJson.data.nested) {
-              setFormulasConfig(formulasJson.data.nested);
-            }
-          }
-        } catch (err) {
-          console.error('Failed to load formulas config:', err);
         }
 
         // Fetch global statements config
@@ -264,7 +250,7 @@ export default function TSEntryForm() {
         const lts = parseFloat(field === 'qty_lts' ? value : next[idx].qty_lts) || 0;
         const spg = parseFloat(field === 'sp_gr' ? value : next[idx].sp_gr) || 0;
         if (lts && spg) {
-          next[idx].qty_kg = String(calcQtyKg(lts, spg, formulasConfig || undefined));
+          next[idx].qty_kg = String(calcQtyKg(lts, spg));
         }
       }
 
@@ -272,7 +258,7 @@ export default function TSEntryForm() {
       const kg = parseFloat(next[idx].qty_kg) || 0;
       const fat = parseFloat(next[idx].fat_pct) || 0;
       const snf = parseFloat(next[idx].snf_pct) || 0;
-      const calc = calcKgFatSnf(kg, fat, snf, formulasConfig || undefined);
+      const calc = calcKgFatSnf(kg, fat, snf);
 
       if (field === 'qty_kg' || field === 'qty_lts' || field === 'sp_gr' || field === 'fat_pct') {
         next[idx].kg_fat = calc.kg_fat > 0 ? String(calc.kg_fat) : '';

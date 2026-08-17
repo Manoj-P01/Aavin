@@ -27,7 +27,6 @@ export default function TSViewPage() {
   const [shift, setShift] = useState<Shift | null>(null);
   const [reportMode, setReportMode] = useState<'full_day' | 'shift'>('full_day');
   const [globalStatements, setGlobalStatements] = useState<Array<{ key: string; label: string }>>([]);
-  const [formulasConfig, setFormulasConfig] = useState<any>(null);
   const activeTab = selectedTab ?? ((tabParam === 'TS' || tabParam === 'ts') ? 'TS' : 'STG');
 
   const [exportModalOpen, setExportModalOpen] = useState(false);
@@ -40,19 +39,6 @@ export default function TSViewPage() {
       setLoading(true);
       setError('');
       try {
-        // Fetch formulas configuration
-        try {
-          const formulasRes = await fetch('/api/formulas');
-          if (formulasRes.ok) {
-            const formulasJson = await formulasRes.json();
-            if (formulasJson.data && formulasJson.data.nested) {
-              setFormulasConfig(formulasJson.data.nested);
-            }
-          }
-        } catch (err) {
-          console.error('Failed to load formulas config:', err);
-        }
-
         // Fetch global reportMode setting
         let parsedMode: 'full_day' | 'shift' = 'full_day';
         try {
@@ -159,7 +145,7 @@ export default function TSViewPage() {
     load();
   }, [date, shiftParam]);
 
-  const totals = calcTSTotals(rows, formulasConfig || undefined);
+  const totals = calcTSTotals(rows);
   const handlePrint = () => window.print();
 
   const handleExportExcel = async () => {
@@ -318,7 +304,7 @@ export default function TSViewPage() {
         ) : (
           <div className="card">
             {activeTab === 'TS' ? (
-              <TSReport rows={rows} totals={totals} date={date} shift={shift} />
+              <TSReport rows={rows} totals={totals} date={date} shift={shift} notes={entryNotes} />
             ) : (
               <STGReport stgRows={stgRows} date={date} notes={entryNotes} shift={shift} />
             )}

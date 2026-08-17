@@ -71,8 +71,11 @@ export function generateDynamicBalanceRows(
   }
 
   const stmtMap = new Map<string, { key: string; label: string }>();
-  globalStatements.forEach(s => stmtMap.set(s.key, s));
-  customStatements.forEach(s => stmtMap.set(s.key, s));
+  if (customStatements && customStatements.length > 0) {
+    customStatements.forEach(s => { if (s && s.key) stmtMap.set(s.key, s); });
+  } else {
+    globalStatements.forEach(s => stmtMap.set(s.key, s));
+  }
   
   if (stmtMap.size === 0) {
     stmtMap.set('WM', { key: 'WM', label: 'TENTATIVE WHOLE MILK' });

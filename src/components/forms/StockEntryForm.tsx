@@ -63,6 +63,236 @@ export default function StockEntryForm() {
     "To MKT",
   ]);
   const [obUnlocked, setObUnlocked] = useState(false);
+  const [receiptsUnlocked, setReceiptsUnlocked] = useState(false);
+  const [internalRules, setInternalRules] = useState<any[]>([]);
+
+  // Partition / Split Mapping Modal State
+  const [partitionModalOpen, setPartitionModalOpen] = useState(false);
+  const [activePartitionRowIdx, setActivePartitionRowIdx] = useState<number | null>(null);
+  const [partitionItems, setPartitionItems] = useState<Array<{ targetKey: string; value: string }>>([
+    { targetKey: 'skim_milk', value: '' },
+    { targetKey: 'cream', value: '' },
+  ]);
+  // Active/focused cursor row tracking and keyboard navigation
+  const [focusedRowIdx, setFocusedRowIdx] = useState<number | null>(null);
+
+  const handleTableKeyDown = (
+    e: React.KeyboardEvent<HTMLInputElement>,
+    rowIdx: number,
+    fieldKey: string
+  ) => {
+    if (e.key === 'ArrowUp' || (e.key === 'Enter' && e.shiftKey)) {
+      e.preventDefault();
+      let prevIdx = rowIdx - 1;
+      while (prevIdx >= 0) {
+        const el = document.getElementById(`stock-input-${prevIdx}-${fieldKey}`) as HTMLInputElement;
+        if (el && !el.disabled && !el.readOnly) {
+          el.focus();
+          el.select();
+          break;
+        }
+        prevIdx--;
+      }
+    } else if (e.key === 'ArrowDown' || e.key === 'Enter') {
+      e.preventDefault();
+      let nextIdx = rowIdx + 1;
+      while (nextIdx < rows.length) {
+        const el = document.getElementById(`stock-input-${nextIdx}-${fieldKey}`) as HTMLInputElement;
+        if (el && !el.disabled && !el.readOnly) {
+          el.focus();
+          el.select();
+          break;
+        }
+        nextIdx++;
+      }
+    }
+  };
+
+  const applyInternalMappings = (currentRows: StockRowState[], activeRules: any[]): StockRowState[] => {
+    const effectiveRules: any[] = activeRules.length > 0 ? activeRules : [
+      {
+        id: 'default_dlt_disposal_to_receipt',
+        sourceDisposalParticular: 'To DLT Milk',
+        targetReceiptProductKey: 'dlt_milk',
+        targetReceiptProductLabel: 'DLT.Milk',
+        enabled: true,
+      }
+    ];
+
+    const enabledRules = effectiveRules.filter(r => r.enabled !== false);
+    if (enabledRules.length === 0) return currentRows;
+
+    const nextRows = [...currentRows];
+    const receiptRowIdx = nextRows.findIndex(r => r.row_type === 'RECEIPT');
+    if (receiptRowIdx === -1) return currentRows;
+
+    enabledRules.forEach(rule => {
+      const sourceParticular = rule.sourceDisposalParticular || rule.targetDisposalParticular || 'To DLT Milk';
+
+      const disposalRow = nextRows.find(r =>
+        r.row_type === 'DISPOSAL' &&
+        r.row_label.trim().toLowerCase() === sourceParticular.trim().toLowerCase()
+      );
+
+      if (disposalRow) {
+        if (Array.isArray(rule.partitions) && rule.partitions.length > 0) {
+          const recRow = { ...nextRows[receiptRowIdx], values: { ...nextRows[receiptRowIdx].values } };
+          let changed = false;
+          rule.partitions.forEach((part: any) => {
+            const targetKey = part.targetReceiptProductKey || part.targetKey;
+            const valStr = part.value !== undefined && part.value !== null ? String(part.value) : '';
+            if (targetKey && recRow.values[targetKey] !== valStr) {
+              recRow.values[targetKey] = valStr;
+              changed = true;
+            }
+          });
+          if (changed) {
+            nextRows[receiptRowIdx] = recRow;
+          }
+        } else {
+          const targetKey = rule.targetReceiptProductKey || rule.sourceProductKey || 'dlt_milk';
+          const disposalRowTotal = Object.values(disposalRow.values).reduce(
+            (sum, val) => sum + (parseFloat(val || '0') || 0), 0
+          );
+
+          const valStr = disposalRowTotal > 0 ? String(disposalRowTotal) : '';
+          const recRow = { ...nextRows[receiptRowIdx], values: { ...nextRows[receiptRowIdx].values } };
+
+          if (recRow.values[targetKey] !== valStr) {
+            recRow.values[targetKey] = valStr;
+            nextRows[receiptRowIdx] = recRow;
+          }
+        }
+      }
+    });
+
+    return nextRows;
+  };
+
+  const openPartitionModal = (rowIdx: number) => {
+    setActivePartitionRowIdx(rowIdx);
+    const row = rows[rowIdx];
+    if (!row) return;
+
+    const existingRule = internalRules.find(
+      r => r.sourceDisposalParticular?.trim().toLowerCase() === row.row_label.trim().toLowerCase()
+    );
+
+    if (existingRule && Array.isArray(existingRule.partitions) && existingRule.partitions.length > 0) {
+      setPartitionItems(
+        existingRule.partitions.map((p: any) => ({
+          targetKey: p.targetReceiptProductKey || p.targetKey || 'skim_milk',
+          value: p.value !== undefined ? String(p.value) : '',
+        }))
+      );
+    } else {
+      const isSep = row.row_label.trim().toLowerCase() === 'to separation';
+      if (isSep) {
+        setPartitionItems([
+          { targetKey: 'skim_milk', value: '' },
+          { targetKey: 'cream', value: '' },
+        ]);
+      } else {
+        setPartitionItems([
+          { targetKey: columns[0]?.key || 'skim_milk', value: '' },
+        ]);
+      }
+    }
+    setPartitionModalOpen(true);
+  };
+
+  const handleSavePartitions = async () => {
+    if (activePartitionRowIdx === null) return;
+    const row = rows[activePartitionRowIdx];
+    if (!row) return;
+
+    const formattedPartitions = partitionItems
+      .filter(p => p.targetKey.trim() !== '')
+      .map(p => ({
+        targetReceiptProductKey: p.targetKey,
+        targetReceiptProductLabel: columns.find(c => c.key === p.targetKey)?.label || p.targetKey,
+        value: p.value,
+      }));
+
+    const existingRuleIdx = internalRules.findIndex(
+      r => r.sourceDisposalParticular?.trim().toLowerCase() === row.row_label.trim().toLowerCase()
+    );
+
+    let updatedRules: any[];
+    if (existingRuleIdx !== -1) {
+      updatedRules = [...internalRules];
+      updatedRules[existingRuleIdx] = {
+        ...updatedRules[existingRuleIdx],
+        partitions: formattedPartitions,
+        enabled: true,
+      };
+    } else {
+      const newRule = {
+        id: 'partition_map_' + Date.now() + '_' + Math.random().toString(36).substring(2, 6),
+        sourceDisposalParticular: row.row_label.trim(),
+        partitions: formattedPartitions,
+        enabled: true,
+      };
+      updatedRules = [...internalRules, newRule];
+    }
+
+    setInternalRules(updatedRules);
+
+    setRows(prev => {
+      const next = [...prev];
+      const receiptIdx = next.findIndex(r => r.row_type === 'RECEIPT');
+      if (receiptIdx !== -1) {
+        const recRow = { ...next[receiptIdx], values: { ...next[receiptIdx].values } };
+        formattedPartitions.forEach(p => {
+          if (p.targetReceiptProductKey && p.value !== undefined) {
+            recRow.values[p.targetReceiptProductKey] = String(p.value);
+          }
+        });
+        next[receiptIdx] = recRow;
+      }
+      return next;
+    });
+
+    try {
+      await fetch('/api/entries', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          report_type: 'INTERNAL_STOCK_MAPPING',
+          notes: JSON.stringify(updatedRules),
+        }),
+      });
+    } catch (err) {
+      console.error('Failed saving partition mapping rules:', err);
+    }
+
+    setPartitionModalOpen(false);
+    setSuccess(`Partitions applied to Receipts for "${row.row_label}"!`);
+    setTimeout(() => setSuccess(''), 3000);
+  };
+
+  // Load internal stock mappings (Receipts -> Disposals rules) on mount
+  useEffect(() => {
+    async function loadInternalRules() {
+      try {
+        const res = await fetch('/api/entries?report_type=INTERNAL_STOCK_MAPPING');
+        if (res.ok) {
+          const json = await res.json();
+          const entries: any[] = json.data || [];
+          const entry = entries.find((e: any) => e.notes && e.notes.startsWith('['));
+          if (entry && entry.notes) {
+            try {
+              const list = JSON.parse(entry.notes);
+              if (Array.isArray(list)) setInternalRules(list);
+            } catch {}
+          }
+        }
+      } catch (err) {
+        console.error('Failed loading internal stock mapping rules:', err);
+      }
+    }
+    loadInternalRules();
+  }, []);
 
   const setColumnsUnique = (newCols: Array<{ key: ColKey; label: string; full_name?: string; short_name?: string }> | ((prev: Array<{ key: ColKey; label: string; full_name?: string; short_name?: string }>) => Array<{ key: ColKey; label: string; full_name?: string; short_name?: string }>)) => {
     setColumns(prev => {
@@ -365,7 +595,7 @@ export default function StockEntryForm() {
     setRows(prev => {
       const next = [...prev];
       next[rowIdx] = { ...next[rowIdx], values: { ...next[rowIdx].values, [col]: val } };
-      return next;
+      return applyInternalMappings(next, internalRules);
     });
   };
 
@@ -894,35 +1124,97 @@ export default function StockEntryForm() {
   ) => {
     const sRows = rows.map((r, i) => ({ r, i })).filter(x => rowTypes.includes(x.r.row_type));
     const isBalanceSection = rowTypes.includes('OB');
+    const isReceiptsSection = sectionLabel === 'Receipts';
+    const isDisposalsSection = sectionLabel === 'Disposals';
     const rowType = rowTypes[0]; // 'RECEIPT' or 'DISPOSAL'
 
     return (
       <div key={sectionLabel} className="entry-form-section">
-        <div className="entry-form-section-title" style={{ color: headerColor, display: 'flex', alignItems: 'center', gap: 12 }}>
-          <span>{sectionLabel}</span>
-          {isBalanceSection && (
-            <button
-              type="button"
-              className="btn btn-secondary btn-sm no-print"
-              onClick={() => setObUnlocked(!obUnlocked)}
-              style={{
-                padding: '4px 10px',
-                fontSize: '0.72rem',
-                height: 24,
-                lineHeight: 1,
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: 4,
-                borderRadius: 4,
-                border: '1px solid var(--border)',
-                background: obUnlocked ? 'rgba(239, 68, 68, 0.1)' : 'rgba(14, 165, 233, 0.1)',
-                color: obUnlocked ? '#ef4444' : 'var(--brand-primary)',
-                fontWeight: 600,
-                cursor: 'pointer',
-              }}
+        <div className="entry-form-section-title" style={{ color: headerColor, display: 'flex', alignItems: 'center', gap: 12, justifyContent: 'space-between' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+            <span>{sectionLabel}</span>
+            {isBalanceSection && (
+              <button
+                type="button"
+                className="btn btn-secondary btn-sm no-print"
+                onClick={() => setObUnlocked(!obUnlocked)}
+                style={{
+                  padding: '4px 10px',
+                  fontSize: '0.72rem',
+                  height: 24,
+                  lineHeight: 1,
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 4,
+                  borderRadius: 4,
+                  border: '1px solid var(--border)',
+                  background: obUnlocked ? 'rgba(239, 68, 68, 0.1)' : 'rgba(14, 165, 233, 0.1)',
+                  color: obUnlocked ? '#ef4444' : 'var(--brand-primary)',
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                }}
+              >
+                {obUnlocked ? '🔒 Lock OB' : '✏️ Edit OB'}
+              </button>
+            )}
+            {isReceiptsSection && (
+              <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                <button
+                  type="button"
+                  className="btn btn-secondary btn-sm no-print"
+                  onClick={() => setReceiptsUnlocked(!receiptsUnlocked)}
+                  style={{
+                    padding: '4px 10px',
+                    fontSize: '0.72rem',
+                    height: 24,
+                    lineHeight: 1,
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: 4,
+                    borderRadius: 4,
+                    border: '1px solid var(--border)',
+                    background: receiptsUnlocked ? 'rgba(239, 68, 68, 0.1)' : 'rgba(16, 185, 129, 0.1)',
+                    color: receiptsUnlocked ? '#ef4444' : '#047857',
+                    fontWeight: 600,
+                    cursor: 'pointer',
+                  }}
+                >
+                  {receiptsUnlocked ? '🔒 Lock Mapped Receipts' : '✏️ Edit Mapped Receipts'}
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-secondary btn-sm no-print"
+                  onClick={() => setRows(prev => applyInternalMappings(prev, internalRules))}
+                  title="Recalculate mapped Receipts from Disposals row totals"
+                  style={{
+                    padding: '4px 10px',
+                    fontSize: '0.72rem',
+                    height: 24,
+                    lineHeight: 1,
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: 4,
+                    borderRadius: 4,
+                    border: '1px solid #10b981',
+                    background: 'rgba(16, 185, 129, 0.1)',
+                    color: '#059669',
+                    fontWeight: 600,
+                    cursor: 'pointer',
+                  }}
+                >
+                  ⚡ Sync Mapped Receipts
+                </button>
+              </div>
+            )}
+          </div>
+          {(isReceiptsSection || isDisposalsSection) && (
+            <Link
+              href="/dashboard/stock/mappings"
+              className="no-print"
+              style={{ fontSize: '0.75rem', color: 'var(--brand-primary)', fontWeight: 600, textDecoration: 'none' }}
             >
-              {obUnlocked ? '🔒 Lock OB' : '✏️ Edit OB'}
-            </button>
+              🔗 Configure Mappings ➔
+            </Link>
           )}
         </div>
         <div style={{ overflowX: 'auto' }}>
@@ -933,14 +1225,19 @@ export default function StockEntryForm() {
                 {columns.map(col => {
                   const DB_COLUMNS = ['wh_milk', 'dlt_milk', 'fc_milk', 'std_milk', 'toned_curd', 'dtm', 'skim_milk', 'cream', 'butter_milk', 'r_con', 'smp', 'water'];
                   const isCustom = !DB_COLUMNS.includes(col.key);
+                  const isMappedReceiptCol = isReceiptsSection && (
+                    internalRules.some(rule => rule.enabled !== false && (rule.targetReceiptProductKey || rule.sourceProductKey) === col.key) ||
+                    (internalRules.length === 0 && col.key === 'dlt_milk')
+                  );
+
                   return (
-                    <th key={col.key} style={{ minWidth: 110, fontSize: '0.65rem', textAlign: 'center', padding: '8px 4px' }}>
+                    <th key={col.key} style={{ minWidth: 110, fontSize: '0.65rem', textAlign: 'center', padding: '8px 4px', background: isMappedReceiptCol ? 'rgba(16,185,129,0.08)' : undefined }}>
                       <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4 }}>
                         <div
-                          style={{ fontWeight: 700 }}
-                          title={col.full_name ? `${col.full_name} (${col.short_name || col.label})` : (col.short_name || col.label)}
+                          style={{ fontWeight: 700, color: isMappedReceiptCol ? '#059669' : 'inherit' }}
+                          title={isMappedReceiptCol ? 'Auto-calculated from Disposals row total' : (col.full_name ? `${col.full_name} (${col.short_name || col.label})` : (col.short_name || col.label))}
                         >
-                          {col.short_name || col.label}
+                          {col.short_name || col.label} {isMappedReceiptCol ? '⚡' : ''}
                         </div>
                         <div className="no-print" style={{ display: 'flex', gap: 6, marginTop: 2 }}>
                           <button
@@ -971,53 +1268,98 @@ export default function StockEntryForm() {
               </tr>
             </thead>
             <tbody>
-              {sRows.map(({ r, i }) => (
-                <tr key={i}>
-                  <td className="product-label" style={{ padding: 4 }}>
-                    {isBalanceSection ? (
-                      <span style={{ fontWeight: 600, paddingLeft: 8 }}>{r.row_label}</span>
-                    ) : (
-                      <input
-                        type="text"
-                        placeholder="Enter Particulars..."
-                        value={r.row_label}
-                        onChange={e => {
-                          const val = e.target.value;
-                          setRows(prev => {
-                            const next = [...prev];
-                            next[i] = { ...next[i], row_label: val };
-                            return next;
-                          });
-                        }}
-                        style={{ textAlign: 'left', fontWeight: 500, border: 'none', background: 'transparent', width: '100%', padding: '6px 8px' }}
-                      />
-                    )}
-                  </td>
-                  {columns.map(col => (
-                    <td key={col.key}>
-                      <input
-                        type="number"
-                        step="any"
-                        placeholder="0"
-                        value={r.values[col.key] || ''}
-                        onChange={e => updateCell(i, col.key, e.target.value)}
-                        id={`stock-${r.row_type}-${i}-${col.key}`}
-                        style={{
-                          fontFamily: 'var(--font-numbers)',
-                          backgroundColor: (isBalanceSection && !obUnlocked) ? '#f8fafc' : 'transparent',
-                          color: (isBalanceSection && !obUnlocked) ? '#64748b' : 'inherit',
-                          cursor: (isBalanceSection && !obUnlocked) ? 'not-allowed' : 'text',
-                        }}
-                        readOnly={isBalanceSection && !obUnlocked}
-                        onKeyDown={e => {
-                          if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
-                            e.preventDefault();
-                          }
-                        }}
-                        onWheel={e => e.currentTarget.blur()}
-                      />
+              {sRows.map(({ r, i }) => {
+                const isMappedDisposalRow = isDisposalsSection && (
+                  internalRules.some(rule => rule.enabled !== false && (rule.sourceDisposalParticular || rule.targetDisposalParticular || '').trim().toLowerCase() === r.row_label.trim().toLowerCase()) ||
+                  (internalRules.length === 0 && r.row_label.trim().toLowerCase() === 'to dlt milk')
+                );
+                const isFocusedRow = focusedRowIdx === i;
+
+                return (
+                  <tr
+                    key={i}
+                    style={{
+                      backgroundColor: isFocusedRow
+                        ? 'rgba(14, 165, 233, 0.14)'
+                        : (isMappedDisposalRow ? '#fffbeb' : 'transparent'),
+                      boxShadow: isFocusedRow ? 'inset 0 0 0 2px #0ea5e9' : 'none',
+                      transition: 'all 0.12s ease',
+                    }}
+                  >
+                    <td className="product-label" style={{ padding: 4 }}>
+                      {isBalanceSection ? (
+                        <span style={{ fontWeight: 600, paddingLeft: 8 }}>{r.row_label}</span>
+                      ) : (
+                        <div style={{ display: 'flex', alignItems: 'center' }}>
+                          <input
+                            id={`stock-input-${i}-particulars`}
+                            type="text"
+                            placeholder="Enter Particulars..."
+                            value={r.row_label}
+                            onFocus={() => setFocusedRowIdx(i)}
+                            onKeyDown={e => handleTableKeyDown(e, i, 'particulars')}
+                            onChange={e => {
+                              const val = e.target.value;
+                              setRows(prev => {
+                                const next = [...prev];
+                                next[i] = { ...next[i], row_label: val };
+                                return next;
+                              });
+                            }}
+                            style={{ textAlign: 'left', fontWeight: 500, border: 'none', background: 'transparent', width: '100%', padding: '6px 8px' }}
+                          />
+                          {isMappedDisposalRow && (
+                            <span
+                              style={{
+                                fontSize: '0.62rem',
+                                background: '#fef3c7',
+                                color: '#b45309',
+                                fontWeight: 700,
+                                padding: '1px 5px',
+                                borderRadius: 4,
+                                whiteSpace: 'nowrap',
+                                marginRight: 4,
+                              }}
+                              title="Row total auto-populates into Receipts"
+                            >
+                              📤 Feeds Receipts
+                            </span>
+                          )}
+                        </div>
+                      )}
                     </td>
-                  ))}
+                  {columns.map(col => {
+                    const isMappedReceiptCell = isReceiptsSection && (
+                      internalRules.some(rule => rule.enabled !== false && (rule.targetReceiptProductKey || rule.sourceProductKey) === col.key) ||
+                      (internalRules.length === 0 && col.key === 'dlt_milk')
+                    );
+                    const isReadOnly = (isBalanceSection && !obUnlocked) || (isMappedReceiptCell && !receiptsUnlocked);
+
+                    return (
+                      <td key={col.key}>
+                        <input
+                          id={`stock-input-${i}-${col.key}`}
+                          type="number"
+                          step="any"
+                          placeholder="0"
+                          value={r.values[col.key] || ''}
+                          onChange={e => updateCell(i, col.key, e.target.value)}
+                          onFocus={() => setFocusedRowIdx(i)}
+                          onKeyDown={e => handleTableKeyDown(e, i, col.key)}
+                          title={isMappedReceiptCell ? (receiptsUnlocked ? 'Unlocked for manual edit' : 'Auto-calculated from Disposals row total. Click ✏️ Edit Mapped Receipts to unlock.') : undefined}
+                          style={{
+                            fontFamily: 'var(--font-numbers)',
+                            backgroundColor: isReadOnly ? '#f8fafc' : (isFocusedRow ? 'rgba(255, 255, 255, 0.8)' : 'transparent'),
+                            color: isReadOnly ? (isMappedReceiptCell ? '#047857' : '#64748b') : 'inherit',
+                            fontWeight: isMappedReceiptCell ? 700 : (isFocusedRow ? 600 : 'normal'),
+                            cursor: isReadOnly ? 'not-allowed' : 'text',
+                          }}
+                          readOnly={isReadOnly}
+                          onWheel={e => e.currentTarget.blur()}
+                        />
+                      </td>
+                    );
+                  })}
                   <td style={{ padding: 4 }}>
                     <input
                       type="text"
@@ -1041,7 +1383,22 @@ export default function StockEntryForm() {
                   </td>
                   {!isBalanceSection && (
                     <td className="no-print" style={{ textAlign: 'center' }}>
-                      <div style={{ display: 'flex', gap: 8, justifyContent: 'center' }}>
+                      <div style={{ display: 'flex', gap: 6, justifyContent: 'center', alignItems: 'center' }}>
+                        <button
+                          type="button"
+                          style={{
+                            background: isMappedDisposalRow ? 'rgba(245, 158, 11, 0.15)' : 'none',
+                            border: isMappedDisposalRow ? '1px solid #f59e0b' : 'none',
+                            borderRadius: 4,
+                            cursor: 'pointer',
+                            fontSize: '0.95rem',
+                            padding: '2px 4px',
+                          }}
+                          title="🔀 Configure Partition / Split Mapping to Receipts"
+                          onClick={() => openPartitionModal(i)}
+                        >
+                          🔀
+                        </button>
                         <button
                           type="button"
                           style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '1rem', padding: 0 }}
@@ -1062,7 +1419,8 @@ export default function StockEntryForm() {
                     </td>
                   )}
                 </tr>
-              ))}
+              );
+            })}
 
               {!isBalanceSection && (
                 <tr className="no-print" style={{ cursor: 'pointer', background: '#f8fafc' }} onClick={() => {
@@ -1373,6 +1731,197 @@ export default function StockEntryForm() {
           </div>
         </div>
       </div>
+
+      {/* 🔀 Partition / Split Mapping Modal Overlay */}
+      {partitionModalOpen && activePartitionRowIdx !== null && (
+        <div
+          className="no-print"
+          style={{
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            backgroundColor: 'rgba(15, 23, 42, 0.65)',
+            backdropFilter: 'blur(4px)',
+            zIndex: 9999,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: 20,
+          }}
+        >
+          <div
+            className="card animate-fade-in"
+            style={{
+              maxWidth: 580,
+              width: '100%',
+              background: '#ffffff',
+              borderRadius: 12,
+              boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04)',
+              border: '1px solid var(--border)',
+              padding: 24,
+            }}
+          >
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 16 }}>
+              <div>
+                <div style={{ fontWeight: 700, fontSize: '1.1rem', color: 'var(--brand-primary)', display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <span>🔀 Partition / Split Mapping</span>
+                </div>
+                <div style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', marginTop: 4 }}>
+                  Particulars: <strong style={{ color: '#d97706' }}>{rows[activePartitionRowIdx]?.row_label || 'Disposal Row'}</strong>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setPartitionModalOpen(false)}
+                style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '1.2rem', color: 'var(--text-muted)' }}
+              >
+                ✖
+              </button>
+            </div>
+
+            {/* Disposal Row Quantity Total Summary */}
+            {(() => {
+              const rowValSum = columns.reduce(
+                (sum, col) => sum + (parseFloat(rows[activePartitionRowIdx]?.values[col.key] || '0') || 0), 0
+              );
+              const partitionSum = partitionItems.reduce(
+                (sum, p) => sum + (parseFloat(p.value || '0') || 0), 0
+              );
+              const remaining = rowValSum - partitionSum;
+
+              return (
+                <div
+                  style={{
+                    background: 'linear-gradient(135deg, rgba(245,158,11,0.1) 0%, rgba(14,165,233,0.08) 100%)',
+                    border: '1px solid rgba(245,158,11,0.3)',
+                    borderRadius: 8,
+                    padding: 12,
+                    marginBottom: 20,
+                    display: 'flex',
+                    justifyContent: 'space-around',
+                    textAlign: 'center',
+                    fontFamily: 'var(--font-numbers)',
+                  }}
+                >
+                  <div>
+                    <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', textTransform: 'uppercase' }}>Row Total Qty</div>
+                    <div style={{ fontSize: '1.1rem', fontWeight: 700, color: '#b45309' }}>
+                      {rowValSum === 0 ? '—' : rowValSum.toLocaleString('en-IN')}
+                    </div>
+                  </div>
+                  <div style={{ borderLeft: '1px solid var(--border)', paddingLeft: 16 }}>
+                    <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', textTransform: 'uppercase' }}>Partitioned Total</div>
+                    <div style={{ fontSize: '1.1rem', fontWeight: 700, color: '#10b981' }}>
+                      {partitionSum === 0 ? '—' : partitionSum.toLocaleString('en-IN')}
+                    </div>
+                  </div>
+                  <div style={{ borderLeft: '1px solid var(--border)', paddingLeft: 16 }}>
+                    <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', textTransform: 'uppercase' }}>Difference</div>
+                    <div style={{ fontSize: '1.1rem', fontWeight: 700, color: remaining < 0 ? '#ef4444' : (remaining === 0 ? '#10b981' : '#64748b') }}>
+                      {remaining === 0 ? '0' : remaining.toLocaleString('en-IN')}
+                    </div>
+                  </div>
+                </div>
+              );
+            })()}
+
+            {/* Partition rows builder */}
+            <div style={{ marginBottom: 20 }}>
+              <div style={{ fontSize: '0.85rem', fontWeight: 600, marginBottom: 8, color: 'var(--text-primary)' }}>
+                Target Receipts Partitions (e.g. Skim Milk, Cream):
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 10, maxHeight: 260, overflowY: 'auto', paddingRight: 4 }}>
+                {partitionItems.map((part, pIdx) => (
+                  <div key={pIdx} style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+                    <select
+                      className="form-select"
+                      style={{ flex: 1, fontSize: '0.85rem' }}
+                      value={part.targetKey}
+                      onChange={e => {
+                        const newKey = e.target.value;
+                        setPartitionItems(prev => {
+                          const next = [...prev];
+                          next[pIdx] = { ...next[pIdx], targetKey: newKey };
+                          return next;
+                        });
+                      }}
+                    >
+                      {columns.map(col => (
+                        <option key={col.key} value={col.key}>
+                          Receipts: {col.label} ({col.short_name || col.key})
+                        </option>
+                      ))}
+                    </select>
+
+                    <input
+                      type="number"
+                      step="any"
+                      placeholder="Enter value..."
+                      className="form-input"
+                      style={{ width: 140, fontFamily: 'var(--font-numbers)', fontSize: '0.85rem', fontWeight: 600 }}
+                      value={part.value}
+                      onChange={e => {
+                        const val = e.target.value;
+                        setPartitionItems(prev => {
+                          const next = [...prev];
+                          next[pIdx] = { ...next[pIdx], value: val };
+                          return next;
+                        });
+                      }}
+                    />
+
+                    <button
+                      type="button"
+                      style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '1.1rem', color: '#ef4444' }}
+                      title="Remove partition"
+                      onClick={() => {
+                        setPartitionItems(prev => prev.filter((_, idx) => idx !== pIdx));
+                      }}
+                    >
+                      ❌
+                    </button>
+                  </div>
+                ))}
+              </div>
+
+              <button
+                type="button"
+                className="btn btn-secondary btn-sm"
+                style={{ marginTop: 12, fontSize: '0.78rem' }}
+                onClick={() => {
+                  const unusedCol = columns.find(c => !partitionItems.some(p => p.targetKey === c.key));
+                  setPartitionItems(prev => [
+                    ...prev,
+                    { targetKey: unusedCol?.key || columns[0]?.key || 'skim_milk', value: '' },
+                  ]);
+                }}
+              >
+                ➕ Add Partition Target
+              </button>
+            </div>
+
+            {/* Modal Actions */}
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 12, borderTop: '1px solid var(--border)', paddingTop: 16 }}>
+              <button
+                type="button"
+                className="btn btn-secondary btn-sm"
+                onClick={() => setPartitionModalOpen(false)}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="btn btn-primary btn-sm"
+                onClick={handleSavePartitions}
+              >
+                💾 Apply & Update Receipts
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </>
   );
 }
