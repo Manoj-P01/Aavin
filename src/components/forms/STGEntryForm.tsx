@@ -590,6 +590,7 @@ export default function STGEntryForm({
       if (stockRows.length === 0) return { blocks: targetBlocks, count: 0 };
 
       let customVals: Record<string, Record<string, string>> = {};
+      let dairyBreakdowns: Record<string, Array<{ dairy_name: string; product_key: string; value: string }>> = {};
       const stockEntries = stockJson.data?.entries || [];
       if (stockEntries.length > 0 && stockEntries[0].notes) {
         const parts = stockEntries[0].notes.split('\n');
@@ -598,6 +599,7 @@ export default function STGEntryForm({
             try {
               const meta = JSON.parse(p.split('__METADATA__:')[1]);
               if (meta.custom_values) customVals = meta.custom_values;
+              if (meta.dairy_breakdowns) dairyBreakdowns = meta.dairy_breakdowns;
             } catch {}
           }
         });
@@ -744,7 +746,17 @@ export default function STGEntryForm({
         const activeDisps: Array<{ item_name: string; val: number }> = [];
         dispRows.forEach((r: any) => {
           const val = parseFloat(String(r[prod.key] || (customVals[r.row_label] ? customVals[r.row_label][prod.key] : '0') || '0')) || 0;
-          if (val > 0) activeDisps.push({ item_name: r.row_label, val });
+          if (val > 0) {
+            const rowLabel = (r.row_label || '').trim();
+            const breakdowns = dairyBreakdowns[rowLabel]?.filter((b: any) => b.product_key === prod.key && parseFloat(b.value || '0') > 0);
+            if (breakdowns && breakdowns.length > 0) {
+              breakdowns.forEach((b: any) => {
+                activeDisps.push({ item_name: b.dairy_name.trim(), val: parseFloat(b.value || '0') });
+              });
+            } else {
+              activeDisps.push({ item_name: rowLabel || 'Disposal', val });
+            }
+          }
         });
 
         if (obVal > 0 || activeRecs.length > 0 || activeDisps.length > 0) {
