@@ -616,6 +616,9 @@ export default function StatementMappingConfigPage() {
                 <div>
                   • In <strong>New Stock Statement Entry</strong>, the total value of row of <strong>Disposals</strong> (e.g. <code>To DLT Milk</code>) will automatically show as the value in <strong>Receipts</strong> of <code>DLT.Milk</code>.
                 </div>
+                <div style={{ marginTop: 4 }}>
+                  • For <strong>To other Dairies</strong>, click the <strong>🔀 Split SSM to Dairies</strong> button in Stock Entry to split values into individual destination dairies (e.g., <code>Madurai-SSM</code>, <code>SNR-SSM</code>, <code>Erode-SSM</code>). Active splits display as badges & expandable sub-rows and automatically populate individual split disposal lines into the <strong>Solid Balance (STG) Statement</strong>.
+                </div>
                 <div style={{ marginTop: 6, fontWeight: 600, color: 'var(--brand-primary)' }}>
                   Sample mapping rules can be loaded or customized below.
                 </div>

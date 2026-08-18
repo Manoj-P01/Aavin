@@ -69,6 +69,24 @@ export default function StockEntryForm() {
   // Partition / Split Mapping Modal State
   const [partitionModalOpen, setPartitionModalOpen] = useState(false);
   const [activePartitionRowIdx, setActivePartitionRowIdx] = useState<number | null>(null);
+  const [partitionModalTab, setPartitionModalTab] = useState<'RECEIPTS_PARTITION' | 'DAIRY_BREAKDOWN'>('DAIRY_BREAKDOWN');
+  const [dairyBreakdowns, setDairyBreakdowns] = useState<Record<string, Array<{ dairy_name: string; product_key: string; value: string }>>>({});
+  const [activeDairyBreakdownItems, setActiveDairyBreakdownItems] = useState<Array<{ dairy_name: string; product_key: string; value: string }>>([
+    { dairy_name: 'Madurai-SSM', product_key: 'skim_milk', value: '' },
+    { dairy_name: 'SNR-SSM', product_key: 'skim_milk', value: '' },
+  ]);
+  const [presetDairies, setPresetDairies] = useState<string[]>([
+    'Madurai-SSM',
+    'SNR-SSM',
+    'Erode-SSM',
+    'CBE-SSM',
+    'AMBATTUR-SSM',
+    'DCPP-SSM',
+    'Tiruppur-SSM',
+    'Salem-SSM',
+  ]);
+  const [newPresetInput, setNewPresetInput] = useState('');
+  const [showAddPresetInput, setShowAddPresetInput] = useState(false);
   const [partitionItems, setPartitionItems] = useState<Array<{ targetKey: string; value: string }>>([
     { targetKey: 'skim_milk', value: '' },
     { targetKey: 'cream', value: '' },
@@ -169,13 +187,35 @@ export default function StockEntryForm() {
     return nextRows;
   };
 
-  const openPartitionModal = (rowIdx: number) => {
+  const openPartitionModal = (rowIdx: number, targetTab?: 'DAIRY_BREAKDOWN' | 'RECEIPTS_PARTITION') => {
     setActivePartitionRowIdx(rowIdx);
     const row = rows[rowIdx];
     if (!row) return;
 
+    const rowLabel = row.row_label.trim();
+    const isToOtherDairies = rowLabel.toLowerCase().includes('dairy') || rowLabel.toLowerCase().includes('dairies');
+
+    if (targetTab) {
+      setPartitionModalTab(targetTab);
+    } else if (isToOtherDairies) {
+      setPartitionModalTab('DAIRY_BREAKDOWN');
+    } else {
+      setPartitionModalTab('RECEIPTS_PARTITION');
+    }
+
+    // Load dairy breakdown items if present
+    if (dairyBreakdowns[rowLabel] && dairyBreakdowns[rowLabel].length > 0) {
+      setActiveDairyBreakdownItems([...dairyBreakdowns[rowLabel]]);
+    } else {
+      const defaultProdKey = columns.find(c => c.key === 'skim_milk') ? 'skim_milk' : (columns[0]?.key || 'skim_milk');
+      setActiveDairyBreakdownItems([
+        { dairy_name: 'Madurai-SSM', product_key: defaultProdKey, value: '' },
+        { dairy_name: 'SNR-SSM', product_key: defaultProdKey, value: '' },
+      ]);
+    }
+
     const existingRule = internalRules.find(
-      r => r.sourceDisposalParticular?.trim().toLowerCase() === row.row_label.trim().toLowerCase()
+      r => r.sourceDisposalParticular?.trim().toLowerCase() === rowLabel.toLowerCase()
     );
 
     if (existingRule && Array.isArray(existingRule.partitions) && existingRule.partitions.length > 0) {
@@ -186,7 +226,7 @@ export default function StockEntryForm() {
         }))
       );
     } else {
-      const isSep = row.row_label.trim().toLowerCase() === 'to separation';
+      const isSep = rowLabel.toLowerCase() === 'to separation';
       if (isSep) {
         setPartitionItems([
           { targetKey: 'skim_milk', value: '' },
@@ -205,6 +245,40 @@ export default function StockEntryForm() {
     if (activePartitionRowIdx === null) return;
     const row = rows[activePartitionRowIdx];
     if (!row) return;
+    const rowLabel = row.row_label.trim();
+
+    if (partitionModalTab === 'DAIRY_BREAKDOWN') {
+      const validItems = activeDairyBreakdownItems.filter(
+        b => b.dairy_name.trim() !== '' && b.value !== undefined && b.value !== ''
+      );
+
+      const updatedBreakdowns = {
+        ...dairyBreakdowns,
+        [rowLabel]: validItems,
+      };
+      setDairyBreakdowns(updatedBreakdowns);
+
+      // Auto-populate cell values in Stock Entry row grid
+      setRows(prev => {
+        const next = [...prev];
+        const targetRow = { ...next[activePartitionRowIdx], values: { ...next[activePartitionRowIdx].values } };
+        const prodSums: Record<string, number> = {};
+        validItems.forEach(b => {
+          const valNum = parseFloat(b.value) || 0;
+          prodSums[b.product_key] = (prodSums[b.product_key] || 0) + valNum;
+        });
+        Object.entries(prodSums).forEach(([pKey, sumVal]) => {
+          targetRow.values[pKey] = sumVal > 0 ? String(sumVal) : '';
+        });
+        next[activePartitionRowIdx] = targetRow;
+        return next;
+      });
+
+      setPartitionModalOpen(false);
+      setSuccess(`Dairy destination breakdowns saved for "${rowLabel}"!`);
+      setTimeout(() => setSuccess(''), 3000);
+      return;
+    }
 
     const formattedPartitions = partitionItems
       .filter(p => p.targetKey.trim() !== '')
@@ -215,7 +289,7 @@ export default function StockEntryForm() {
       }));
 
     const existingRuleIdx = internalRules.findIndex(
-      r => r.sourceDisposalParticular?.trim().toLowerCase() === row.row_label.trim().toLowerCase()
+      r => r.sourceDisposalParticular?.trim().toLowerCase() === rowLabel.toLowerCase()
     );
 
     let updatedRules: any[];
@@ -229,7 +303,7 @@ export default function StockEntryForm() {
     } else {
       const newRule = {
         id: 'partition_map_' + Date.now() + '_' + Math.random().toString(36).substring(2, 6),
-        sourceDisposalParticular: row.row_label.trim(),
+        sourceDisposalParticular: rowLabel,
         partitions: formattedPartitions,
         enabled: true,
       };
@@ -267,7 +341,7 @@ export default function StockEntryForm() {
     }
 
     setPartitionModalOpen(false);
-    setSuccess(`Partitions applied to Receipts for "${row.row_label}"!`);
+    setSuccess(`Partitions applied to Receipts for "${rowLabel}"!`);
     setTimeout(() => setSuccess(''), 3000);
   };
 
@@ -1290,40 +1364,69 @@ export default function StockEntryForm() {
                       {isBalanceSection ? (
                         <span style={{ fontWeight: 600, paddingLeft: 8 }}>{r.row_label}</span>
                       ) : (
-                        <div style={{ display: 'flex', alignItems: 'center' }}>
-                          <input
-                            id={`stock-input-${i}-particulars`}
-                            type="text"
-                            placeholder="Enter Particulars..."
-                            value={r.row_label}
-                            onFocus={() => setFocusedRowIdx(i)}
-                            onKeyDown={e => handleTableKeyDown(e, i, 'particulars')}
-                            onChange={e => {
-                              const val = e.target.value;
-                              setRows(prev => {
-                                const next = [...prev];
-                                next[i] = { ...next[i], row_label: val };
-                                return next;
-                              });
-                            }}
-                            style={{ textAlign: 'left', fontWeight: 500, border: 'none', background: 'transparent', width: '100%', padding: '6px 8px' }}
-                          />
-                          {isMappedDisposalRow && (
-                            <span
-                              style={{
-                                fontSize: '0.62rem',
-                                background: '#fef3c7',
-                                color: '#b45309',
-                                fontWeight: 700,
-                                padding: '1px 5px',
-                                borderRadius: 4,
-                                whiteSpace: 'nowrap',
-                                marginRight: 4,
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                          <div style={{ display: 'flex', alignItems: 'center' }}>
+                            <input
+                              id={`stock-input-${i}-particulars`}
+                              type="text"
+                              placeholder="Enter Particulars..."
+                              value={r.row_label}
+                              onFocus={() => setFocusedRowIdx(i)}
+                              onKeyDown={e => handleTableKeyDown(e, i, 'particulars')}
+                              onChange={e => {
+                                const val = e.target.value;
+                                setRows(prev => {
+                                  const next = [...prev];
+                                  next[i] = { ...next[i], row_label: val };
+                                  return next;
+                                });
                               }}
-                              title="Row total auto-populates into Receipts"
-                            >
-                              📤 Feeds Receipts
-                            </span>
+                              style={{ textAlign: 'left', fontWeight: 500, border: 'none', background: 'transparent', width: '100%', padding: '4px 8px' }}
+                            />
+                            {isMappedDisposalRow && (
+                              <span
+                                style={{
+                                  fontSize: '0.62rem',
+                                  background: '#fef3c7',
+                                  color: '#b45309',
+                                  fontWeight: 700,
+                                  padding: '1px 5px',
+                                  borderRadius: 4,
+                                  whiteSpace: 'nowrap',
+                                  marginRight: 4,
+                                }}
+                                title="Row total auto-populates into Receipts"
+                              >
+                                📤 Feeds Receipts
+                              </span>
+                            )}
+                          </div>
+
+                          {/* Split SSM to Dairies button below Particulars text input for "To other Dairies" */}
+                          {isDisposalsSection && (r.row_label.trim().toLowerCase().includes('dairy') || r.row_label.trim().toLowerCase().includes('dairies')) && (
+                            <div style={{ paddingLeft: 8, paddingBottom: 4 }}>
+                              <button
+                                type="button"
+                                className="btn btn-secondary btn-xs"
+                                style={{
+                                  fontSize: '0.72rem',
+                                  fontWeight: 700,
+                                  padding: '2px 8px',
+                                  color: 'var(--brand-primary)',
+                                  background: '#eff6ff',
+                                  border: '1px solid #93c5fd',
+                                  borderRadius: 4,
+                                  display: 'inline-flex',
+                                  alignItems: 'center',
+                                  gap: 4,
+                                  cursor: 'pointer',
+                                }}
+                                title="🏢 Configure Destination Dairy Breakdown (Madurai-SSM, SNR-SSM, etc.)"
+                                onClick={() => openPartitionModal(i, 'DAIRY_BREAKDOWN')}
+                              >
+                                🔀 Split SSM to Dairies
+                              </button>
+                            </div>
                           )}
                         </div>
                       )}
@@ -1394,8 +1497,8 @@ export default function StockEntryForm() {
                             fontSize: '0.95rem',
                             padding: '2px 4px',
                           }}
-                          title="🔀 Configure Partition / Split Mapping to Receipts"
-                          onClick={() => openPartitionModal(i)}
+                          title="🔀 Configure Receipts Internal Partitions Mapping"
+                          onClick={() => openPartitionModal(i, 'RECEIPTS_PARTITION')}
                         >
                           🔀
                         </button>
@@ -1766,7 +1869,7 @@ export default function StockEntryForm() {
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 16 }}>
               <div>
                 <div style={{ fontWeight: 700, fontSize: '1.1rem', color: 'var(--brand-primary)', display: 'flex', alignItems: 'center', gap: 8 }}>
-                  <span>🔀 Partition / Split Mapping</span>
+                  <span>{partitionModalTab === 'DAIRY_BREAKDOWN' ? '🏢 Destination Dairy Breakdown Configuration' : '🔄 Receipts Internal Partitions Configuration'}</span>
                 </div>
                 <div style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', marginTop: 4 }}>
                   Particulars: <strong style={{ color: '#d97706' }}>{rows[activePartitionRowIdx]?.row_label || 'Disposal Row'}</strong>
@@ -1781,126 +1884,400 @@ export default function StockEntryForm() {
               </button>
             </div>
 
-            {/* Disposal Row Quantity Total Summary */}
-            {(() => {
-              const rowValSum = columns.reduce(
-                (sum, col) => sum + (parseFloat(rows[activePartitionRowIdx]?.values[col.key] || '0') || 0), 0
-              );
-              const partitionSum = partitionItems.reduce(
-                (sum, p) => sum + (parseFloat(p.value || '0') || 0), 0
-              );
-              const remaining = rowValSum - partitionSum;
-
-              return (
-                <div
-                  style={{
-                    background: 'linear-gradient(135deg, rgba(245,158,11,0.1) 0%, rgba(14,165,233,0.08) 100%)',
-                    border: '1px solid rgba(245,158,11,0.3)',
-                    borderRadius: 8,
-                    padding: 12,
-                    marginBottom: 20,
-                    display: 'flex',
-                    justifyContent: 'space-around',
-                    textAlign: 'center',
-                    fontFamily: 'var(--font-numbers)',
-                  }}
-                >
-                  <div>
-                    <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', textTransform: 'uppercase' }}>Row Total Qty</div>
-                    <div style={{ fontSize: '1.1rem', fontWeight: 700, color: '#b45309' }}>
-                      {rowValSum === 0 ? '—' : rowValSum.toLocaleString('en-IN')}
-                    </div>
-                  </div>
-                  <div style={{ borderLeft: '1px solid var(--border)', paddingLeft: 16 }}>
-                    <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', textTransform: 'uppercase' }}>Partitioned Total</div>
-                    <div style={{ fontSize: '1.1rem', fontWeight: 700, color: '#10b981' }}>
-                      {partitionSum === 0 ? '—' : partitionSum.toLocaleString('en-IN')}
-                    </div>
-                  </div>
-                  <div style={{ borderLeft: '1px solid var(--border)', paddingLeft: 16 }}>
-                    <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', textTransform: 'uppercase' }}>Difference</div>
-                    <div style={{ fontSize: '1.1rem', fontWeight: 700, color: remaining < 0 ? '#ef4444' : (remaining === 0 ? '#10b981' : '#64748b') }}>
-                      {remaining === 0 ? '0' : remaining.toLocaleString('en-IN')}
-                    </div>
-                  </div>
-                </div>
-              );
-            })()}
-
-            {/* Partition rows builder */}
-            <div style={{ marginBottom: 20 }}>
-              <div style={{ fontSize: '0.85rem', fontWeight: 600, marginBottom: 8, color: 'var(--text-primary)' }}>
-                Target Receipts Partitions (e.g. Skim Milk, Cream):
-              </div>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 10, maxHeight: 260, overflowY: 'auto', paddingRight: 4 }}>
-                {partitionItems.map((part, pIdx) => (
-                  <div key={pIdx} style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
-                    <select
-                      className="form-select"
-                      style={{ flex: 1, fontSize: '0.85rem' }}
-                      value={part.targetKey}
-                      onChange={e => {
-                        const newKey = e.target.value;
-                        setPartitionItems(prev => {
-                          const next = [...prev];
-                          next[pIdx] = { ...next[pIdx], targetKey: newKey };
-                          return next;
-                        });
-                      }}
-                    >
-                      {columns.map(col => (
-                        <option key={col.key} value={col.key}>
-                          Receipts: {col.label} ({col.short_name || col.key})
-                        </option>
-                      ))}
-                    </select>
-
-                    <input
-                      type="number"
-                      step="any"
-                      placeholder="Enter value..."
-                      className="form-input"
-                      style={{ width: 140, fontFamily: 'var(--font-numbers)', fontSize: '0.85rem', fontWeight: 600 }}
-                      value={part.value}
-                      onChange={e => {
-                        const val = e.target.value;
-                        setPartitionItems(prev => {
-                          const next = [...prev];
-                          next[pIdx] = { ...next[pIdx], value: val };
-                          return next;
-                        });
-                      }}
-                    />
-
-                    <button
-                      type="button"
-                      style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '1.1rem', color: '#ef4444' }}
-                      title="Remove partition"
-                      onClick={() => {
-                        setPartitionItems(prev => prev.filter((_, idx) => idx !== pIdx));
-                      }}
-                    >
-                      ❌
-                    </button>
-                  </div>
-                ))}
-              </div>
-
+            {/* Modal Tabs */}
+            <div style={{ display: 'flex', gap: 8, marginBottom: 16, background: '#f1f5f9', padding: 4, borderRadius: 8 }}>
               <button
                 type="button"
-                className="btn btn-secondary btn-sm"
-                style={{ marginTop: 12, fontSize: '0.78rem' }}
-                onClick={() => {
-                  const unusedCol = columns.find(c => !partitionItems.some(p => p.targetKey === c.key));
-                  setPartitionItems(prev => [
-                    ...prev,
-                    { targetKey: unusedCol?.key || columns[0]?.key || 'skim_milk', value: '' },
-                  ]);
-                }}
+                className={`btn btn-sm ${partitionModalTab === 'DAIRY_BREAKDOWN' ? 'btn-primary' : 'btn-ghost'}`}
+                onClick={() => setPartitionModalTab('DAIRY_BREAKDOWN')}
+                style={{ flex: 1, fontSize: '0.8rem', fontWeight: 600 }}
               >
-                ➕ Add Partition Target
+                🏢 Dairy Breakdown (e.g. Madurai-SSM)
+              </button>
+              <button
+                type="button"
+                className={`btn btn-sm ${partitionModalTab === 'RECEIPTS_PARTITION' ? 'btn-primary' : 'btn-ghost'}`}
+                onClick={() => setPartitionModalTab('RECEIPTS_PARTITION')}
+                style={{ flex: 1, fontSize: '0.8rem', fontWeight: 600 }}
+              >
+                🔄 Receipts Internal Partitions
               </button>
             </div>
+
+            <datalist id="preset-dairies-list">
+              {presetDairies.map(p => (
+                <option key={p} value={p} />
+              ))}
+            </datalist>
+
+            {partitionModalTab === 'DAIRY_BREAKDOWN' ? (
+              <>
+                <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginBottom: 8 }}>
+                  Specify destination dairy split lines (e.g. <code>Madurai-SSM</code>, <code>SNR-SSM</code>). These values will generate individual disposal lines in the Solid Balance (STG) Statement.
+                </div>
+
+                {/* Quick Add Preset Dairies + User Add Custom Preset */}
+                <div style={{ marginBottom: 12, background: '#fafafa', border: '1px solid var(--border)', borderRadius: 8, padding: 10 }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                    <div style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: 6 }}>
+                      <span>⚡ Quick Add Preset Dairy Destination:</span>
+                    </div>
+                    {!showAddPresetInput && (
+                      <button
+                        type="button"
+                        className="btn btn-ghost btn-xs"
+                        onClick={() => setShowAddPresetInput(true)}
+                        style={{ fontSize: '0.72rem', color: 'var(--brand-primary)', fontWeight: 700, padding: '1px 6px' }}
+                      >
+                        ➕ Add Destination
+                      </button>
+                    )}
+                  </div>
+
+                  {showAddPresetInput && (
+                    <div style={{ display: 'flex', gap: 6, alignItems: 'center', marginBottom: 8, background: '#fff', padding: 6, borderRadius: 6, border: '1px solid #cbd5e1' }}>
+                      <input
+                        type="text"
+                        placeholder="Enter dairy preset name (e.g. Trichy-SSM)..."
+                        className="form-input"
+                        style={{ fontSize: '0.78rem', padding: '3px 8px', height: 28, flex: 1, fontWeight: 600 }}
+                        value={newPresetInput}
+                        onChange={e => setNewPresetInput(e.target.value)}
+                        onKeyDown={e => {
+                          if (e.key === 'Enter') {
+                            e.preventDefault();
+                            const val = newPresetInput.trim();
+                            if (val) {
+                              if (!presetDairies.some(p => p.toLowerCase() === val.toLowerCase())) {
+                                setPresetDairies(prev => [...prev, val]);
+                              }
+                              const defaultProdKey = columns.find(c => c.key === 'skim_milk') ? 'skim_milk' : (columns[0]?.key || 'skim_milk');
+                              setActiveDairyBreakdownItems(prev => {
+                                if (!prev.some(item => item.dairy_name.trim().toLowerCase() === val.toLowerCase())) {
+                                  if (prev.length === 1 && prev[0].dairy_name === '' && prev[0].value === '') {
+                                    return [{ dairy_name: val, product_key: defaultProdKey, value: '' }];
+                                  }
+                                  return [...prev, { dairy_name: val, product_key: defaultProdKey, value: '' }];
+                                }
+                                return prev;
+                              });
+                              setNewPresetInput('');
+                              setShowAddPresetInput(false);
+                            }
+                          }
+                        }}
+                      />
+                      <button
+                        type="button"
+                        className="btn btn-primary btn-xs"
+                        style={{ fontSize: '0.72rem', height: 28, padding: '0 10px', fontWeight: 600 }}
+                        onClick={() => {
+                          const val = newPresetInput.trim();
+                          if (val) {
+                            if (!presetDairies.some(p => p.toLowerCase() === val.toLowerCase())) {
+                              setPresetDairies(prev => [...prev, val]);
+                            }
+                            const defaultProdKey = columns.find(c => c.key === 'skim_milk') ? 'skim_milk' : (columns[0]?.key || 'skim_milk');
+                            setActiveDairyBreakdownItems(prev => {
+                              if (!prev.some(item => item.dairy_name.trim().toLowerCase() === val.toLowerCase())) {
+                                if (prev.length === 1 && prev[0].dairy_name === '' && prev[0].value === '') {
+                                  return [{ dairy_name: val, product_key: defaultProdKey, value: '' }];
+                                }
+                                return [...prev, { dairy_name: val, product_key: defaultProdKey, value: '' }];
+                              }
+                              return prev;
+                            });
+                            setNewPresetInput('');
+                            setShowAddPresetInput(false);
+                          }
+                        }}
+                      >
+                        ➕ Add
+                      </button>
+                      <button
+                        type="button"
+                        className="btn btn-secondary btn-xs"
+                        style={{ fontSize: '0.72rem', height: 28, padding: '0 6px' }}
+                        onClick={() => setShowAddPresetInput(false)}
+                      >
+                        ✖
+                      </button>
+                    </div>
+                  )}
+
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                    {presetDairies.map(pDairy => {
+                      const existingItem = activeDairyBreakdownItems.find(
+                        item => item.dairy_name.trim().toLowerCase() === pDairy.toLowerCase()
+                      );
+                      const isAdded = !!existingItem;
+                      const hasVal = isAdded && existingItem.value !== undefined && String(existingItem.value).trim() !== '';
+
+                      return (
+                        <button
+                          key={pDairy}
+                          type="button"
+                          onClick={() => {
+                            const defaultProdKey = columns.find(c => c.key === 'skim_milk') ? 'skim_milk' : (columns[0]?.key || 'skim_milk');
+                            setActiveDairyBreakdownItems(prev => {
+                              if (isAdded) {
+                                // Toggle off: Remove from active list
+                                const filtered = prev.filter(item => item.dairy_name.trim().toLowerCase() !== pDairy.toLowerCase());
+                                return filtered.length > 0 ? filtered : [{ dairy_name: '', product_key: defaultProdKey, value: '' }];
+                              } else {
+                                // Toggle on: Add to active list
+                                if (prev.length === 1 && prev[0].dairy_name === '' && prev[0].value === '') {
+                                  return [{ dairy_name: pDairy, product_key: defaultProdKey, value: '' }];
+                                }
+                                return [...prev, { dairy_name: pDairy, product_key: defaultProdKey, value: '' }];
+                              }
+                            });
+                          }}
+                          style={{
+                            background: isAdded ? 'linear-gradient(135deg, #fef3c7 0%, #fde68a 100%)' : '#ffffff',
+                            border: `1px solid ${isAdded ? '#f59e0b' : '#cbd5e1'}`,
+                            borderRadius: 6,
+                            padding: '3px 8px',
+                            fontSize: '0.72rem',
+                            fontWeight: isAdded ? 700 : 600,
+                            color: isAdded ? '#b45309' : '#334155',
+                            cursor: 'pointer',
+                            transition: 'all 0.1s ease',
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: 4,
+                            boxShadow: isAdded ? '0 1px 2px rgba(245,158,11,0.2)' : 'none',
+                          }}
+                          title={isAdded ? `Click to remove ${pDairy} split` : `Click to add ${pDairy} split`}
+                        >
+                          <span>{isAdded ? '➖' : '➕'} {pDairy}</span>
+                          {hasVal && (
+                            <span style={{ background: '#d97706', color: '#fff', padding: '1px 5px', borderRadius: 8, fontSize: '0.65rem', fontFamily: 'var(--font-numbers)' }}>
+                              {parseFloat(existingItem.value).toLocaleString('en-IN')}
+                            </span>
+                          )}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 10, maxHeight: 260, overflowY: 'auto', paddingRight: 4, marginBottom: 16 }}>
+                  {activeDairyBreakdownItems.map((item, dIdx) => (
+                    <div key={dIdx} style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+                      <input
+                        type="text"
+                        list="preset-dairies-list"
+                        placeholder="Destination Dairy (e.g. Madurai-SSM)..."
+                        className="form-input"
+                        style={{ flex: 1, fontSize: '0.85rem', fontWeight: 600 }}
+                        value={item.dairy_name}
+                        onChange={e => {
+                          const val = e.target.value;
+                          setActiveDairyBreakdownItems(prev => {
+                            const next = [...prev];
+                            next[dIdx] = { ...next[dIdx], dairy_name: val };
+                            return next;
+                          });
+                        }}
+                      />
+
+                      <select
+                        className="form-select"
+                        style={{ width: 140, fontSize: '0.82rem' }}
+                        value={item.product_key}
+                        onChange={e => {
+                          const val = e.target.value;
+                          setActiveDairyBreakdownItems(prev => {
+                            const next = [...prev];
+                            next[dIdx] = { ...next[dIdx], product_key: val };
+                            return next;
+                          });
+                        }}
+                      >
+                        {columns.map(col => (
+                          <option key={col.key} value={col.key}>
+                            {col.label}
+                          </option>
+                        ))}
+                      </select>
+
+                      <input
+                        type="number"
+                        step="any"
+                        placeholder="Qty Value..."
+                        className="form-input"
+                        style={{ width: 120, fontFamily: 'var(--font-numbers)', fontSize: '0.85rem', fontWeight: 600 }}
+                        value={item.value}
+                        onChange={e => {
+                          const val = e.target.value;
+                          setActiveDairyBreakdownItems(prev => {
+                            const next = [...prev];
+                            next[dIdx] = { ...next[dIdx], value: val };
+                            return next;
+                          });
+                        }}
+                      />
+
+                      <button
+                        type="button"
+                        style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '1.1rem', color: '#ef4444' }}
+                        title="Remove dairy item"
+                        onClick={() => {
+                          setActiveDairyBreakdownItems(prev => prev.filter((_, idx) => idx !== dIdx));
+                        }}
+                      >
+                        ❌
+                      </button>
+                    </div>
+                  ))}
+                </div>
+
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
+                  <button
+                    type="button"
+                    className="btn btn-secondary btn-sm"
+                    style={{ fontSize: '0.78rem' }}
+                    onClick={() => {
+                      const defaultProdKey = columns.find(c => c.key === 'skim_milk') ? 'skim_milk' : (columns[0]?.key || 'skim_milk');
+                      setActiveDairyBreakdownItems(prev => [
+                        ...prev,
+                        { dairy_name: '', product_key: defaultProdKey, value: '' },
+                      ]);
+                    }}
+                  >
+                    ➕ Add Dairy Destination
+                  </button>
+
+                  <div style={{ fontSize: '0.85rem', fontWeight: 700, color: 'var(--brand-primary)', fontFamily: 'var(--font-numbers)' }}>
+                    Total Split Qty: {activeDairyBreakdownItems.reduce((sum, i) => sum + (parseFloat(i.value || '0') || 0), 0).toLocaleString('en-IN')}
+                  </div>
+                </div>
+              </>
+            ) : (
+              <>
+                {/* Receipts Partition Tab View */}
+                {(() => {
+                  const rowValSum = columns.reduce(
+                    (sum, col) => sum + (parseFloat(rows[activePartitionRowIdx]?.values[col.key] || '0') || 0), 0
+                  );
+                  const partitionSum = partitionItems.reduce(
+                    (sum, p) => sum + (parseFloat(p.value || '0') || 0), 0
+                  );
+                  const remaining = rowValSum - partitionSum;
+
+                  return (
+                    <div
+                      style={{
+                        background: 'linear-gradient(135deg, rgba(245,158,11,0.1) 0%, rgba(14,165,233,0.08) 100%)',
+                        border: '1px solid rgba(245,158,11,0.3)',
+                        borderRadius: 8,
+                        padding: 12,
+                        marginBottom: 20,
+                        display: 'flex',
+                        justifyContent: 'space-around',
+                        textAlign: 'center',
+                        fontFamily: 'var(--font-numbers)',
+                      }}
+                    >
+                      <div>
+                        <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', textTransform: 'uppercase' }}>Row Total Qty</div>
+                        <div style={{ fontSize: '1.1rem', fontWeight: 700, color: '#b45309' }}>
+                          {rowValSum === 0 ? '—' : rowValSum.toLocaleString('en-IN')}
+                        </div>
+                      </div>
+                      <div style={{ borderLeft: '1px solid var(--border)', paddingLeft: 16 }}>
+                        <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', textTransform: 'uppercase' }}>Partitioned Total</div>
+                        <div style={{ fontSize: '1.1rem', fontWeight: 700, color: '#10b981' }}>
+                          {partitionSum === 0 ? '—' : partitionSum.toLocaleString('en-IN')}
+                        </div>
+                      </div>
+                      <div style={{ borderLeft: '1px solid var(--border)', paddingLeft: 16 }}>
+                        <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', textTransform: 'uppercase' }}>Difference</div>
+                        <div style={{ fontSize: '1.1rem', fontWeight: 700, color: remaining < 0 ? '#ef4444' : (remaining === 0 ? '#10b981' : '#64748b') }}>
+                          {remaining === 0 ? '0' : remaining.toLocaleString('en-IN')}
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })()}
+
+                {/* Partition rows builder */}
+                <div style={{ marginBottom: 20 }}>
+                  <div style={{ fontSize: '0.85rem', fontWeight: 600, marginBottom: 8, color: 'var(--text-primary)' }}>
+                    Target Receipts Partitions (e.g. Skim Milk, Cream):
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 10, maxHeight: 260, overflowY: 'auto', paddingRight: 4 }}>
+                    {partitionItems.map((part, pIdx) => (
+                      <div key={pIdx} style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+                        <select
+                          className="form-select"
+                          style={{ flex: 1, fontSize: '0.85rem' }}
+                          value={part.targetKey}
+                          onChange={e => {
+                            const newKey = e.target.value;
+                            setPartitionItems(prev => {
+                              const next = [...prev];
+                              next[pIdx] = { ...next[pIdx], targetKey: newKey };
+                              return next;
+                            });
+                          }}
+                        >
+                          {columns.map(col => (
+                            <option key={col.key} value={col.key}>
+                              Receipts: {col.label} ({col.short_name || col.key})
+                            </option>
+                          ))}
+                        </select>
+
+                        <input
+                          type="number"
+                          step="any"
+                          placeholder="Enter value..."
+                          className="form-input"
+                          style={{ width: 140, fontFamily: 'var(--font-numbers)', fontSize: '0.85rem', fontWeight: 600 }}
+                          value={part.value}
+                          onChange={e => {
+                            const val = e.target.value;
+                            setPartitionItems(prev => {
+                              const next = [...prev];
+                              next[pIdx] = { ...next[pIdx], value: val };
+                              return next;
+                            });
+                          }}
+                        />
+
+                        <button
+                          type="button"
+                          style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '1.1rem', color: '#ef4444' }}
+                          title="Remove partition"
+                          onClick={() => {
+                            setPartitionItems(prev => prev.filter((_, idx) => idx !== pIdx));
+                          }}
+                        >
+                          ❌
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+
+                  <button
+                    type="button"
+                    className="btn btn-secondary btn-sm"
+                    style={{ marginTop: 12, fontSize: '0.78rem' }}
+                    onClick={() => {
+                      const unusedCol = columns.find(c => !partitionItems.some(p => p.targetKey === c.key));
+                      setPartitionItems(prev => [
+                        ...prev,
+                        { targetKey: unusedCol?.key || columns[0]?.key || 'skim_milk', value: '' },
+                      ]);
+                    }}
+                  >
+                    ➕ Add Partition Target
+                  </button>
+                </div>
+              </>
+            )}
 
             {/* Modal Actions */}
             <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 12, borderTop: '1px solid var(--border)', paddingTop: 16 }}>
@@ -1916,7 +2293,7 @@ export default function StockEntryForm() {
                 className="btn btn-primary btn-sm"
                 onClick={handleSavePartitions}
               >
-                💾 Apply & Update Receipts
+                💾 {partitionModalTab === 'DAIRY_BREAKDOWN' ? 'Apply & Save Dairy Breakdown' : 'Apply & Update Receipts'}
               </button>
             </div>
           </div>
