@@ -7,6 +7,7 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
+import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { fmtNum } from '@/lib/calculations';
 import { CALC_CONFIG } from '@/lib/config';
@@ -32,7 +33,19 @@ interface STGBlockState {
   receipts: STGItemInput[];
   disposals: STGItemInput[];
   physical_count: STGItemInput;
+  cmpdd_norm?: string;
 }
+
+const DEFAULT_STATEMENTS = [
+  { key: 'WM', label: 'TENTATIVE WHOLE MILK - RECEIPT AND DISPOSAL STATEMENT' },
+  { key: 'DLT_MILK', label: 'DOUBLE TONED MILK STATEMENT' },
+  { key: 'FC_MILK', label: 'FULL CREAM MILK STATEMENT' },
+  { key: 'STD_MILK', label: 'STANDARDIZED MILK STATEMENT' },
+  { key: 'SSM', label: 'SKIMMED MILK STATEMENT' },
+  { key: 'CREAM', label: 'CREAM STATEMENT' },
+  { key: 'SMP', label: 'SKIM MILK POWDER STATEMENT' },
+  { key: 'WATER', label: 'WATER STATEMENT' },
+];
 
 const DEFAULT_ITEMS_RECEIPT: Record<string, string[]> = {
   WM: [],
@@ -72,6 +85,7 @@ function makeInitialBlockState(blockKey: string): STGBlockState {
     receipts: receipts.length > 0 ? receipts : [makeInitialItem()],
     disposals: disposals.length > 0 ? disposals : [makeInitialItem()],
     physical_count: makeInitialItem('CB'),
+    cmpdd_norm: '0.5',
   };
 }
 
@@ -113,6 +127,7 @@ export default function STGEntryForm({
   const [enabledBlockKeys, setEnabledBlockKeys] = useState<string[]>([]);
   const [activeBlock, setActiveBlock] = useState<STGProductBlock>('');
   const [blocks, setBlocks] = useState<Record<string, STGBlockState>>({});
+  const [reportMode, setReportMode] = useState<'full_day' | 'shift'>('full_day');
   const [saving, setSaving] = useState(false);
   const [savingBlock, setSavingBlock] = useState<string | null>(null);
   const [savedBlock, setSavedBlock] = useState<string | null>(null);
@@ -137,18 +152,65 @@ export default function STGEntryForm({
     targetRowIdx?: number;
   } | null>(null);
 
-  // Load shifts config on mount
+  // Calculation mode state for Fat / SNF bi-directional formulas
+  const [calcConfig, setCalcConfig] = useState<{
+    fatCalcMode: 'FROM_PCT' | 'FROM_KG';
+    snfCalcMode: 'FROM_PCT' | 'FROM_KG';
+    densityFactor: number;
+  }>({
+    fatCalcMode: 'FROM_PCT',
+    snfCalcMode: 'FROM_PCT',
+    densityFactor: 1.0275,
+  });
+
+  // Load shifts and calc config on mount
   useEffect(() => {
     async function loadShiftConfig() {
       try {
-        const res = await fetch('/api/entries?report_type=STOCK&date=1970-01-01');
+        const res = await fetch('/api/entries?report_type=STOCK');
         if (res.ok) {
           const json = await res.json();
-          const configEntry = json.data?.[0];
+          const entries: any[] = json.data || [];
+          const configEntry = entries.find((e: any) => {
+            if (!e.notes || e.notes.includes('__METADATA__:')) return false;
+            try {
+              const parsed = JSON.parse(e.notes);
+              return parsed && typeof parsed === 'object' && !Array.isArray(parsed);
+            } catch { return false; }
+          });
           if (configEntry && configEntry.notes) {
-            const parsed = JSON.parse(configEntry.notes);
-            if (Array.isArray(parsed) && parsed.length === 2) {
-              setShiftConfigs(parsed);
+            try {
+              const parsed = JSON.parse(configEntry.notes);
+              let parsedShifts = [
+                { key: 'D', label: 'Day Shift', start: '06:00', end: '18:00' },
+                { key: 'N', label: 'Night Shift', start: '18:00', end: '06:00' },
+              ];
+              let parsedMode: 'full_day' | 'shift' = 'full_day';
+              
+              if (parsed && typeof parsed === 'object') {
+                if (parsed.mode) {
+                  parsedMode = parsed.mode;
+                } else if (Array.isArray(parsed) && parsed.length === 2) {
+                  parsedMode = 'shift';
+                }
+                if (Array.isArray(parsed.shifts)) {
+                  parsedShifts = parsed.shifts;
+                } else if (Array.isArray(parsed) && parsed.length === 2) {
+                  parsedShifts = parsed;
+                }
+              }
+              
+              setShiftConfigs(parsedShifts);
+              setReportMode(parsedMode);
+              
+              // Set default shift based on reportMode config
+              if (parsedMode === 'full_day') {
+                setShift(null);
+              } else {
+                setShift(prev => (prev === null ? 'D' : prev));
+              }
+            } catch (e) {
+              console.error('Failed to parse shift config notes:', e);
             }
           }
         }
@@ -156,7 +218,34 @@ export default function STGEntryForm({
         console.error('Error loading shift configuration:', err);
       }
     }
+
+    async function loadCalcConfig() {
+      try {
+        const res = await fetch('/api/entries?report_type=STG_CALC_CONFIG');
+        if (res.ok) {
+          const json = await res.json();
+          const entries: any[] = json.data || [];
+          const configEntry = entries.find((e: any) => e.notes && !e.notes.includes('__METADATA__:'));
+          if (configEntry && configEntry.notes) {
+            try {
+              const parsed = JSON.parse(configEntry.notes);
+              if (parsed && typeof parsed === 'object') {
+                setCalcConfig({
+                  fatCalcMode: parsed.fatCalcMode === 'FROM_KG' ? 'FROM_KG' : 'FROM_PCT',
+                  snfCalcMode: parsed.snfCalcMode === 'FROM_KG' ? 'FROM_KG' : 'FROM_PCT',
+                  densityFactor: parseFloat(parsed.densityFactor) || 1.0275,
+                });
+              }
+            } catch (e) {}
+          }
+        }
+      } catch (err) {
+        console.error('Error loading STG calc config:', err);
+      }
+    }
+
     loadShiftConfig();
+    loadCalcConfig();
   }, []);
 
   useEffect(() => {
@@ -166,11 +255,18 @@ export default function STGEntryForm({
     async function loadData() {
       try {
         // 1. Fetch the global statements template configuration first
-        const configRes = await fetch('/api/entries?report_type=TS&date=1970-01-01');
+        const configRes = await fetch('/api/entries?report_type=TS');
         let globalStatements: any[] = [];
         if (configRes.ok) {
           const configJson = await configRes.json();
-          const configEntry = configJson.data?.[0];
+          const entries: any[] = configJson.data || [];
+          const configEntry = entries.find((e: any) => {
+            if (!e.notes || e.notes.includes('__METADATA__:')) return false;
+            try {
+              const parsed = JSON.parse(e.notes);
+              return Array.isArray(parsed) && (parsed.length === 0 || parsed[0]?.key !== undefined);
+            } catch { return false; }
+          });
           if (configEntry && configEntry.notes) {
             try {
               const list = JSON.parse(configEntry.notes);
@@ -193,19 +289,24 @@ export default function STGEntryForm({
         let prevDateStr = entryDate;
         let prevShift: Shift | null = 'D';
 
+        const [year, month, day] = entryDate.split('-').map(Number);
+        const getPrevDateStr = () => {
+          const prevDate = new Date(year, month - 1, day - 1);
+          const yyyy = prevDate.getFullYear();
+          const mm = String(prevDate.getMonth() + 1).padStart(2, '0');
+          const dd = String(prevDate.getDate()).padStart(2, '0');
+          return `${yyyy}-${mm}-${dd}`;
+        };
+
         if (shift === 'N') {
           prevDateStr = entryDate;
           prevShift = 'D';
         } else if (shift === 'D') {
-          const prevDate = new Date(entryDate);
-          prevDate.setDate(prevDate.getDate() - 1);
-          prevDateStr = prevDate.toISOString().split('T')[0];
+          prevDateStr = getPrevDateStr();
           prevShift = 'N';
         } else {
           // Full Day mode
-          const prevDate = new Date(entryDate);
-          prevDate.setDate(prevDate.getDate() - 1);
-          prevDateStr = prevDate.toISOString().split('T')[0];
+          prevDateStr = getPrevDateStr();
           prevShift = null;
         }
 
@@ -233,9 +334,10 @@ export default function STGEntryForm({
             let todayCustomStatements: any[] = [];
             let customBlocksState: Record<string, any> = {};
             let cleanNotes = data.data.notes || '';
-            let savedEnabledKeys: string[] | null = null;
+            let savedEnabledKeys: any = null;
             let todayManualRows: Record<string, { receipts: boolean[]; disposals: boolean[] }> = {};
 
+            let todayCmpddNorms: Record<string, string> = {};
             const notesParts = (data.data.notes || '').split('\n');
             notesParts.forEach((part: string) => {
               if (part.includes('__METADATA__:') || part.includes('__METADATA__::')) {
@@ -254,6 +356,9 @@ export default function STGEntryForm({
                   if (meta.manual_rows) {
                     todayManualRows = meta.manual_rows;
                   }
+                  if (meta.cmpdd_norms) {
+                    todayCmpddNorms = meta.cmpdd_norms;
+                  }
                 } catch (e) {
                   console.error('Failed to parse STG metadata:', e);
                 }
@@ -261,18 +366,28 @@ export default function STGEntryForm({
               }
             });
 
-            // Combine global template statements with today's saved statements.
-            // Use a Map keyed by statement key to guarantee uniqueness.
+            // Combine global template statements with today's saved statements and stg_rows blocks
             const stmtMap = new Map<string, { key: string; label: string }>();
             globalStatements.forEach((s: { key: string; label: string }) => stmtMap.set(s.key, s));
             todayCustomStatements.forEach((s: { key: string; label: string }) => {
-              if (!stmtMap.has(s.key)) stmtMap.set(s.key, s);
+              if (s && s.key) stmtMap.set(s.key, s);
             });
+            if (data.data.stg_rows && Array.isArray(data.data.stg_rows)) {
+              data.data.stg_rows.forEach((r: any) => {
+                if (r.product_block && !stmtMap.has(r.product_block)) {
+                  stmtMap.set(r.product_block, {
+                    key: r.product_block,
+                    label: `${r.product_block.toUpperCase()} STATEMENT`
+                  });
+                }
+              });
+            }
             const combinedStatements = Array.from(stmtMap.values());
 
             setStatements(combinedStatements);
-            if (savedEnabledKeys) {
-              setEnabledBlockKeys(savedEnabledKeys);
+            if (savedEnabledKeys && Array.isArray(savedEnabledKeys) && savedEnabledKeys.length > 0) {
+              const allKeys = Array.from(new Set([...(savedEnabledKeys as string[]), ...combinedStatements.map(s => s.key)]));
+              setEnabledBlockKeys(allKeys);
             } else {
               setEnabledBlockKeys(combinedStatements.map(s => s.key));
             }
@@ -291,7 +406,11 @@ export default function STGEntryForm({
             // Map data rows
             data.data.stg_rows.forEach((row: any) => {
               const b = row.product_block;
-              if (!newBlocks[b]) return;
+              if (!newBlocks[b]) {
+                newBlocks[b] = makeInitialBlockState(b);
+                newBlocks[b].receipts = [];
+                newBlocks[b].disposals = [];
+              }
 
               const matchedStatement = combinedStatements.find(s =>
                 s.label.toLowerCase().trim() === (row.item_name || '').toLowerCase().trim() ||
@@ -350,6 +469,34 @@ export default function STGEntryForm({
               }
             });
 
+            // Assign saved cmpdd_norm values
+            Object.entries(todayCmpddNorms).forEach(([key, normVal]) => {
+              if (newBlocks[key]) {
+                newBlocks[key].cmpdd_norm = normVal;
+              }
+            });
+
+            const applyMappedBlocks = (targetBlocks: Record<string, STGBlockState>, extraCustomStmts: any[] = []) => {
+              const stmtMap = new Map<string, { key: string; label: string }>();
+              DEFAULT_STATEMENTS.forEach(s => stmtMap.set(s.key, s));
+              globalStatements.forEach((s: { key: string; label: string }) => { if (s && s.key) stmtMap.set(s.key, s); });
+              extraCustomStmts.forEach((s: { key: string; label: string }) => { if (s && s.key) stmtMap.set(s.key, s); });
+
+              Object.entries(targetBlocks).forEach(([bKey, bVal]) => {
+                if (!stmtMap.has(bKey)) {
+                  stmtMap.set(bKey, { key: bKey, label: (bVal as any).label || `${bKey.toUpperCase()} STATEMENT` });
+                }
+              });
+
+              const finalStatements = Array.from(stmtMap.values());
+              setStatements(finalStatements);
+              setEnabledBlockKeys(finalStatements.map(s => s.key));
+              if (finalStatements.length > 0) {
+                setActiveBlock(prev => (prev && finalStatements.some(s => s.key === prev) ? prev : finalStatements[0].key));
+              }
+              setBlocks(targetBlocks);
+            };
+
             const initialLocked: Record<string, boolean> = {};
             if (data.data.stg_rows && data.data.stg_rows.length > 0) {
               data.data.stg_rows.forEach((row: any) => {
@@ -360,22 +507,23 @@ export default function STGEntryForm({
             }
             setBlocksLocked(initialLocked);
 
-            setBlocks(newBlocks);
+            // Sync mapped values from Stock Statement Entry if present
+            const { blocks: mappedBlocks } = await syncFromStockEntry(newBlocks, entryDate, shift);
+            applyMappedBlocks(mappedBlocks, todayCustomStatements);
             return;
           }
         }
 
         // 4. Otherwise it's a new entry. Set template and carry forward yesterday's CB.
         if (active) {
-          setStatements(globalStatements);
-          setEnabledBlockKeys(globalStatements.map(s => s.key));
-          if (globalStatements.length > 0) {
-            setActiveBlock(globalStatements[0].key);
-          }
-
           const initialBlocks: Record<string, STGBlockState> = {};
-          globalStatements.forEach(s => {
+          DEFAULT_STATEMENTS.forEach(s => {
             initialBlocks[s.key] = makeInitialBlockState(s.key);
+          });
+          globalStatements.forEach((s: any) => {
+            if (s && s.key && !initialBlocks[s.key]) {
+              initialBlocks[s.key] = makeInitialBlockState(s.key);
+            }
           });
 
           yesterdayCBs.forEach((row: any) => {
@@ -394,7 +542,25 @@ export default function STGEntryForm({
             }
           });
 
-          setBlocks(initialBlocks);
+          // Fetch Stock Statement Entry for today and apply statement mappings
+          const { blocks: mappedBlocks } = await syncFromStockEntry(initialBlocks, entryDate, shift);
+          
+          const stmtMap = new Map<string, { key: string; label: string }>();
+          DEFAULT_STATEMENTS.forEach(s => stmtMap.set(s.key, s));
+          globalStatements.forEach((s: { key: string; label: string }) => { if (s && s.key) stmtMap.set(s.key, s); });
+          Object.entries(mappedBlocks).forEach(([bKey, bVal]) => {
+            if (!stmtMap.has(bKey)) {
+              stmtMap.set(bKey, { key: bKey, label: (bVal as any).label || `${bKey.toUpperCase()} STATEMENT` });
+            }
+          });
+
+          const finalStatements = Array.from(stmtMap.values());
+          setStatements(finalStatements);
+          setEnabledBlockKeys(finalStatements.map(s => s.key));
+          if (finalStatements.length > 0) {
+            setActiveBlock(finalStatements[0].key);
+          }
+          setBlocks(mappedBlocks);
         }
       } catch (err) {
         console.error('Error loading OB data:', err);
@@ -405,21 +571,290 @@ export default function STGEntryForm({
     return () => { active = false; };
   }, [entryDate, shift]);
 
+  const syncFromStockEntry = async (
+    targetBlocks: Record<string, STGBlockState>,
+    targetDate: string = entryDate,
+    targetShift: Shift | null = shift
+  ) => {
+    try {
+      let stockUrl = `/api/stock?date=${targetDate}${targetShift ? `&shift=${targetShift}` : ''}`;
+      let stockRes = await fetch(stockUrl);
+      if (!stockRes.ok && targetShift) {
+        stockUrl = `/api/stock?date=${targetDate}`;
+        stockRes = await fetch(stockUrl);
+      }
+      if (!stockRes.ok) return { blocks: targetBlocks, count: 0 };
+
+      const stockJson = await stockRes.json();
+      const stockRows: any[] = stockJson.data?.stock_rows || [];
+      if (stockRows.length === 0) return { blocks: targetBlocks, count: 0 };
+
+      let customVals: Record<string, Record<string, string>> = {};
+      const stockEntries = stockJson.data?.entries || [];
+      if (stockEntries.length > 0 && stockEntries[0].notes) {
+        const parts = stockEntries[0].notes.split('\n');
+        parts.forEach((p: string) => {
+          if (p.includes('__METADATA__:')) {
+            try {
+              const meta = JSON.parse(p.split('__METADATA__:')[1]);
+              if (meta.custom_values) customVals = meta.custom_values;
+            } catch {}
+          }
+        });
+      }
+
+      let mappingRules: any[] = [];
+      const mapRes = await fetch('/api/entries?report_type=STOCK_MAPPING');
+      if (mapRes.ok) {
+        const mapJson = await mapRes.json();
+        const mapEntry = mapJson.data?.[0];
+        if (mapEntry && mapEntry.notes) {
+          try {
+            const list = JSON.parse(mapEntry.notes);
+            if (Array.isArray(list) && list.length > 0) mappingRules = list;
+          } catch {}
+        }
+      }
+
+      const nextBlocks = JSON.parse(JSON.stringify(targetBlocks));
+      let count = 0;
+
+      const normalizeStr = (str: string) => (str || '').toLowerCase().replace(/[:\s]+/g, ' ').trim();
+
+      // Extract products definitions if available in stock entry metadata
+      let stockProducts: Array<{ key: string; label: string; full_name?: string; short_name?: string }> = [];
+      if (stockEntries.length > 0 && stockEntries[0].notes) {
+        const parts = stockEntries[0].notes.split('\n');
+        parts.forEach((p: string) => {
+          if (!p.includes('__METADATA__:')) {
+            try {
+              const meta = JSON.parse(p);
+              if (meta.products && Array.isArray(meta.products)) {
+                stockProducts = meta.products;
+              }
+            } catch {}
+          }
+        });
+      }
+
+      if (stockProducts.length === 0) {
+        stockProducts = [
+          { key: 'wh_milk', label: 'WH.Milk', full_name: 'TENTATIVE WHOLE MILK' },
+          { key: 'dlt_milk', label: 'DLT.Milk', full_name: 'DOUBLE TONED MILK' },
+          { key: 'fc_milk', label: 'FC. Milk', full_name: 'FULL CREAM MILK' },
+          { key: 'std_milk', label: 'STD.Milk', full_name: 'STANDARDIZED MILK' },
+          { key: 'toned_curd', label: 'TM Curd', full_name: 'TONED MILK CURD' },
+          { key: 'dtm', label: 'DTM', full_name: 'DOUBLE TONED MILK' },
+          { key: 'skim_milk', label: 'Skim Milk', full_name: 'SKIMMED MILK' },
+          { key: 'cream', label: 'Cream', full_name: 'CREAM' },
+          { key: 'butter_milk', label: 'BM', full_name: 'BUTTER MILK' },
+          { key: 'r_con', label: 'R.Con', full_name: 'RECONSTITUTED MILK' },
+          { key: 'smp', label: 'SMP', full_name: 'SKIM MILK POWDER' },
+          { key: 'water', label: 'Water', full_name: 'WATER' },
+        ];
+      }
+
+      const getBlockInfo = (prod: { key: string; label: string; full_name?: string; short_name?: string }) => {
+        const cleanKey = prod.key.toLowerCase().trim();
+        const rawFullName = (prod.full_name || prod.short_name || prod.label || prod.key).trim();
+        const fullNameUpper = rawFullName.toUpperCase();
+
+        let blockKey = cleanKey.toUpperCase();
+        if (cleanKey === 'wh_milk') blockKey = 'WM';
+        else if (cleanKey === 'skim_milk') blockKey = 'SSM';
+        else if (cleanKey === 'cream') blockKey = 'CREAM';
+        else if (cleanKey === 'smp') blockKey = 'SMP';
+
+        let blockLabel = `${fullNameUpper} STATEMENT`;
+        if (blockKey === 'WM') {
+          blockLabel = `${fullNameUpper} - RECEIPT AND DISPOSAL STATEMENT`;
+        }
+
+        const isSMP = blockKey === 'SMP' || fullNameUpper.includes('SMP') || fullNameUpper.includes('POWDER');
+
+        return { blockKey, blockLabel, isSMP };
+      };
+
+      // 1. Process custom rules if any
+      if (mappingRules.length > 0) {
+        mappingRules.forEach((rule: any) => {
+          const { stockProductKey, stockSection, stockParticular, stgBlockKey, stgSection, stgItemName, stgTargetField } = rule;
+          if (!nextBlocks[stgBlockKey]) {
+            nextBlocks[stgBlockKey] = makeInitialBlockState(stgBlockKey);
+          }
+
+          const normParticular = normalizeStr(stockParticular);
+          const stockRow = stockRows.find((r: any) => {
+            if (r.row_type !== stockSection) return false;
+            const normLabel = normalizeStr(r.row_label);
+            return normLabel === normParticular || normLabel.includes(normParticular) || normParticular.includes(normLabel);
+          });
+          if (!stockRow) return;
+
+          const rawVal = stockRow[stockProductKey] ?? (customVals[stockRow.row_label] ? customVals[stockRow.row_label][stockProductKey] : 0);
+          const valNum = parseFloat(String(rawVal || 0));
+          if (!valNum || isNaN(valNum)) return;
+
+          const bState = nextBlocks[stgBlockKey];
+          const fieldKey = (stgTargetField as keyof STGItemInput) || 'qty_lts';
+
+          if (stgSection === 'OB') {
+            bState.opening_balance = calculateSTGRowValues(bState.opening_balance, fieldKey, String(valNum), stgBlockKey === 'SMP');
+            count++;
+          } else if (stgSection === 'CB') {
+            bState.physical_count = calculateSTGRowValues(bState.physical_count, fieldKey, String(valNum), stgBlockKey === 'SMP');
+            count++;
+          } else {
+            const list: STGItemInput[] = stgSection === 'RECEIPT' ? bState.receipts : bState.disposals;
+            let idx = list.findIndex(r => r.item_name.toLowerCase().trim() === stgItemName.toLowerCase().trim());
+            if (idx === -1) {
+              if (list.length === 1 && !list[0].item_name && !list[0].qty_lts && !list[0].qty_kg) {
+                idx = 0;
+                list[0].item_name = stgItemName;
+              } else {
+                const newItem = makeInitialItem(stgItemName);
+                list.push(newItem);
+                idx = list.length - 1;
+              }
+            }
+            list[idx] = calculateSTGRowValues(list[idx], fieldKey, String(valNum), stgBlockKey === 'SMP');
+            count++;
+          }
+        });
+      }
+
+      // 2. Dynamic Automatic Generator for ALL stock products
+      stockProducts.forEach(prod => {
+        const { blockKey, isSMP } = getBlockInfo(prod);
+
+        // Find OB
+        const obRow = stockRows.find((r: any) => r.row_type === 'OB');
+        const obVal = obRow ? parseFloat(String(obRow[prod.key] || (customVals[obRow.row_label] ? customVals[obRow.row_label][prod.key] : '0') || '0')) || 0 : 0;
+
+        // Find Receipts
+        const recRows = stockRows.filter((r: any) => r.row_type === 'RECEIPT');
+        const activeRecs: Array<{ item_name: string; val: number }> = [];
+        recRows.forEach((r: any) => {
+          const val = parseFloat(String(r[prod.key] || (customVals[r.row_label] ? customVals[r.row_label][prod.key] : '0') || '0')) || 0;
+          if (val > 0) activeRecs.push({ item_name: r.row_label, val });
+        });
+
+        // Find Disposals
+        const dispRows = stockRows.filter((r: any) => r.row_type === 'DISPOSAL');
+        const activeDisps: Array<{ item_name: string; val: number }> = [];
+        dispRows.forEach((r: any) => {
+          const val = parseFloat(String(r[prod.key] || (customVals[r.row_label] ? customVals[r.row_label][prod.key] : '0') || '0')) || 0;
+          if (val > 0) activeDisps.push({ item_name: r.row_label, val });
+        });
+
+        if (obVal > 0 || activeRecs.length > 0 || activeDisps.length > 0) {
+          if (!nextBlocks[blockKey]) {
+            nextBlocks[blockKey] = makeInitialBlockState(blockKey);
+          }
+          const bState = nextBlocks[blockKey];
+
+          if (obVal > 0) {
+            const fieldKey = isSMP ? 'qty_kg' : 'qty_lts';
+            bState.opening_balance = calculateSTGRowValues(bState.opening_balance, fieldKey, String(obVal), isSMP);
+            count++;
+          }
+
+          activeRecs.forEach(r => {
+            let idx = bState.receipts.findIndex((x: any) => normalizeStr(x.item_name) === normalizeStr(r.item_name));
+            if (idx === -1) {
+              if (bState.receipts.length === 1 && !bState.receipts[0].item_name && !bState.receipts[0].qty_lts && !bState.receipts[0].qty_kg) {
+                idx = 0;
+                bState.receipts[0].item_name = r.item_name;
+              } else {
+                bState.receipts.push(makeInitialItem(r.item_name));
+                idx = bState.receipts.length - 1;
+              }
+            }
+            const fieldKey = isSMP ? 'qty_kg' : 'qty_lts';
+            bState.receipts[idx] = calculateSTGRowValues(bState.receipts[idx], fieldKey, String(r.val), isSMP);
+            count++;
+          });
+
+          activeDisps.forEach(d => {
+            let idx = bState.disposals.findIndex((x: any) => normalizeStr(x.item_name) === normalizeStr(d.item_name));
+            if (idx === -1) {
+              if (bState.disposals.length === 1 && !bState.disposals[0].item_name && !bState.disposals[0].qty_lts && !bState.disposals[0].qty_kg) {
+                idx = 0;
+                bState.disposals[0].item_name = d.item_name;
+              } else {
+                bState.disposals.push(makeInitialItem(d.item_name));
+                idx = bState.disposals.length - 1;
+              }
+            }
+            const fieldKey = isSMP ? 'qty_kg' : 'qty_lts';
+            bState.disposals[idx] = calculateSTGRowValues(bState.disposals[idx], fieldKey, String(d.val), isSMP);
+            count++;
+          });
+        }
+      });
+
+      Object.keys(nextBlocks).forEach(bKey => {
+        recalculateCB(nextBlocks[bKey], bKey);
+      });
+
+      return { blocks: nextBlocks, count };
+    } catch (err) {
+      console.error('Error syncing from Stock Statement Entry:', err);
+      return { blocks: targetBlocks, count: 0 };
+    }
+  };
+
   function calculateSTGRowValues<T extends { item_name?: string; qty_lts: string; qty_kg: string; fat_pct: string; snf_pct: string; sp_gr: string; kg_fat: string; kg_snf: string }>(
     item: T,
     changedField: string,
     newVal: string,
-    isSMPBlock: boolean = false
+    isSMPBlock: boolean = false,
+    overrideConfig?: { fatCalcMode?: 'FROM_PCT' | 'FROM_KG'; snfCalcMode?: 'FROM_PCT' | 'FROM_KG'; densityFactor?: number }
   ): T {
     const temp = { ...item, [changedField]: newVal };
+
+    const effectiveConfig = {
+      fatCalcMode: overrideConfig?.fatCalcMode || calcConfig.fatCalcMode,
+      snfCalcMode: overrideConfig?.snfCalcMode || calcConfig.snfCalcMode,
+      densityFactor: overrideConfig?.densityFactor || calcConfig.densityFactor,
+    };
 
     const isSMP = isSMPBlock || (temp.item_name || '').toLowerCase().includes('smp');
     if (isSMP) {
       temp.qty_lts = '';
     }
 
-    // 1. If fat_pct or snf_pct changed, recalculate sp_gr
-    if (changedField === 'fat_pct' || changedField === 'snf_pct') {
+    // A. REVERSE FAT CALCULATIONS: Calculate Fat % from Kg.Fat
+    // Formula: Fat % = (Kg.Fat / Qty (Lts) / DensityFactor) * 100
+    if (!isSMP && effectiveConfig.fatCalcMode === 'FROM_KG' && (changedField === 'kg_fat' || changedField === 'qty_lts')) {
+      const kgFat = parseFloat(temp.kg_fat) || 0;
+      const lts = parseFloat(temp.qty_lts) || 0;
+      if (kgFat && lts && effectiveConfig.densityFactor > 0) {
+        const rawFatPct = (kgFat / lts / effectiveConfig.densityFactor) * 100;
+        temp.fat_pct = rawFatPct.toFixed(2);
+      } else if (!kgFat) {
+        temp.fat_pct = '';
+      }
+    }
+
+    // B. REVERSE SNF CALCULATIONS: Calculate SNF % from Kg.SNF
+    // Formula: SNF % = (Kg.SNF / Qty (Lts) / DensityFactor) * 100
+    if (!isSMP && effectiveConfig.snfCalcMode === 'FROM_KG' && (changedField === 'kg_snf' || changedField === 'qty_lts')) {
+      const kgSnf = parseFloat(temp.kg_snf) || 0;
+      const lts = parseFloat(temp.qty_lts) || 0;
+      if (kgSnf && lts && effectiveConfig.densityFactor > 0) {
+        const rawSnfPct = (kgSnf / lts / effectiveConfig.densityFactor) * 100;
+        temp.snf_pct = rawSnfPct.toFixed(2);
+      } else if (!kgSnf) {
+        temp.snf_pct = '';
+      }
+    }
+
+    // 1. If fat_pct or snf_pct changed (or recalculated above), recalculate sp_gr
+    const isFatUpdated = changedField === 'fat_pct' || (effectiveConfig.fatCalcMode === 'FROM_KG' && changedField === 'kg_fat');
+    const isSnfUpdated = changedField === 'snf_pct' || (effectiveConfig.snfCalcMode === 'FROM_KG' && changedField === 'kg_snf');
+
+    if (isFatUpdated || isSnfUpdated || changedField === 'qty_lts') {
       const fat = parseFloat(temp.fat_pct) || 0;
       const snf = parseFloat(temp.snf_pct) || 0;
       if (fat && snf) {
@@ -430,8 +865,8 @@ export default function STGEntryForm({
       }
     }
 
-    // 2. Recalculate Qty (Kg) only if Qty (Lts) or Sp. Gr changed
-    if (!isSMP && (changedField === 'qty_lts' || changedField === 'sp_gr' || changedField === 'fat_pct' || changedField === 'snf_pct')) {
+    // 2. Recalculate Qty (Kg)
+    if (!isSMP && (changedField === 'qty_lts' || changedField === 'sp_gr' || changedField === 'fat_pct' || changedField === 'snf_pct' || changedField === 'kg_fat' || changedField === 'kg_snf')) {
       const lts = parseFloat(temp.qty_lts) || 0;
       const spg = parseFloat(temp.sp_gr) || 0;
       if (lts && spg) {
@@ -441,7 +876,7 @@ export default function STGEntryForm({
       }
     }
 
-    // 3. Recalculate Kg Fat
+    // 3. Recalculate Kg Fat (Standard Mode)
     if (isSMP) {
       if (changedField === 'qty_kg' || changedField === 'fat_pct') {
         const kg = parseFloat(temp.qty_kg) || 0;
@@ -453,7 +888,7 @@ export default function STGEntryForm({
           temp.kg_fat = '';
         }
       }
-    } else {
+    } else if (effectiveConfig.fatCalcMode === 'FROM_PCT') {
       if (changedField === 'qty_lts' || changedField === 'sp_gr' || changedField === 'fat_pct' || changedField === 'snf_pct') {
         const lts = parseFloat(temp.qty_lts) || 0;
         const spg = parseFloat(temp.sp_gr) || 0;
@@ -467,7 +902,7 @@ export default function STGEntryForm({
       }
     }
 
-    // 4. Recalculate Kg SNF
+    // 4. Recalculate Kg SNF (Standard Mode)
     if (isSMP) {
       if (changedField === 'qty_kg' || changedField === 'snf_pct') {
         const kg = parseFloat(temp.qty_kg) || 0;
@@ -479,7 +914,7 @@ export default function STGEntryForm({
           temp.kg_snf = '';
         }
       }
-    } else {
+    } else if (effectiveConfig.snfCalcMode === 'FROM_PCT') {
       if (changedField === 'qty_lts' || changedField === 'sp_gr' || changedField === 'snf_pct' || changedField === 'fat_pct') {
         const lts = parseFloat(temp.qty_lts) || 0;
         const spg = parseFloat(temp.sp_gr) || 0;
@@ -1159,11 +1594,22 @@ export default function STGEntryForm({
         }
       });
 
+      const cmpddNorms: Record<string, string> = {};
+      Object.keys(blocks).forEach(k => {
+        if (blocks[k].cmpdd_norm !== undefined) {
+          cmpddNorms[k] = blocks[k].cmpdd_norm || '0.5';
+        }
+        if (customBlocks[k]) {
+          customBlocks[k].cmpdd_norm = blocks[k].cmpdd_norm || '0.5';
+        }
+      });
+
       const metadata = {
         custom_statements: statements.filter(s => enabledBlockKeys.includes(s.key)),
         custom_blocks: customBlocks,
         enabled_blocks: enabledBlockKeys,
         manual_rows: manualRows,
+        cmpdd_norms: cmpddNorms,
       };
       const finalNotes = notes.trim() + "\n__METADATA__:" + JSON.stringify(metadata);
 
@@ -1454,24 +1900,74 @@ export default function STGEntryForm({
 
     return (
       <div className="card animate-fade-in" style={{ marginBottom: 32 }}>
-        {/* Title & Delete button */}
+        {/* Title, CMPDD Norm & Delete button */}
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20, borderBottom: '1px solid var(--border)', paddingBottom: 16, flexWrap: 'wrap', gap: 12 }}>
           <h3 style={{ margin: 0, color: 'var(--brand-primary)', textTransform: 'uppercase', letterSpacing: '0.02em', fontSize: '0.95rem', fontWeight: 700 }}>
             {s.label.toUpperCase()} - RECEIPT AND DISPOSAL STATEMENT
           </h3>
-          <button
-            type="button"
-            className="btn btn-danger btn-sm no-print"
-            onClick={() => {
-              const ok = window.confirm(`Are you sure you want to remove "${s.label}" from this shift? All current values for this shift will be cleared.`);
-              if (ok) {
-                setEnabledBlockKeys(prev => prev.filter(k => k !== blockKey));
-              }
-            }}
-            style={{ fontSize: '0.75rem', padding: '4px 8px' }}
-          >
-            ❌ Remove Block
-          </button>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+            {/* Calculation direction toggles */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, background: '#f0f9ff', padding: '3px 8px', borderRadius: 6, border: '1px solid #bae6fd' }}>
+              <span style={{ fontSize: '0.75rem', fontWeight: 700, color: '#0369a1' }}>🧮 Calc:</span>
+              <button
+                type="button"
+                className={`btn btn-sm ${calcConfig.fatCalcMode === 'FROM_PCT' ? 'btn-primary' : 'btn-secondary'}`}
+                style={{ padding: '2px 6px', fontSize: '0.7rem', height: 'auto', lineHeight: '1.2' }}
+                onClick={() => setCalcConfig(prev => ({ ...prev, fatCalcMode: prev.fatCalcMode === 'FROM_PCT' ? 'FROM_KG' : 'FROM_PCT' }))}
+                title="Toggle Fat calculation direction: Fat% ➔ Kg.Fat vs Kg.Fat ➔ Fat%"
+              >
+                Fat: {calcConfig.fatCalcMode === 'FROM_PCT' ? 'Fat% ➔ Kg' : 'Kg ➔ Fat%'}
+              </button>
+              <button
+                type="button"
+                className={`btn btn-sm ${calcConfig.snfCalcMode === 'FROM_PCT' ? 'btn-primary' : 'btn-secondary'}`}
+                style={{ padding: '2px 6px', fontSize: '0.7rem', height: 'auto', lineHeight: '1.2' }}
+                onClick={() => setCalcConfig(prev => ({ ...prev, snfCalcMode: prev.snfCalcMode === 'FROM_PCT' ? 'FROM_KG' : 'FROM_PCT' }))}
+                title="Toggle SNF calculation direction: SNF% ➔ Kg.SNF vs Kg.SNF ➔ SNF%"
+              >
+                SNF: {calcConfig.snfCalcMode === 'FROM_PCT' ? 'SNF% ➔ Kg' : 'Kg ➔ SNF%'}
+              </button>
+              <Link href="/dashboard/ts/config" style={{ fontSize: '0.7rem', color: '#0284c7', textDecoration: 'none', marginLeft: 2 }} title="Open STG Calculation Settings">
+                ⚙️
+              </Link>
+            </div>
+
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: '0.825rem', background: '#f1f5f9', padding: '4px 10px', borderRadius: 6, border: '1px solid var(--border)' }}>
+              <label style={{ fontWeight: 600, color: 'var(--text-secondary)' }}>CMPDD Norms %:</label>
+              <input
+                type="number"
+                step="0.01"
+                min="0"
+                className="form-input"
+                style={{ width: 70, padding: '2px 6px', fontSize: '0.825rem', textAlign: 'right', fontWeight: 600 }}
+                value={blockState.cmpdd_norm ?? '0.5'}
+                onChange={e => {
+                  const val = e.target.value;
+                  setBlocks(prev => ({
+                    ...prev,
+                    [blockKey]: {
+                      ...prev[blockKey],
+                      cmpdd_norm: val
+                    }
+                  }));
+                }}
+              />
+              <span style={{ fontWeight: 600, color: 'var(--text-muted)' }}>%</span>
+            </div>
+            <button
+              type="button"
+              className="btn btn-danger btn-sm no-print"
+              onClick={() => {
+                const ok = window.confirm(`Are you sure you want to remove "${s.label}" from this shift? All current values for this shift will be cleared.`);
+                if (ok) {
+                  setEnabledBlockKeys(prev => prev.filter(k => k !== blockKey));
+                }
+              }}
+              style={{ fontSize: '0.75rem', padding: '4px 8px' }}
+            >
+              ❌ Remove Block
+            </button>
+          </div>
         </div>
 
         {/* Opening Balance inputs */}
@@ -1691,16 +2187,30 @@ export default function STGEntryForm({
                         <input
                           type="number" placeholder="0" value={r.fat_pct}
                           onChange={e => updateVal(blockKey, 'RECEIPT', idx, 'fat_pct', e.target.value)}
+                          title={calcConfig.fatCalcMode === 'FROM_KG' ? `Formula: (Kg.Fat / Qty (Lts) / ${calcConfig.densityFactor}) × 100` : "Manual Input (Fat %)"}
                           disabled={blocksLocked[blockKey]}
-                          style={blocksLocked[blockKey] ? { background: '#f1f5f9', cursor: 'not-allowed' } : undefined}
+                          style={
+                            blocksLocked[blockKey]
+                              ? { background: '#f1f5f9', cursor: 'not-allowed' }
+                              : (calcConfig.fatCalcMode === 'FROM_KG'
+                                ? { backgroundColor: '#f0f9ff', borderColor: '#bae6fd', color: '#0369a1', fontWeight: 600 }
+                                : undefined)
+                          }
                         />
                       </td>
                       <td>
                         <input
                           type="number" placeholder="0" value={r.snf_pct}
                           onChange={e => updateVal(blockKey, 'RECEIPT', idx, 'snf_pct', e.target.value)}
+                          title={calcConfig.snfCalcMode === 'FROM_KG' ? `Formula: (Kg.SNF / Qty (Lts) / ${calcConfig.densityFactor}) × 100` : "Manual Input (SNF %)"}
                           disabled={blocksLocked[blockKey]}
-                          style={blocksLocked[blockKey] ? { background: '#f1f5f9', cursor: 'not-allowed' } : undefined}
+                          style={
+                            blocksLocked[blockKey]
+                              ? { background: '#f1f5f9', cursor: 'not-allowed' }
+                              : (calcConfig.snfCalcMode === 'FROM_KG'
+                                ? { backgroundColor: '#f0f9ff', borderColor: '#bae6fd', color: '#0369a1', fontWeight: 600 }
+                                : undefined)
+                          }
                         />
                       </td>
                       <td>
@@ -1722,12 +2232,12 @@ export default function STGEntryForm({
                         <input
                           type="number" placeholder="0" value={r.kg_fat}
                           onChange={e => updateVal(blockKey, 'RECEIPT', idx, 'kg_fat', e.target.value)}
-                          title={isSMPRow ? "=ROUND(Qty (Kg)*Fat %/100,3)" : "=ROUND(Sp. Gr*Fat %*Qty (Lts)/100,3)"}
+                          title={calcConfig.fatCalcMode === 'FROM_KG' ? "Manual Input (Kg.Fat)" : (isSMPRow ? "=ROUND(Qty (Kg)*Fat %/100,3)" : "=ROUND(Sp. Gr*Fat %*Qty (Lts)/100,3)")}
                           disabled={blocksLocked[blockKey]}
                           style={
                             blocksLocked[blockKey]
                               ? { background: '#f1f5f9', cursor: 'not-allowed' }
-                              : (isKgFatCalculated
+                              : (isKgFatCalculated && calcConfig.fatCalcMode === 'FROM_PCT'
                                 ? { backgroundColor: '#f0f9ff', borderColor: '#bae6fd', color: '#0369a1' }
                                 : undefined)
                           }
@@ -1737,12 +2247,12 @@ export default function STGEntryForm({
                         <input
                           type="number" placeholder="0" value={r.kg_snf}
                           onChange={e => updateVal(blockKey, 'RECEIPT', idx, 'kg_snf', e.target.value)}
-                          title={isSMPRow ? "=ROUND(Qty (Kg)*SNF %/100,3)" : "=ROUND(Sp. Gr*SNF %*Qty (Lts)/100,3)"}
+                          title={calcConfig.snfCalcMode === 'FROM_KG' ? "Manual Input (Kg.SNF)" : (isSMPRow ? "=ROUND(Qty (Kg)*SNF %/100,3)" : "=ROUND(Sp. Gr*SNF %*Qty (Lts)/100,3)")}
                           disabled={blocksLocked[blockKey]}
                           style={
                             blocksLocked[blockKey]
                               ? { background: '#f1f5f9', cursor: 'not-allowed' }
-                              : (isKgSnfCalculated
+                              : (isKgSnfCalculated && calcConfig.snfCalcMode === 'FROM_PCT'
                                 ? { backgroundColor: '#f0f9ff', borderColor: '#bae6fd', color: '#0369a1' }
                                 : undefined)
                           }
@@ -1941,16 +2451,30 @@ export default function STGEntryForm({
                         <input
                           type="number" placeholder="0" value={d.fat_pct}
                           onChange={e => updateVal(blockKey, 'DISPOSAL', idx, 'fat_pct', e.target.value)}
+                          title={calcConfig.fatCalcMode === 'FROM_KG' ? `Formula: (Kg.Fat / Qty (Lts) / ${calcConfig.densityFactor}) × 100` : "Manual Input (Fat %)"}
                           disabled={blocksLocked[blockKey]}
-                          style={blocksLocked[blockKey] ? { background: '#f1f5f9', cursor: 'not-allowed' } : undefined}
+                          style={
+                            blocksLocked[blockKey]
+                              ? { background: '#f1f5f9', cursor: 'not-allowed' }
+                              : (calcConfig.fatCalcMode === 'FROM_KG'
+                                ? { backgroundColor: '#f0f9ff', borderColor: '#bae6fd', color: '#0369a1', fontWeight: 600 }
+                                : undefined)
+                          }
                         />
                       </td>
                       <td>
                         <input
                           type="number" placeholder="0" value={d.snf_pct}
                           onChange={e => updateVal(blockKey, 'DISPOSAL', idx, 'snf_pct', e.target.value)}
+                          title={calcConfig.snfCalcMode === 'FROM_KG' ? `Formula: (Kg.SNF / Qty (Lts) / ${calcConfig.densityFactor}) × 100` : "Manual Input (SNF %)"}
                           disabled={blocksLocked[blockKey]}
-                          style={blocksLocked[blockKey] ? { background: '#f1f5f9', cursor: 'not-allowed' } : undefined}
+                          style={
+                            blocksLocked[blockKey]
+                              ? { background: '#f1f5f9', cursor: 'not-allowed' }
+                              : (calcConfig.snfCalcMode === 'FROM_KG'
+                                ? { backgroundColor: '#f0f9ff', borderColor: '#bae6fd', color: '#0369a1', fontWeight: 600 }
+                                : undefined)
+                          }
                         />
                       </td>
                       <td>
@@ -1972,12 +2496,12 @@ export default function STGEntryForm({
                         <input
                           type="number" placeholder="0" value={d.kg_fat}
                           onChange={e => updateVal(blockKey, 'DISPOSAL', idx, 'kg_fat', e.target.value)}
-                          title={isSMPRow ? "=ROUND(Qty (Kg)*Fat %/100,3)" : "=ROUND(Sp. Gr*Fat %*Qty (Lts)/100,3)"}
+                          title={calcConfig.fatCalcMode === 'FROM_KG' ? "Manual Input (Kg.Fat)" : (isSMPRow ? "=ROUND(Qty (Kg)*Fat %/100,3)" : "=ROUND(Sp. Gr*Fat %*Qty (Lts)/100,3)")}
                           disabled={blocksLocked[blockKey]}
                           style={
                             blocksLocked[blockKey]
                               ? { background: '#f1f5f9', cursor: 'not-allowed' }
-                              : (isKgFatCalculated
+                              : (isKgFatCalculated && calcConfig.fatCalcMode === 'FROM_PCT'
                                 ? { backgroundColor: '#f0f9ff', borderColor: '#bae6fd', color: '#0369a1' }
                                 : undefined)
                           }
@@ -1987,12 +2511,12 @@ export default function STGEntryForm({
                         <input
                           type="number" placeholder="0" value={d.kg_snf}
                           onChange={e => updateVal(blockKey, 'DISPOSAL', idx, 'kg_snf', e.target.value)}
-                          title={isSMPRow ? "=ROUND(Qty (Kg)*SNF %/100,3)" : "=ROUND(Sp. Gr*SNF %*Qty (Lts)/100,3)"}
+                          title={calcConfig.snfCalcMode === 'FROM_KG' ? "Manual Input (Kg.SNF)" : (isSMPRow ? "=ROUND(Qty (Kg)*SNF %/100,3)" : "=ROUND(Sp. Gr*SNF %*Qty (Lts)/100,3)")}
                           disabled={blocksLocked[blockKey]}
                           style={
                             blocksLocked[blockKey]
                               ? { background: '#f1f5f9', cursor: 'not-allowed' }
-                              : (isKgSnfCalculated
+                              : (isKgSnfCalculated && calcConfig.snfCalcMode === 'FROM_PCT'
                                 ? { backgroundColor: '#f0f9ff', borderColor: '#bae6fd', color: '#0369a1' }
                                 : undefined)
                           }
@@ -2254,7 +2778,25 @@ export default function STGEntryForm({
 
       {/* Date & Details */}
       <div className="card" style={{ marginBottom: 20 }}>
-        <div className="section-title" style={{ marginBottom: 16 }}>Register Date & Details</div>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16, flexWrap: 'wrap', gap: 10 }}>
+          <div className="section-title" style={{ margin: 0 }}>Register Date & Details</div>
+          <button
+            type="button"
+            className="btn btn-secondary btn-sm"
+            style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: '0.8rem', fontWeight: 600, color: 'var(--brand-primary)', border: '1px solid var(--brand-primary)' }}
+            onClick={async () => {
+              const { blocks: mapped, count } = await syncFromStockEntry(blocks, entryDate, shift);
+              setBlocks(mapped);
+              if (count > 0) {
+                alert(`Successfully synced ${count} mapped field(s) from Stock Statement Entry for ${entryDate}!`);
+              } else {
+                alert(`No matching Stock Statement Entry data found for ${entryDate}. Please ensure a Stock Statement Entry exists for this date.`);
+              }
+            }}
+          >
+            ⚡ Sync from Stock Statement Entry
+          </button>
+        </div>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 16 }}>
           <div className="form-group">
             <label className="form-label">Date *</label>
@@ -2266,54 +2808,58 @@ export default function STGEntryForm({
               max={new Date().toISOString().split('T')[0]}
             />
           </div>
-          <div className="form-group">
-            <label className="form-label">Reporting Type *</label>
-            <div style={{ display: 'flex', gap: 8, marginTop: 6 }}>
-              <button
-                type="button"
-                className={`btn ${!shift ? 'btn-primary' : 'btn-secondary'}`}
-                onClick={() => setShift(null)}
-                style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '10px 16px' }}
-              >
-                <span style={{ fontWeight: 600, fontSize: '0.875rem' }}>🗓️ Full Day</span>
-              </button>
-              <button
-                type="button"
-                className={`btn ${shift ? 'btn-primary' : 'btn-secondary'}`}
-                onClick={() => setShift('D')}
-                style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '10px 16px' }}
-              >
-                <span style={{ fontWeight: 600, fontSize: '0.875rem' }}>⏱️ Shift-wise</span>
-              </button>
-            </div>
-          </div>
-          {shift && (
-            <div className="form-group animate-fade-in">
-              <label className="form-label">Shift *</label>
-              <div style={{ display: 'flex', gap: 8, marginTop: 6 }}>
-                {(['D', 'N'] as Shift[]).map(s => {
-                  const cfg = shiftConfigs.find(c => c.key === s) || {
-                    label: s === 'D' ? 'Day Shift' : 'Night Shift',
-                    start: s === 'D' ? '06:00' : '18:00',
-                    end: s === 'D' ? '18:00' : '06:00'
-                  };
-                  return (
-                    <button
-                      key={s}
-                      id={`shift-${s}`}
-                      type="button"
-                      className={`btn ${shift === s ? 'btn-primary' : 'btn-secondary'}`}
-                      onClick={() => setShift(s)}
-                      style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '10px 16px' }}
-                    >
-                      <span style={{ fontWeight: 600, fontSize: '0.875rem' }}>
-                        {s === 'D' ? '☀️' : '🌙'} {cfg.label}
-                      </span>
-                    </button>
-                  );
-                })}
+          {reportMode === 'shift' && (
+            <>
+              <div className="form-group">
+                <label className="form-label">Reporting Type *</label>
+                <div style={{ display: 'flex', gap: 8, marginTop: 6 }}>
+                  <button
+                    type="button"
+                    className={`btn ${!shift ? 'btn-primary' : 'btn-secondary'}`}
+                    onClick={() => setShift(null)}
+                    style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '10px 16px' }}
+                  >
+                    <span style={{ fontWeight: 600, fontSize: '0.875rem' }}>🗓️ Full Day</span>
+                  </button>
+                  <button
+                    type="button"
+                    className={`btn ${shift ? 'btn-primary' : 'btn-secondary'}`}
+                    onClick={() => setShift('D')}
+                    style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '10px 16px' }}
+                  >
+                    <span style={{ fontWeight: 600, fontSize: '0.875rem' }}>⏱️ Shift-wise</span>
+                  </button>
+                </div>
               </div>
-            </div>
+              {shift && (
+                <div className="form-group animate-fade-in">
+                  <label className="form-label">Shift *</label>
+                  <div style={{ display: 'flex', gap: 8, marginTop: 6 }}>
+                    {(['D', 'N'] as Shift[]).map(s => {
+                      const cfg = shiftConfigs.find(c => c.key === s) || {
+                        label: s === 'D' ? 'Day Shift' : 'Night Shift',
+                        start: s === 'D' ? '06:00' : '18:00',
+                        end: s === 'D' ? '18:00' : '06:00'
+                      };
+                      return (
+                        <button
+                          key={s}
+                          id={`shift-${s}`}
+                          type="button"
+                          className={`btn ${shift === s ? 'btn-primary' : 'btn-secondary'}`}
+                          onClick={() => setShift(s)}
+                          style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '10px 16px' }}
+                        >
+                          <span style={{ fontWeight: 600, fontSize: '0.875rem' }}>
+                            {s === 'D' ? '☀️' : '🌙'} {cfg.label}
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+            </>
           )}
           <div className="form-group">
             <label className="form-label">Notes (optional)</label>

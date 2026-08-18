@@ -6,120 +6,514 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import type { Shift } from '@/lib/types';
 import { STOCK_RECEIPT_LABELS, STOCK_DISPOSAL_LABELS, STOCK_PRODUCT_COLUMNS } from '@/lib/types';
+import Header from '@/components/layout/Header';
+import Link from 'next/link';
 
 type ColKey = string;
 
 interface StockRowState {
-  row_type: 'OB' | 'RECEIPT' | 'DISPOSAL' | 'PHYSICAL';
+  row_type: 'OB' | 'RECEIPT' | 'DISPOSAL';
   row_label: string;
   values: Partial<Record<ColKey, string>>;
 }
 
-interface SepState {
-  wm_fat_pct: string; wm_snf_pct: string;
-  cream_lts: string; cream_fat_pct: string; cream_snf_pct: string;
-  ssm_lts: string; ssm_fat_pct: string; ssm_snf_pct: string;
-}
-
-function makeDefaultRows(): StockRowState[] {
+function makeDefaultRows(receipts: any[] = ["Receipts:"], disposals: any[] = ["To DLT Milk", "To FC Milk", "To STD Milk", "To MKT"]): StockRowState[] {
   const make = (row_type: StockRowState['row_type'], row_label: string): StockRowState => ({
     row_type, row_label, values: {},
   });
 
+  const getLabel = (r: any) => typeof r === 'string' ? r : (r.short_name || r.full_name || '');
+
   return [
     make('OB', 'Opening Balance'),
-    make('PHYSICAL', 'Physical Count'),
+    ...receipts.map(r => make('RECEIPT', getLabel(r))),
+    ...disposals.map(r => make('DISPOSAL', getLabel(r))),
   ];
 }
 
 export default function StockEntryForm() {
   const router = useRouter();
-  const [entryDate, setEntryDate] = useState(new Date().toISOString().split('T')[0]);
-  const [shift, setShift] = useState<Shift>('D');
+  const searchParams = useSearchParams();
+  const paramDate = searchParams.get('date');
+  const paramShift = searchParams.get('shift');
+
+  const [entryDate, setEntryDate] = useState(paramDate || new Date().toISOString().split('T')[0]);
+  const [shift, setShift] = useState<Shift>(paramShift === 'N' || paramShift === 'D' ? paramShift : 'D');
   const [shiftConfigs, setShiftConfigs] = useState<any[]>([
     { key: 'D', label: 'Day Shift', start: '06:00', end: '18:00' },
     { key: 'N', label: 'Night Shift', start: '18:00', end: '06:00' },
   ]);
+  const [reportMode, setReportMode] = useState<'full_day' | 'shift'>('full_day');
   const [notes, setNotes] = useState('');
-  const [rows, setRows] = useState<StockRowState[]>(makeDefaultRows);
-  const [columns, setColumns] = useState<Array<{ key: ColKey; label: string }>>(() => [...STOCK_PRODUCT_COLUMNS]);
-  const [sep, setSep] = useState<SepState>({
-    wm_fat_pct: '', wm_snf_pct: '',
-    cream_lts: '', cream_fat_pct: '', cream_snf_pct: '',
-    ssm_lts: '', ssm_fat_pct: '', ssm_snf_pct: '',
-  });
+  const [rows, setRows] = useState<StockRowState[]>(() => makeDefaultRows());
+  const [globalProducts, setGlobalProducts] = useState<any[]>(() => [...STOCK_PRODUCT_COLUMNS]);
+  const [columns, setColumns] = useState<Array<{ key: ColKey; label: string; full_name?: string; short_name?: string }>>(() => [...STOCK_PRODUCT_COLUMNS]);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+  const [success, setSuccess] = useState('');
+  const [configLoaded, setConfigLoaded] = useState(false);
+  const [receiptRowsConfig, setReceiptRowsConfig] = useState<any[]>(["Receipts:"]);
+  const [disposalRowsConfig, setDisposalRowsConfig] = useState<any[]>([
+    "To DLT Milk",
+    "To FC Milk",
+    "To STD Milk",
+    "To MKT",
+  ]);
+  const [obUnlocked, setObUnlocked] = useState(false);
+  const [receiptsUnlocked, setReceiptsUnlocked] = useState(false);
+  const [internalRules, setInternalRules] = useState<any[]>([]);
+
+  // Partition / Split Mapping Modal State
+  const [partitionModalOpen, setPartitionModalOpen] = useState(false);
+  const [activePartitionRowIdx, setActivePartitionRowIdx] = useState<number | null>(null);
+  const [partitionItems, setPartitionItems] = useState<Array<{ targetKey: string; value: string }>>([
+    { targetKey: 'skim_milk', value: '' },
+    { targetKey: 'cream', value: '' },
+  ]);
+  // Active/focused cursor row tracking and keyboard navigation
+  const [focusedRowIdx, setFocusedRowIdx] = useState<number | null>(null);
+
+  const handleTableKeyDown = (
+    e: React.KeyboardEvent<HTMLInputElement>,
+    rowIdx: number,
+    fieldKey: string
+  ) => {
+    if (e.key === 'ArrowUp' || (e.key === 'Enter' && e.shiftKey)) {
+      e.preventDefault();
+      let prevIdx = rowIdx - 1;
+      while (prevIdx >= 0) {
+        const el = document.getElementById(`stock-input-${prevIdx}-${fieldKey}`) as HTMLInputElement;
+        if (el && !el.disabled && !el.readOnly) {
+          el.focus();
+          el.select();
+          break;
+        }
+        prevIdx--;
+      }
+    } else if (e.key === 'ArrowDown' || e.key === 'Enter') {
+      e.preventDefault();
+      let nextIdx = rowIdx + 1;
+      while (nextIdx < rows.length) {
+        const el = document.getElementById(`stock-input-${nextIdx}-${fieldKey}`) as HTMLInputElement;
+        if (el && !el.disabled && !el.readOnly) {
+          el.focus();
+          el.select();
+          break;
+        }
+        nextIdx++;
+      }
+    }
+  };
+
+  const applyInternalMappings = (currentRows: StockRowState[], activeRules: any[]): StockRowState[] => {
+    const effectiveRules: any[] = activeRules.length > 0 ? activeRules : [
+      {
+        id: 'default_dlt_disposal_to_receipt',
+        sourceDisposalParticular: 'To DLT Milk',
+        targetReceiptProductKey: 'dlt_milk',
+        targetReceiptProductLabel: 'DLT.Milk',
+        enabled: true,
+      }
+    ];
+
+    const enabledRules = effectiveRules.filter(r => r.enabled !== false);
+    if (enabledRules.length === 0) return currentRows;
+
+    const nextRows = [...currentRows];
+    const receiptRowIdx = nextRows.findIndex(r => r.row_type === 'RECEIPT');
+    if (receiptRowIdx === -1) return currentRows;
+
+    enabledRules.forEach(rule => {
+      const sourceParticular = rule.sourceDisposalParticular || rule.targetDisposalParticular || 'To DLT Milk';
+
+      const disposalRow = nextRows.find(r =>
+        r.row_type === 'DISPOSAL' &&
+        r.row_label.trim().toLowerCase() === sourceParticular.trim().toLowerCase()
+      );
+
+      if (disposalRow) {
+        if (Array.isArray(rule.partitions) && rule.partitions.length > 0) {
+          const recRow = { ...nextRows[receiptRowIdx], values: { ...nextRows[receiptRowIdx].values } };
+          let changed = false;
+          rule.partitions.forEach((part: any) => {
+            const targetKey = part.targetReceiptProductKey || part.targetKey;
+            const valStr = part.value !== undefined && part.value !== null ? String(part.value) : '';
+            if (targetKey && recRow.values[targetKey] !== valStr) {
+              recRow.values[targetKey] = valStr;
+              changed = true;
+            }
+          });
+          if (changed) {
+            nextRows[receiptRowIdx] = recRow;
+          }
+        } else {
+          const targetKey = rule.targetReceiptProductKey || rule.sourceProductKey || 'dlt_milk';
+          const disposalRowTotal = Object.values(disposalRow.values).reduce(
+            (sum, val) => sum + (parseFloat(val || '0') || 0), 0
+          );
+
+          const valStr = disposalRowTotal > 0 ? String(disposalRowTotal) : '';
+          const recRow = { ...nextRows[receiptRowIdx], values: { ...nextRows[receiptRowIdx].values } };
+
+          if (recRow.values[targetKey] !== valStr) {
+            recRow.values[targetKey] = valStr;
+            nextRows[receiptRowIdx] = recRow;
+          }
+        }
+      }
+    });
+
+    return nextRows;
+  };
+
+  const openPartitionModal = (rowIdx: number) => {
+    setActivePartitionRowIdx(rowIdx);
+    const row = rows[rowIdx];
+    if (!row) return;
+
+    const existingRule = internalRules.find(
+      r => r.sourceDisposalParticular?.trim().toLowerCase() === row.row_label.trim().toLowerCase()
+    );
+
+    if (existingRule && Array.isArray(existingRule.partitions) && existingRule.partitions.length > 0) {
+      setPartitionItems(
+        existingRule.partitions.map((p: any) => ({
+          targetKey: p.targetReceiptProductKey || p.targetKey || 'skim_milk',
+          value: p.value !== undefined ? String(p.value) : '',
+        }))
+      );
+    } else {
+      const isSep = row.row_label.trim().toLowerCase() === 'to separation';
+      if (isSep) {
+        setPartitionItems([
+          { targetKey: 'skim_milk', value: '' },
+          { targetKey: 'cream', value: '' },
+        ]);
+      } else {
+        setPartitionItems([
+          { targetKey: columns[0]?.key || 'skim_milk', value: '' },
+        ]);
+      }
+    }
+    setPartitionModalOpen(true);
+  };
+
+  const handleSavePartitions = async () => {
+    if (activePartitionRowIdx === null) return;
+    const row = rows[activePartitionRowIdx];
+    if (!row) return;
+
+    const formattedPartitions = partitionItems
+      .filter(p => p.targetKey.trim() !== '')
+      .map(p => ({
+        targetReceiptProductKey: p.targetKey,
+        targetReceiptProductLabel: columns.find(c => c.key === p.targetKey)?.label || p.targetKey,
+        value: p.value,
+      }));
+
+    const existingRuleIdx = internalRules.findIndex(
+      r => r.sourceDisposalParticular?.trim().toLowerCase() === row.row_label.trim().toLowerCase()
+    );
+
+    let updatedRules: any[];
+    if (existingRuleIdx !== -1) {
+      updatedRules = [...internalRules];
+      updatedRules[existingRuleIdx] = {
+        ...updatedRules[existingRuleIdx],
+        partitions: formattedPartitions,
+        enabled: true,
+      };
+    } else {
+      const newRule = {
+        id: 'partition_map_' + Date.now() + '_' + Math.random().toString(36).substring(2, 6),
+        sourceDisposalParticular: row.row_label.trim(),
+        partitions: formattedPartitions,
+        enabled: true,
+      };
+      updatedRules = [...internalRules, newRule];
+    }
+
+    setInternalRules(updatedRules);
+
+    setRows(prev => {
+      const next = [...prev];
+      const receiptIdx = next.findIndex(r => r.row_type === 'RECEIPT');
+      if (receiptIdx !== -1) {
+        const recRow = { ...next[receiptIdx], values: { ...next[receiptIdx].values } };
+        formattedPartitions.forEach(p => {
+          if (p.targetReceiptProductKey && p.value !== undefined) {
+            recRow.values[p.targetReceiptProductKey] = String(p.value);
+          }
+        });
+        next[receiptIdx] = recRow;
+      }
+      return next;
+    });
+
+    try {
+      await fetch('/api/entries', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          report_type: 'INTERNAL_STOCK_MAPPING',
+          notes: JSON.stringify(updatedRules),
+        }),
+      });
+    } catch (err) {
+      console.error('Failed saving partition mapping rules:', err);
+    }
+
+    setPartitionModalOpen(false);
+    setSuccess(`Partitions applied to Receipts for "${row.row_label}"!`);
+    setTimeout(() => setSuccess(''), 3000);
+  };
+
+  // Load internal stock mappings (Receipts -> Disposals rules) on mount
+  useEffect(() => {
+    async function loadInternalRules() {
+      try {
+        const res = await fetch('/api/entries?report_type=INTERNAL_STOCK_MAPPING');
+        if (res.ok) {
+          const json = await res.json();
+          const entries: any[] = json.data || [];
+          const entry = entries.find((e: any) => e.notes && e.notes.startsWith('['));
+          if (entry && entry.notes) {
+            try {
+              const list = JSON.parse(entry.notes);
+              if (Array.isArray(list)) setInternalRules(list);
+            } catch {}
+          }
+        }
+      } catch (err) {
+        console.error('Failed loading internal stock mapping rules:', err);
+      }
+    }
+    loadInternalRules();
+  }, []);
+
+  const setColumnsUnique = (newCols: Array<{ key: ColKey; label: string; full_name?: string; short_name?: string }> | ((prev: Array<{ key: ColKey; label: string; full_name?: string; short_name?: string }>) => Array<{ key: ColKey; label: string; full_name?: string; short_name?: string }>)) => {
+    setColumns(prev => {
+      const resolved = typeof newCols === 'function' ? newCols(prev) : newCols;
+      const seen = new Set<string>();
+      return resolved.filter(c => {
+        if (seen.has(c.key)) return false;
+        seen.add(c.key);
+        return true;
+      });
+    });
+  };
 
   // Load shifts config on mount
   useEffect(() => {
     async function loadShiftConfig() {
       try {
-        const res = await fetch('/api/entries?report_type=STOCK&date=1970-01-01');
+        const res = await fetch('/api/entries?report_type=STOCK');
         if (res.ok) {
           const json = await res.json();
-          const configEntry = json.data?.[0];
+          const entries: any[] = json.data || [];
+          const configEntry = entries.find((e: any) => {
+            if (!e.notes || e.notes.includes('__METADATA__:')) return false;
+            try {
+              const parsed = JSON.parse(e.notes);
+              return parsed && typeof parsed === 'object' && !Array.isArray(parsed);
+            } catch { return false; }
+          });
           if (configEntry && configEntry.notes) {
-            const parsed = JSON.parse(configEntry.notes);
-            if (Array.isArray(parsed) && parsed.length === 2) {
-              setShiftConfigs(parsed);
+            try {
+              const parsed = JSON.parse(configEntry.notes);
+              let parsedShifts = [
+                { key: 'D', label: 'Day Shift', start: '06:00', end: '18:00' },
+                { key: 'N', label: 'Night Shift', start: '18:00', end: '06:00' },
+              ];
+              let parsedMode: 'full_day' | 'shift' = 'full_day';
+              let parsedProducts = [...STOCK_PRODUCT_COLUMNS];
               
-              // Auto-detect current shift based on local time
-              const now = new Date();
-              const currentHours = now.getHours();
-              const currentMinutes = now.getMinutes();
-              const currentTimeVal = currentHours * 60 + currentMinutes;
+              if (parsed && typeof parsed === 'object') {
+                if (parsed.mode) parsedMode = parsed.mode;
+                if (Array.isArray(parsed.shifts)) parsedShifts = parsed.shifts;
+                if (Array.isArray(parsed.products)) parsedProducts = parsed.products;
+              }
+              
+              let parsedReceiptRows = ["Receipts:"];
+              let parsedDisposalRows = ["To DLT Milk", "To FC Milk", "To STD Milk", "To MKT"];
+              if (Array.isArray(parsed.receipt_rows)) parsedReceiptRows = parsed.receipt_rows;
+              if (Array.isArray(parsed.disposal_rows)) parsedDisposalRows = parsed.disposal_rows;
 
-              let detectedShift: Shift = 'D';
-              for (const s of parsed) {
-                const [startH, startM] = s.start.split(':').map(Number);
-                const [endH, endM] = s.end.split(':').map(Number);
-                const startVal = startH * 60 + startM;
-                const endVal = endH * 60 + endM;
+              setShiftConfigs(parsedShifts);
+              setReportMode(parsedMode);
+              setGlobalProducts(parsedProducts);
+              setColumnsUnique(parsedProducts);
+              setReceiptRowsConfig(parsedReceiptRows);
+              setDisposalRowsConfig(parsedDisposalRows);
 
-                if (startVal < endVal) {
-                  if (currentTimeVal >= startVal && currentTimeVal < endVal) {
-                    detectedShift = s.key;
-                    break;
-                  }
-                } else {
-                  if (currentTimeVal >= startVal || currentTimeVal < endVal) {
-                    detectedShift = s.key;
-                    break;
+              if (parsedMode === 'full_day') {
+                setShift('D');
+              } else if (!paramShift) {
+                const now = new Date();
+                const currentHours = now.getHours();
+                const currentMinutes = now.getMinutes();
+                const currentTimeVal = currentHours * 60 + currentMinutes;
+
+                let detectedShift: Shift = 'D';
+                for (const s of parsedShifts) {
+                  const [startH, startM] = s.start.split(':').map(Number);
+                  const [endH, endM] = s.end.split(':').map(Number);
+                  const startVal = startH * 60 + startM;
+                  const endVal = endH * 60 + endM;
+
+                  if (startVal < endVal) {
+                    if (currentTimeVal >= startVal && currentTimeVal < endVal) {
+                      detectedShift = s.key as Shift;
+                      break;
+                    }
+                  } else {
+                    if (currentTimeVal >= startVal || currentTimeVal < endVal) {
+                      detectedShift = s.key as Shift;
+                      break;
+                    }
                   }
                 }
+                setShift(detectedShift);
               }
-              setShift(detectedShift);
+            } catch (e) {
+              console.error('Failed to parse stock config notes:', e);
             }
           }
         }
       } catch (err) {
         console.error('Error loading shift configuration:', err);
+      } finally {
+        setConfigLoaded(true);
       }
     }
     loadShiftConfig();
   }, []);
 
   useEffect(() => {
+    if (!configLoaded) return;
     if (!entryDate || !shift) return;
+    setError('');
+    setSuccess('');
+    setObUnlocked(false);
     let active = true;
 
     async function loadData() {
       try {
         const res = await fetch(`/api/stock?date=${entryDate}&shift=${shift}`);
+        // Retrieve latest products config from state
+        const activeProducts = globalProducts.length > 0 ? globalProducts : [...STOCK_PRODUCT_COLUMNS];
+
         if (!res.ok) {
           if (active) {
-            setRows(makeDefaultRows());
-            setColumns([...STOCK_PRODUCT_COLUMNS]);
-            setSep({
-              wm_fat_pct: '', wm_snf_pct: '',
-              cream_lts: '', cream_fat_pct: '', cream_snf_pct: '',
-              ssm_lts: '', ssm_fat_pct: '', ssm_snf_pct: '',
-            });
-            setNotes('');
+            // Helper to get previous shift/date
+            const getPreviousShiftInfo = (): { date: string; shift: Shift } => {
+              if (reportMode === 'shift' && shift === 'N') {
+                return { date: entryDate, shift: 'D' };
+              } else {
+                const [year, month, day] = entryDate.split('-').map(Number);
+                const prevDateObj = new Date(year, month - 1, day - 1);
+                const yyyy = prevDateObj.getFullYear();
+                const mm = String(prevDateObj.getMonth() + 1).padStart(2, '0');
+                const dd = String(prevDateObj.getDate()).padStart(2, '0');
+                const prevDateStr = `${yyyy}-${mm}-${dd}`;
+                return { date: prevDateStr, shift: reportMode === 'shift' ? 'N' : 'D' };
+              }
+            };
+
+            // Helper to compute Closing Balance from rows
+            const calcClosingBalanceFromRows = (dbRows: any[], cols: any[], prevCustomValues: any = {}): Record<string, string> => {
+              const obSum: Record<string, number> = {};
+              const recSum: Record<string, number> = {};
+              const dispSum: Record<string, number> = {};
+              const DB_COLUMNS = ['wh_milk', 'dlt_milk', 'fc_milk', 'std_milk', 'toned_curd', 'dtm', 'skim_milk', 'cream', 'butter_milk', 'r_con', 'smp', 'water'];
+
+              cols.forEach(col => {
+                obSum[col.key] = 0;
+                recSum[col.key] = 0;
+                dispSum[col.key] = 0;
+              });
+
+              dbRows.forEach((r: any) => {
+                const label = r.row_label;
+                cols.forEach(col => {
+                  let val = 0;
+                  if (DB_COLUMNS.includes(col.key)) {
+                    val = Number(r[col.key]) || 0;
+                  } else {
+                    const rowVals = prevCustomValues[label];
+                    val = rowVals ? (parseFloat(rowVals[col.key]) || 0) : 0;
+                  }
+
+                  if (r.row_type === 'OB') {
+                    obSum[col.key] = (obSum[col.key] || 0) + val;
+                  } else if (r.row_type === 'RECEIPT') {
+                    recSum[col.key] = (recSum[col.key] || 0) + val;
+                  } else if (r.row_type === 'DISPOSAL') {
+                    dispSum[col.key] = (dispSum[col.key] || 0) + val;
+                  }
+                });
+              });
+
+              const cb: Record<string, string> = {};
+              cols.forEach(col => {
+                const val = obSum[col.key] + recSum[col.key] - dispSum[col.key];
+                cb[col.key] = val === 0 ? '' : String(val);
+              });
+              return cb;
+            };
+
+            const fetchPrevShiftCB = async () => {
+              let initialObValues: Record<string, string> = {};
+              let finalCols = [...activeProducts];
+              try {
+                const prevInfo = getPreviousShiftInfo();
+                const prevRes = await fetch(`/api/stock?date=${prevInfo.date}&shift=${prevInfo.shift}`);
+                if (prevRes.ok) {
+                  const prevJson = await prevRes.json();
+                  const prevEntry = prevJson.data?.entries?.[0];
+                  const prevRows = prevJson.data?.stock_rows || [];
+                  
+                  let prevCustomCols: Array<{ key: ColKey; label: string }> = [];
+                  let prevCustomVals: Record<string, Record<ColKey, string>> = {};
+                  if (prevEntry && prevEntry.notes) {
+                    const notesParts = prevEntry.notes.split('\n');
+                    notesParts.forEach((part: string) => {
+                      if (part.includes('__METADATA__:')) {
+                        const [, metaJson] = part.split('__METADATA__:');
+                        try {
+                          const meta = JSON.parse(metaJson);
+                          if (meta.custom_columns) prevCustomCols = meta.custom_columns;
+                          if (meta.custom_values) prevCustomVals = meta.custom_values;
+                        } catch {}
+                      }
+                    });
+                  }
+
+                  prevCustomCols.forEach((cc: any) => {
+                    if (!finalCols.some(col => col.key === cc.key)) {
+                      finalCols.push(cc);
+                    }
+                  });
+
+                  initialObValues = calcClosingBalanceFromRows(prevRows, finalCols, prevCustomVals);
+                }
+              } catch (err) {
+                console.error('Error fetching previous shift closing balance:', err);
+              }
+
+              if (active) {
+                setColumnsUnique(finalCols);
+                const defaultRows = makeDefaultRows(receiptRowsConfig, disposalRowsConfig);
+                defaultRows[0].values = initialObValues;
+                setRows(defaultRows);
+                setNotes('');
+              }
+            };
+
+            fetchPrevShiftCB();
           }
           return;
         }
@@ -129,7 +523,7 @@ export default function StockEntryForm() {
         if (!entry) return;
 
         if (active) {
-          let parsedCols = [...STOCK_PRODUCT_COLUMNS];
+          let parsedCols = [...activeProducts];
           let customVals: Record<string, Record<string, string>> = {};
           let cleanNotes = entry.notes || '';
 
@@ -140,7 +534,11 @@ export default function StockEntryForm() {
               try {
                 const meta = JSON.parse(metaJson);
                 if (meta.custom_columns) {
-                  parsedCols = [...parsedCols, ...meta.custom_columns];
+                  meta.custom_columns.forEach((cc: any) => {
+                    if (!parsedCols.some(col => col.key === cc.key)) {
+                      parsedCols.push(cc);
+                    }
+                  });
                 }
                 if (meta.custom_values) {
                   customVals = meta.custom_values;
@@ -152,7 +550,7 @@ export default function StockEntryForm() {
             }
           });
 
-          setColumns(parsedCols);
+          setColumnsUnique(parsedCols);
           setNotes(cleanNotes);
 
           const sortedDbRows = [...(json.data.stock_rows || [])].sort((a: any, b: any) => (a.sort_order ?? 0) - (b.sort_order ?? 0));
@@ -179,23 +577,10 @@ export default function StockEntryForm() {
               };
             });
           } else {
-            loadedRows = makeDefaultRows();
+            loadedRows = makeDefaultRows(receiptRowsConfig, disposalRowsConfig);
           }
           setRows(loadedRows);
 
-          const sepData = json.data.separation_details.find((s: any) => s.entry_id === entry.id);
-          if (sepData) {
-            setSep({
-              wm_fat_pct: String(sepData.wm_fat_pct ?? ''),
-              wm_snf_pct: String(sepData.wm_snf_pct ?? ''),
-              cream_lts: String(sepData.cream_lts ?? ''),
-              cream_fat_pct: String(sepData.cream_fat_pct ?? ''),
-              cream_snf_pct: String(sepData.cream_snf_pct ?? ''),
-              ssm_lts: String(sepData.ssm_lts ?? ''),
-              ssm_fat_pct: String(sepData.ssm_fat_pct ?? ''),
-              ssm_snf_pct: String(sepData.ssm_snf_pct ?? ''),
-            });
-          }
         }
       } catch (err) {
         console.error('Error loading existing stock data:', err);
@@ -204,13 +589,13 @@ export default function StockEntryForm() {
 
     loadData();
     return () => { active = false; };
-  }, [entryDate, shift]);
+  }, [entryDate, shift, configLoaded, globalProducts, reportMode]);
 
   const updateCell = (rowIdx: number, col: ColKey, val: string) => {
     setRows(prev => {
       const next = [...prev];
       next[rowIdx] = { ...next[rowIdx], values: { ...next[rowIdx].values, [col]: val } };
-      return next;
+      return applyInternalMappings(next, internalRules);
     });
   };
 
@@ -262,7 +647,7 @@ export default function StockEntryForm() {
     if (!label || label.trim() === '') return;
 
     const newKey = 'custom_' + Date.now() + '_' + Math.random().toString(36).substring(2, 5);
-    setColumns(prev => {
+    setColumnsUnique(prev => {
       const idx = prev.findIndex(c => c.key === colKey);
       const next = [...prev];
       if (idx === -1) {
@@ -281,7 +666,7 @@ export default function StockEntryForm() {
       if (!ok) return;
     }
 
-    setColumns(prev => prev.filter(c => c.key !== colKey));
+    setColumnsUnique(prev => prev.filter(c => c.key !== colKey));
     setRows(prev => prev.map(r => {
       const nextValues = { ...r.values };
       delete nextValues[colKey];
@@ -289,12 +674,351 @@ export default function StockEntryForm() {
     }));
   };
 
-  const handleSave = async () => {
+  const autoCompileSTGFromStock = async (
+    targetDate: string,
+    targetShift: Shift | null,
+    stockCols: Array<{ key: string; label: string; full_name?: string; short_name?: string }>,
+    stockRowsState: StockRowState[]
+  ) => {
+    // 1. Load active custom mapping rules if present in database
+    let mappingRules: any[] = [];
+    try {
+      const mapRes = await fetch('/api/entries?report_type=STOCK_MAPPING');
+      if (mapRes.ok) {
+        const mapJson = await mapRes.json();
+        const mapEntry = mapJson.data?.[0];
+        if (mapEntry && mapEntry.notes) {
+          const list = JSON.parse(mapEntry.notes);
+          if (Array.isArray(list) && list.length > 0) mappingRules = list;
+        }
+      }
+    } catch (e) {
+      console.error('Failed loading STOCK_MAPPING rules for autoCompile:', e);
+    }
+
+    const blocksData: Record<string, {
+      label: string;
+      ob: any;
+      receipts: any[];
+      disposals: any[];
+      cb: any;
+    }> = {};
+
+    const customStatements: Array<{ key: string; label: string }> = [];
+    const enabledBlockKeys: string[] = [];
+
+    const getBlockInfo = (col: { key: string; label: string; full_name?: string; short_name?: string }) => {
+      const cleanKey = col.key.toLowerCase().trim();
+      const rawFullName = (col.full_name || col.short_name || col.label || col.key).trim();
+      const fullNameUpper = rawFullName.toUpperCase();
+
+      let blockKey = cleanKey.toUpperCase();
+      if (cleanKey === 'wh_milk') blockKey = 'WM';
+      else if (cleanKey === 'skim_milk') blockKey = 'SSM';
+      else if (cleanKey === 'cream') blockKey = 'CREAM';
+      else if (cleanKey === 'smp') blockKey = 'SMP';
+
+      let blockLabel = `${fullNameUpper} STATEMENT`;
+      if (blockKey === 'WM') {
+        blockLabel = `${fullNameUpper} - RECEIPT AND DISPOSAL STATEMENT`;
+      }
+
+      const isSMP = blockKey === 'SMP' || fullNameUpper.includes('SMP') || fullNameUpper.includes('POWDER');
+
+      return { blockKey, blockLabel, isSMP };
+    };
+
+    // If explicit custom mapping rules exist, process them
+    if (mappingRules.length > 0) {
+      const normalizeStr = (str: string) => (str || '').toLowerCase().replace(/[:\s]+/g, ' ').trim();
+      mappingRules.forEach(rule => {
+        const { stockProductKey, stockSection, stockParticular, stgBlockKey, stgBlockLabel, stgSection, stgItemName, stgTargetField } = rule;
+        const normProductKey = normalizeStr(stockProductKey);
+        const col = stockCols.find(c =>
+          c.key.toLowerCase() === stockProductKey.toLowerCase() ||
+          normalizeStr(c.key) === normProductKey ||
+          normalizeStr(c.label) === normProductKey
+        );
+
+        const normParticular = normalizeStr(stockParticular);
+        const stockRow = stockRowsState.find(r => {
+          if (r.row_type !== stockSection) return false;
+          const normLabel = normalizeStr(r.row_label);
+          return normLabel === normParticular || normLabel.includes(normParticular) || normParticular.includes(normLabel);
+        });
+
+        if (!stockRow) return;
+
+        const valNum = parseFloat(stockRow.values[stockProductKey] || stockRow.values[col?.key || ''] || '0') || 0;
+        if (!valNum || isNaN(valNum)) return;
+
+        if (!blocksData[stgBlockKey]) {
+          blocksData[stgBlockKey] = {
+            label: stgBlockLabel || `${stgBlockKey} STATEMENT`,
+            ob: { item_name: 'OB', qty_lts: '', qty_kg: '', fat_pct: '', snf_pct: '', sp_gr: '1.0285', kg_fat: '', kg_snf: '' },
+            receipts: [],
+            disposals: [],
+            cb: { item_name: 'CB', qty_lts: '', qty_kg: '', fat_pct: '', snf_pct: '', sp_gr: '', kg_fat: '', kg_snf: '' },
+          };
+        }
+
+        if (!enabledBlockKeys.includes(stgBlockKey)) {
+          enabledBlockKeys.push(stgBlockKey);
+          customStatements.push({ key: stgBlockKey, label: stgBlockLabel || `${stgBlockKey} Statement` });
+        }
+
+        const b = blocksData[stgBlockKey];
+        const isSMP = stgBlockKey === 'SMP' || (stgBlockLabel || '').toUpperCase().includes('SMP');
+        const fieldKey = stgTargetField || (isSMP ? 'qty_kg' : 'qty_lts');
+
+        const assignVal = (targetObj: any) => {
+          targetObj[fieldKey] = String(valNum);
+          if (fieldKey === 'qty_lts' && !isSMP) {
+            targetObj.qty_kg = (valNum * 1.0285).toFixed(3);
+            targetObj.sp_gr = '1.0285';
+          } else if (fieldKey === 'qty_kg' && isSMP) {
+            targetObj.qty_lts = '';
+          }
+        };
+
+        if (stgSection === 'OB') {
+          assignVal(b.ob);
+        } else if (stgSection === 'CB') {
+          assignVal(b.cb);
+        } else {
+          const list = stgSection === 'RECEIPT' ? b.receipts : b.disposals;
+          let existing = list.find(r => normalizeStr(r.item_name) === normalizeStr(stgItemName));
+          if (!existing) {
+            existing = { item_name: stgItemName, qty_lts: '', qty_kg: '', fat_pct: '', snf_pct: '', sp_gr: isSMP ? '' : '1.0285', kg_fat: '', kg_snf: '' };
+            list.push(existing);
+          }
+          assignVal(existing);
+        }
+      });
+    }
+
+    // Dynamic Automatic Generator: Iterate through ALL stock columns and build STG statement blocks automatically
+    stockCols.forEach(col => {
+      const { blockKey, blockLabel, isSMP } = getBlockInfo(col);
+
+      // 1. Get OB value
+      const obRow = stockRowsState.find(r => r.row_type === 'OB');
+      const obVal = obRow && obRow.values[col.key] ? parseFloat(obRow.values[col.key] || '0') || 0 : 0;
+
+      // 2. Get Receipt rows
+      const receiptRows = stockRowsState.filter(r => r.row_type === 'RECEIPT');
+      const activeReceipts: Array<{ item_name: string; val: number }> = [];
+      receiptRows.forEach(r => {
+        const val = parseFloat(r.values[col.key] || '0') || 0;
+        if (val > 0) {
+          activeReceipts.push({ item_name: r.row_label.trim() || 'Receipt', val });
+        }
+      });
+
+      // 3. Get Disposal rows
+      const disposalRows = stockRowsState.filter(r => r.row_type === 'DISPOSAL');
+      const activeDisposals: Array<{ item_name: string; val: number }> = [];
+      disposalRows.forEach(r => {
+        const val = parseFloat(r.values[col.key] || '0') || 0;
+        if (val > 0) {
+          activeDisposals.push({ item_name: r.row_label.trim() || 'Disposal', val });
+        }
+      });
+
+      // If column has OB, Receipts, or Disposals, create/update statement block
+      if (obVal > 0 || activeReceipts.length > 0 || activeDisposals.length > 0) {
+        if (!enabledBlockKeys.includes(blockKey)) {
+          enabledBlockKeys.push(blockKey);
+          customStatements.push({ key: blockKey, label: blockLabel });
+        }
+
+        if (!blocksData[blockKey]) {
+          const bOb = {
+            item_name: 'OB',
+            qty_lts: !isSMP && obVal > 0 ? String(obVal) : '',
+            qty_kg: isSMP && obVal > 0 ? String(obVal) : (!isSMP && obVal > 0 ? (obVal * 1.0285).toFixed(3) : ''),
+            fat_pct: '',
+            snf_pct: '',
+            sp_gr: !isSMP && obVal > 0 ? '1.0285' : '',
+            kg_fat: '',
+            kg_snf: '',
+          };
+
+          const bReceipts = activeReceipts.map(r => ({
+            item_name: r.item_name,
+            qty_lts: !isSMP ? String(r.val) : '',
+            qty_kg: isSMP ? String(r.val) : (r.val * 1.0285).toFixed(3),
+            fat_pct: '',
+            snf_pct: '',
+            sp_gr: !isSMP ? '1.0285' : '',
+            kg_fat: '',
+            kg_snf: '',
+          }));
+
+          const bDisposals = activeDisposals.map(d => ({
+            item_name: d.item_name,
+            qty_lts: !isSMP ? String(d.val) : '',
+            qty_kg: isSMP ? String(d.val) : (d.val * 1.0285).toFixed(3),
+            fat_pct: '',
+            snf_pct: '',
+            sp_gr: !isSMP ? '1.0285' : '',
+            kg_fat: '',
+            kg_snf: '',
+          }));
+
+          blocksData[blockKey] = {
+            label: blockLabel,
+            ob: bOb,
+            receipts: bReceipts,
+            disposals: bDisposals,
+            cb: { item_name: 'CB', qty_lts: '', qty_kg: '', fat_pct: '', snf_pct: '', sp_gr: '', kg_fat: '', kg_snf: '' },
+          };
+        }
+      }
+    });
+
+    if (enabledBlockKeys.length === 0) return;
+
+    // Build database stg_rows & customBlocksState
+    const stg_rows: any[] = [];
+    const customBlocksState: Record<string, any> = {};
+
+    Object.entries(blocksData).forEach(([bKey, b]) => {
+      const obLts = parseFloat(b.ob.qty_lts) || 0;
+      const obKg = parseFloat(b.ob.qty_kg) || 0;
+
+      let receiptsLtsTotal = 0;
+      let receiptsKgTotal = 0;
+      b.receipts.forEach((r: any) => {
+        receiptsLtsTotal += parseFloat(r.qty_lts) || 0;
+        receiptsKgTotal += parseFloat(r.qty_kg) || 0;
+      });
+
+      let disposalsLtsTotal = 0;
+      let disposalsKgTotal = 0;
+      b.disposals.forEach((d: any) => {
+        disposalsLtsTotal += parseFloat(d.qty_lts) || 0;
+        disposalsKgTotal += parseFloat(d.qty_kg) || 0;
+      });
+
+      const cbLts = obLts + receiptsLtsTotal - disposalsLtsTotal;
+      const cbKg = obKg + receiptsKgTotal - disposalsKgTotal;
+
+      b.cb.qty_lts = cbLts > 0 ? String(cbLts) : '';
+      b.cb.qty_kg = cbKg > 0 ? cbKg.toFixed(3) : '';
+
+      stg_rows.push({
+        product_block: bKey,
+        side: 'RECEIPT',
+        item_name: 'OB',
+        qty_lts: obLts,
+        qty_kg: obKg,
+        fat_pct: parseFloat(b.ob.fat_pct) || 0,
+        snf_pct: parseFloat(b.ob.snf_pct) || 0,
+        sp_gr: parseFloat(b.ob.sp_gr) || 1.0285,
+        kg_fat: parseFloat(b.ob.kg_fat) || 0,
+        kg_snf: parseFloat(b.ob.kg_snf) || 0,
+        sort_order: 0,
+      });
+
+      b.receipts.forEach((r: any, idx: number) => {
+        stg_rows.push({
+          product_block: bKey,
+          side: 'RECEIPT',
+          item_name: r.item_name,
+          qty_lts: parseFloat(r.qty_lts) || 0,
+          qty_kg: parseFloat(r.qty_kg) || 0,
+          fat_pct: parseFloat(r.fat_pct) || 0,
+          snf_pct: parseFloat(r.snf_pct) || 0,
+          sp_gr: parseFloat(r.sp_gr) || 1.0285,
+          kg_fat: parseFloat(r.kg_fat) || 0,
+          kg_snf: parseFloat(r.kg_snf) || 0,
+          sort_order: idx + 1,
+        });
+      });
+
+      b.disposals.forEach((d: any, idx: number) => {
+        stg_rows.push({
+          product_block: bKey,
+          side: 'DISPOSAL',
+          item_name: d.item_name,
+          qty_lts: parseFloat(d.qty_lts) || 0,
+          qty_kg: parseFloat(d.qty_kg) || 0,
+          fat_pct: parseFloat(d.fat_pct) || 0,
+          snf_pct: parseFloat(d.snf_pct) || 0,
+          sp_gr: parseFloat(d.sp_gr) || 1.0285,
+          kg_fat: parseFloat(d.kg_fat) || 0,
+          kg_snf: parseFloat(d.kg_snf) || 0,
+          sort_order: idx + 1,
+        });
+      });
+
+      stg_rows.push({
+        product_block: bKey,
+        side: 'DISPOSAL',
+        item_name: 'CB',
+        qty_lts: cbLts > 0 ? cbLts : 0,
+        qty_kg: cbKg > 0 ? Number(cbKg.toFixed(3)) : 0,
+        fat_pct: parseFloat(b.cb.fat_pct) || 0,
+        snf_pct: parseFloat(b.cb.snf_pct) || 0,
+        sp_gr: parseFloat(b.cb.sp_gr) || 1.0285,
+        kg_fat: parseFloat(b.cb.kg_fat) || 0,
+        kg_snf: parseFloat(b.cb.kg_snf) || 0,
+        sort_order: 99,
+      });
+
+      customBlocksState[bKey] = {
+        opening_balance: b.ob,
+        receipts: b.receipts,
+        disposals: b.disposals,
+        physical_count: b.cb,
+      };
+    });
+
+    // Save TS entry via POST /api/entries
+    const tsMeta = {
+      custom_statements: customStatements,
+      custom_blocks: customBlocksState,
+      enabled_blocks: enabledBlockKeys,
+    };
+    const tsNotes = "\n__METADATA__:" + JSON.stringify(tsMeta);
+
+    const tsEntryRes = await fetch('/api/entries', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        entry_date: targetDate,
+        shift: targetShift,
+        report_type: 'TS',
+        notes: tsNotes,
+      }),
+    });
+
+    if (tsEntryRes.ok) {
+      const tsEntryJson = await tsEntryRes.json();
+      const tsEntryId = tsEntryJson.data?.id;
+
+      if (tsEntryId) {
+        await fetch('/api/ts', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            entry_id: tsEntryId,
+            ts_rows: [],
+            stg_rows,
+          }),
+        });
+      }
+    }
+  };
+
+  const handleSave = async (nextAction: 'view' | 'stay' | 'next') => {
     if (!entryDate) { setError('Please select a date.'); return; }
-    setSaving(true); setError('');
+    setSaving(true); setError(''); setSuccess('');
     try {
       // 1. Extract custom columns and values metadata
-      const customCols = columns.filter(c => !STOCK_PRODUCT_COLUMNS.some(dc => dc.key === c.key));
+      const DB_COLUMNS = ['wh_milk', 'dlt_milk', 'fc_milk', 'std_milk', 'toned_curd', 'dtm', 'skim_milk', 'cream', 'butter_milk', 'r_con', 'smp', 'water'];
+      const customCols = columns.filter(c => !DB_COLUMNS.includes(c.key));
       const customValues: Record<string, Record<string, string>> = {}; // row_label -> colKey -> val
       rows.forEach(r => {
         const vals: Record<string, string> = {};
@@ -331,30 +1055,66 @@ export default function StockEntryForm() {
         row_label: r.row_label,
         sort_order: i,
         ...Object.fromEntries(
-          STOCK_PRODUCT_COLUMNS.map(col => [col.key, parseFloat(r.values[col.key] || '0') || 0])
+          DB_COLUMNS.map(colKey => [colKey, parseFloat(r.values[colKey] || '0') || 0])
         ),
       }));
-
-      const sepData = Object.fromEntries(
-        Object.entries(sep).map(([k, v]) => [k, parseFloat(v) || 0])
-      );
 
       const stockRes = await fetch('/api/stock', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ entry_id, stock_rows: stockRows, separation_details: sepData }),
+        body: JSON.stringify({ entry_id, stock_rows: stockRows, separation_details: null }),
       });
       if (!stockRes.ok) {
         const d = await stockRes.json();
         throw new Error(d.error || 'Failed to save stock rows');
       }
 
-      router.push(`/dashboard/stock/${entryDate}/${shift}`);
+      // 4. Automatically create / compile Solid Balance (STG) Entry for this date/shift
+      try {
+        await autoCompileSTGFromStock(entryDate, shift, columns, rows);
+      } catch (stgErr) {
+        console.error('Auto-compiling STG entry warning:', stgErr);
+      }
+
+      setSuccess('Stock Statement & STG Receipts & Disposals saved successfully!');
+
+      if (nextAction === 'view') {
+        router.push(`/dashboard/stock/${entryDate}/${shift}`);
+      } else if (nextAction === 'next') {
+        // Advance to next shift or day
+        if (reportMode === 'shift') {
+          if (shift === 'D') {
+            setShift('N');
+          } else {
+            const [year, month, day] = entryDate.split('-').map(Number);
+            const nextDate = new Date(year, month - 1, day + 1);
+            const yyyy = nextDate.getFullYear();
+            const mm = String(nextDate.getMonth() + 1).padStart(2, '0');
+            const dd = String(nextDate.getDate()).padStart(2, '0');
+            setEntryDate(`${yyyy}-${mm}-${dd}`);
+            setShift('D');
+          }
+        } else {
+          // Full Day mode: advance to next day
+          const [year, month, day] = entryDate.split('-').map(Number);
+          const nextDate = new Date(year, month - 1, day + 1);
+          const yyyy = nextDate.getFullYear();
+          const mm = String(nextDate.getMonth() + 1).padStart(2, '0');
+          const dd = String(nextDate.getDate()).padStart(2, '0');
+          setEntryDate(`${yyyy}-${mm}-${dd}`);
+        }
+      }
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : 'Save failed');
     } finally {
       setSaving(false);
     }
+  };
+
+  const getSectionSum = (rowType: 'OB' | 'RECEIPT' | 'DISPOSAL', colKey: string): number => {
+    return rows
+      .filter(r => r.row_type === rowType)
+      .reduce((sum, r) => sum + (parseFloat(r.values[colKey] || '0') || 0), 0);
   };
 
   const renderSection = (
@@ -363,25 +1123,122 @@ export default function StockEntryForm() {
     headerColor: string
   ) => {
     const sRows = rows.map((r, i) => ({ r, i })).filter(x => rowTypes.includes(x.r.row_type));
-    const isBalanceSection = rowTypes.includes('OB') || rowTypes.includes('PHYSICAL');
+    const isBalanceSection = rowTypes.includes('OB');
+    const isReceiptsSection = sectionLabel === 'Receipts';
+    const isDisposalsSection = sectionLabel === 'Disposals';
     const rowType = rowTypes[0]; // 'RECEIPT' or 'DISPOSAL'
 
     return (
       <div key={sectionLabel} className="entry-form-section">
-        <div className="entry-form-section-title" style={{ color: headerColor }}>
-          {sectionLabel}
+        <div className="entry-form-section-title" style={{ color: headerColor, display: 'flex', alignItems: 'center', gap: 12, justifyContent: 'space-between' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+            <span>{sectionLabel}</span>
+            {isBalanceSection && (
+              <button
+                type="button"
+                className="btn btn-secondary btn-sm no-print"
+                onClick={() => setObUnlocked(!obUnlocked)}
+                style={{
+                  padding: '4px 10px',
+                  fontSize: '0.72rem',
+                  height: 24,
+                  lineHeight: 1,
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 4,
+                  borderRadius: 4,
+                  border: '1px solid var(--border)',
+                  background: obUnlocked ? 'rgba(239, 68, 68, 0.1)' : 'rgba(14, 165, 233, 0.1)',
+                  color: obUnlocked ? '#ef4444' : 'var(--brand-primary)',
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                }}
+              >
+                {obUnlocked ? '🔒 Lock OB' : '✏️ Edit OB'}
+              </button>
+            )}
+            {isReceiptsSection && (
+              <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                <button
+                  type="button"
+                  className="btn btn-secondary btn-sm no-print"
+                  onClick={() => setReceiptsUnlocked(!receiptsUnlocked)}
+                  style={{
+                    padding: '4px 10px',
+                    fontSize: '0.72rem',
+                    height: 24,
+                    lineHeight: 1,
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: 4,
+                    borderRadius: 4,
+                    border: '1px solid var(--border)',
+                    background: receiptsUnlocked ? 'rgba(239, 68, 68, 0.1)' : 'rgba(16, 185, 129, 0.1)',
+                    color: receiptsUnlocked ? '#ef4444' : '#047857',
+                    fontWeight: 600,
+                    cursor: 'pointer',
+                  }}
+                >
+                  {receiptsUnlocked ? '🔒 Lock Mapped Receipts' : '✏️ Edit Mapped Receipts'}
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-secondary btn-sm no-print"
+                  onClick={() => setRows(prev => applyInternalMappings(prev, internalRules))}
+                  title="Recalculate mapped Receipts from Disposals row totals"
+                  style={{
+                    padding: '4px 10px',
+                    fontSize: '0.72rem',
+                    height: 24,
+                    lineHeight: 1,
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: 4,
+                    borderRadius: 4,
+                    border: '1px solid #10b981',
+                    background: 'rgba(16, 185, 129, 0.1)',
+                    color: '#059669',
+                    fontWeight: 600,
+                    cursor: 'pointer',
+                  }}
+                >
+                  ⚡ Sync Mapped Receipts
+                </button>
+              </div>
+            )}
+          </div>
+          {(isReceiptsSection || isDisposalsSection) && (
+            <Link
+              href="/dashboard/stock/mappings"
+              className="no-print"
+              style={{ fontSize: '0.75rem', color: 'var(--brand-primary)', fontWeight: 600, textDecoration: 'none' }}
+            >
+              🔗 Configure Mappings ➔
+            </Link>
+          )}
         </div>
         <div style={{ overflowX: 'auto' }}>
           <table className="inline-table" style={{ minWidth: 1200 }}>
             <thead>
               <tr>
-                <th style={{ textAlign: 'left', minWidth: 220 }}>Service Name</th>
+                <th style={{ textAlign: 'left', minWidth: 220 }}>Particulars</th>
                 {columns.map(col => {
-                  const isCustom = !STOCK_PRODUCT_COLUMNS.some(dc => dc.key === col.key);
+                  const DB_COLUMNS = ['wh_milk', 'dlt_milk', 'fc_milk', 'std_milk', 'toned_curd', 'dtm', 'skim_milk', 'cream', 'butter_milk', 'r_con', 'smp', 'water'];
+                  const isCustom = !DB_COLUMNS.includes(col.key);
+                  const isMappedReceiptCol = isReceiptsSection && (
+                    internalRules.some(rule => rule.enabled !== false && (rule.targetReceiptProductKey || rule.sourceProductKey) === col.key) ||
+                    (internalRules.length === 0 && col.key === 'dlt_milk')
+                  );
+
                   return (
-                    <th key={col.key} style={{ minWidth: 110, fontSize: '0.65rem', textAlign: 'center', padding: '8px 4px' }}>
+                    <th key={col.key} style={{ minWidth: 110, fontSize: '0.65rem', textAlign: 'center', padding: '8px 4px', background: isMappedReceiptCol ? 'rgba(16,185,129,0.08)' : undefined }}>
                       <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4 }}>
-                        <div style={{ fontWeight: 700 }}>{col.label}</div>
+                        <div
+                          style={{ fontWeight: 700, color: isMappedReceiptCol ? '#059669' : 'inherit' }}
+                          title={isMappedReceiptCol ? 'Auto-calculated from Disposals row total' : (col.full_name ? `${col.full_name} (${col.short_name || col.label})` : (col.short_name || col.label))}
+                        >
+                          {col.short_name || col.label} {isMappedReceiptCol ? '⚡' : ''}
+                        </div>
                         <div className="no-print" style={{ display: 'flex', gap: 6, marginTop: 2 }}>
                           <button
                             type="button"
@@ -406,47 +1263,142 @@ export default function StockEntryForm() {
                     </th>
                   );
                 })}
+                <th style={{ minWidth: 110, fontSize: '0.65rem', textAlign: 'center', padding: '8px 4px', fontWeight: 700 }}>Total</th>
                 {!isBalanceSection && <th className="no-print" style={{ width: 70 }}>Actions</th>}
               </tr>
             </thead>
             <tbody>
-              {sRows.map(({ r, i }) => (
-                <tr key={i}>
-                  <td className="product-label" style={{ padding: 4 }}>
-                    {isBalanceSection ? (
-                      <span style={{ fontWeight: 600, paddingLeft: 8 }}>{r.row_label}</span>
-                    ) : (
-                      <input
-                        type="text"
-                        placeholder="Enter Service Name..."
-                        value={r.row_label}
-                        onChange={e => {
-                          const val = e.target.value;
-                          setRows(prev => {
-                            const next = [...prev];
-                            next[i] = { ...next[i], row_label: val };
-                            return next;
-                          });
-                        }}
-                        style={{ textAlign: 'left', fontWeight: 500, border: 'none', background: 'transparent', width: '100%', padding: '6px 8px' }}
-                      />
-                    )}
-                  </td>
-                  {columns.map(col => (
-                    <td key={col.key}>
-                      <input
-                        type="number"
-                        step="any"
-                        placeholder="0"
-                        value={r.values[col.key] || ''}
-                        onChange={e => updateCell(i, col.key, e.target.value)}
-                        id={`stock-${r.row_type}-${i}-${col.key}`}
-                      />
+              {sRows.map(({ r, i }) => {
+                const isMappedDisposalRow = isDisposalsSection && (
+                  internalRules.some(rule => rule.enabled !== false && (rule.sourceDisposalParticular || rule.targetDisposalParticular || '').trim().toLowerCase() === r.row_label.trim().toLowerCase()) ||
+                  (internalRules.length === 0 && r.row_label.trim().toLowerCase() === 'to dlt milk')
+                );
+                const isFocusedRow = focusedRowIdx === i;
+
+                return (
+                  <tr
+                    key={i}
+                    style={{
+                      backgroundColor: isFocusedRow
+                        ? 'rgba(14, 165, 233, 0.14)'
+                        : (isMappedDisposalRow ? '#fffbeb' : 'transparent'),
+                      boxShadow: isFocusedRow ? 'inset 0 0 0 2px #0ea5e9' : 'none',
+                      transition: 'all 0.12s ease',
+                    }}
+                  >
+                    <td className="product-label" style={{ padding: 4 }}>
+                      {isBalanceSection ? (
+                        <span style={{ fontWeight: 600, paddingLeft: 8 }}>{r.row_label}</span>
+                      ) : (
+                        <div style={{ display: 'flex', alignItems: 'center' }}>
+                          <input
+                            id={`stock-input-${i}-particulars`}
+                            type="text"
+                            placeholder="Enter Particulars..."
+                            value={r.row_label}
+                            onFocus={() => setFocusedRowIdx(i)}
+                            onKeyDown={e => handleTableKeyDown(e, i, 'particulars')}
+                            onChange={e => {
+                              const val = e.target.value;
+                              setRows(prev => {
+                                const next = [...prev];
+                                next[i] = { ...next[i], row_label: val };
+                                return next;
+                              });
+                            }}
+                            style={{ textAlign: 'left', fontWeight: 500, border: 'none', background: 'transparent', width: '100%', padding: '6px 8px' }}
+                          />
+                          {isMappedDisposalRow && (
+                            <span
+                              style={{
+                                fontSize: '0.62rem',
+                                background: '#fef3c7',
+                                color: '#b45309',
+                                fontWeight: 700,
+                                padding: '1px 5px',
+                                borderRadius: 4,
+                                whiteSpace: 'nowrap',
+                                marginRight: 4,
+                              }}
+                              title="Row total auto-populates into Receipts"
+                            >
+                              📤 Feeds Receipts
+                            </span>
+                          )}
+                        </div>
+                      )}
                     </td>
-                  ))}
+                  {columns.map(col => {
+                    const isMappedReceiptCell = isReceiptsSection && (
+                      internalRules.some(rule => rule.enabled !== false && (rule.targetReceiptProductKey || rule.sourceProductKey) === col.key) ||
+                      (internalRules.length === 0 && col.key === 'dlt_milk')
+                    );
+                    const isReadOnly = (isBalanceSection && !obUnlocked) || (isMappedReceiptCell && !receiptsUnlocked);
+
+                    return (
+                      <td key={col.key}>
+                        <input
+                          id={`stock-input-${i}-${col.key}`}
+                          type="number"
+                          step="any"
+                          placeholder="0"
+                          value={r.values[col.key] || ''}
+                          onChange={e => updateCell(i, col.key, e.target.value)}
+                          onFocus={() => setFocusedRowIdx(i)}
+                          onKeyDown={e => handleTableKeyDown(e, i, col.key)}
+                          title={isMappedReceiptCell ? (receiptsUnlocked ? 'Unlocked for manual edit' : 'Auto-calculated from Disposals row total. Click ✏️ Edit Mapped Receipts to unlock.') : undefined}
+                          style={{
+                            fontFamily: 'var(--font-numbers)',
+                            backgroundColor: isReadOnly ? '#f8fafc' : (isFocusedRow ? 'rgba(255, 255, 255, 0.8)' : 'transparent'),
+                            color: isReadOnly ? (isMappedReceiptCell ? '#047857' : '#64748b') : 'inherit',
+                            fontWeight: isMappedReceiptCell ? 700 : (isFocusedRow ? 600 : 'normal'),
+                            cursor: isReadOnly ? 'not-allowed' : 'text',
+                          }}
+                          readOnly={isReadOnly}
+                          onWheel={e => e.currentTarget.blur()}
+                        />
+                      </td>
+                    );
+                  })}
+                  <td style={{ padding: 4 }}>
+                    <input
+                      type="text"
+                      value={(() => {
+                        const total = columns.reduce((sum, col) => sum + (parseFloat(r.values[col.key] || '0') || 0), 0);
+                        return total === 0 ? '' : total.toLocaleString('en-IN', { maximumFractionDigits: 3 });
+                      })()}
+                      disabled
+                      style={{
+                        fontFamily: 'var(--font-numbers)',
+                        fontWeight: 600,
+                        backgroundColor: '#f1f5f9',
+                        color: '#475569',
+                        textAlign: 'center',
+                        border: 'none',
+                        width: '100%',
+                        padding: '6px 8px',
+                        cursor: 'not-allowed',
+                      }}
+                    />
+                  </td>
                   {!isBalanceSection && (
                     <td className="no-print" style={{ textAlign: 'center' }}>
-                      <div style={{ display: 'flex', gap: 8, justifyContent: 'center' }}>
+                      <div style={{ display: 'flex', gap: 6, justifyContent: 'center', alignItems: 'center' }}>
+                        <button
+                          type="button"
+                          style={{
+                            background: isMappedDisposalRow ? 'rgba(245, 158, 11, 0.15)' : 'none',
+                            border: isMappedDisposalRow ? '1px solid #f59e0b' : 'none',
+                            borderRadius: 4,
+                            cursor: 'pointer',
+                            fontSize: '0.95rem',
+                            padding: '2px 4px',
+                          }}
+                          title="🔀 Configure Partition / Split Mapping to Receipts"
+                          onClick={() => openPartitionModal(i)}
+                        >
+                          🔀
+                        </button>
                         <button
                           type="button"
                           style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '1rem', padding: 0 }}
@@ -467,13 +1419,15 @@ export default function StockEntryForm() {
                     </td>
                   )}
                 </tr>
-              ))}
+              );
+            })}
+
               {!isBalanceSection && (
                 <tr className="no-print" style={{ cursor: 'pointer', background: '#f8fafc' }} onClick={() => {
                   const lastRow = sRows[sRows.length - 1];
                   addRowAfter(rowType, lastRow ? lastRow.i : -1);
                 }}>
-                  <td colSpan={columns.length + 2} style={{ textAlign: 'center', color: 'var(--brand-primary)', fontWeight: 600, padding: 8 }}>
+                  <td colSpan={columns.length + 3} style={{ textAlign: 'center', color: 'var(--brand-primary)', fontWeight: 600, padding: 8 }}>
                     ➕ Add Row
                   </td>
                 </tr>
@@ -485,116 +1439,489 @@ export default function StockEntryForm() {
     );
   };
 
-  return (
-    <div className="form-container">
-      {/* Header */}
-      <div className="card" style={{ marginBottom: 20 }}>
-        <div className="section-title" style={{ marginBottom: 16 }}>Entry Details</div>
-        <div className="form-row form-row-3">
-          <div className="form-group">
-            <label className="form-label">Date *</label>
-            <input
-              id="stock-entry-date"
-              type="date"
-              className="form-input"
-              value={entryDate}
-              onChange={e => setEntryDate(e.target.value)}
-              max={new Date().toISOString().split('T')[0]}
-            />
-          </div>
-          <div className="form-group">
-            <label className="form-label">Shift *</label>
-            <div style={{ display: 'flex', gap: 8, marginTop: 6 }}>
-              {(['D', 'N'] as Shift[]).map(s => {
-                const cfg = shiftConfigs.find(c => c.key === s) || {
-                  label: s === 'D' ? 'Day Shift' : 'Night Shift',
-                  start: s === 'D' ? '06:00' : '18:00',
-                  end: s === 'D' ? '18:00' : '06:00'
-                };
-                return (
-                  <button
-                    key={s}
-                    id={`shift-${s}`}
-                    type="button"
-                    className={`btn ${shift === s ? 'btn-primary' : 'btn-secondary'}`}
-                    onClick={() => setShift(s)}
-                    style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 2, padding: '6px 12px', height: 'auto', alignItems: 'center', justifyContent: 'center' }}
-                  >
-                    <div style={{ fontWeight: 600, fontSize: '0.85rem' }}>
-                      {s === 'D' ? '☀️' : '🌙'} {cfg.label}
-                    </div>
-                    <div style={{ fontSize: '0.7rem', opacity: 0.85 }}>
-                      {cfg.start} - {cfg.end}
-                    </div>
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-          <div className="form-group">
-            <label className="form-label">Notes (optional)</label>
-            <input
-              type="text"
-              className="form-input"
-              value={notes}
-              onChange={e => setNotes(e.target.value)}
-              placeholder="e.g. Holiday, machine maintenance..."
-            />
-          </div>
+  const renderSummaryTable = () => {
+    return (
+      <div className="entry-form-section" style={{ marginTop: 24 }}>
+        <div className="entry-form-section-title" style={{ color: 'var(--brand-primary)' }}>
+          📊 Stock Statement Summary (Live)
+        </div>
+        <div style={{ overflowX: 'auto' }}>
+          <table className="inline-table" style={{ minWidth: 1200 }}>
+            <thead>
+              <tr>
+                <th style={{ textAlign: 'left', minWidth: 220 }}>Summary Item</th>
+                {columns.map(col => (
+                  <th key={col.key} style={{ minWidth: 110, fontSize: '0.65rem', textAlign: 'center', padding: '8px 4px' }}>
+                    <div style={{ fontWeight: 700 }}>{col.label}</div>
+                  </th>
+                ))}
+                <th style={{ minWidth: 110, fontSize: '0.65rem', textAlign: 'center', padding: '8px 4px', fontWeight: 700 }}>Total</th>
+                <th style={{ width: 70 }}></th>
+              </tr>
+            </thead>
+            <tbody>
+              {/* 1. Opening Balance */}
+              <tr style={{ background: 'rgba(14, 165, 233, 0.04)', fontWeight: 600 }}>
+                <td style={{ padding: '8px 12px', fontWeight: 600, color: 'var(--text-secondary)' }}>Opening Balance</td>
+                {columns.map(col => {
+                  const val = getSectionSum('OB', col.key);
+                  return (
+                    <td key={col.key} style={{ textAlign: 'center', fontSize: '0.8rem', padding: '8px 4px', fontFamily: 'var(--font-numbers)' }}>
+                      {val === 0 ? '—' : val.toLocaleString('en-IN', { maximumFractionDigits: 3 })}
+                    </td>
+                  );
+                })}
+                <td style={{ textAlign: 'center', fontSize: '0.8rem', padding: '8px 4px', fontFamily: 'var(--font-numbers)', fontWeight: 700 }}>
+                  {(() => {
+                    const rowSum = columns.reduce((sum, col) => sum + getSectionSum('OB', col.key), 0);
+                    return rowSum === 0 ? '—' : rowSum.toLocaleString('en-IN', { maximumFractionDigits: 3 });
+                  })()}
+                </td>
+                <td></td>
+              </tr>
+              {/* 2. Total Receipts */}
+              <tr style={{ background: 'rgba(16, 185, 129, 0.02)', fontWeight: 600 }}>
+                <td style={{ padding: '8px 12px', color: 'var(--text-secondary)' }}>Total Receipts (+)</td>
+                {columns.map(col => {
+                  const val = getSectionSum('RECEIPT', col.key);
+                  return (
+                    <td key={col.key} style={{ textAlign: 'center', fontSize: '0.8rem', padding: '8px 4px', fontFamily: 'var(--font-numbers)' }}>
+                      {val === 0 ? '—' : val.toLocaleString('en-IN', { maximumFractionDigits: 3 })}
+                    </td>
+                  );
+                })}
+                <td style={{ textAlign: 'center', fontSize: '0.8rem', padding: '8px 4px', fontFamily: 'var(--font-numbers)', fontWeight: 700 }}>
+                  {(() => {
+                    const rowSum = columns.reduce((sum, col) => sum + getSectionSum('RECEIPT', col.key), 0);
+                    return rowSum === 0 ? '—' : rowSum.toLocaleString('en-IN', { maximumFractionDigits: 3 });
+                  })()}
+                </td>
+                <td></td>
+              </tr>
+              {/* 3. TOTAL (OB + Receipts) */}
+              <tr style={{ background: 'rgba(16, 185, 129, 0.08)', fontWeight: 700 }}>
+                <td style={{ padding: '8px 12px', color: 'var(--text-primary)', fontWeight: 700 }}>TOTAL (OB + Receipts)</td>
+                {columns.map(col => {
+                  const obVal = getSectionSum('OB', col.key);
+                  const recVal = getSectionSum('RECEIPT', col.key);
+                  const val = obVal + recVal;
+                  return (
+                    <td key={col.key} style={{ textAlign: 'center', fontSize: '0.8rem', fontWeight: 700, padding: '8px 4px', fontFamily: 'var(--font-numbers)' }}>
+                      {val === 0 ? '—' : val.toLocaleString('en-IN', { maximumFractionDigits: 3 })}
+                    </td>
+                  );
+                })}
+                <td style={{ textAlign: 'center', fontSize: '0.8rem', padding: '8px 4px', fontFamily: 'var(--font-numbers)', fontWeight: 700 }}>
+                  {(() => {
+                    const rowSum = columns.reduce((sum, col) => sum + (getSectionSum('OB', col.key) + getSectionSum('RECEIPT', col.key)), 0);
+                    return rowSum === 0 ? '—' : rowSum.toLocaleString('en-IN', { maximumFractionDigits: 3 });
+                  })()}
+                </td>
+                <td></td>
+              </tr>
+              {/* 4. Total Disposals */}
+              <tr style={{ background: 'rgba(245, 158, 11, 0.02)', fontWeight: 600 }}>
+                <td style={{ padding: '8px 12px', color: 'var(--text-secondary)' }}>Total Disposals (-)</td>
+                {columns.map(col => {
+                  const val = getSectionSum('DISPOSAL', col.key);
+                  return (
+                    <td key={col.key} style={{ textAlign: 'center', fontSize: '0.8rem', padding: '8px 4px', fontFamily: 'var(--font-numbers)' }}>
+                      {val === 0 ? '—' : val.toLocaleString('en-IN', { maximumFractionDigits: 3 })}
+                    </td>
+                  );
+                })}
+                <td style={{ textAlign: 'center', fontSize: '0.8rem', padding: '8px 4px', fontFamily: 'var(--font-numbers)', fontWeight: 700 }}>
+                  {(() => {
+                    const rowSum = columns.reduce((sum, col) => sum + getSectionSum('DISPOSAL', col.key), 0);
+                    return rowSum === 0 ? '—' : rowSum.toLocaleString('en-IN', { maximumFractionDigits: 3 });
+                  })()}
+                </td>
+                <td></td>
+              </tr>
+              {/* 5. Closing Balance */}
+              <tr style={{ background: 'rgba(14, 165, 233, 0.12)', fontWeight: 700 }}>
+                <td style={{ padding: '8px 12px', color: 'var(--text-primary)', fontWeight: 700 }}>Closing Balance (=)</td>
+                {columns.map(col => {
+                  const obVal = getSectionSum('OB', col.key);
+                  const recVal = getSectionSum('RECEIPT', col.key);
+                  const dispVal = getSectionSum('DISPOSAL', col.key);
+                  const val = obVal + recVal - dispVal;
+                  return (
+                    <td key={col.key} style={{ textAlign: 'center', fontSize: '0.8rem', fontWeight: 700, padding: '8px 4px', color: val < 0 ? '#ef4444' : 'inherit', fontFamily: 'var(--font-numbers)' }}>
+                      {val === 0 ? '—' : val.toLocaleString('en-IN', { maximumFractionDigits: 3 })}
+                    </td>
+                  );
+                })}
+                <td style={{ textAlign: 'center', fontSize: '0.8rem', padding: '8px 4px', fontFamily: 'var(--font-numbers)', fontWeight: 700 }}>
+                  {(() => {
+                    const rowSum = columns.reduce((sum, col) => {
+                      const obVal = getSectionSum('OB', col.key);
+                      const recVal = getSectionSum('RECEIPT', col.key);
+                      const dispVal = getSectionSum('DISPOSAL', col.key);
+                      return sum + (obVal + recVal - dispVal);
+                    }, 0);
+                    return rowSum === 0 ? '—' : rowSum.toLocaleString('en-IN', { maximumFractionDigits: 3 });
+                  })()}
+                </td>
+                <td></td>
+              </tr>
+            </tbody>
+          </table>
         </div>
       </div>
+    );
+  };
 
-      {error && <div className="alert alert-error">⚠️ {error}</div>}
-
-      {renderSection('Opening Balance', ['OB'], '#0ea5e9')}
-      {renderSection('Receipts', ['RECEIPT'], '#10b981')}
-      {renderSection('Disposals', ['DISPOSAL'], '#f59e0b')}
-      {renderSection('Physical Count', ['PHYSICAL'], '#06b6d4')}
-
-      {/* Separation Details */}
-      <div className="entry-form-section">
-        <div className="entry-form-section-title" style={{ color: '#a78bfa' }}>
-          ⚗️ Separation Details
-        </div>
-        <div className="form-row" style={{ gridTemplateColumns: 'repeat(4, 1fr)' }}>
-          {[
-            { key: 'wm_fat_pct', label: 'WM Fat %' },
-            { key: 'wm_snf_pct', label: 'WM SNF %' },
-            { key: 'cream_lts', label: 'Cream (Lts)' },
-            { key: 'cream_fat_pct', label: 'Cream Fat %' },
-            { key: 'cream_snf_pct', label: 'Cream SNF %' },
-            { key: 'ssm_lts', label: 'SSM (Lts)' },
-            { key: 'ssm_fat_pct', label: 'SSM Fat %' },
-            { key: 'ssm_snf_pct', label: 'SSM SNF %' },
-          ].map(f => (
-            <div key={f.key} className="form-group">
-              <label className="form-label">{f.label}</label>
+  return (
+    <>
+      <Header
+        title="New Stock Statement Entry"
+        subtitle={`Enter daily milk & cream stock data (${reportMode === 'full_day' ? 'Full Day' : (shift === 'D' ? 'Day Shift' : 'Night Shift')})`}
+        actions={
+          <Link href="/dashboard/stock" className="btn btn-secondary btn-sm">← Back to Stock List</Link>
+        }
+      />
+      <div className="form-container">
+        {/* Header */}
+        <div className="card" style={{ marginBottom: 20 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16, flexWrap: 'wrap', gap: 12 }}>
+            <div className="section-title" style={{ margin: 0 }}>Entry Details</div>
+            <button
+              type="button"
+              className="btn btn-primary btn-sm"
+              disabled={saving}
+              onClick={async () => {
+                await handleSave('stay');
+                router.push(`/dashboard/ts/new-stg?date=${entryDate}${shift ? `&shift=${shift}` : ''}`);
+              }}
+              style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 16px', fontWeight: 600, background: 'linear-gradient(135deg, #0284c7 0%, #0d9488 100%)', borderColor: '#0284c7' }}
+            >
+              {saving ? 'Saving...' : '💾 Save & Open Solid Balance (STG) Entry ➔'}
+            </button>
+          </div>
+          <div className="form-row form-row-3">
+            <div className="form-group">
+              <label className="form-label">Date *</label>
               <input
-                type="number"
-                step="any"
-                className="form-input mono"
-                value={sep[f.key as keyof SepState]}
-                onChange={e => setSep(prev => ({ ...prev, [f.key]: e.target.value }))}
-                id={`sep-${f.key}`}
-                placeholder="0"
+                id="stock-entry-date"
+                type="date"
+                className="form-input"
+                value={entryDate}
+                onChange={e => setEntryDate(e.target.value)}
+                max={new Date().toISOString().split('T')[0]}
               />
             </div>
-          ))}
+            {reportMode === 'shift' ? (
+              <div className="form-group">
+                <label className="form-label">Shift *</label>
+                <div style={{ display: 'flex', gap: 8, marginTop: 6 }}>
+                  {(['D', 'N'] as Shift[]).map(s => {
+                    const cfg = shiftConfigs.find(c => c.key === s) || {
+                      label: s === 'D' ? 'Day Shift' : 'Night Shift',
+                      start: s === 'D' ? '06:00' : '18:00',
+                      end: s === 'D' ? '18:00' : '06:00'
+                    };
+                    return (
+                      <button
+                        key={s}
+                        id={`shift-${s}`}
+                        type="button"
+                        className={`btn ${shift === s ? 'btn-primary' : 'btn-secondary'}`}
+                        onClick={() => setShift(s)}
+                        style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 2, padding: '6px 12px', height: 'auto', alignItems: 'center', justifyContent: 'center' }}
+                      >
+                        <div style={{ fontWeight: 600, fontSize: '0.85rem' }}>
+                          {s === 'D' ? '☀️' : '🌙'} {cfg.label}
+                        </div>
+                        <div style={{ fontSize: '0.7rem', opacity: 0.85 }}>
+                          {cfg.start} - {cfg.end}
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            ) : (
+              <div className="form-group">
+                <label className="form-label">Shift</label>
+                <input
+                  type="text"
+                  className="form-input"
+                  value="Full Day"
+                  disabled
+                  style={{ background: '#f1f5f9', color: '#64748b', cursor: 'not-allowed' }}
+                />
+              </div>
+            )}
+            <div className="form-group">
+              <label className="form-label">Notes (optional)</label>
+              <input
+                type="text"
+                className="form-input"
+                value={notes}
+                onChange={e => setNotes(e.target.value)}
+                placeholder="e.g. Holiday, machine maintenance..."
+              />
+            </div>
+          </div>
+        </div>
+
+        {error && <div className="alert alert-error">⚠️ {error}</div>}
+        {success && <div className="alert alert-success">✅ {success}</div>}
+
+        {renderSection('Opening Balance', ['OB'], '#0ea5e9')}
+        {renderSection('Receipts', ['RECEIPT'], '#10b981')}
+        {renderSection('Disposals', ['DISPOSAL'], '#f59e0b')}
+
+        {renderSummaryTable()}
+
+        {/* Actions */}
+        <div style={{ display: 'flex', gap: 12, justifyContent: 'space-between', alignItems: 'center', marginTop: 16, flexWrap: 'wrap' }} className="no-print">
+          <div>
+            <button className="btn btn-secondary" onClick={() => router.back()} disabled={saving}>
+              Cancel
+            </button>
+          </div>
+          <div style={{ display: 'flex', gap: 12 }}>
+            <button
+              type="button"
+              className="btn btn-secondary"
+              onClick={() => handleSave('stay')}
+              disabled={saving}
+              style={{ display: 'flex', alignItems: 'center', gap: 6 }}
+            >
+              💾 Save progress
+            </button>
+            <button
+              type="button"
+              className="btn btn-secondary"
+              onClick={() => handleSave('next')}
+              disabled={saving}
+              style={{ display: 'flex', alignItems: 'center', gap: 6 }}
+            >
+              ⏭️ Save & Continue (Next)
+            </button>
+            <button
+              type="button"
+              className="btn btn-primary"
+              onClick={async () => {
+                await handleSave('stay');
+                router.push(`/dashboard/ts/new-stg?date=${entryDate}${shift ? `&shift=${shift}` : ''}`);
+              }}
+              disabled={saving}
+              style={{ display: 'flex', alignItems: 'center', gap: 6, background: 'linear-gradient(135deg, #0284c7 0%, #0d9488 100%)', borderColor: '#0284c7' }}
+            >
+              💾 Save & Open Solid Balance (STG) Entry ➔
+            </button>
+            <button
+              id="stock-save-btn"
+              className="btn btn-primary"
+              onClick={() => handleSave('view')}
+              disabled={saving}
+              style={{ display: 'flex', alignItems: 'center', gap: 6 }}
+            >
+              {saving ? (
+                <>
+                  <span className="spinner" style={{ width: 16, height: 16 }} /> Saving…
+                </>
+              ) : (
+                <>💾 Save & View Report</>
+              )}
+            </button>
+          </div>
         </div>
       </div>
 
-      {/* Actions */}
-      <div style={{ display: 'flex', gap: 12, justifyContent: 'flex-end', marginTop: 8 }}>
-        <button className="btn btn-secondary" onClick={() => router.back()} disabled={saving}>Cancel</button>
-        <button
-          id="stock-save-btn"
-          className="btn btn-primary"
-          onClick={handleSave}
-          disabled={saving}
+      {/* 🔀 Partition / Split Mapping Modal Overlay */}
+      {partitionModalOpen && activePartitionRowIdx !== null && (
+        <div
+          className="no-print"
+          style={{
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            backgroundColor: 'rgba(15, 23, 42, 0.65)',
+            backdropFilter: 'blur(4px)',
+            zIndex: 9999,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: 20,
+          }}
         >
-          {saving ? <><span className="spinner" style={{ width: 16, height: 16 }} /> Saving…</> : '💾 Save Stock Statement'}
-        </button>
-      </div>
-    </div>
+          <div
+            className="card animate-fade-in"
+            style={{
+              maxWidth: 580,
+              width: '100%',
+              background: '#ffffff',
+              borderRadius: 12,
+              boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04)',
+              border: '1px solid var(--border)',
+              padding: 24,
+            }}
+          >
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 16 }}>
+              <div>
+                <div style={{ fontWeight: 700, fontSize: '1.1rem', color: 'var(--brand-primary)', display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <span>🔀 Partition / Split Mapping</span>
+                </div>
+                <div style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', marginTop: 4 }}>
+                  Particulars: <strong style={{ color: '#d97706' }}>{rows[activePartitionRowIdx]?.row_label || 'Disposal Row'}</strong>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setPartitionModalOpen(false)}
+                style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '1.2rem', color: 'var(--text-muted)' }}
+              >
+                ✖
+              </button>
+            </div>
+
+            {/* Disposal Row Quantity Total Summary */}
+            {(() => {
+              const rowValSum = columns.reduce(
+                (sum, col) => sum + (parseFloat(rows[activePartitionRowIdx]?.values[col.key] || '0') || 0), 0
+              );
+              const partitionSum = partitionItems.reduce(
+                (sum, p) => sum + (parseFloat(p.value || '0') || 0), 0
+              );
+              const remaining = rowValSum - partitionSum;
+
+              return (
+                <div
+                  style={{
+                    background: 'linear-gradient(135deg, rgba(245,158,11,0.1) 0%, rgba(14,165,233,0.08) 100%)',
+                    border: '1px solid rgba(245,158,11,0.3)',
+                    borderRadius: 8,
+                    padding: 12,
+                    marginBottom: 20,
+                    display: 'flex',
+                    justifyContent: 'space-around',
+                    textAlign: 'center',
+                    fontFamily: 'var(--font-numbers)',
+                  }}
+                >
+                  <div>
+                    <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', textTransform: 'uppercase' }}>Row Total Qty</div>
+                    <div style={{ fontSize: '1.1rem', fontWeight: 700, color: '#b45309' }}>
+                      {rowValSum === 0 ? '—' : rowValSum.toLocaleString('en-IN')}
+                    </div>
+                  </div>
+                  <div style={{ borderLeft: '1px solid var(--border)', paddingLeft: 16 }}>
+                    <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', textTransform: 'uppercase' }}>Partitioned Total</div>
+                    <div style={{ fontSize: '1.1rem', fontWeight: 700, color: '#10b981' }}>
+                      {partitionSum === 0 ? '—' : partitionSum.toLocaleString('en-IN')}
+                    </div>
+                  </div>
+                  <div style={{ borderLeft: '1px solid var(--border)', paddingLeft: 16 }}>
+                    <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', textTransform: 'uppercase' }}>Difference</div>
+                    <div style={{ fontSize: '1.1rem', fontWeight: 700, color: remaining < 0 ? '#ef4444' : (remaining === 0 ? '#10b981' : '#64748b') }}>
+                      {remaining === 0 ? '0' : remaining.toLocaleString('en-IN')}
+                    </div>
+                  </div>
+                </div>
+              );
+            })()}
+
+            {/* Partition rows builder */}
+            <div style={{ marginBottom: 20 }}>
+              <div style={{ fontSize: '0.85rem', fontWeight: 600, marginBottom: 8, color: 'var(--text-primary)' }}>
+                Target Receipts Partitions (e.g. Skim Milk, Cream):
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 10, maxHeight: 260, overflowY: 'auto', paddingRight: 4 }}>
+                {partitionItems.map((part, pIdx) => (
+                  <div key={pIdx} style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+                    <select
+                      className="form-select"
+                      style={{ flex: 1, fontSize: '0.85rem' }}
+                      value={part.targetKey}
+                      onChange={e => {
+                        const newKey = e.target.value;
+                        setPartitionItems(prev => {
+                          const next = [...prev];
+                          next[pIdx] = { ...next[pIdx], targetKey: newKey };
+                          return next;
+                        });
+                      }}
+                    >
+                      {columns.map(col => (
+                        <option key={col.key} value={col.key}>
+                          Receipts: {col.label} ({col.short_name || col.key})
+                        </option>
+                      ))}
+                    </select>
+
+                    <input
+                      type="number"
+                      step="any"
+                      placeholder="Enter value..."
+                      className="form-input"
+                      style={{ width: 140, fontFamily: 'var(--font-numbers)', fontSize: '0.85rem', fontWeight: 600 }}
+                      value={part.value}
+                      onChange={e => {
+                        const val = e.target.value;
+                        setPartitionItems(prev => {
+                          const next = [...prev];
+                          next[pIdx] = { ...next[pIdx], value: val };
+                          return next;
+                        });
+                      }}
+                    />
+
+                    <button
+                      type="button"
+                      style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '1.1rem', color: '#ef4444' }}
+                      title="Remove partition"
+                      onClick={() => {
+                        setPartitionItems(prev => prev.filter((_, idx) => idx !== pIdx));
+                      }}
+                    >
+                      ❌
+                    </button>
+                  </div>
+                ))}
+              </div>
+
+              <button
+                type="button"
+                className="btn btn-secondary btn-sm"
+                style={{ marginTop: 12, fontSize: '0.78rem' }}
+                onClick={() => {
+                  const unusedCol = columns.find(c => !partitionItems.some(p => p.targetKey === c.key));
+                  setPartitionItems(prev => [
+                    ...prev,
+                    { targetKey: unusedCol?.key || columns[0]?.key || 'skim_milk', value: '' },
+                  ]);
+                }}
+              >
+                ➕ Add Partition Target
+              </button>
+            </div>
+
+            {/* Modal Actions */}
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 12, borderTop: '1px solid var(--border)', paddingTop: 16 }}>
+              <button
+                type="button"
+                className="btn btn-secondary btn-sm"
+                onClick={() => setPartitionModalOpen(false)}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="btn btn-primary btn-sm"
+                onClick={handleSavePartitions}
+              >
+                💾 Apply & Update Receipts
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </>
   );
 }

@@ -96,7 +96,7 @@ export default function TSEntryForm() {
   const [saveStatus, setSaveStatus] = useState<Record<string, string>>({});
   const [mainSaving, setMainSaving] = useState(false);
   const [error, setError] = useState('');
-  const [formulasConfig, setFormulasConfig] = useState<any>(null);
+  const [reportMode, setReportMode] = useState<'full_day' | 'shift'>('full_day');
 
   // Load existing TS entry on mount or when entryDate or shift changes
   useEffect(() => {
@@ -105,28 +105,55 @@ export default function TSEntryForm() {
 
     async function loadData() {
       try {
-        // Fetch formulas configuration
+        // Fetch global reportMode setting
+        let parsedMode: 'full_day' | 'shift' = 'full_day';
         try {
-          const formulasRes = await fetch('/api/formulas');
-          if (formulasRes.ok) {
-            const formulasJson = await formulasRes.json();
-            if (formulasJson.data && formulasJson.data.nested) {
-              setFormulasConfig(formulasJson.data.nested);
+          const configRes = await fetch('/api/entries?report_type=STOCK');
+          if (configRes.ok) {
+            const configJson = await configRes.json();
+            const entries: any[] = configJson.data || [];
+            const configEntry = entries.find((e: any) => {
+              if (!e.notes || e.notes.includes('__METADATA__:')) return false;
+              try {
+                const parsed = JSON.parse(e.notes);
+                return parsed && typeof parsed === 'object' && !Array.isArray(parsed);
+              } catch { return false; }
+            });
+            if (configEntry && configEntry.notes) {
+              try {
+                const parsed = JSON.parse(configEntry.notes);
+                if (parsed && typeof parsed === 'object') {
+                  if (parsed.mode) parsedMode = parsed.mode;
+                }
+              } catch (e) {}
             }
           }
         } catch (err) {
-          console.error('Failed to load formulas config:', err);
+          console.error('Failed to load shift mode config in TSEntryForm:', err);
+        }
+        setReportMode(parsedMode);
+        if (parsedMode === 'full_day') {
+          setShift(null);
         }
 
         // Fetch global statements config
         let gStmts: any[] = [];
         try {
-          const configRes = await fetch('/api/entries?report_type=TS&date=1970-01-01');
+          const configRes = await fetch('/api/entries?report_type=TS');
           if (configRes.ok) {
             const configJson = await configRes.json();
-            const configEntry = configJson.data?.[0];
+            const entries: any[] = configJson.data || [];
+            const configEntry = entries.find((e: any) => {
+              if (!e.notes || e.notes.includes('__METADATA__:')) return false;
+              try {
+                const parsed = JSON.parse(e.notes);
+                return Array.isArray(parsed) && (parsed.length === 0 || parsed[0]?.key !== undefined);
+              } catch { return false; }
+            });
             if (configEntry && configEntry.notes) {
-              gStmts = JSON.parse(configEntry.notes) || [];
+              try {
+                gStmts = JSON.parse(configEntry.notes) || [];
+              } catch (e) {}
             }
           }
         } catch (err) {
@@ -223,7 +250,7 @@ export default function TSEntryForm() {
         const lts = parseFloat(field === 'qty_lts' ? value : next[idx].qty_lts) || 0;
         const spg = parseFloat(field === 'sp_gr' ? value : next[idx].sp_gr) || 0;
         if (lts && spg) {
-          next[idx].qty_kg = String(calcQtyKg(lts, spg, formulasConfig || undefined));
+          next[idx].qty_kg = String(calcQtyKg(lts, spg));
         }
       }
 
@@ -231,7 +258,7 @@ export default function TSEntryForm() {
       const kg = parseFloat(next[idx].qty_kg) || 0;
       const fat = parseFloat(next[idx].fat_pct) || 0;
       const snf = parseFloat(next[idx].snf_pct) || 0;
-      const calc = calcKgFatSnf(kg, fat, snf, formulasConfig || undefined);
+      const calc = calcKgFatSnf(kg, fat, snf);
 
       if (field === 'qty_kg' || field === 'qty_lts' || field === 'sp_gr' || field === 'fat_pct') {
         next[idx].kg_fat = calc.kg_fat > 0 ? String(calc.kg_fat) : '';
@@ -414,47 +441,51 @@ export default function TSEntryForm() {
               max={new Date().toISOString().split('T')[0]}
             />
           </div>
-          <div className="form-group">
-            <label className="form-label">Reporting Type *</label>
-            <div style={{ display: 'flex', gap: 8, marginTop: 6 }}>
-              <button
-                type="button"
-                className={`btn ${!shift ? 'btn-primary' : 'btn-secondary'}`}
-                onClick={() => setShift(null)}
-                style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '10px 16px' }}
-              >
-                <span style={{ fontWeight: 600, fontSize: '0.875rem' }}>🗓️ Full Day</span>
-              </button>
-              <button
-                type="button"
-                className={`btn ${shift ? 'btn-primary' : 'btn-secondary'}`}
-                onClick={() => setShift('D')}
-                style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '10px 16px' }}
-              >
-                <span style={{ fontWeight: 600, fontSize: '0.875rem' }}>⏱️ Shift-wise</span>
-              </button>
-            </div>
-          </div>
-          {shift && (
-            <div className="form-group animate-fade-in">
-              <label className="form-label">Shift *</label>
-              <div style={{ display: 'flex', gap: 8, marginTop: 6 }}>
-                {[
-                  { label: '☀️ Day Shift', value: 'D' },
-                  { label: '🌙 Night Shift', value: 'N' }
-                ].map(s => (
+          {reportMode === 'shift' && (
+            <>
+              <div className="form-group">
+                <label className="form-label">Reporting Type *</label>
+                <div style={{ display: 'flex', gap: 8, marginTop: 6 }}>
                   <button
-                    key={s.value}
                     type="button"
-                    className={`btn ${shift === s.value ? 'btn-primary' : 'btn-secondary'}`}
-                    onClick={() => setShift(s.value as Shift)}
+                    className={`btn ${!shift ? 'btn-primary' : 'btn-secondary'}`}
+                    onClick={() => setShift(null)}
                     style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '10px 16px' }}
                   >
-                    <span style={{ fontWeight: 600, fontSize: '0.875rem' }}>{s.label}</span>
+                    <span style={{ fontWeight: 600, fontSize: '0.875rem' }}>🗓️ Full Day</span>
                   </button>
-                ))}
+                  <button
+                    type="button"
+                    className={`btn ${shift ? 'btn-primary' : 'btn-secondary'}`}
+                    onClick={() => setShift('D')}
+                    style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '10px 16px' }}
+                  >
+                    <span style={{ fontWeight: 600, fontSize: '0.875rem' }}>⏱️ Shift-wise</span>
+                  </button>
+                </div>
               </div>
-            </div>
+              {shift && (
+                <div className="form-group animate-fade-in">
+                  <label className="form-label">Shift *</label>
+                  <div style={{ display: 'flex', gap: 8, marginTop: 6 }}>
+                    {[
+                      { label: '☀️ Day Shift', value: 'D' },
+                      { label: '🌙 Night Shift', value: 'N' }
+                    ].map(s => (
+                      <button
+                        key={s.value}
+                        type="button"
+                        className={`btn ${shift === s.value ? 'btn-primary' : 'btn-secondary'}`}
+                        onClick={() => setShift(s.value as Shift)}
+                        style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '10px 16px' }}
+                      >
+                        <span style={{ fontWeight: 600, fontSize: '0.875rem' }}>{s.label}</span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </>
           )}
           <div className="form-group">
             <label className="form-label">Notes (optional)</label>

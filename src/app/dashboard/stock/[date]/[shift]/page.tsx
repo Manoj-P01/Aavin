@@ -20,6 +20,8 @@ export default function StockViewPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [viewMode, setViewMode] = useState<'shift' | 'combined'>('shift');
+  const [reportMode, setReportMode] = useState<'full_day' | 'shift'>('full_day');
+  const [globalProducts, setGlobalProducts] = useState<any[]>([]);
   const [entryNotes, setEntryNotes] = useState<string | null>(null);
   const [otherNotes, setOtherNotes] = useState<string | null>(null);
 
@@ -30,6 +32,37 @@ export default function StockViewPage() {
   useEffect(() => {
     async function load() {
       try {
+        // Load report mode configuration
+        let parsedMode: 'full_day' | 'shift' = 'full_day';
+        try {
+          const configRes = await fetch('/api/entries?report_type=STOCK');
+          if (configRes.ok) {
+            const configJson = await configRes.json();
+            const entries: any[] = configJson.data || [];
+            const configEntry = entries.find((e: any) => {
+              if (!e.notes || e.notes.includes('__METADATA__:')) return false;
+              try {
+                const parsed = JSON.parse(e.notes);
+                return parsed && typeof parsed === 'object' && !Array.isArray(parsed);
+              } catch { return false; }
+            });
+            if (configEntry && configEntry.notes) {
+              try {
+                const parsed = JSON.parse(configEntry.notes);
+                if (parsed && typeof parsed === 'object') {
+                  if (parsed.mode) parsedMode = parsed.mode;
+                  if (Array.isArray(parsed.products)) {
+                    setGlobalProducts(parsed.products);
+                  }
+                }
+              } catch (e) {}
+            }
+          }
+        } catch (err) {
+          console.error('Error loading shift config in stock page:', err);
+        }
+        setReportMode(parsedMode);
+
         // Load this shift
         const res = await fetch(`/api/stock?date=${date}&shift=${shift}`);
         const json = await res.json();
@@ -44,20 +77,22 @@ export default function StockViewPage() {
         const shiftSep = json.data.separation_details.find((s: SeparationDetails) => s.entry_id === entry.id) || null;
         setData({ rows: shiftRows, separation: shiftSep });
 
-        // Try to load the other shift too (for combined)
-        try {
-          const res2 = await fetch(`/api/stock?date=${date}&shift=${otherShift}`);
-          if (res2.ok) {
-            const json2 = await res2.json();
-            const entry2 = json2.data?.entries?.[0];
-            if (entry2) {
-              setOtherNotes(entry2.notes);
-              const rows2 = json2.data.stock_rows.filter((r: StockRow) => r.entry_id === entry2.id);
-              const sep2 = json2.data.separation_details.find((s: SeparationDetails) => s.entry_id === entry2.id) || null;
-              setOtherShiftData({ rows: rows2, separation: sep2 });
+        // Try to load the other shift too if in shift-wise mode
+        if (parsedMode === 'shift') {
+          try {
+            const res2 = await fetch(`/api/stock?date=${date}&shift=${otherShift}`);
+            if (res2.ok) {
+              const json2 = await res2.json();
+              const entry2 = json2.data?.entries?.[0];
+              if (entry2) {
+                setOtherNotes(entry2.notes);
+                const rows2 = json2.data.stock_rows.filter((r: StockRow) => r.entry_id === entry2.id);
+                const sep2 = json2.data.separation_details.find((s: SeparationDetails) => s.entry_id === entry2.id) || null;
+                setOtherShiftData({ rows: rows2, separation: sep2 });
+              }
             }
-          }
-        } catch { /* other shift may not exist */ }
+          } catch { /* other shift may not exist */ }
+        }
 
       } catch (e: unknown) {
         setError(e instanceof Error ? e.message : 'Failed to load');
@@ -77,12 +112,11 @@ export default function StockViewPage() {
     const nightSummary = calcStockSummary(nightData.rows);
     const combined = combineShiftSummaries(daySummary, nightSummary);
 
-    // Build synthetic rows for combined display
+    // Build synthetic rows for combined display (no physical count)
     const syntheticRows: StockRow[] = [
       { id: 'ob', entry_id: 'combined', row_type: 'OB', row_label: 'Opening Balance', sort_order: 0, ...combined.opening_balance },
       ...combined.total_receipts ? [{ id: 'rec', entry_id: 'combined', row_type: 'RECEIPT' as const, row_label: 'Receipts:', sort_order: 1, ...combined.total_receipts }] : [],
       ...combined.total_disposals ? [{ id: 'dis', entry_id: 'combined', row_type: 'DISPOSAL' as const, row_label: 'Disposals', sort_order: 2, ...combined.total_disposals }] : [],
-      { id: 'ph', entry_id: 'combined', row_type: 'PHYSICAL', row_label: 'Physical Count', sort_order: 3, ...combined.physical_count },
     ];
     return { rows: syntheticRows, separation: dayData.separation };
   };
@@ -93,10 +127,10 @@ export default function StockViewPage() {
     <>
       <Header
         title={`Stock Statement – ${date ? fmtDate(date) : ''}`}
-        subtitle={`Shift: ${shift === 'D' ? 'Day' : 'Night'}`}
+        subtitle={reportMode === 'full_day' ? 'Full Day' : `Shift: ${shift === 'D' ? 'Day' : 'Night'}`}
         actions={
           <div style={{ display: 'flex', gap: 8 }} className="no-print">
-            {otherShiftData && (
+            {reportMode === 'shift' && otherShiftData && (
               <div className="tabs">
                 <button
                   className={`tab ${viewMode === 'shift' ? 'active' : ''}`}
@@ -119,7 +153,7 @@ export default function StockViewPage() {
       />
       <div className="page-body animate-fade-in">
         {/* Other shift link */}
-        {!loading && !error && (
+        {!loading && !error && reportMode === 'shift' && (
           <div style={{ display: 'flex', gap: 12, marginBottom: 16 }} className="no-print">
             <Link
               href={`/dashboard/stock/${date}/${otherShift}`}
@@ -145,8 +179,9 @@ export default function StockViewPage() {
               rows={displayData.rows}
               separation={displayData.separation}
               date={date}
-              shift={viewMode === 'combined' ? 'COMBINED' : (shift as Shift)}
+              shift={reportMode === 'full_day' ? 'FULL_DAY' : (viewMode === 'combined' ? 'COMBINED' : (shift as Shift))}
               notes={viewMode === 'combined' ? `${entryNotes || ''}\n${otherNotes || ''}` : entryNotes}
+              products={globalProducts}
             />
           </div>
         )}

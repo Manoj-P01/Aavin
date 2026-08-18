@@ -1,22 +1,14 @@
-import Header from '@/components/layout/Header';
-import Link from 'next/link';
+import { Suspense } from 'react';
 import StockEntryForm from '@/components/forms/StockEntryForm';
 
-export const metadata = { title: 'New Stock Entry | Aavin Dashboard' };
+export const metadata = { title: 'New Stock Statement Entry | Aavin Dashboard' };
 
 export default function NewStockPage() {
   return (
-    <>
-      <Header
-        title="New Stock Statement Entry"
-        subtitle="Enter daily milk & cream stock data (Day or Night shift)"
-        actions={
-          <Link href="/dashboard/stock" className="btn btn-secondary btn-sm">← Back to Stock List</Link>
-        }
-      />
-      <div className="page-body animate-fade-in">
+    <div className="page-body animate-fade-in" style={{ padding: 20 }}>
+      <Suspense fallback={<div style={{ padding: 40 }}><span className="spinner" /> Loading form...</div>}>
         <StockEntryForm />
-      </div>
-    </>
+      </Suspense>
+    </div>
   );
 }

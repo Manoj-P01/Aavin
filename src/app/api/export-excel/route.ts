@@ -168,15 +168,31 @@ export async function GET(req: NextRequest) {
       let gStmts: any[] = [];
       if (isLocalDbEnabled()) {
         const db = await initDb();
-        const configEntry = db.entries.find((e: any) => e.entry_date === '1970-01-01' && e.report_type === 'TS');
+        const tsEntries = db.entries.filter((e: any) => e.report_type === 'TS').sort((a: any, b: any) => (b.entry_date || '').localeCompare(a.entry_date || ''));
+        const configEntry = tsEntries.find((e: any) => {
+          if (!e.notes || e.notes.includes('__METADATA__:')) return false;
+          try {
+            const parsed = JSON.parse(e.notes);
+            return Array.isArray(parsed) && (parsed.length === 0 || parsed[0]?.key !== undefined);
+          } catch { return false; }
+        });
         if (configEntry && configEntry.notes) {
           try { gStmts = JSON.parse(configEntry.notes) || []; } catch {}
         }
       } else {
         const supabase = getSupabaseServiceClient();
-        const { data } = await supabase.from('entries').select('notes').eq('entry_date', '1970-01-01').eq('report_type', 'TS');
-        if (data && data.length > 0 && data[0].notes) {
-          try { gStmts = JSON.parse(data[0].notes) || []; } catch {}
+        const { data } = await supabase.from('entries').select('notes').eq('report_type', 'TS').order('entry_date', { ascending: false });
+        if (data && data.length > 0) {
+          const configRow = data.find((e: any) => {
+            if (!e.notes || e.notes.includes('__METADATA__:')) return false;
+            try {
+              const parsed = JSON.parse(e.notes);
+              return Array.isArray(parsed) && (parsed.length === 0 || parsed[0]?.key !== undefined);
+            } catch { return false; }
+          });
+          if (configRow && configRow.notes) {
+            try { gStmts = JSON.parse(configRow.notes) || []; } catch {}
+          }
         }
       }
 
@@ -378,12 +394,26 @@ export async function GET(req: NextRequest) {
       ]);
       merges.push({ s: { r: lpRowIdx, c: 10 }, e: { r: lpRowIdx, c: 15 } });
 
+      let globalCmpddNorm = 0.5;
+      if (entryNotes) {
+        const parts = entryNotes.split('\n');
+        parts.forEach(part => {
+          if (part.includes('__METADATA__:')) {
+            try {
+              const meta = JSON.parse(part.split('__METADATA__:')[1]);
+              if (meta.cmpdd_norms && meta.cmpdd_norms.WM) globalCmpddNorm = parseFloat(meta.cmpdd_norms.WM) || 0.5;
+              else if (meta.cmpdd_norm) globalCmpddNorm = parseFloat(meta.cmpdd_norm) || 0.5;
+            } catch {}
+          }
+        });
+      }
+
       // Add Norm
       // Merge is from 10 to 15. Label goes to index 10!
       const normRowIdx = tsData.length;
       tsData.push([
         cell('', { noBorder: true }), cell('', { noBorder: true }), cell('', { noBorder: true }), cell('', { noBorder: true }), cell('', { noBorder: true }), cell('', { noBorder: true }), cell('', { noBorder: true }), cell('', { noBorder: true }), cell('', { noBorder: true }),
-        cell(''), cell('CMPDD LOSS %', { isBold: true }), cell(''), cell(''), cell(''), cell(''), cell(''), cell(val(totals.cmpdd_norm_pct, 2), { isBold: true, isNum: true }), cell(val(totals.cmpdd_norm_pct, 2), { isBold: true, isNum: true })
+        cell(''), cell(`CMPDD LOSS % (${globalCmpddNorm}%)`, { isBold: true }), cell(''), cell(''), cell(''), cell(''), cell(''), cell(val(globalCmpddNorm, 2), { isBold: true, isNum: true }), cell(val(globalCmpddNorm, 2), { isBold: true, isNum: true })
       ]);
       merges.push({ s: { r: normRowIdx, c: 10 }, e: { r: normRowIdx, c: 15 } });
 
@@ -397,6 +427,7 @@ export async function GET(req: NextRequest) {
     if (includeStg && stgRowsData.length > 0) {
       let customStatements: Array<{ key: string; label: string }> = [];
       let customBlocks: Record<string, any> = {};
+      let cmpddNorms: Record<string, string> = {};
 
       if (entryNotes) {
         const notesParts = entryNotes.split('\n');
@@ -407,20 +438,24 @@ export async function GET(req: NextRequest) {
               const meta = JSON.parse(metaJson);
               if (meta.custom_statements) customStatements = meta.custom_statements;
               if (meta.custom_blocks) customBlocks = meta.custom_blocks;
+              if (meta.cmpdd_norms) cmpddNorms = meta.cmpdd_norms;
             } catch {}
           }
         });
       }
 
       const baseBlocks = [
-        { key: 'WM', label: 'Whole Milk' },
-        { key: 'SSM', label: 'Skim Milk' },
-        { key: 'CREAM', label: 'Cream' },
-        { key: 'SMP', label: 'SMP / Other' },
+        { key: 'WM', label: 'TENTATIVE WHOLE MILK – RECEIPT AND DISPOSAL STATEMENT' },
+        { key: 'SSM', label: 'SKIMMED MILK – RECEIPT AND DISPOSAL STATEMENT' },
+        { key: 'CREAM', label: 'CREAM – RECEIPT AND DISPOSAL STATEMENT' },
+        { key: 'SMP', label: 'SKIM MILK POWDER STATEMENT' },
       ];
       const blockMap = new Map<string, { key: string; label: string }>();
-      baseBlocks.forEach(b => blockMap.set(b.key, b));
-      customStatements.forEach(s => { if (s && s.key) blockMap.set(s.key, s); });
+      if (customStatements && customStatements.length > 0) {
+        customStatements.forEach(s => { if (s && s.key) blockMap.set(s.key, s); });
+      } else {
+        baseBlocks.forEach(b => blockMap.set(b.key, b));
+      }
       const allBlocks = Array.from(blockMap.values());
 
       // Master array for single STG sheet data
@@ -558,7 +593,8 @@ export async function GET(req: NextRequest) {
 
         // Add Block Header
         const startRowIdx = stgSheetData.length;
-        const blockLabel = BLOCK_LABELS[block] || `${blockInfo.label.toUpperCase()} – RECEIPT AND DISPOSAL STATEMENT`;
+        const rawLabel = (blockInfo.label || (customStatements.find(s => s.key === block)?.label) || '').trim();
+        let blockLabel = rawLabel ? (rawLabel.toUpperCase().includes('STATEMENT') ? rawLabel.toUpperCase() : `${rawLabel.toUpperCase()} – RECEIPT AND DISPOSAL STATEMENT`) : (BLOCK_LABELS[block] || `${block.toUpperCase()} – RECEIPT AND DISPOSAL STATEMENT`);
         stgSheetData.push([
           cell(blockLabel, { isBold: true, noBorder: true }),
           ...new Array(17).fill(cell('', { noBorder: true }))
@@ -661,10 +697,15 @@ export async function GET(req: NextRequest) {
         // Row R3: Grand Total (left) / CMPDD Norms (right)
         // Left merge 0 to 1, label goes to index 0, index 1 is empty!
         // Right merge 9 to 10, label goes to index 9, index 10 is empty!
+        const bCmpddNormStr = (customBlocks[block] && customBlocks[block].cmpdd_norm)
+          ? customBlocks[block].cmpdd_norm
+          : (cmpddNorms[block] || '0.5');
+        const bCmpddNorm = parseFloat(bCmpddNormStr) || 0.5;
+
         const r3Idx = stgSheetData.length;
         stgSheetData.push([
           cell('Grand Total', { isBold: true }), cell(''), cell(val(grandRec.lts), { isBold: true, isNum: true }), cell(val(grandRec.kg), { isBold: true, isNum: true }), cell(''), cell(''), cell(''), cell(val(grandRec.fat, 4), { isBold: true, isNum: true }), cell(val(grandRec.snf, 4), { isBold: true, isNum: true }),
-          cell('CMPDD Norms %', { isBold: true }), cell(''), cell(''), cell(''), cell(''), cell(''), cell(''), cell('0.5%', { isBold: true, alignment: 'right' }), cell('0.5%', { isBold: true, alignment: 'right' })
+          cell(`CMPDD Norms (${bCmpddNorm}%)`, { isBold: true }), cell(''), cell(''), cell(''), cell(''), cell(''), cell(''), cell(`${bCmpddNorm}%`, { isBold: true, alignment: 'right' }), cell(`${bCmpddNorm}%`, { isBold: true, alignment: 'right' })
         ]);
         stgMerges.push({ s: { r: r3Idx, c: 0 }, e: { r: r3Idx, c: 1 } });
         stgMerges.push({ s: { r: r3Idx, c: 9 }, e: { r: r3Idx, c: 10 } });

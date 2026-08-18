@@ -14,6 +14,7 @@ interface DayGroup {
 
 export default function StockListPage() {
   const [groups, setGroups] = useState<DayGroup[]>([]);
+  const [reportMode, setReportMode] = useState<'full_day' | 'shift'>('full_day');
   const [loading, setLoading] = useState(true);
   const [month, setMonth] = useState(() => {
     const d = new Date();
@@ -24,6 +25,28 @@ export default function StockListPage() {
     async function load() {
       setLoading(true);
       try {
+        // Load report mode configuration
+        let parsedMode: 'full_day' | 'shift' = 'full_day';
+        try {
+          const configRes = await fetch('/api/entries?report_type=STOCK');
+          if (configRes.ok) {
+            const configJson = await configRes.json();
+            const entries: any[] = configJson.data || [];
+            const configEntry = entries.find((e: any) => e.entry_date === '1970-01-01') || entries.find((e: any) => e.notes && !e.notes.includes('__METADATA__:'));
+            if (configEntry && configEntry.notes) {
+              try {
+                const parsed = JSON.parse(configEntry.notes);
+                if (parsed && typeof parsed === 'object') {
+                  if (parsed.mode) parsedMode = parsed.mode;
+                }
+              } catch (e) {}
+            }
+          }
+        } catch (err) {
+          console.error('Error loading config in stock list page:', err);
+        }
+        setReportMode(parsedMode);
+
         const res = await fetch(`/api/entries?report_type=STOCK&month=${month}`);
         const json = await res.json();
         const entries = (json.data || []) as Entry[];
@@ -49,7 +72,7 @@ export default function StockListPage() {
         actions={
           <div style={{ display: 'flex', gap: 8 }}>
             <Link href="/dashboard/stock/query" className="btn btn-secondary btn-sm">🔍 Query Summary Register</Link>
-            <Link href="/dashboard/stock/new" className="btn btn-primary btn-sm">➕ New Stock Entry</Link>
+            <Link href="/dashboard/stock/new" className="btn btn-primary btn-sm">➕ New Stock Statement Entry</Link>
           </div>
         }
       />
@@ -87,13 +110,21 @@ export default function StockListPage() {
             <div className="table-wrapper">
               <table className="data-table">
                 <thead>
-                  <tr>
-                    <th>Date</th>
-                    <th>Day</th>
-                    <th className="center">☀️ Day Shift</th>
-                    <th className="center">🌙 Night Shift</th>
-                    <th className="center">Combined View</th>
-                  </tr>
+                  {reportMode === 'full_day' ? (
+                    <tr>
+                      <th>Date</th>
+                      <th>Day</th>
+                      <th className="center">Statement</th>
+                    </tr>
+                  ) : (
+                    <tr>
+                      <th>Date</th>
+                      <th>Day</th>
+                      <th className="center">☀️ Day Shift</th>
+                      <th className="center">🌙 Night Shift</th>
+                      <th className="center">Combined View</th>
+                    </tr>
+                  )}
                 </thead>
                 <tbody>
                   {groups.map(g => (
@@ -102,39 +133,55 @@ export default function StockListPage() {
                       <td style={{ color: 'var(--text-secondary)' }}>
                         {new Date(g.date + 'T00:00:00').toLocaleDateString('en-IN', { weekday: 'long' })}
                       </td>
-                      <td className="center">
-                        {g.day ? (
-                          <Link href={`/dashboard/stock/${g.date}/D`} className="btn btn-secondary btn-sm">
-                            View Day →
-                          </Link>
-                        ) : (
-                          <Link href="/dashboard/stock/new" className="btn btn-ghost btn-sm" style={{ opacity: 0.5 }}>
-                            + Add Day
-                          </Link>
-                        )}
-                      </td>
-                      <td className="center">
-                        {g.night ? (
-                          <Link href={`/dashboard/stock/${g.date}/N`} className="btn btn-secondary btn-sm">
-                            View Night →
-                          </Link>
-                        ) : (
-                          <Link href="/dashboard/stock/new" className="btn btn-ghost btn-sm" style={{ opacity: 0.5 }}>
-                            + Add Night
-                          </Link>
-                        )}
-                      </td>
-                      <td className="center">
-                        {g.day && g.night ? (
-                          <Link href={`/dashboard/stock/${g.date}/D`} className="btn btn-primary btn-sm">
-                            🌓 Combined
-                          </Link>
-                        ) : (
-                          <span style={{ color: 'var(--text-muted)', fontSize: '0.8rem' }}>
-                            {g.day || g.night ? 'Need both shifts' : '—'}
-                          </span>
-                        )}
-                      </td>
+                      {reportMode === 'full_day' ? (
+                        <td className="center">
+                          {g.day ? (
+                            <Link href={`/dashboard/stock/${g.date}/D`} className="btn btn-secondary btn-sm">
+                              View Statement →
+                            </Link>
+                          ) : (
+                            <Link href={`/dashboard/stock/new?date=${g.date}&shift=D`} className="btn btn-ghost btn-sm" style={{ opacity: 0.5 }}>
+                              + Add Entry
+                            </Link>
+                          )}
+                        </td>
+                      ) : (
+                        <>
+                          <td className="center">
+                            {g.day ? (
+                              <Link href={`/dashboard/stock/${g.date}/D`} className="btn btn-secondary btn-sm">
+                                View Day →
+                              </Link>
+                            ) : (
+                              <Link href={`/dashboard/stock/new?date=${g.date}&shift=D`} className="btn btn-ghost btn-sm" style={{ opacity: 0.5 }}>
+                                + Add Day
+                              </Link>
+                            )}
+                          </td>
+                          <td className="center">
+                            {g.night ? (
+                              <Link href={`/dashboard/stock/${g.date}/N`} className="btn btn-secondary btn-sm">
+                                View Night →
+                              </Link>
+                            ) : (
+                              <Link href={`/dashboard/stock/new?date=${g.date}&shift=N`} className="btn btn-ghost btn-sm" style={{ opacity: 0.5 }}>
+                                + Add Night
+                              </Link>
+                            )}
+                          </td>
+                          <td className="center">
+                            {g.day && g.night ? (
+                              <Link href={`/dashboard/stock/${g.date}/D`} className="btn btn-primary btn-sm">
+                                🌓 Combined
+                              </Link>
+                            ) : (
+                              <span style={{ color: 'var(--text-muted)', fontSize: '0.8rem' }}>
+                                {g.day || g.night ? 'Need both shifts' : '—'}
+                              </span>
+                            )}
+                          </td>
+                        </>
+                      )}
                     </tr>
                   ))}
                 </tbody>

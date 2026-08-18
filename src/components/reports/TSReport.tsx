@@ -9,6 +9,7 @@ interface Props {
   totals: TSTotals;
   date: string;
   shift?: string | null;
+  notes?: string | null;
 }
 
 const SECTION_LABELS: Record<string, string> = {
@@ -22,7 +23,23 @@ const SECTION_LABELS: Record<string, string> = {
 
 const SECTIONS = ['OB', 'RECEIPT', 'DISPOSAL_DESPATCH', 'LOCAL_SALE', 'OTHER_DISPOSAL', 'CB'] as const;
 
-export default function TSReport({ rows, totals, date, shift }: Props) {
+export default function TSReport({ rows, totals, date, shift, notes }: Props) {
+  let cmpddNormVal = CMPDD_NORM_PCT;
+  if (notes) {
+    const parts = notes.split('\n');
+    for (const part of parts) {
+      if (part.includes('__METADATA__:')) {
+        try {
+          const meta = JSON.parse(part.split('__METADATA__:')[1]);
+          if (meta.cmpdd_norms && meta.cmpdd_norms.WM) {
+            cmpddNormVal = parseFloat(meta.cmpdd_norms.WM) || CMPDD_NORM_PCT;
+          } else if (meta.cmpdd_norm) {
+            cmpddNormVal = parseFloat(meta.cmpdd_norm) || CMPDD_NORM_PCT;
+          }
+        } catch {}
+      }
+    }
+  }
   // 1. Group rows by section
   const rowsBySection = SECTIONS.reduce((acc, s) => {
     acc[s] = rows.filter(r => r.section === s);
@@ -291,10 +308,10 @@ export default function TSReport({ rows, totals, date, shift }: Props) {
               <td colSpan={9} style={{ borderRight: '2px solid var(--border)' }} />
               <td colSpan={2} style={{ textAlign: 'right', paddingRight: 12, color: 'var(--text-secondary)', fontSize: '0.8rem' }}>LOSS %</td>
               <td colSpan={5} />
-              <td className="num" style={{ color: totals.loss_pct_fat > CMPDD_NORM_PCT ? 'var(--brand-danger)' : 'var(--brand-success)', cursor: 'help' }} title="Formula: Loss (Kg Fat) / G.Total Arrival (Kg Fat) * 100">
+              <td className="num" style={{ color: totals.loss_pct_fat > cmpddNormVal ? 'var(--brand-danger)' : 'var(--brand-success)', cursor: 'help' }} title="Formula: Loss (Kg Fat) / G.Total Arrival (Kg Fat) * 100">
                 {fmtPct(totals.loss_pct_fat)}
               </td>
-              <td className="num" style={{ color: Math.abs(totals.loss_pct_snf) > CMPDD_NORM_PCT ? 'var(--brand-danger)' : 'var(--brand-success)', cursor: 'help' }} title="Formula: Loss (Kg SNF) / G.Total Arrival (Kg SNF) * 100">
+              <td className="num" style={{ color: Math.abs(totals.loss_pct_snf) > cmpddNormVal ? 'var(--brand-danger)' : 'var(--brand-success)', cursor: 'help' }} title="Formula: Loss (Kg SNF) / G.Total Arrival (Kg SNF) * 100">
                 {fmtPct(totals.loss_pct_snf)}
               </td>
             </tr>
@@ -302,10 +319,10 @@ export default function TSReport({ rows, totals, date, shift }: Props) {
             {/* CMPDD Norm row */}
             <tr style={{ background: 'rgba(0,0,0,0.02)' }}>
               <td colSpan={9} style={{ borderRight: '2px solid var(--border)' }} />
-              <td colSpan={2} style={{ textAlign: 'right', paddingRight: 12, color: 'var(--text-muted)', fontSize: '0.8rem' }}>CMPDD NORM (0.5%)</td>
+              <td colSpan={2} style={{ textAlign: 'right', paddingRight: 12, color: 'var(--text-muted)', fontSize: '0.8rem' }}>CMPDD NORM ({cmpddNormVal}%)</td>
               <td colSpan={5} />
-              <td className="num" style={{ color: 'var(--text-muted)' }}>{CMPDD_NORM_PCT}%</td>
-              <td className="num" style={{ color: 'var(--text-muted)' }}>{CMPDD_NORM_PCT}%</td>
+              <td className="num" style={{ color: 'var(--text-muted)' }}>{cmpddNormVal}%</td>
+              <td className="num" style={{ color: 'var(--text-muted)' }}>{cmpddNormVal}%</td>
             </tr>
           </tbody>
         </table>

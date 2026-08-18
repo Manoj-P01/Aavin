@@ -9,6 +9,16 @@ const NAV_SECTIONS = [
     label: 'Overview',
     items: [
       { href: '/dashboard', icon: '📊', label: 'Dashboard' },
+      { href: '/dashboard/stock/periodical', icon: '📅', label: 'Periodical Summary Report' },
+    ],
+  },
+  {
+    label: 'Stock Statement',
+    items: [
+      { href: '/dashboard/stock/new', icon: '📦', label: 'New Stock Statement Entry' },
+      { href: '/dashboard/stock', icon: '📦', label: 'Stock Register' },
+      { href: '/dashboard/stock/products', icon: '⚙️', label: 'Stock Products Configuration' },
+      { href: '/dashboard/stock/mappings', icon: '🔗', label: 'Statement Mapping' },
     ],
   },
   {
@@ -20,17 +30,9 @@ const NAV_SECTIONS = [
     ],
   },
   {
-    label: 'Stock Statement',
-    items: [
-      { href: '/dashboard/stock', icon: '📦', label: 'Stock Register' },
-      { href: '/dashboard/stock/new', icon: '📦', label: 'New Stock Entry' },
-    ],
-  },
-  {
     label: 'Configuration',
     items: [
-      { href: '/dashboard/ts/manage-statements', icon: '⚙️', label: 'Manage Statements' },
-      { href: '/dashboard/ts/manage-formulas', icon: '🧮', label: 'Manage Formulas' },
+      { href: '/dashboard/ts/config', icon: '🧮', label: 'STG Calculation Settings' },
       { action: 'settings', icon: '🔧', label: 'Shift Settings' },
     ],
   },
@@ -89,12 +91,15 @@ export default function Sidebar() {
                   if (href === '/dashboard/ts') {
                     return pathSegments[1] === 'dashboard' && 
                            pathSegments[2] === 'ts' && 
-                           !['new', 'new-stg', 'manage-statements', 'manage-formulas'].includes(pathSegments[3]);
+                           !['new', 'new-stg', 'config'].includes(pathSegments[3]);
                   }
                   if (href === '/dashboard/stock') {
                     return pathSegments[1] === 'dashboard' && 
                            pathSegments[2] === 'stock' && 
-                           pathSegments[3] !== 'new';
+                           pathSegments[3] !== 'new' &&
+                           pathSegments[3] !== 'products' &&
+                           pathSegments[3] !== 'mappings' &&
+                           pathSegments[3] !== 'periodical';
                   }
                   
                   return hrefSegments.every((seg: string, idx: number) => pathSegments[idx] === seg);

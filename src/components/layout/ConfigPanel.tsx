@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { useSidebar } from '@/context/SidebarContext';
+import { STOCK_PRODUCT_COLUMNS } from '@/lib/types';
 
 interface ShiftConfig {
   key: 'D' | 'N';
@@ -10,18 +11,64 @@ interface ShiftConfig {
   end: string;
 }
 
+interface ProductConfig {
+  key: string;
+  label: string;
+}
+
 export default function ConfigPanel() {
   const { configOpen, setConfigOpen } = useSidebar();
   const [shifts, setShifts] = useState<ShiftConfig[]>([
     { key: 'D', label: 'Day Shift', start: '06:00', end: '18:00' },
     { key: 'N', label: 'Night Shift', start: '18:00', end: '06:00' },
   ]);
+  const [mode, setMode] = useState<'full_day' | 'shift'>('full_day');
+  const [products, setProducts] = useState<ProductConfig[]>(() => [...STOCK_PRODUCT_COLUMNS]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
 
-  // Load shifts configuration from 1970-01-01 STOCK entry notes
+  const handleProductLabelChange = (key: string, label: string) => {
+    setProducts(prev => prev.map(p => p.key === key ? { ...p, label } : p));
+  };
+
+  const addProduct = () => {
+    const label = window.prompt("Enter new product name:");
+    if (!label || label.trim() === '') return;
+    const key = 'custom_prod_' + Date.now();
+    setProducts(prev => [...prev, { key, label: label.trim() }]);
+  };
+
+  const removeProduct = (key: string) => {
+    const ok = window.confirm("Are you sure you want to remove this product column?");
+    if (!ok) return;
+    setProducts(prev => prev.filter(p => p.key !== key));
+  };
+
+  const moveProductUp = (idx: number) => {
+    if (idx === 0) return;
+    setProducts(prev => {
+      const next = [...prev];
+      const temp = next[idx];
+      next[idx] = next[idx - 1];
+      next[idx - 1] = temp;
+      return next;
+    });
+  };
+
+  const moveProductDown = (idx: number) => {
+    if (idx === products.length - 1) return;
+    setProducts(prev => {
+      const next = [...prev];
+      const temp = next[idx];
+      next[idx] = next[idx + 1];
+      next[idx + 1] = temp;
+      return next;
+    });
+  };
+
+  // Load shifts configuration from STOCK entry notes
   useEffect(() => {
     if (!configOpen) return;
     let active = true;
@@ -30,17 +77,44 @@ export default function ConfigPanel() {
       setLoading(true);
       setError('');
       try {
-        const res = await fetch('/api/entries?report_type=STOCK&date=1970-01-01');
+        const res = await fetch('/api/entries?report_type=STOCK');
         if (!res.ok) {
           throw new Error('Failed to fetch shift configuration.');
         }
         const json = await res.json();
-        const configEntry = json.data?.[0];
+        const entries: any[] = json.data || [];
+        const configEntry = entries.find((e: any) => {
+          if (!e.notes || e.notes.includes('__METADATA__:')) return false;
+          try {
+            const parsed = JSON.parse(e.notes);
+            return parsed && typeof parsed === 'object' && !Array.isArray(parsed);
+          } catch { return false; }
+        });
         if (configEntry && configEntry.notes) {
-          const parsed = JSON.parse(configEntry.notes);
-          if (Array.isArray(parsed) && parsed.length === 2 && active) {
-            setShifts(parsed);
+          try {
+            const parsed = JSON.parse(configEntry.notes);
+            if (parsed && typeof parsed === 'object' && active) {
+              if (parsed.mode) {
+                setMode(parsed.mode);
+              } else {
+                setMode('shift'); // Legacy array configs default to shift mode
+              }
+              if (Array.isArray(parsed.shifts)) {
+                setShifts(parsed.shifts);
+              } else if (Array.isArray(parsed) && parsed.length === 2) {
+                setShifts(parsed);
+              }
+              if (Array.isArray(parsed.products)) {
+                setProducts(parsed.products);
+              } else {
+                setProducts([...STOCK_PRODUCT_COLUMNS]);
+              }
+            }
+          } catch (e) {
+            console.error('Failed parsing config notes:', e);
           }
+        } else if (active) {
+          setMode('full_day'); // default mode is full_day if not set yet
         }
       } catch (e) {
         console.error('Error loading shift config:', e);
@@ -64,10 +138,9 @@ export default function ConfigPanel() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          entry_date: '1970-01-01',
           report_type: 'STOCK',
           shift: null,
-          notes: JSON.stringify(shifts),
+          notes: JSON.stringify({ mode, shifts, products }),
         }),
       });
       if (!res.ok) {
@@ -136,77 +209,109 @@ export default function ConfigPanel() {
               </div>
             ) : (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
-                {/* Day Shift */}
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontWeight: 600, fontSize: '0.85rem' }}>
-                    ☀️ Day Shift Settings
-                  </div>
-                  <div className="form-group" style={{ marginBottom: 8 }}>
-                    <label className="form-label">Shift Name</label>
-                    <input
-                      type="text"
-                      className="form-input"
-                      value={shifts.find(s => s.key === 'D')?.label || ''}
-                      onChange={e => handleLabelChange('D', e.target.value)}
-                    />
-                  </div>
-                  <div className="form-row form-row-2">
-                    <div className="form-group" style={{ marginBottom: 0 }}>
-                      <label className="form-label">Start Time</label>
+                {/* Reporting Mode Selection */}
+                <div className="form-group" style={{ marginBottom: 8 }}>
+                  <label className="form-label" style={{ fontWeight: 600 }}>Reporting Mode</label>
+                  <div style={{ display: 'flex', gap: 16, marginTop: 6 }}>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: '0.85rem', cursor: 'pointer' }}>
                       <input
-                        type="time"
-                        className="form-input"
-                        value={shifts.find(s => s.key === 'D')?.start || ''}
-                        onChange={e => handleTimeChange('D', 'start', e.target.value)}
+                        type="radio"
+                        name="reportMode"
+                        value="full_day"
+                        checked={mode === 'full_day'}
+                        onChange={() => setMode('full_day')}
                       />
-                    </div>
-                    <div className="form-group" style={{ marginBottom: 0 }}>
-                      <label className="form-label">End Time</label>
+                      🗓️ Full Day
+                    </label>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: '0.85rem', cursor: 'pointer' }}>
                       <input
-                        type="time"
-                        className="form-input"
-                        value={shifts.find(s => s.key === 'D')?.end || ''}
-                        onChange={e => handleTimeChange('D', 'end', e.target.value)}
+                        type="radio"
+                        name="reportMode"
+                        value="shift"
+                        checked={mode === 'shift'}
+                        onChange={() => setMode('shift')}
                       />
-                    </div>
+                      ⏱️ Shift-wise
+                    </label>
                   </div>
                 </div>
 
-                {/* Night Shift */}
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontWeight: 600, fontSize: '0.85rem' }}>
-                    🌙 Night Shift Settings
-                  </div>
-                  <div className="form-group" style={{ marginBottom: 8 }}>
-                    <label className="form-label">Shift Name</label>
-                    <input
-                      type="text"
-                      className="form-input"
-                      value={shifts.find(s => s.key === 'N')?.label || ''}
-                      onChange={e => handleLabelChange('N', e.target.value)}
-                    />
-                  </div>
-                  <div className="form-row form-row-2">
-                    <div className="form-group" style={{ marginBottom: 0 }}>
-                      <label className="form-label">Start Time</label>
-                      <input
-                        type="time"
-                        className="form-input"
-                        value={shifts.find(s => s.key === 'N')?.start || ''}
-                        onChange={e => handleTimeChange('N', 'start', e.target.value)}
-                      />
+                {/* Show Shift configuration inputs only if shift-wise mode is active */}
+                {mode === 'shift' && (
+                  <>
+                    {/* Day Shift */}
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontWeight: 600, fontSize: '0.85rem' }}>
+                        ☀️ Day Shift Settings
+                      </div>
+                      <div className="form-group" style={{ marginBottom: 8 }}>
+                        <label className="form-label">Shift Name</label>
+                        <input
+                          type="text"
+                          className="form-input"
+                          value={shifts.find(s => s.key === 'D')?.label || ''}
+                          onChange={e => handleLabelChange('D', e.target.value)}
+                        />
+                      </div>
+                      <div className="form-row form-row-2">
+                        <div className="form-group" style={{ marginBottom: 0 }}>
+                          <label className="form-label">Start Time</label>
+                          <input
+                            type="time"
+                            className="form-input"
+                            value={shifts.find(s => s.key === 'D')?.start || ''}
+                            onChange={e => handleTimeChange('D', 'start', e.target.value)}
+                          />
+                        </div>
+                        <div className="form-group" style={{ marginBottom: 0 }}>
+                          <label className="form-label">End Time</label>
+                          <input
+                            type="time"
+                            className="form-input"
+                            value={shifts.find(s => s.key === 'D')?.end || ''}
+                            onChange={e => handleTimeChange('D', 'end', e.target.value)}
+                          />
+                        </div>
+                      </div>
                     </div>
-                    <div className="form-group" style={{ marginBottom: 0 }}>
-                      <label className="form-label">End Time</label>
-                      <input
-                        type="time"
-                        className="form-input"
-                        value={shifts.find(s => s.key === 'N')?.end || ''}
-                        onChange={e => handleTimeChange('N', 'end', e.target.value)}
-                      />
+
+                    {/* Night Shift */}
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontWeight: 600, fontSize: '0.85rem' }}>
+                        🌙 Night Shift Settings
+                      </div>
+                      <div className="form-group" style={{ marginBottom: 8 }}>
+                        <label className="form-label">Shift Name</label>
+                        <input
+                          type="text"
+                          className="form-input"
+                          value={shifts.find(s => s.key === 'N')?.label || ''}
+                          onChange={e => handleLabelChange('N', e.target.value)}
+                        />
+                      </div>
+                      <div className="form-row form-row-2">
+                        <div className="form-group" style={{ marginBottom: 0 }}>
+                          <label className="form-label">Start Time</label>
+                          <input
+                            type="time"
+                            className="form-input"
+                            value={shifts.find(s => s.key === 'N')?.start || ''}
+                            onChange={e => handleTimeChange('N', 'start', e.target.value)}
+                          />
+                        </div>
+                        <div className="form-group" style={{ marginBottom: 0 }}>
+                          <label className="form-label">End Time</label>
+                          <input
+                            type="time"
+                            className="form-input"
+                            value={shifts.find(s => s.key === 'N')?.end || ''}
+                            onChange={e => handleTimeChange('N', 'end', e.target.value)}
+                          />
+                        </div>
+                      </div>
                     </div>
-                  </div>
-                </div>
+                  </>
+                )}
               </div>
             )}
           </div>

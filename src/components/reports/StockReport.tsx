@@ -5,33 +5,35 @@
 'use client';
 
 import type { StockRow, SeparationDetails } from '@/lib/types';
-import { STOCK_PRODUCT_COLUMNS, STOCK_RECEIPT_LABELS, STOCK_DISPOSAL_LABELS } from '@/lib/types';
+import { STOCK_PRODUCT_COLUMNS } from '@/lib/types';
 import { fmtNum } from '@/lib/calculations';
 
 interface Props {
   rows: StockRow[];
   separation?: SeparationDetails | null;
   date: string;
-  shift: 'D' | 'N' | 'COMBINED';
+  shift: 'D' | 'N' | 'COMBINED' | 'FULL_DAY';
   notes?: string | null;
+  products?: Array<{ key: string; label: string }> | null;
 }
 
 function ColNum({ val }: { val: number }) {
   const abs = Math.abs(val);
   const color = val < 0 ? '#ef4444' : val > 0 ? 'inherit' : 'var(--text-muted)';
-  return <td className="num" style={{ color, fontSize: '0.78rem' }}>{val === 0 ? '—' : fmtNum(abs)}</td>;
+  return <td className="num" style={{ color, fontSize: '0.78rem', fontFamily: 'var(--font-numbers)' }}>{val === 0 ? '—' : fmtNum(abs)}</td>;
 }
 
-export default function StockReport({ rows, separation, date, shift, notes }: Props) {
+export default function StockReport({ rows, separation, date, shift, notes, products }: Props) {
   const dateDisplay = new Date(date).toLocaleDateString('en-IN', {
     day: '2-digit', month: '2-digit', year: 'numeric',
   });
 
-  const shiftLabel = shift === 'D' ? 'Day (D)' : shift === 'N' ? 'Night (N)' : 'Combined (D+N)';
+  const shiftLabel = shift === 'D' ? 'Day (D)' : shift === 'N' ? 'Night (N)' : shift === 'FULL_DAY' ? 'Full Day' : 'Combined (D+N)';
 
   // Parse custom columns and values from notes metadata
-  let columns = [...STOCK_PRODUCT_COLUMNS];
+  let columns = products && products.length > 0 ? [...products] : [...STOCK_PRODUCT_COLUMNS];
   const customValues: Record<string, Record<string, number>> = {}; // rowLabel -> colKey -> val
+  let cleanNotes = notes || '';
 
   if (notes) {
     // If combined view, we might have multiple metadata blocks merged
@@ -63,13 +65,20 @@ export default function StockReport({ rows, separation, date, shift, notes }: Pr
         }
       }
     });
+
+    cleanNotes = notesParts
+      .filter(part => !part.includes('__METADATA__:'))
+      .join('\n')
+      .trim();
   }
 
   // Dynamic sum helper for both standard and custom columns
+  const DB_COLUMNS = ['wh_milk', 'dlt_milk', 'fc_milk', 'std_milk', 'toned_curd', 'dtm', 'skim_milk', 'cream', 'butter_milk', 'r_con', 'smp', 'water'];
+
   const getSum = (rowType: 'OB' | 'RECEIPT' | 'DISPOSAL' | 'PHYSICAL', colKey: string): number => {
     const matchingRows = rows.filter(r => r.row_type === rowType);
     return matchingRows.reduce((sum, r) => {
-      if (STOCK_PRODUCT_COLUMNS.some(dc => dc.key === colKey)) {
+      if (DB_COLUMNS.includes(colKey)) {
         return sum + (Number(r[colKey as keyof StockRow]) || 0);
       } else {
         const rowVals = customValues[r.row_label];
@@ -78,45 +87,73 @@ export default function StockReport({ rows, separation, date, shift, notes }: Pr
     }, 0);
   };
 
-  // Helper to render a group of labelled rows
-  const renderRows = (labels: readonly string[], rowType: 'RECEIPT' | 'DISPOSAL') => {
-    return labels.map(label => {
-      const row = rows.find(r => r.row_type === rowType && r.row_label === label);
+  // Helper to render dynamic rows from database matching a rowType
+  const renderRows = (rowType: 'RECEIPT' | 'DISPOSAL') => {
+    const matchingRows = [...rows]
+      .filter(r => r.row_type === rowType)
+      .sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0));
+
+    return matchingRows.map(row => {
+      const label = row.row_label;
+      const rowTotal = columns.reduce((sum, col) => {
+        if (DB_COLUMNS.includes(col.key)) {
+          return sum + (Number(row[col.key as keyof StockRow]) || 0);
+        } else {
+          const rowVals = customValues[label];
+          return sum + (rowVals ? (rowVals[col.key] || 0) : 0);
+        }
+      }, 0);
+
       return (
         <tr key={label}>
           <td style={{ paddingLeft: 20, color: 'var(--text-secondary)', fontSize: '0.78rem' }}>{label}</td>
           {columns.map(col => {
             let val = 0;
-            if (STOCK_PRODUCT_COLUMNS.some(dc => dc.key === col.key)) {
-              val = row ? Number(row[col.key as keyof StockRow]) : 0;
+            if (DB_COLUMNS.includes(col.key)) {
+              val = Number(row[col.key as keyof StockRow]) || 0;
             } else {
-              val = (row && customValues[label]) ? (customValues[label][col.key] || 0) : 0;
+              val = customValues[label] ? (customValues[label][col.key] || 0) : 0;
             }
             return <ColNum key={col.key} val={val} />;
           })}
+          <td className="num text-right" style={{ fontWeight: 700, fontSize: '0.78rem', fontFamily: 'var(--font-numbers)', paddingRight: 8 }}>
+            {rowTotal === 0 ? '—' : fmtNum(rowTotal)}
+          </td>
         </tr>
       );
     });
   };
 
-  const renderSummaryRow = (label: string, rowType: 'OB' | 'RECEIPT_TOTAL' | 'DISPOSAL_TOTAL' | 'CB', style?: React.CSSProperties) => (
-    <tr key={label} style={style}>
-      <td style={{ fontWeight: 700, color: 'var(--text-primary)', paddingLeft: 8 }}>{label}</td>
-      {columns.map(col => {
-        let val = 0;
-        if (rowType === 'OB') {
-          val = getSum('OB', col.key);
-        } else if (rowType === 'RECEIPT_TOTAL') {
-          val = getSum('RECEIPT', col.key);
-        } else if (rowType === 'DISPOSAL_TOTAL') {
-          val = getSum('DISPOSAL', col.key);
-        } else if (rowType === 'CB') {
-          val = getSum('OB', col.key) + getSum('RECEIPT', col.key) - getSum('DISPOSAL', col.key);
-        }
-        return <ColNum key={col.key} val={val} />;
-      })}
-    </tr>
-  );
+  const renderSummaryRow = (label: string, rowType: 'OB' | 'RECEIPT_TOTAL' | 'OB_RECEIPT_TOTAL' | 'DISPOSAL_TOTAL' | 'CB', style?: React.CSSProperties) => {
+    const rowValues = columns.map(col => {
+      let val = 0;
+      if (rowType === 'OB') {
+        val = getSum('OB', col.key);
+      } else if (rowType === 'RECEIPT_TOTAL') {
+        val = getSum('RECEIPT', col.key);
+      } else if (rowType === 'OB_RECEIPT_TOTAL') {
+        val = getSum('OB', col.key) + getSum('RECEIPT', col.key);
+      } else if (rowType === 'DISPOSAL_TOTAL') {
+        val = getSum('DISPOSAL', col.key);
+      } else if (rowType === 'CB') {
+        val = getSum('OB', col.key) + getSum('RECEIPT', col.key) - getSum('DISPOSAL', col.key);
+      }
+      return val;
+    });
+    const rowTotal = rowValues.reduce((sum, val) => sum + val, 0);
+
+    return (
+      <tr key={label} style={style}>
+        <td style={{ fontWeight: 700, color: 'var(--text-primary)', paddingLeft: 8 }}>{label}</td>
+        {columns.map((col, idx) => (
+          <ColNum key={col.key} val={rowValues[idx]} />
+        ))}
+        <td className="num text-right" style={{ fontWeight: 700, fontSize: '0.78rem', fontFamily: 'var(--font-numbers)', paddingRight: 8 }}>
+          {rowTotal === 0 ? '—' : fmtNum(rowTotal)}
+        </td>
+      </tr>
+    );
+  };
 
   return (
     <div>
@@ -128,9 +165,10 @@ export default function StockReport({ rows, separation, date, shift, notes }: Pr
         <div style={{ fontSize: '0.875rem', color: 'var(--brand-primary)', fontWeight: 600, marginTop: 4 }}>
           NKL — MILK AND CREAM STOCK STATEMENT
         </div>
-        <div style={{ display: 'flex', gap: 24, marginTop: 4 }}>
+        <div style={{ display: 'flex', gap: 24, marginTop: 4, fontFamily: 'var(--font-numbers)' }}>
           <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>DATE: {dateDisplay}</div>
           <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>SHIFT: {shiftLabel}</div>
+          {cleanNotes && <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>NOTES: {cleanNotes}</div>}
         </div>
       </div>
 
@@ -138,10 +176,11 @@ export default function StockReport({ rows, separation, date, shift, notes }: Pr
         <table className="report-table" style={{ width: '100%', fontSize: '0.78rem' }}>
           <thead>
             <tr>
-              <th style={{ minWidth: 160 }}>Receipt</th>
+              <th style={{ minWidth: 160 }}>Particulars</th>
               {columns.map(col => (
                 <th key={col.key} className="num" style={{ minWidth: 80, fontSize: '0.65rem' }}>{col.label}</th>
               ))}
+              <th className="num text-right" style={{ minWidth: 90, fontSize: '0.65rem', fontWeight: 700, paddingRight: 8 }}>Total</th>
             </tr>
           </thead>
           <tbody>
@@ -152,7 +191,7 @@ export default function StockReport({ rows, separation, date, shift, notes }: Pr
 
             {/* Receipt header */}
             <tr>
-              <td colSpan={columns.length + 1} style={{
+              <td colSpan={columns.length + 2} style={{
                 background: 'rgba(16,185,129,0.08)',
                 color: '#10b981',
                 fontWeight: 700,
@@ -164,14 +203,18 @@ export default function StockReport({ rows, separation, date, shift, notes }: Pr
                 Receipts
               </td>
             </tr>
-            {renderRows(STOCK_RECEIPT_LABELS, 'RECEIPT')}
+            {renderRows('RECEIPT')}
             {renderSummaryRow('TOTAL (Receipts)', 'RECEIPT_TOTAL', {
               background: 'rgba(16,185,129,0.06)',
+            })}
+            {renderSummaryRow('TOTAL (OB + Receipts)', 'OB_RECEIPT_TOTAL', {
+              background: 'rgba(16,185,129,0.12)',
+              fontWeight: 700,
             })}
 
             {/* Disposal header */}
             <tr>
-              <td colSpan={columns.length + 1} style={{
+              <td colSpan={columns.length + 2} style={{
                 background: 'rgba(245,158,11,0.08)',
                 color: '#f59e0b',
                 fontWeight: 700,
@@ -183,7 +226,7 @@ export default function StockReport({ rows, separation, date, shift, notes }: Pr
                 Disposals
               </td>
             </tr>
-            {renderRows(STOCK_DISPOSAL_LABELS, 'DISPOSAL')}
+            {renderRows('DISPOSAL')}
             {renderSummaryRow('TOTAL (Disposals)', 'DISPOSAL_TOTAL', {
               background: 'rgba(245,158,11,0.06)',
             })}
@@ -194,67 +237,9 @@ export default function StockReport({ rows, separation, date, shift, notes }: Pr
               fontWeight: 700,
             })}
 
-            {/* Physical */}
-            <tr>
-              <td style={{ fontWeight: 600, color: 'var(--text-secondary)', paddingLeft: 8 }}>Physical Count</td>
-              {columns.map(col => (
-                <ColNum key={col.key} val={getSum('PHYSICAL', col.key)} />
-              ))}
-            </tr>
-
-            {/* Difference */}
-            <tr>
-              <td style={{ fontWeight: 700, color: '#ef4444', paddingLeft: 8 }}>DIFFERENCE</td>
-              {columns.map(col => {
-                const cb = getSum('OB', col.key) + getSum('RECEIPT', col.key) - getSum('DISPOSAL', col.key);
-                const phys = getSum('PHYSICAL', col.key);
-                const diff = phys - cb;
-                return (
-                  <td key={col.key} className="num" style={{
-                    color: diff < 0 ? '#ef4444' : diff > 0 ? '#10b981' : 'var(--text-muted)',
-                    fontWeight: 600,
-                    fontSize: '0.78rem',
-                  }}>
-                    {diff === 0 ? '—' : (diff > 0 ? '+' : '') + fmtNum(diff)}
-                  </td>
-                );
-              })}
-            </tr>
           </tbody>
         </table>
       </div>
-
-      {/* Separation Details */}
-      {separation && (
-        <div className="card" style={{ marginTop: 16 }}>
-          <div className="section-title" style={{ marginBottom: 12 }}>⚗️ Separation Details</div>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 16 }}>
-            <div>
-              <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginBottom: 6, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-                Whole Milk (WM)
-              </div>
-              <div style={{ fontSize: '0.875rem' }}>Fat %: <strong>{separation.wm_fat_pct}</strong></div>
-              <div style={{ fontSize: '0.875rem' }}>SNF %: <strong>{separation.wm_snf_pct}</strong></div>
-            </div>
-            <div>
-              <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginBottom: 6, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-                Cream
-              </div>
-              <div style={{ fontSize: '0.875rem' }}>Qty (Lts): <strong>{separation.cream_lts}</strong></div>
-              <div style={{ fontSize: '0.875rem' }}>Fat %: <strong>{separation.cream_fat_pct}</strong></div>
-              <div style={{ fontSize: '0.875rem' }}>SNF %: <strong>{separation.cream_snf_pct}</strong></div>
-            </div>
-            <div>
-              <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginBottom: 6, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-                SSM
-              </div>
-              <div style={{ fontSize: '0.875rem' }}>Qty (Lts): <strong>{separation.ssm_lts}</strong></div>
-              <div style={{ fontSize: '0.875rem' }}>Fat %: <strong>{separation.ssm_fat_pct}</strong></div>
-              <div style={{ fontSize: '0.875rem' }}>SNF %: <strong>{separation.ssm_snf_pct}</strong></div>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }

@@ -29,7 +29,11 @@ export async function GET(req: NextRequest) {
     } else if (type === 'month' && month) {
       const [y, m] = month.split('-');
       const start = `${y}-${m}-01`;
-      const end = new Date(Number(y), Number(m), 0).toISOString().split('T')[0];
+      const endDate = new Date(Number(y), Number(m), 0);
+      const endY = endDate.getFullYear();
+      const endM = String(endDate.getMonth() + 1).padStart(2, '0');
+      const endD = String(endDate.getDate()).padStart(2, '0');
+      const end = `${endY}-${endM}-${endD}`;
       query = query.gte('entry_date', start).lte('entry_date', end);
     } else if (type === 'year' && year) {
       query = query.gte('entry_date', `${year}-01-01`).lte('entry_date', `${year}-12-31`);

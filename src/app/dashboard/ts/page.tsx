@@ -10,6 +10,7 @@ import type { Entry } from '@/lib/types';
 export default function TSListPage() {
   const router = useRouter();
   const [entries, setEntries] = useState<Entry[]>([]);
+  const [reportMode, setReportMode] = useState<'full_day' | 'shift'>('full_day');
   const [loading, setLoading] = useState(true);
   const [month, setMonth] = useState(() => {
     const d = new Date();
@@ -20,6 +21,28 @@ export default function TSListPage() {
     async function load() {
       setLoading(true);
       try {
+        // Load report mode configuration
+        let parsedMode: 'full_day' | 'shift' = 'full_day';
+        try {
+          const configRes = await fetch('/api/entries?report_type=STOCK');
+          if (configRes.ok) {
+            const configJson = await configRes.json();
+            const entries: any[] = configJson.data || [];
+            const configEntry = entries.find((e: any) => e.entry_date === '1970-01-01') || entries.find((e: any) => e.notes && !e.notes.includes('__METADATA__:'));
+            if (configEntry && configEntry.notes) {
+              try {
+                const parsed = JSON.parse(configEntry.notes);
+                if (parsed && typeof parsed === 'object') {
+                  if (parsed.mode) parsedMode = parsed.mode;
+                }
+              } catch (e) {}
+            }
+          }
+        } catch (err) {
+          console.error('Error loading config in TS list page:', err);
+        }
+        setReportMode(parsedMode);
+
         const res = await fetch(`/api/entries?report_type=TS&month=${month}`);
         const json = await res.json();
         setEntries((json.data || []) as Entry[]);
@@ -79,7 +102,7 @@ export default function TSListPage() {
                   <tr>
                     <th>Date</th>
                     <th>Day</th>
-                    <th>Shift</th>
+                    {reportMode === 'shift' && <th>Shift</th>}
                     <th>Created</th>
                     <th>Actions</th>
                   </tr>
@@ -105,15 +128,17 @@ export default function TSListPage() {
                         <td style={{ color: 'var(--text-secondary)' }}>
                           {new Date(e.entry_date + 'T00:00:00').toLocaleDateString('en-IN', { weekday: 'long' })}
                         </td>
-                        <td>
-                          {e.shift ? (
-                            <span className={`badge ${e.shift === 'D' ? 'badge-day' : 'badge-night'}`}>
-                              {e.shift === 'D' ? '☀️ Day' : '🌙 Night'}
-                            </span>
-                          ) : (
-                            <span className="badge badge-blue">🗓️ Full Day</span>
-                          )}
-                        </td>
+                        {reportMode === 'shift' && (
+                          <td>
+                            {e.shift ? (
+                              <span className={`badge ${e.shift === 'D' ? 'badge-day' : 'badge-night'}`}>
+                                {e.shift === 'D' ? '☀️ Day' : '🌙 Night'}
+                              </span>
+                            ) : (
+                              <span className="badge badge-blue">🗓️ Full Day</span>
+                            )}
+                          </td>
+                        )}
                         <td style={{ color: 'var(--text-muted)', fontSize: '0.75rem' }}>
                           {new Date(e.created_at).toLocaleDateString('en-IN')}
                         </td>
