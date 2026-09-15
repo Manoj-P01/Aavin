@@ -10,6 +10,7 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import type { Shift } from '@/lib/types';
 import { STOCK_RECEIPT_LABELS, STOCK_DISPOSAL_LABELS, STOCK_PRODUCT_COLUMNS } from '@/lib/types';
 import Header from '@/components/layout/Header';
+import Step, { DAILY_ENTRY_STEP_ITEMS } from '@/components/ui/Step';
 import Link from 'next/link';
 
 type ColKey = string;
@@ -34,14 +35,32 @@ function makeDefaultRows(receipts: any[] = ["Receipts:"], disposals: any[] = ["T
   ];
 }
 
-export default function StockEntryForm() {
+export interface StockEntryFormProps {
+  stepMode?: boolean;
+  activeStep?: string;
+  onStepChange?: (stepKey: string) => void;
+  onNextStep?: () => void;
+  onDateShiftChange?: (date: string, shift: Shift) => void;
+  initialDate?: string;
+  initialShift?: Shift;
+}
+
+export default function StockEntryForm({
+  stepMode = false,
+  activeStep,
+  onStepChange,
+  onNextStep,
+  onDateShiftChange,
+  initialDate,
+  initialShift,
+}: StockEntryFormProps = {}) {
   const router = useRouter();
   const searchParams = useSearchParams();
   const paramDate = searchParams.get('date');
   const paramShift = searchParams.get('shift');
 
-  const [entryDate, setEntryDate] = useState(paramDate || new Date().toISOString().split('T')[0]);
-  const [shift, setShift] = useState<Shift>(paramShift === 'N' || paramShift === 'D' ? paramShift : 'D');
+  const [entryDate, setEntryDate] = useState(initialDate || paramDate || new Date().toISOString().split('T')[0]);
+  const [shift, setShift] = useState<Shift>(initialShift || (paramShift === 'N' || paramShift === 'D' ? paramShift : 'D'));
   const [shiftConfigs, setShiftConfigs] = useState<any[]>([
     { key: 'D', label: 'Day Shift', start: '06:00', end: '18:00' },
     { key: 'N', label: 'Night Shift', start: '18:00', end: '06:00' },
@@ -91,6 +110,24 @@ export default function StockEntryForm() {
     { targetKey: 'skim_milk', value: '' },
     { targetKey: 'cream', value: '' },
   ]);
+
+  useEffect(() => {
+    async function loadMasterDairies() {
+      try {
+        const res = await fetch('/api/master/dairies');
+        const json = await res.json();
+        if (res.ok && Array.isArray(json.data) && json.data.length > 0) {
+          const activeDairies = json.data.filter((d: any) => d.is_active !== false).map((d: any) => d.dairy_name);
+          if (activeDairies.length > 0) {
+            setPresetDairies(activeDairies);
+          }
+        }
+      } catch (err) {
+        console.warn('Failed loading master dairies:', err);
+      }
+    }
+    loadMasterDairies();
+  }, []);
   // Active/focused cursor row tracking and keyboard navigation
   const [focusedRowIdx, setFocusedRowIdx] = useState<number | null>(null);
 
@@ -1155,27 +1192,31 @@ export default function StockEntryForm() {
       if (nextAction === 'view') {
         router.push(`/dashboard/stock/${entryDate}/${shift}`);
       } else if (nextAction === 'next') {
-        // Advance to next shift or day
-        if (reportMode === 'shift') {
-          if (shift === 'D') {
-            setShift('N');
+        if (onNextStep) {
+          onNextStep();
+        } else {
+          // Advance to next shift or day
+          if (reportMode === 'shift') {
+            if (shift === 'D') {
+              setShift('N');
+            } else {
+              const [year, month, day] = entryDate.split('-').map(Number);
+              const nextDate = new Date(year, month - 1, day + 1);
+              const yyyy = nextDate.getFullYear();
+              const mm = String(nextDate.getMonth() + 1).padStart(2, '0');
+              const dd = String(nextDate.getDate()).padStart(2, '0');
+              setEntryDate(`${yyyy}-${mm}-${dd}`);
+              setShift('D');
+            }
           } else {
+            // Full Day mode: advance to next day
             const [year, month, day] = entryDate.split('-').map(Number);
             const nextDate = new Date(year, month - 1, day + 1);
             const yyyy = nextDate.getFullYear();
             const mm = String(nextDate.getMonth() + 1).padStart(2, '0');
             const dd = String(nextDate.getDate()).padStart(2, '0');
             setEntryDate(`${yyyy}-${mm}-${dd}`);
-            setShift('D');
           }
-        } else {
-          // Full Day mode: advance to next day
-          const [year, month, day] = entryDate.split('-').map(Number);
-          const nextDate = new Date(year, month - 1, day + 1);
-          const yyyy = nextDate.getFullYear();
-          const mm = String(nextDate.getMonth() + 1).padStart(2, '0');
-          const dd = String(nextDate.getDate()).padStart(2, '0');
-          setEntryDate(`${yyyy}-${mm}-${dd}`);
         }
       }
     } catch (e: unknown) {
@@ -1683,7 +1724,17 @@ export default function StockEntryForm() {
         actions={
           <Link href="/dashboard/stock" className="btn btn-secondary btn-sm">← Back to Stock List</Link>
         }
-      />
+      >
+        {stepMode && (
+          <Step
+            items={DAILY_ENTRY_STEP_ITEMS}
+            flat={true}
+            activeStep={activeStep || 'stock'}
+            onStepClick={(key) => onStepChange?.(key)}
+            style={{ marginBottom: 0, marginTop: 4 }}
+          />
+        )}
+      </Header>
       <div className="form-container">
         {/* Header */}
         <div className="card" style={{ marginBottom: 20 }}>
@@ -1750,9 +1801,9 @@ export default function StockEntryForm() {
                 <input
                   type="text"
                   className="form-input"
-                  value="Full Day"
+                  value="F (Full Day)"
                   disabled
-                  style={{ background: '#f1f5f9', color: '#64748b', cursor: 'not-allowed' }}
+                  style={{ background: '#f1f5f9', color: '#1e293b', fontWeight: 600, cursor: 'not-allowed' }}
                 />
               </div>
             )}
@@ -1795,27 +1846,55 @@ export default function StockEntryForm() {
             >
               💾 Save progress
             </button>
-            <button
-              type="button"
-              className="btn btn-secondary"
-              onClick={() => handleSave('next')}
-              disabled={saving}
-              style={{ display: 'flex', alignItems: 'center', gap: 6 }}
-            >
-              ⏭️ Save & Continue (Next)
-            </button>
-            <button
-              type="button"
-              className="btn btn-primary"
-              onClick={async () => {
-                await handleSave('stay');
-                router.push(`/dashboard/ts/new-stg?date=${entryDate}${shift ? `&shift=${shift}` : ''}`);
-              }}
-              disabled={saving}
-              style={{ display: 'flex', alignItems: 'center', gap: 6, background: 'linear-gradient(135deg, #0284c7 0%, #0d9488 100%)', borderColor: '#0284c7' }}
-            >
-              💾 Save & Open Solid Balance (STG) Entry ➔
-            </button>
+            {stepMode ? (
+              <button
+                type="button"
+                className="btn btn-primary"
+                onClick={() => handleSave('next')}
+                disabled={saving}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 6,
+                  background: 'linear-gradient(135deg, #0ea5e9 0%, #10b981 100%)',
+                  borderColor: '#0ea5e9',
+                  fontWeight: 700,
+                  boxShadow: '0 4px 12px rgba(14, 165, 233, 0.25)',
+                }}
+              >
+                {saving ? (
+                  <>
+                    <span className="spinner" style={{ width: 16, height: 16 }} /> Compiling STG & TS...
+                  </>
+                ) : (
+                  <>Next: Generate STG & TS ➔</>
+                )}
+              </button>
+            ) : (
+              <>
+                <button
+                  type="button"
+                  className="btn btn-secondary"
+                  onClick={() => handleSave('next')}
+                  disabled={saving}
+                  style={{ display: 'flex', alignItems: 'center', gap: 6 }}
+                >
+                  ⏭️ Save & Continue (Next)
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-primary"
+                  onClick={async () => {
+                    await handleSave('stay');
+                    router.push(`/dashboard/ts/new-stg?date=${entryDate}${shift ? `&shift=${shift}` : ''}`);
+                  }}
+                  disabled={saving}
+                  style={{ display: 'flex', alignItems: 'center', gap: 6, background: 'linear-gradient(135deg, #0284c7 0%, #0d9488 100%)', borderColor: '#0284c7' }}
+                >
+                  💾 Save & Open Solid Balance (STG) Entry ➔
+                </button>
+              </>
+            )}
             <button
               id="stock-save-btn"
               className="btn btn-primary"

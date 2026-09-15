@@ -44,4 +44,5 @@ next-env.d.ts
 .env.local
 config.md
 local_db copy.json
+local_db.json
 

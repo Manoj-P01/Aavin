@@ -122,6 +122,8 @@ export async function POST(req: NextRequest) {
 
     const supabase = getSupabaseServiceClient();
 
+    const actorUsername = req.headers.get('x-user-name') || 'admin';
+
     // Compute or use manual values for TS rows
     const tsRowsWithCalc = (ts_rows || []).map((r, i) => {
       const qty_kg = Number(r.qty_kg) || 0;
@@ -146,6 +148,8 @@ export async function POST(req: NextRequest) {
         kg_snf,
         remarks: r.remarks || null,
         sort_order: r.sort_order ?? i,
+        created_by: actorUsername,
+        updated_by: actorUsername,
       };
     });
 
@@ -169,6 +173,8 @@ export async function POST(req: NextRequest) {
         kg_fat,
         kg_snf,
         sort_order: r.sort_order ?? i,
+        created_by: actorUsername,
+        updated_by: actorUsername,
       };
     });
 

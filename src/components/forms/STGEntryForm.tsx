@@ -8,6 +8,8 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import Link from 'next/link';
+import Header from '@/components/layout/Header';
+import Step, { DAILY_ENTRY_STEP_ITEMS } from '@/components/ui/Step';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { fmtNum } from '@/lib/calculations';
 import { CALC_CONFIG } from '@/lib/config';
@@ -102,21 +104,37 @@ function hasAnySTGCellValue(item: STGItemInput) {
   ].some(value => value.trim() !== '');
 }
 
+export interface STGEntryFormProps {
+  onRegisterActions?: (actions: { handleSave: () => void; saving: boolean }) => void;
+  saveButtonRef?: React.RefObject<HTMLDivElement | null>;
+  stepMode?: boolean;
+  activeStep?: string;
+  onStepChange?: (stepKey: string) => void;
+  onNextStep?: () => void;
+  onPrevStep?: () => void;
+  initialDate?: string;
+  initialShift?: Shift | null;
+}
+
 export default function STGEntryForm({
   onRegisterActions,
   saveButtonRef,
-}: {
-  onRegisterActions?: (actions: { handleSave: () => void; saving: boolean }) => void;
-  saveButtonRef?: React.RefObject<HTMLDivElement | null>;
-}) {
+  stepMode = false,
+  activeStep,
+  onStepChange,
+  onNextStep,
+  onPrevStep,
+  initialDate,
+  initialShift,
+}: STGEntryFormProps) {
   const router = useRouter();
   const searchParams = useSearchParams();
   const paramDate = searchParams.get('date');
   const paramShift = searchParams.get('shift');
 
-  const [entryDate, setEntryDate] = useState(paramDate || new Date().toISOString().split('T')[0]);
+  const [entryDate, setEntryDate] = useState(initialDate || paramDate || new Date().toISOString().split('T')[0]);
   const [shift, setShift] = useState<Shift | null>(
-    (paramShift === 'D' || paramShift === 'N') ? paramShift : null
+    initialShift !== undefined ? initialShift : ((paramShift === 'D' || paramShift === 'N') ? paramShift : null)
   );
   const [shiftConfigs, setShiftConfigs] = useState<any[]>([
     { key: 'D', label: 'Day Shift', start: '06:00', end: '18:00' },
@@ -2768,7 +2786,25 @@ export default function STGEntryForm({
   };
 
   return (
-    <div className="form-container">
+    <>
+      {stepMode && (
+        <Header
+          title="New Stock Statement Entry"
+          subtitle={`Solid Balance Details (STG) - Auto-compiled Receipts & Disposals (${reportMode === 'full_day' ? 'Full Day' : (shift === 'D' ? 'Day Shift' : 'Night Shift')})`}
+          actions={
+            <Link href="/dashboard/stock" className="btn btn-secondary btn-sm">← Back to Stock List</Link>
+          }
+        >
+          <Step
+            items={DAILY_ENTRY_STEP_ITEMS}
+            flat={true}
+            activeStep={activeStep || 'stg'}
+            onStepClick={(key) => onStepChange?.(key)}
+            style={{ marginBottom: 0, marginTop: 4 }}
+          />
+        </Header>
+      )}
+      <div className="form-container">
       {/* Top action buttons */}
       <div ref={saveButtonRef} className="no-print" style={{ display: 'flex', gap: 12, justifyContent: 'flex-end', alignItems: 'center', marginBottom: 20 }}>
         {error && <span style={{ fontSize: '0.82rem', color: 'var(--brand-danger)', fontWeight: 600 }}>⚠️ {error}</span>}
@@ -2827,15 +2863,15 @@ export default function STGEntryForm({
                 <div style={{ display: 'flex', gap: 8, marginTop: 6 }}>
                   <button
                     type="button"
-                    className={`btn ${!shift ? 'btn-primary' : 'btn-secondary'}`}
-                    onClick={() => setShift(null)}
+                    className={`btn ${shift === 'F' || !shift ? 'btn-primary' : 'btn-secondary'}`}
+                    onClick={() => setShift('F')}
                     style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '10px 16px' }}
                   >
-                    <span style={{ fontWeight: 600, fontSize: '0.875rem' }}>🗓️ Full Day</span>
+                    <span style={{ fontWeight: 600, fontSize: '0.875rem' }}>🗓️ Full Day (F)</span>
                   </button>
                   <button
                     type="button"
-                    className={`btn ${shift ? 'btn-primary' : 'btn-secondary'}`}
+                    className={`btn ${shift === 'D' || shift === 'N' ? 'btn-primary' : 'btn-secondary'}`}
                     onClick={() => setShift('D')}
                     style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '10px 16px' }}
                   >
@@ -2915,6 +2951,50 @@ export default function STGEntryForm({
         {enabledBlockKeys.length === 0 && (
           <div className="card" style={{ padding: 40, textAlign: 'center', color: 'var(--text-muted)' }}>
             ⚠️ All statements have been excluded for this shift. Please add at least one statement block above.
+          </div>
+        )}
+
+        {stepMode && (
+          <div
+            className="no-print"
+            style={{
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              padding: '16px 20px',
+              background: 'var(--surface)',
+              borderRadius: 12,
+              border: '1px solid var(--border)',
+              marginTop: 20,
+              boxShadow: '0 4px 12px rgba(0, 0, 0, 0.03)',
+            }}
+          >
+            <button
+              type="button"
+              className="btn btn-secondary"
+              onClick={onPrevStep}
+              style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}
+            >
+              ← Back to Stock Entry
+            </button>
+            <button
+              type="button"
+              className="btn btn-primary"
+              onClick={async () => {
+                if (onNextStep) onNextStep();
+              }}
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 6,
+                background: 'linear-gradient(135deg, #0ea5e9 0%, #10b981 100%)',
+                borderColor: '#0ea5e9',
+                fontWeight: 700,
+                boxShadow: '0 4px 12px rgba(14, 165, 233, 0.25)',
+              }}
+            >
+              Next: Review TS Statement ➔
+            </button>
           </div>
         )}
       </div>
@@ -3205,5 +3285,6 @@ export default function STGEntryForm({
         document.body
       )}
     </div>
+    </>
   );
 }

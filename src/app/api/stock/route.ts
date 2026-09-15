@@ -155,6 +155,8 @@ export async function POST(req: NextRequest) {
 
     const supabase = getSupabaseServiceClient();
 
+    const actorUsername = req.headers.get('x-user-name') || 'admin';
+
     const rowsToInsert = (stock_rows || []).map((r, i) => ({
       entry_id,
       row_type: r.row_type,
@@ -172,6 +174,8 @@ export async function POST(req: NextRequest) {
       smp:         Number(r.smp)         || 0,
       water:       Number(r.water)       || 0,
       sort_order:  r.sort_order ?? i,
+      created_by:  actorUsername,
+      updated_by:  actorUsername,
     }));
 
     // Delete existing then re-insert
