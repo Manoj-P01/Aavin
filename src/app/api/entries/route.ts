@@ -106,11 +106,13 @@ export async function POST(req: NextRequest) {
     const { data: existing, error: findErr } = await query;
     if (findErr) throw findErr;
 
+    const actorUsername = req.headers.get('x-user-name') || 'admin';
+
     if (existing && existing.length > 0) {
       // Update existing entry's notes
       const { data, error } = await supabase
         .from('entries')
-        .update({ notes: notes || null })
+        .update({ notes: notes || null, updated_by: actorUsername, updated_at: new Date().toISOString() })
         .eq('id', existing[0].id)
         .select()
         .single();
@@ -120,7 +122,14 @@ export async function POST(req: NextRequest) {
       // Insert new entry
       const { data, error } = await supabase
         .from('entries')
-        .insert({ entry_date, shift: shift || null, report_type, notes: notes || null })
+        .insert({
+          entry_date,
+          shift: shift || null,
+          report_type,
+          notes: notes || null,
+          created_by: actorUsername,
+          updated_by: actorUsername,
+        })
         .select()
         .single();
       if (error) throw error;

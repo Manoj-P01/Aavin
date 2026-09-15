@@ -3,7 +3,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 export type ReportType = 'TS' | 'STOCK';
-export type Shift = 'D' | 'N';
+export type Shift = 'D' | 'N' | 'F';
 
 export type TSSection =
   | 'OB'

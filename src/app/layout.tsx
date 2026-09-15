@@ -1,6 +1,7 @@
 import type { Metadata } from 'next';
 import './globals.css';
 import { LoadingProvider } from '@/context/LoadingContext';
+import { ConfirmProvider } from '@/context/ConfirmContext';
 
 export const metadata: Metadata = {
   title: 'Aavin Dashboard | NKL Dairy Union',
@@ -20,7 +21,9 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       </head>
       <body>
         <LoadingProvider>
-          {children}
+          <ConfirmProvider>
+            {children}
+          </ConfirmProvider>
         </LoadingProvider>
       </body>
     </html>

@@ -179,7 +179,7 @@ export default function StockViewPage() {
               rows={displayData.rows}
               separation={displayData.separation}
               date={date}
-              shift={reportMode === 'full_day' ? 'FULL_DAY' : (viewMode === 'combined' ? 'COMBINED' : (shift as Shift))}
+              shift={reportMode === 'full_day' ? 'FULL_DAY' : (viewMode === 'combined' ? 'COMBINED' : (shift === 'N' ? 'N' : 'D'))}
               notes={viewMode === 'combined' ? `${entryNotes || ''}\n${otherNotes || ''}` : entryNotes}
               products={globalProducts}
             />

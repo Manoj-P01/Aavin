@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useSidebar } from '@/context/SidebarContext';
+import { useConfirm } from '@/context/ConfirmContext';
 
 const NAV_SECTIONS = [
   {
@@ -33,6 +34,7 @@ const NAV_SECTIONS = [
     label: 'Configuration',
     items: [
       { href: '/dashboard/ts/config', icon: '🧮', label: 'STG Calculation Settings' },
+      { href: '/dashboard/masters', icon: '⚙️', label: 'Master Declarations' },
       { action: 'settings', icon: '🔧', label: 'Shift Settings' },
     ],
   },
@@ -41,9 +43,30 @@ const NAV_SECTIONS = [
 export default function Sidebar() {
   const pathname = usePathname();
   const { sidebarOpen, setSidebarOpen, setConfigOpen } = useSidebar();
+  const { confirm } = useConfirm();
 
   const handleLinkClick = () => {
     // Do not auto-close sidebar on link click.
+  };
+
+  const handleLogout = async () => {
+    const isConfirmed = await confirm({
+      title: 'Confirm Logout',
+      message: 'Are you sure you want to log out of Aavin Dairy Dashboard?',
+      confirmText: 'Log Out',
+      cancelText: 'Cancel',
+      type: 'warning',
+    });
+
+    if (!isConfirmed) return;
+
+    try {
+      await fetch('/api/auth/logout', { method: 'POST' });
+    } catch (err) {
+      console.error('Logout error:', err);
+    } finally {
+      window.location.href = '/login';
+    }
   };
 
   return (
@@ -124,17 +147,46 @@ export default function Sidebar() {
 
       {/* Footer */}
       <div style={{
-        padding: '16px 18px',
+        padding: '14px 18px',
         borderTop: '1px solid var(--border)',
-        fontSize: '0.7rem',
-        color: 'var(--text-muted)',
-        lineHeight: 1.5,
+        display: 'flex',
+        flexDirection: 'column',
+        gap: 10,
       }}>
-        <div style={{ fontWeight: 600, color: 'var(--text-secondary)', marginBottom: 2 }}>
-          Namakkal District
+        <div style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+        }}>
+          <div style={{ fontSize: '0.75rem' }}>
+            <div style={{ fontWeight: 600, color: 'var(--text-primary)' }}>admin</div>
+            <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)' }}>Administrator</div>
+          </div>
+          <button
+            type="button"
+            onClick={handleLogout}
+            title="Log Out of System"
+            style={{
+              background: 'rgba(239, 68, 68, 0.1)',
+              border: '1px solid rgba(239, 68, 68, 0.3)',
+              color: '#dc2626',
+              borderRadius: 6,
+              padding: '4px 10px',
+              fontSize: '0.75rem',
+              fontWeight: 600,
+              cursor: 'pointer',
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 4,
+              transition: 'all 0.2s ease',
+            }}
+          >
+            <span>🚪</span> Logout
+          </button>
         </div>
-        <div>Co-operative Milk Producers'</div>
-        <div>Union Ltd</div>
+        <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)', lineHeight: 1.4 }}>
+          Namakkal District Co-operative Milk Producers' Union Ltd
+        </div>
       </div>
     </aside>
   );

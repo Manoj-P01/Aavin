@@ -2,6 +2,9 @@
 
 import { useState, useEffect } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
+import Link from 'next/link';
+import Header from '@/components/layout/Header';
+import Step, { DAILY_ENTRY_STEP_ITEMS } from '@/components/ui/Step';
 import { calcKgFatSnf, calcQtyKg, generateDynamicBalanceRows } from '@/lib/calculations';
 import type { TSSection, Shift } from '@/lib/types';
 
@@ -76,19 +79,38 @@ const SECTION_META: { key: TSSection; label: string; color: string }[] = [
   { key: 'CB',                label: 'C/B (Closing Balance)',          color: '#0d9488' },
 ];
 
-export default function TSEntryForm() {
+export interface TSEntryFormProps {
+  stepMode?: boolean;
+  activeStep?: string;
+  onStepChange?: (stepKey: string) => void;
+  onPrevStep?: () => void;
+  onFinish?: () => void;
+  initialDate?: string;
+  initialShift?: Shift | null;
+}
+
+export default function TSEntryForm({
+  stepMode = false,
+  activeStep,
+  onStepChange,
+  onPrevStep,
+  onFinish,
+  initialDate,
+  initialShift,
+}: TSEntryFormProps = {}) {
   const router = useRouter();
   const searchParams = useSearchParams();
   const paramDate = searchParams.get('date');
   const paramShift = searchParams.get('shift');
 
   const getInitialShift = (): Shift | null => {
+    if (initialShift !== undefined) return initialShift;
     if (paramShift === 'D' || paramShift === 'N') return paramShift;
     if (paramShift === 'null' || paramShift === 'NULL') return null;
     return null; // Default to Full Day if no shift is specified or it is invalid
   };
 
-  const [entryDate, setEntryDate] = useState(paramDate || new Date().toISOString().split('T')[0]);
+  const [entryDate, setEntryDate] = useState(initialDate || paramDate || new Date().toISOString().split('T')[0]);
   const [shift, setShift] = useState<Shift | null>(getInitialShift());
   const [notes, setNotes] = useState('');
   const [rows, setRows] = useState<RowState[]>(makeDefaultRows);
@@ -425,7 +447,25 @@ export default function TSEntryForm() {
   };
 
   return (
-    <div className="form-container">
+    <>
+      {stepMode && (
+        <Header
+          title="New Stock Statement Entry"
+          subtitle={`Total Solids (TS) Statement - Auto-calculated Fat & SNF Balances (${reportMode === 'full_day' ? 'Full Day' : (shift === 'D' ? 'Day Shift' : 'Night Shift')})`}
+          actions={
+            <Link href="/dashboard/stock" className="btn btn-secondary btn-sm">← Back to Stock List</Link>
+          }
+        >
+          <Step
+            items={DAILY_ENTRY_STEP_ITEMS}
+            flat={true}
+            activeStep={activeStep || 'ts'}
+            onStepClick={(key) => onStepChange?.(key)}
+            style={{ marginBottom: 0, marginTop: 4 }}
+          />
+        </Header>
+      )}
+      <div className="form-container">
       {/* Date / Shift / Notes */}
       <div className="card" style={{ marginBottom: 20 }}>
         <div className="section-title" style={{ marginBottom: 16 }}>Entry Details</div>
@@ -448,15 +488,15 @@ export default function TSEntryForm() {
                 <div style={{ display: 'flex', gap: 8, marginTop: 6 }}>
                   <button
                     type="button"
-                    className={`btn ${!shift ? 'btn-primary' : 'btn-secondary'}`}
-                    onClick={() => setShift(null)}
+                    className={`btn ${shift === 'F' || !shift ? 'btn-primary' : 'btn-secondary'}`}
+                    onClick={() => setShift('F')}
                     style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '10px 16px' }}
                   >
-                    <span style={{ fontWeight: 600, fontSize: '0.875rem' }}>🗓️ Full Day</span>
+                    <span style={{ fontWeight: 600, fontSize: '0.875rem' }}>🗓️ Full Day (F)</span>
                   </button>
                   <button
                     type="button"
-                    className={`btn ${shift ? 'btn-primary' : 'btn-secondary'}`}
+                    className={`btn ${shift === 'D' || shift === 'N' ? 'btn-primary' : 'btn-secondary'}`}
                     onClick={() => setShift('D')}
                     style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '10px 16px' }}
                   >
@@ -694,23 +734,60 @@ export default function TSEntryForm() {
       })}
 
       {/* Actions */}
-      <div style={{ display: 'flex', gap: 12, justifyContent: 'flex-end', marginTop: 12, marginBottom: 40 }}>
-        <button
-          className="btn btn-secondary"
-          onClick={() => router.back()}
-          disabled={mainSaving}
-        >
-          Cancel
-        </button>
-        <button
-          id="ts-save-btn"
-          className="btn btn-primary"
-          onClick={handleSaveAll}
-          disabled={mainSaving}
-        >
-          {mainSaving ? 'Saving All...' : '💾 Save Entire TS Report'}
-        </button>
+      <div style={{ display: 'flex', gap: 12, justifyContent: stepMode ? 'space-between' : 'flex-end', marginTop: 12, marginBottom: 40 }}>
+        {stepMode ? (
+          <>
+            <button
+              type="button"
+              className="btn btn-secondary"
+              onClick={onPrevStep}
+              disabled={mainSaving}
+              style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}
+            >
+              ← Back to STG Statement
+            </button>
+            <button
+              id="ts-finish-btn"
+              className="btn btn-primary"
+              onClick={async () => {
+                await handleSaveAll();
+                if (onFinish) onFinish();
+              }}
+              disabled={mainSaving}
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 6,
+                background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
+                borderColor: '#10b981',
+                fontWeight: 700,
+                boxShadow: '0 4px 12px rgba(16, 185, 129, 0.25)',
+              }}
+            >
+              {mainSaving ? 'Saving & Finalizing...' : '🎉 Save & Finish Daily Entry'}
+            </button>
+          </>
+        ) : (
+          <>
+            <button
+              className="btn btn-secondary"
+              onClick={() => router.back()}
+              disabled={mainSaving}
+            >
+              Cancel
+            </button>
+            <button
+              id="ts-save-btn"
+              className="btn btn-primary"
+              onClick={handleSaveAll}
+              disabled={mainSaving}
+            >
+              {mainSaving ? 'Saving All...' : '💾 Save Entire TS Report'}
+            </button>
+          </>
+        )}
       </div>
     </div>
+    </>
   );
 }
