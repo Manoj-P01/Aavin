@@ -5,7 +5,6 @@
 'use client';
 
 import type { StockRow, SeparationDetails } from '@/lib/types';
-import { STOCK_PRODUCT_COLUMNS } from '@/lib/types';
 import { fmtNum } from '@/lib/calculations';
 
 interface Props {
@@ -23,6 +22,21 @@ function ColNum({ val }: { val: number }) {
   return <td className="num" style={{ color, fontSize: '0.78rem', fontFamily: 'var(--font-numbers)' }}>{val === 0 ? '—' : fmtNum(abs)}</td>;
 }
 
+const DEFAULT_PRODUCTS = [
+  { key: 'wh_milk', label: 'WH.Milk' },
+  { key: 'dlt_milk', label: 'DLT.Milk' },
+  { key: 'fc_milk', label: 'FC. Milk' },
+  { key: 'std_milk', label: 'STD.Milk' },
+  { key: 'toned_curd', label: 'TM Curd' },
+  { key: 'dtm', label: 'DTM' },
+  { key: 'skim_milk', label: 'Skim Milk' },
+  { key: 'cream', label: 'Cream' },
+  { key: 'butter_milk', label: 'BM' },
+  { key: 'r_con', label: 'R.Con' },
+  { key: 'smp', label: 'SMP' },
+  { key: 'water', label: 'Water' },
+];
+
 export default function StockReport({ rows, separation, date, shift, notes, products }: Props) {
   const dateDisplay = new Date(date).toLocaleDateString('en-IN', {
     day: '2-digit', month: '2-digit', year: 'numeric',
@@ -31,7 +45,7 @@ export default function StockReport({ rows, separation, date, shift, notes, prod
   const shiftLabel = shift === 'D' ? 'Day (D)' : shift === 'N' ? 'Night (N)' : shift === 'FULL_DAY' ? 'Full Day' : 'Combined (D+N)';
 
   // Parse custom columns and values from notes metadata
-  let columns = products && products.length > 0 ? [...products] : [...STOCK_PRODUCT_COLUMNS];
+  let columns = products && products.length > 0 ? [...products] : [...DEFAULT_PRODUCTS];
   const customValues: Record<string, Record<string, number>> = {}; // rowLabel -> colKey -> val
   let cleanNotes = notes || '';
 

@@ -18,7 +18,7 @@ const NAV_SECTIONS = [
     items: [
       { href: '/dashboard/stock/new', icon: '📦', label: 'New Stock Statement Entry' },
       { href: '/dashboard/stock', icon: '📦', label: 'Stock Register' },
-      { href: '/dashboard/stock/products', icon: '⚙️', label: 'Stock Products Configuration' },
+      { href: '/dashboard/stock/products', icon: '⚙️', label: 'Products List' },
       { href: '/dashboard/stock/mappings', icon: '🔗', label: 'Statement Mapping' },
     ],
   },

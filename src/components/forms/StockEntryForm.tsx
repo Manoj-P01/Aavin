@@ -8,7 +8,6 @@
 import { useState, useEffect } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import type { Shift } from '@/lib/types';
-import { STOCK_RECEIPT_LABELS, STOCK_DISPOSAL_LABELS, STOCK_PRODUCT_COLUMNS } from '@/lib/types';
 import Header from '@/components/layout/Header';
 import Step, { DAILY_ENTRY_STEP_ITEMS } from '@/components/ui/Step';
 import Link from 'next/link';
@@ -21,17 +20,35 @@ interface StockRowState {
   values: Partial<Record<ColKey, string>>;
 }
 
-function makeDefaultRows(receipts: any[] = ["Receipts:"], disposals: any[] = ["To DLT Milk", "To FC Milk", "To STD Milk", "To MKT"]): StockRowState[] {
+const DEFAULT_PRODUCTS = [
+  { key: 'wh_milk', label: 'WH.Milk', full_name: 'TENTATIVE WHOLE MILK', short_name: 'WM', category: 'Liquid Milk' },
+  { key: 'dlt_milk', label: 'DLT.Milk', full_name: 'DOUBLE TONED MILK', short_name: 'DLT', category: 'Liquid Milk' },
+  { key: 'fc_milk', label: 'FC. Milk', full_name: 'FULL CREAM MILK', short_name: 'FC', category: 'Liquid Milk' },
+  { key: 'std_milk', label: 'STD.Milk', full_name: 'STANDARDIZED MILK', short_name: 'STD', category: 'Liquid Milk' },
+  { key: 'toned_curd', label: 'TM Curd', full_name: 'TONED MILK CURD', short_name: 'TC', category: 'Products' },
+  { key: 'dtm', label: 'DTM', full_name: 'DOUBLE TONED MILK', short_name: 'DTM', category: 'Liquid Milk' },
+  { key: 'skim_milk', label: 'Skim Milk', full_name: 'SKIMMED MILK', short_name: 'SSM', category: 'Liquid Milk' },
+  { key: 'cream', label: 'Cream', full_name: 'CREAM', short_name: 'CRM', category: 'Products' },
+  { key: 'butter_milk', label: 'BM', full_name: 'BUTTER MILK', short_name: 'BM', category: 'Products' },
+  { key: 'r_con', label: 'R.Con', full_name: 'RECONSTITUTED MILK', short_name: 'RC', category: 'Products' },
+  { key: 'smp', label: 'SMP', full_name: 'SKIM MILK POWDER', short_name: 'SMP', category: 'Products' },
+  { key: 'water', label: 'Water', full_name: 'WATER', short_name: 'WTR', category: 'Others' },
+];
+
+function makeDefaultRows(receipts: any[] = [], disposals: any[] = []): StockRowState[] {
   const make = (row_type: StockRowState['row_type'], row_label: string): StockRowState => ({
     row_type, row_label, values: {},
   });
 
-  const getLabel = (r: any) => typeof r === 'string' ? r : (r.short_name || r.full_name || '');
+  const getLabel = (r: any) => typeof r === 'string' ? r : (r.full_name || r.short_name || r.particular_name || r.label || '');
+
+  const recList = receipts.map(getLabel);
+  const dispList = disposals.map(getLabel);
 
   return [
     make('OB', 'Opening Balance'),
-    ...receipts.map(r => make('RECEIPT', getLabel(r))),
-    ...disposals.map(r => make('DISPOSAL', getLabel(r))),
+    ...recList.map(label => make('RECEIPT', label)),
+    ...dispList.map(label => make('DISPOSAL', label)),
   ];
 }
 
@@ -67,20 +84,15 @@ export default function StockEntryForm({
   ]);
   const [reportMode, setReportMode] = useState<'full_day' | 'shift'>('full_day');
   const [notes, setNotes] = useState('');
-  const [rows, setRows] = useState<StockRowState[]>(() => makeDefaultRows());
-  const [globalProducts, setGlobalProducts] = useState<any[]>(() => [...STOCK_PRODUCT_COLUMNS]);
-  const [columns, setColumns] = useState<Array<{ key: ColKey; label: string; full_name?: string; short_name?: string }>>(() => [...STOCK_PRODUCT_COLUMNS]);
+  const [rows, setRows] = useState<StockRowState[]>(() => makeDefaultRows([], []));
+  const [globalProducts, setGlobalProducts] = useState<any[]>([]);
+  const [columns, setColumns] = useState<Array<{ key: ColKey; label: string; full_name?: string; short_name?: string }>>([]);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [configLoaded, setConfigLoaded] = useState(false);
-  const [receiptRowsConfig, setReceiptRowsConfig] = useState<any[]>(["Receipts:"]);
-  const [disposalRowsConfig, setDisposalRowsConfig] = useState<any[]>([
-    "To DLT Milk",
-    "To FC Milk",
-    "To STD Milk",
-    "To MKT",
-  ]);
+  const [receiptRowsConfig, setReceiptRowsConfig] = useState<any[]>([]);
+  const [disposalRowsConfig, setDisposalRowsConfig] = useState<any[]>([]);
   const [obUnlocked, setObUnlocked] = useState(false);
   const [receiptsUnlocked, setReceiptsUnlocked] = useState(false);
   const [internalRules, setInternalRules] = useState<any[]>([]);
@@ -417,10 +429,65 @@ export default function StockEntryForm({
     });
   };
 
-  // Load shifts config on mount
+  // Load shifts & master products/particulars config on mount
   useEffect(() => {
     async function loadShiftConfig() {
       try {
+        let masterProducts: any[] = [];
+        let masterReceiptRows: any[] = [];
+        let masterDisposalRows: any[] = [];
+
+        // 1. ALWAYS load master products & particulars directly from database table via /api/stock/config
+        try {
+          const stockCfgRes = await fetch('/api/stock/config');
+          if (stockCfgRes.ok) {
+            const stockCfg = await stockCfgRes.json();
+            if (Array.isArray(stockCfg.products) && stockCfg.products.length > 0) {
+              masterProducts = stockCfg.products.map((p: any) => ({
+                key: p.key || p.product_key,
+                label: p.short_name || p.full_name || p.label || p.key,
+                full_name: p.full_name || p.product_name,
+                short_name: p.short_name || p.code,
+                category: p.category || 'Liquid Milk',
+              }));
+            }
+            if (Array.isArray(stockCfg.receipt_rows) && stockCfg.receipt_rows.length > 0) {
+              masterReceiptRows = stockCfg.receipt_rows.map((r: any) => ({
+                id: r.id,
+                full_name: r.full_name || r.particular_name,
+                short_name: r.short_name || r.code,
+                label: r.full_name || r.short_name || r.particular_name,
+              }));
+            }
+            if (Array.isArray(stockCfg.disposal_rows) && stockCfg.disposal_rows.length > 0) {
+              masterDisposalRows = stockCfg.disposal_rows.map((d: any) => ({
+                id: d.id,
+                full_name: d.full_name || d.particular_name,
+                short_name: d.short_name || d.code,
+                label: d.full_name || d.short_name || d.particular_name,
+              }));
+            }
+          }
+        } catch (cfgErr) {
+          console.error('Error fetching database stock config:', cfgErr);
+        }
+
+        if (masterProducts.length === 0) {
+          masterProducts = [...DEFAULT_PRODUCTS];
+        }
+
+        setGlobalProducts(masterProducts);
+        setColumnsUnique(masterProducts);
+        setReceiptRowsConfig(masterReceiptRows);
+        setDisposalRowsConfig(masterDisposalRows);
+
+        // 2. Load shift schedule / mode preferences from entries if present
+        let parsedShifts = [
+          { key: 'D', label: 'Day Shift', start: '06:00', end: '18:00' },
+          { key: 'N', label: 'Night Shift', start: '18:00', end: '06:00' },
+        ];
+        let parsedMode: 'full_day' | 'shift' = 'full_day';
+
         const res = await fetch('/api/entries?report_type=STOCK');
         if (res.ok) {
           const json = await res.json();
@@ -435,64 +502,47 @@ export default function StockEntryForm({
           if (configEntry && configEntry.notes) {
             try {
               const parsed = JSON.parse(configEntry.notes);
-              let parsedShifts = [
-                { key: 'D', label: 'Day Shift', start: '06:00', end: '18:00' },
-                { key: 'N', label: 'Night Shift', start: '18:00', end: '06:00' },
-              ];
-              let parsedMode: 'full_day' | 'shift' = 'full_day';
-              let parsedProducts = [...STOCK_PRODUCT_COLUMNS];
-              
               if (parsed && typeof parsed === 'object') {
                 if (parsed.mode) parsedMode = parsed.mode;
                 if (Array.isArray(parsed.shifts)) parsedShifts = parsed.shifts;
-                if (Array.isArray(parsed.products)) parsedProducts = parsed.products;
-              }
-              
-              let parsedReceiptRows = ["Receipts:"];
-              let parsedDisposalRows = ["To DLT Milk", "To FC Milk", "To STD Milk", "To MKT"];
-              if (Array.isArray(parsed.receipt_rows)) parsedReceiptRows = parsed.receipt_rows;
-              if (Array.isArray(parsed.disposal_rows)) parsedDisposalRows = parsed.disposal_rows;
-
-              setShiftConfigs(parsedShifts);
-              setReportMode(parsedMode);
-              setGlobalProducts(parsedProducts);
-              setColumnsUnique(parsedProducts);
-              setReceiptRowsConfig(parsedReceiptRows);
-              setDisposalRowsConfig(parsedDisposalRows);
-
-              if (parsedMode === 'full_day') {
-                setShift('D');
-              } else if (!paramShift) {
-                const now = new Date();
-                const currentHours = now.getHours();
-                const currentMinutes = now.getMinutes();
-                const currentTimeVal = currentHours * 60 + currentMinutes;
-
-                let detectedShift: Shift = 'D';
-                for (const s of parsedShifts) {
-                  const [startH, startM] = s.start.split(':').map(Number);
-                  const [endH, endM] = s.end.split(':').map(Number);
-                  const startVal = startH * 60 + startM;
-                  const endVal = endH * 60 + endM;
-
-                  if (startVal < endVal) {
-                    if (currentTimeVal >= startVal && currentTimeVal < endVal) {
-                      detectedShift = s.key as Shift;
-                      break;
-                    }
-                  } else {
-                    if (currentTimeVal >= startVal || currentTimeVal < endVal) {
-                      detectedShift = s.key as Shift;
-                      break;
-                    }
-                  }
-                }
-                setShift(detectedShift);
               }
             } catch (e) {
               console.error('Failed to parse stock config notes:', e);
             }
           }
+        }
+
+        setShiftConfigs(parsedShifts);
+        setReportMode(parsedMode);
+
+        if (parsedMode === 'full_day') {
+          setShift('F');
+        } else if (!paramShift) {
+          const now = new Date();
+          const currentHours = now.getHours();
+          const currentMinutes = now.getMinutes();
+          const currentTimeVal = currentHours * 60 + currentMinutes;
+
+          let detectedShift: Shift = 'D';
+          for (const s of parsedShifts) {
+            const [startH, startM] = s.start.split(':').map(Number);
+            const [endH, endM] = s.end.split(':').map(Number);
+            const startVal = startH * 60 + startM;
+            const endVal = endH * 60 + endM;
+
+            if (startVal < endVal) {
+              if (currentTimeVal >= startVal && currentTimeVal < endVal) {
+                detectedShift = s.key as Shift;
+                break;
+              }
+            } else {
+              if (currentTimeVal >= startVal || currentTimeVal < endVal) {
+                detectedShift = s.key as Shift;
+                break;
+              }
+            }
+          }
+          setShift(detectedShift);
         }
       } catch (err) {
         console.error('Error loading shift configuration:', err);
@@ -515,7 +565,7 @@ export default function StockEntryForm({
       try {
         const res = await fetch(`/api/stock?date=${entryDate}&shift=${shift}`);
         // Retrieve latest products config from state
-        const activeProducts = globalProducts.length > 0 ? globalProducts : [...STOCK_PRODUCT_COLUMNS];
+        const activeProducts = globalProducts;
 
         if (!res.ok) {
           if (active) {
@@ -530,7 +580,7 @@ export default function StockEntryForm({
                 const mm = String(prevDateObj.getMonth() + 1).padStart(2, '0');
                 const dd = String(prevDateObj.getDate()).padStart(2, '0');
                 const prevDateStr = `${yyyy}-${mm}-${dd}`;
-                return { date: prevDateStr, shift: reportMode === 'shift' ? 'N' : 'D' };
+                return { date: prevDateStr, shift: reportMode === 'shift' ? 'N' : 'F' };
               }
             };
 
@@ -634,7 +684,8 @@ export default function StockEntryForm({
         if (!entry) return;
 
         if (active) {
-          let parsedCols = [...activeProducts];
+          let parsedCols = activeProducts && activeProducts.length > 0 ? [...activeProducts] : [...DEFAULT_PRODUCTS];
+
           let customVals: Record<string, Record<string, string>> = {};
           let cleanNotes = entry.notes || '';
 
@@ -665,33 +716,71 @@ export default function StockEntryForm({
           setNotes(cleanNotes);
 
           const sortedDbRows = [...(json.data.stock_rows || [])].sort((a: any, b: any) => (a.sort_order ?? 0) - (b.sort_order ?? 0));
-          let loadedRows: StockRowState[] = [];
+          
+          // Base template contains OB, Receipts, and Disposals
+          const loadedRows = makeDefaultRows(receiptRowsConfig, disposalRowsConfig);
+
           if (sortedDbRows.length > 0) {
-            loadedRows = sortedDbRows.map((dbRow: any) => {
+            sortedDbRows.forEach((dbRow: any) => {
+              const dbRowType = dbRow.row_type as StockRowState['row_type'];
+              const dbRowLabel = (dbRow.row_label || '').trim();
+
               const values: Record<string, string> = {};
               parsedCols.forEach(col => {
-                if (dbRow[col.key] !== undefined && dbRow[col.key] !== null) {
-                  values[col.key] = dbRow[col.key] === 0 ? '' : String(dbRow[col.key]);
+                const rawVal = dbRow[col.key] ?? dbRow[col.key.toLowerCase()] ?? dbRow[col.key.toUpperCase()];
+                if (rawVal !== undefined && rawVal !== null && rawVal !== '') {
+                  const numVal = typeof rawVal === 'number' ? rawVal : parseFloat(String(rawVal));
+                  values[col.key] = (!isNaN(numVal) && numVal !== 0) ? String(numVal) : (typeof rawVal === 'string' && rawVal.trim() !== '0' ? rawVal : '');
                 }
               });
 
-              if (customVals[dbRow.row_label]) {
-                Object.entries(customVals[dbRow.row_label]).forEach(([colKey, val]) => {
+              if (customVals[dbRowLabel]) {
+                Object.entries(customVals[dbRowLabel]).forEach(([colKey, val]) => {
                   values[colKey] = val;
                 });
               }
 
-              return {
-                row_type: dbRow.row_type,
-                row_label: dbRow.row_label,
-                values,
-              };
-            });
-          } else {
-            loadedRows = makeDefaultRows(receiptRowsConfig, disposalRowsConfig);
-          }
-          setRows(loadedRows);
+              if (dbRowType === 'OB') {
+                // Merge OB values into Opening Balance row
+                loadedRows[0].values = {
+                  ...loadedRows[0].values,
+                  ...values,
+                };
+              } else {
+                const existingIdx = loadedRows.findIndex(r =>
+                  r.row_type === dbRowType &&
+                  r.row_label.trim().toLowerCase() === dbRowLabel.toLowerCase()
+                );
 
+                if (existingIdx !== -1) {
+                  loadedRows[existingIdx].values = {
+                    ...loadedRows[existingIdx].values,
+                    ...values,
+                  };
+                } else {
+                  let insertIdx = -1;
+                  for (let i = loadedRows.length - 1; i >= 0; i--) {
+                    if (loadedRows[i].row_type === dbRowType) {
+                      insertIdx = i;
+                      break;
+                    }
+                  }
+                  const newRow: StockRowState = {
+                    row_type: dbRowType,
+                    row_label: dbRow.row_label,
+                    values,
+                  };
+                  if (insertIdx !== -1) {
+                    loadedRows.splice(insertIdx + 1, 0, newRow);
+                  } else {
+                    loadedRows.push(newRow);
+                  }
+                }
+              }
+            });
+          }
+
+          setRows(loadedRows);
         }
       } catch (err) {
         console.error('Error loading existing stock data:', err);
@@ -700,7 +789,7 @@ export default function StockEntryForm({
 
     loadData();
     return () => { active = false; };
-  }, [entryDate, shift, configLoaded, globalProducts, reportMode]);
+  }, [entryDate, shift, configLoaded, globalProducts, receiptRowsConfig, disposalRowsConfig, reportMode]);
 
   const updateCell = (rowIdx: number, col: ColKey, val: string) => {
     setRows(prev => {
@@ -1087,12 +1176,16 @@ export default function StockEntryForm({
     });
 
     // Save TS entry via POST /api/entries
-    const tsMeta = {
-      custom_statements: customStatements,
-      custom_blocks: customBlocksState,
-      enabled_blocks: enabledBlockKeys,
-    };
-    const tsNotes = "\n__METADATA__:" + JSON.stringify(tsMeta);
+    const userNotesText = notes ? notes.trim() : '';
+    let tsNotes: string | null = null;
+    if (userNotesText) {
+      const tsMeta = {
+        custom_statements: customStatements,
+        custom_blocks: customBlocksState,
+        enabled_blocks: enabledBlockKeys,
+      };
+      tsNotes = userNotesText + "\n__METADATA__:" + JSON.stringify(tsMeta);
+    }
 
     const tsEntryRes = await fetch('/api/entries', {
       method: 'POST',
@@ -1143,12 +1236,16 @@ export default function StockEntryForm({
         }
       });
 
-      // 2. Append metadata to notes for database-compatible serialization
-      const metadata = {
-        custom_columns: customCols,
-        custom_values: customValues,
-      };
-      const finalNotes = notes.trim() + "\n__METADATA__:" + JSON.stringify(metadata);
+      // 2. Format notes: if user provided notes in UI, attach metadata; otherwise store null in DB
+      const userNotesText = notes ? notes.trim() : '';
+      let finalNotes: string | null = null;
+      if (userNotesText) {
+        const metadata = {
+          custom_columns: customCols,
+          custom_values: customValues,
+        };
+        finalNotes = userNotesText + "\n__METADATA__:" + JSON.stringify(metadata);
+      }
 
       const entryRes = await fetch('/api/entries', {
         method: 'POST',
@@ -1216,6 +1313,7 @@ export default function StockEntryForm({
             const mm = String(nextDate.getMonth() + 1).padStart(2, '0');
             const dd = String(nextDate.getDate()).padStart(2, '0');
             setEntryDate(`${yyyy}-${mm}-${dd}`);
+            setShift('F');
           }
         }
       }
@@ -1338,8 +1436,6 @@ export default function StockEntryForm({
               <tr>
                 <th style={{ textAlign: 'left', minWidth: 220 }}>Particulars</th>
                 {columns.map(col => {
-                  const DB_COLUMNS = ['wh_milk', 'dlt_milk', 'fc_milk', 'std_milk', 'toned_curd', 'dtm', 'skim_milk', 'cream', 'butter_milk', 'r_con', 'smp', 'water'];
-                  const isCustom = !DB_COLUMNS.includes(col.key);
                   const isMappedReceiptCol = isReceiptsSection && (
                     internalRules.some(rule => rule.enabled !== false && (rule.targetReceiptProductKey || rule.sourceProductKey) === col.key) ||
                     (internalRules.length === 0 && col.key === 'dlt_milk')
@@ -1363,16 +1459,14 @@ export default function StockEntryForm({
                           >
                             ➕
                           </button>
-                          {isCustom && (
-                            <button
-                              type="button"
-                              style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '0.8rem', padding: 0 }}
-                              title="Delete column"
-                              onClick={() => deleteColumn(col.key)}
-                            >
-                              ❌
-                            </button>
-                          )}
+                          <button
+                            type="button"
+                            style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '0.8rem', padding: 0 }}
+                            title={`Delete column (${col.short_name || col.label})`}
+                            onClick={() => deleteColumn(col.key)}
+                          >
+                            ❌
+                          </button>
                         </div>
                       </div>
                     </th>
@@ -1716,24 +1810,37 @@ export default function StockEntryForm({
     );
   };
 
+  const handleStepClick = (key: string) => {
+    if (onStepChange) {
+      onStepChange(key);
+      return;
+    }
+    const s = shift || 'F';
+    if (key === 'stg') {
+      router.push(`/dashboard/ts/new-stg?date=${entryDate}&shift=${s}`);
+    } else if (key === 'ts') {
+      router.push(`/dashboard/ts/new?date=${entryDate}&shift=${s}`);
+    } else if (key === 'reports') {
+      router.push(`/dashboard/ts/${entryDate}?shift=${s}`);
+    }
+  };
+
   return (
     <>
       <Header
-        title="New Stock Statement Entry"
+        title="Milk & Cream Stock Statement Entry"
         subtitle={`Enter daily milk & cream stock data (${reportMode === 'full_day' ? 'Full Day' : (shift === 'D' ? 'Day Shift' : 'Night Shift')})`}
         actions={
           <Link href="/dashboard/stock" className="btn btn-secondary btn-sm">← Back to Stock List</Link>
         }
       >
-        {stepMode && (
-          <Step
-            items={DAILY_ENTRY_STEP_ITEMS}
-            flat={true}
-            activeStep={activeStep || 'stock'}
-            onStepClick={(key) => onStepChange?.(key)}
-            style={{ marginBottom: 0, marginTop: 4 }}
-          />
-        )}
+        <Step
+          items={DAILY_ENTRY_STEP_ITEMS}
+          flat={true}
+          activeStep={activeStep || 'stock'}
+          onStepClick={handleStepClick}
+          style={{ marginBottom: 0, marginTop: 4 }}
+        />
       </Header>
       <div className="form-container">
         {/* Header */}

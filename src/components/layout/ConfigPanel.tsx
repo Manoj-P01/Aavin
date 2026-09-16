@@ -2,7 +2,6 @@
 
 import { useState, useEffect } from 'react';
 import { useSidebar } from '@/context/SidebarContext';
-import { STOCK_PRODUCT_COLUMNS } from '@/lib/types';
 
 interface ShiftConfig {
   key: 'D' | 'N';
@@ -23,7 +22,7 @@ export default function ConfigPanel() {
     { key: 'N', label: 'Night Shift', start: '18:00', end: '06:00' },
   ]);
   const [mode, setMode] = useState<'full_day' | 'shift'>('full_day');
-  const [products, setProducts] = useState<ProductConfig[]>(() => [...STOCK_PRODUCT_COLUMNS]);
+  const [products, setProducts] = useState<ProductConfig[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
@@ -106,8 +105,6 @@ export default function ConfigPanel() {
               }
               if (Array.isArray(parsed.products)) {
                 setProducts(parsed.products);
-              } else {
-                setProducts([...STOCK_PRODUCT_COLUMNS]);
               }
             }
           } catch (e) {

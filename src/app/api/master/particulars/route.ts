@@ -1,12 +1,17 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getSupabaseServiceClient } from '@/lib/supabase';
 import { getAuthUserFromRequest } from '@/lib/auth';
+import { isLocalDbEnabled } from '@/lib/fileDb';
 
 // GET /api/master/particulars - Fetch active particulars from particulars_master
 export async function GET(req: NextRequest) {
   try {
     const { searchParams } = new URL(req.url);
     const section_type = searchParams.get('section_type');
+
+    if (isLocalDbEnabled()) {
+      return NextResponse.json({ data: [] });
+    }
 
     const supabase = getSupabaseServiceClient();
 

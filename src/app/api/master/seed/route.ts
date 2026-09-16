@@ -28,6 +28,13 @@ const SEED_DAIRIES = [
   { dairy_name: 'Salem-SSM', code: 'SLM', sort_order: 8 }
 ];
 
+const SEED_CATEGORIES = [
+  { category_name: 'Liquid Milk', code: 'MILK', sort_order: 1 },
+  { category_name: 'Products', code: 'PROD', sort_order: 2 },
+  { category_name: 'By-Products', code: 'BYPROD', sort_order: 3 },
+  { category_name: 'Others', code: 'OTHR', sort_order: 4 },
+];
+
 // POST /api/master/seed - Seed Default Preset Master Data from UI
 export async function POST(req: NextRequest) {
   try {
@@ -37,10 +44,38 @@ export async function POST(req: NextRequest) {
 
     let seededProductsCount = 0;
     let seededDairiesCount = 0;
+    let seededCategoriesCount = 0;
 
-    // 1. Seed Products Master
+    // 1. Seed Product Categories Master
+    for (const c of SEED_CATEGORIES) {
+      const { data: rpcData, error: rpcErr } = await supabase.rpc('fn_upsert_product_category', {
+        p_category_name: c.category_name,
+        p_code: c.code,
+        p_sort_order: c.sort_order,
+        p_is_active: true,
+        p_actor: actorUsername,
+      });
+
+      if (!rpcErr && rpcData) {
+        seededCategoriesCount++;
+      } else {
+        const { error: upsertErr } = await supabase
+          .from('product_categories_master')
+          .upsert({
+            category_name: c.category_name,
+            code: c.code,
+            sort_order: c.sort_order,
+            is_active: true,
+            created_by: actorUsername,
+            updated_by: actorUsername,
+          }, { onConflict: 'category_name' });
+
+        if (!upsertErr) seededCategoriesCount++;
+      }
+    }
+
+    // 2. Seed Products Master
     for (const p of SEED_PRODUCTS) {
-      // Try SP fn_upsert_product_master first
       const { data: rpcData, error: rpcErr } = await supabase.rpc('fn_upsert_product_master', {
         p_product_key: p.product_key,
         p_product_name: p.product_name,
@@ -54,7 +89,6 @@ export async function POST(req: NextRequest) {
       if (!rpcErr && rpcData) {
         seededProductsCount++;
       } else {
-        // Direct table upsert fallback
         const { error: upsertErr } = await supabase
           .from('products_master')
           .upsert({
@@ -72,9 +106,8 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // 2. Seed Destination Union Dairies Master
+    // 3. Seed Destination Union Dairies Master
     for (const d of SEED_DAIRIES) {
-      // Try SP fn_upsert_dairy_destination first
       const { data: rpcData, error: rpcErr } = await supabase.rpc('fn_upsert_dairy_destination', {
         p_dairy_name: d.dairy_name,
         p_code: d.code,
@@ -86,7 +119,6 @@ export async function POST(req: NextRequest) {
       if (!rpcErr && rpcData) {
         seededDairiesCount++;
       } else {
-        // Direct table upsert fallback
         const { error: upsertErr } = await supabase
           .from('dairy_destinations_master')
           .upsert({
@@ -104,7 +136,8 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({
       success: true,
-      message: `Successfully seeded ${seededProductsCount} products and ${seededDairiesCount} destination union dairies!`,
+      message: `Successfully seeded ${seededCategoriesCount} categories, ${seededProductsCount} products and ${seededDairiesCount} destination union dairies!`,
+      categories_count: seededCategoriesCount,
       products_count: seededProductsCount,
       dairies_count: seededDairiesCount,
     });

@@ -24,11 +24,13 @@ export default function DailyEntryWizard() {
   const handleStepChange = (key: string) => {
     if (key === 'stock' || key === 'stg' || key === 'ts') {
       setActiveStep(key);
+    } else if (key === 'reports') {
+      router.push(`/dashboard/ts/${entryDate}?shift=${shift || 'F'}`);
     }
   };
 
   return (
-    <div className="wizard-content animate-fade-in" key={activeStep}>
+    <div className="wizard-content animate-fade-in">
       {activeStep === 'stock' && (
         <StockEntryForm
           stepMode={true}
@@ -59,7 +61,7 @@ export default function DailyEntryWizard() {
           onStepChange={handleStepChange}
           onPrevStep={() => setActiveStep('stg')}
           onFinish={() => {
-            router.push(`/dashboard/stock/${entryDate}/${shift || 'D'}`);
+            router.push(`/dashboard/ts/${entryDate}?shift=${shift || 'F'}`);
           }}
           initialDate={entryDate}
           initialShift={shift}

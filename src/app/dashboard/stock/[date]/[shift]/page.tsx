@@ -29,6 +29,28 @@ export default function StockViewPage() {
   const [otherShiftData, setOtherShiftData] = useState<ShiftData | null>(null);
   const otherShift: Shift = shift === 'D' ? 'N' : 'D';
 
+  const handleExportStockExcel = async () => {
+    try {
+      const url = `/api/export-excel?date=${date}&shift=${shift}&stock=true&stg=true&ts=true`;
+      const res = await fetch(url);
+      if (!res.ok) throw new Error('Export failed');
+      const blob = await res.blob();
+      const downloadUrl = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = downloadUrl;
+      const dateParts = date.split('-');
+      const formattedDate = `${dateParts[2]}-${dateParts[1]}-${dateParts[0]}`;
+      a.download = `${formattedDate}-${shift}-Stock-Statement.xlsx`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      window.URL.revokeObjectURL(downloadUrl);
+    } catch (err) {
+      console.error(err);
+      alert('Failed to export Excel report');
+    }
+  };
+
   useEffect(() => {
     async function load() {
       try {
@@ -147,6 +169,7 @@ export default function StockViewPage() {
               </div>
             )}
             <button className="btn btn-secondary btn-sm no-print" onClick={() => window.print()}>🖨 Print / PDF</button>
+            <button className="btn btn-secondary btn-sm no-print" style={{ borderColor: '#16a34a', color: '#16a34a' }} onClick={handleExportStockExcel}>📥 Export Excel</button>
             <Link href="/dashboard/stock" className="btn btn-ghost btn-sm">← Back</Link>
           </div>
         }

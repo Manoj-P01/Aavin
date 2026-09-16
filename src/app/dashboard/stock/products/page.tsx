@@ -3,7 +3,6 @@
 import { useState, useEffect, useRef } from 'react';
 import Header from '@/components/layout/Header';
 import Link from 'next/link';
-import { STOCK_PRODUCT_COLUMNS } from '@/lib/types';
 import { useConfirm } from '@/context/ConfirmContext';
 
 interface ProductConfig {
@@ -12,6 +11,7 @@ interface ProductConfig {
   label?: string;
   full_name: string;
   short_name: string;
+  category?: string;
   sort_order?: number;
   is_active?: boolean;
 }
@@ -46,6 +46,15 @@ export default function StockProductsPage() {
   const [removedReceiptIds, setRemovedReceiptIds] = useState<string[]>([]);
   const [removedDisposalIds, setRemovedDisposalIds] = useState<string[]>([]);
 
+  // Product categories list state from DB table product_categories_master
+  const [categoriesList, setCategoriesList] = useState<{ id: string; category_name: string; code?: string; sort_order?: number }[]>([]);
+  const [showManageCategoryModal, setShowManageCategoryModal] = useState(false);
+  const [newCatNameInput, setNewCatNameInput] = useState('');
+  const [newCatCodeInput, setNewCatCodeInput] = useState('');
+  const [editingCatId, setEditingCatId] = useState<string | null>(null);
+  const [editingCatName, setEditingCatName] = useState('');
+  const [catActionMsg, setCatActionMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
@@ -53,6 +62,7 @@ export default function StockProductsPage() {
 
   const [newProdFullName, setNewProdFullName] = useState('');
   const [newProdShortName, setNewProdShortName] = useState('');
+  const [newProdCategory, setNewProdCategory] = useState('Liquid Milk');
   const productInputRef = useRef<HTMLInputElement>(null);
   
   const [newReceiptFull, setNewReceiptFull] = useState('');
@@ -63,6 +73,18 @@ export default function StockProductsPage() {
   const receiptInputRef = useRef<HTMLInputElement>(null);
   const disposalInputRef = useRef<HTMLInputElement>(null);
 
+  const fetchCategoriesList = async () => {
+    try {
+      const res = await fetch('/api/master/categories');
+      const json = await res.json();
+      if (res.ok && Array.isArray(json.data) && json.data.length > 0) {
+        setCategoriesList(json.data);
+      }
+    } catch {
+      // fallback handled in UI
+    }
+  };
+
   // Normalize initial data
   const normalizeProducts = (list: any[]): ProductConfig[] => {
     return list.map((p, idx) => ({
@@ -70,6 +92,7 @@ export default function StockProductsPage() {
       key: p.key || p.product_key || ('prod_' + Date.now() + '_' + idx),
       full_name: p.full_name || p.product_name || p.label || p.key || '',
       short_name: p.short_name || p.code || p.label || p.key || '',
+      category: p.category || 'Liquid Milk',
       sort_order: p.sort_order || idx + 1,
       is_active: p.is_active !== undefined ? p.is_active : true,
     }));
@@ -94,25 +117,26 @@ export default function StockProductsPage() {
     setLoading(true);
     setError('');
     try {
+      await fetchCategoriesList();
       const res = await fetch('/api/stock/config');
       if (!res.ok) throw new Error('Failed to load stock configuration');
       const json = await res.json();
 
       let fetchedProducts = json.products;
-      if (!Array.isArray(fetchedProducts) || fetchedProducts.length === 0) {
-        fetchedProducts = STOCK_PRODUCT_COLUMNS;
+      if (!Array.isArray(fetchedProducts)) {
+        fetchedProducts = [];
       }
       setProducts(normalizeProducts(fetchedProducts));
 
       let fetchedReceipts = json.receipt_rows;
-      if (!Array.isArray(fetchedReceipts) || fetchedReceipts.length === 0) {
-        fetchedReceipts = ["Receipts:"];
+      if (!Array.isArray(fetchedReceipts)) {
+        fetchedReceipts = [];
       }
       setReceiptRows(normalizeRows(fetchedReceipts));
 
       let fetchedDisposals = json.disposal_rows;
-      if (!Array.isArray(fetchedDisposals) || fetchedDisposals.length === 0) {
-        fetchedDisposals = ["To DLT Milk", "To FC Milk", "To STD Milk", "To MKT"];
+      if (!Array.isArray(fetchedDisposals)) {
+        fetchedDisposals = [];
       }
       setDisposalRows(normalizeRows(fetchedDisposals));
       setRemovedProductIds([]);
@@ -130,14 +154,77 @@ export default function StockProductsPage() {
     loadConfig();
   }, []);
 
+  const handleAddCategoryModalSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newCatNameInput.trim()) return;
+    setCatActionMsg(null);
+    try {
+      const res = await fetch('/api/master/categories', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          category_name: newCatNameInput.trim(),
+          code: newCatCodeInput.trim() || newCatNameInput.trim().substring(0, 4).toUpperCase(),
+          sort_order: categoriesList.length + 1,
+        }),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || 'Failed adding category');
+      setCatActionMsg({ type: 'success', text: `Category "${newCatNameInput}" declared successfully!` });
+      setNewCatNameInput('');
+      setNewCatCodeInput('');
+      await fetchCategoriesList();
+    } catch (err: any) {
+      setCatActionMsg({ type: 'error', text: err.message || 'Error adding category' });
+    }
+  };
+
+  const handleUpdateCategoryModalSubmit = async (id: string, name: string) => {
+    if (!name.trim()) return;
+    setCatActionMsg(null);
+    try {
+      const res = await fetch('/api/master/categories', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id, category_name: name.trim() }),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || 'Failed updating category');
+      setCatActionMsg({ type: 'success', text: `Category updated to "${name}"!` });
+      setEditingCatId(null);
+      await fetchCategoriesList();
+    } catch (err: any) {
+      setCatActionMsg({ type: 'error', text: err.message || 'Error updating category' });
+    }
+  };
+
+  const handleDeleteCategoryModal = async (id: string, name: string) => {
+    const ok = await confirm({
+      title: 'Delete Category',
+      message: `Are you sure you want to delete category "${name}"?`,
+      type: 'danger',
+    });
+    if (!ok) return;
+    setCatActionMsg(null);
+    try {
+      const res = await fetch(`/api/master/categories?id=${id}`, { method: 'DELETE' });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || 'Failed deleting category');
+      setCatActionMsg({ type: 'success', text: `Category "${name}" deleted!` });
+      await fetchCategoriesList();
+    } catch (err: any) {
+      setCatActionMsg({ type: 'error', text: err.message || 'Error deleting category' });
+    }
+  };
+
   // Filtered views based on filterQuery
   const q = filterQuery.trim().toLowerCase();
-  const filteredProducts = products.filter(p => !q || p.full_name.toLowerCase().includes(q) || p.short_name.toLowerCase().includes(q));
+  const filteredProducts = products.filter(p => !q || p.full_name.toLowerCase().includes(q) || p.short_name.toLowerCase().includes(q) || (p.category && p.category.toLowerCase().includes(q)));
   const filteredReceipts = receiptRows.filter(r => !q || r.full_name.toLowerCase().includes(q) || r.short_name.toLowerCase().includes(q));
   const filteredDisposals = disposalRows.filter(d => !q || d.full_name.toLowerCase().includes(q) || d.short_name.toLowerCase().includes(q));
 
   // Product Row Handling
-  const handleProductChange = (key: string, field: 'full_name' | 'short_name', value: string) => {
+  const handleProductChange = (key: string, field: 'full_name' | 'short_name' | 'category', value: string) => {
     setProducts(prev => prev.map(p => (p.key === key ? { ...p, [field]: value } : p)));
   };
 
@@ -145,6 +232,7 @@ export default function StockProductsPage() {
     if (e) e.preventDefault();
     const shortVal = newProdShortName.trim() || newProdFullName.trim();
     const fullVal = newProdFullName.trim() || newProdShortName.trim();
+    const catVal = newProdCategory.trim() || (categoriesList[0]?.category_name || 'Liquid Milk');
     if (!shortVal) return;
 
     const lowerFull = fullVal.toLowerCase();
@@ -154,7 +242,7 @@ export default function StockProductsPage() {
     const existingIndex = products.findIndex(p => p.full_name.toLowerCase() === lowerFull || p.short_name.toLowerCase() === lowerShort);
     if (existingIndex !== -1) {
       // Re-enable / update existing
-      setProducts(prev => prev.map((p, idx) => idx === existingIndex ? { ...p, full_name: fullVal, short_name: shortVal, is_active: true } : p));
+      setProducts(prev => prev.map((p, idx) => idx === existingIndex ? { ...p, full_name: fullVal, short_name: shortVal, category: catVal, is_active: true } : p));
       setNewProdFullName('');
       setNewProdShortName('');
       setSelectedSection('products');
@@ -164,7 +252,7 @@ export default function StockProductsPage() {
     const key = shortVal.toLowerCase().replace(/\s+/g, '_');
     setProducts(prev => [
       ...prev,
-      { key, full_name: fullVal, short_name: shortVal, sort_order: prev.length + 1, is_active: true }
+      { key, full_name: fullVal, short_name: shortVal, category: catVal, sort_order: prev.length + 1, is_active: true }
     ]);
     setNewProdFullName('');
     setNewProdShortName('');
@@ -293,6 +381,7 @@ export default function StockProductsPage() {
             key: p.key,
             full_name: p.full_name,
             short_name: p.short_name,
+            category: p.category,
             sort_order: i + 1,
           })),
           receipt_rows: receiptRows.map((r, i) => ({
@@ -318,7 +407,7 @@ export default function StockProductsPage() {
         throw new Error(json.error || 'Failed to save configuration.');
       }
 
-      setSuccess('Stock products configuration saved successfully in database!');
+      setSuccess('Products saved successfully in database!');
       await loadConfig();
     } catch (err: any) {
       setError(err.message || 'Save failed');
@@ -330,7 +419,7 @@ export default function StockProductsPage() {
   return (
     <>
       <Header
-        title="Stock Products Configuration"
+        title="Products List"
         subtitle="Manage statement columns, display labels, particulars, and product orders"
         actions={
           <div style={{ display: 'flex', gap: 8 }}>
@@ -675,14 +764,23 @@ export default function StockProductsPage() {
                       {products.length} {products.length === 1 ? 'product' : 'products'}
                     </span>
                   </div>
-                  <button
-                    type="button"
-                    className="btn btn-secondary btn-sm"
-                    onClick={() => productInputRef.current?.focus()}
-                    disabled={loading || saving}
-                  >
-                    ➕ Add Product Column
-                  </button>
+                  <div style={{ display: 'flex', gap: 8 }}>
+                    <button
+                      type="button"
+                      className="btn btn-secondary btn-sm"
+                      onClick={() => setShowManageCategoryModal(true)}
+                    >
+                      🏷️ Manage Categories
+                    </button>
+                    <button
+                      type="button"
+                      className="btn btn-secondary btn-sm"
+                      onClick={() => productInputRef.current?.focus()}
+                      disabled={loading || saving}
+                    >
+                      ➕ Add Product Column
+                    </button>
+                  </div>
                 </div>
 
                 {loading ? (
@@ -691,10 +789,11 @@ export default function StockProductsPage() {
                   </div>
                 ) : (
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-                    <div style={{ display: 'grid', gridTemplateColumns: '40px 1fr 1fr 110px', gap: 12, padding: '0 8px', fontSize: '0.75rem', fontWeight: 700, color: 'var(--text-secondary)' }}>
+                    <div style={{ display: 'grid', gridTemplateColumns: '36px 1.2fr 1fr 140px 105px', gap: 10, padding: '0 8px', fontSize: '0.75rem', fontWeight: 700, color: 'var(--text-secondary)' }}>
                       <div>Pos</div>
                       <div>Full Form (Full Product Name)</div>
-                      <div>Short Form (Column Header in Entry)</div>
+                      <div>Short Form (Column Header)</div>
+                      <div>Category</div>
                       <div style={{ textAlign: 'right' }}>Actions</div>
                     </div>
 
@@ -711,9 +810,9 @@ export default function StockProductsPage() {
                               key={p.key || realIdx}
                               style={{
                                 display: 'grid',
-                                gridTemplateColumns: '40px 1fr 1fr 110px',
+                                gridTemplateColumns: '36px 1.2fr 1fr 140px 105px',
                                 alignItems: 'center',
-                                gap: 12,
+                                gap: 10,
                                 padding: 8,
                                 background: 'rgba(255, 255, 255, 0.03)',
                                 border: '1px solid var(--border)',
@@ -722,7 +821,7 @@ export default function StockProductsPage() {
                             >
                               <div
                                 style={{
-                                  width: 32,
+                                  width: 30,
                                   height: 28,
                                   display: 'flex',
                                   alignItems: 'center',
@@ -745,7 +844,7 @@ export default function StockProductsPage() {
                                   value={p.full_name || ''}
                                   onChange={e => handleProductChange(p.key, 'full_name', e.target.value)}
                                   placeholder="e.g. WHOLE MILK"
-                                  style={{ margin: 0, padding: '6px 10px', fontSize: '0.875rem' }}
+                                  style={{ margin: 0, padding: '6px 10px', fontSize: '0.85rem' }}
                                 />
                               </div>
 
@@ -756,8 +855,32 @@ export default function StockProductsPage() {
                                   value={p.short_name || ''}
                                   onChange={e => handleProductChange(p.key, 'short_name', e.target.value)}
                                   placeholder="e.g. WH.Milk"
-                                  style={{ margin: 0, padding: '6px 10px', fontSize: '0.875rem', fontWeight: 600 }}
+                                  style={{ margin: 0, padding: '6px 10px', fontSize: '0.85rem', fontWeight: 600 }}
                                 />
+                              </div>
+
+                              <div>
+                                <select
+                                  className="form-input"
+                                  value={p.category || 'Liquid Milk'}
+                                  onChange={e => handleProductChange(p.key, 'category', e.target.value)}
+                                  style={{ margin: 0, padding: '6px 8px', fontSize: '0.8rem', fontWeight: 600, cursor: 'pointer' }}
+                                >
+                                  {categoriesList.length > 0 ? (
+                                    categoriesList.map(c => (
+                                      <option key={c.id || c.category_name} value={c.category_name}>
+                                        {c.category_name}
+                                      </option>
+                                    ))
+                                  ) : (
+                                    <>
+                                      <option value="Liquid Milk">Liquid Milk</option>
+                                      <option value="Products">Products</option>
+                                      <option value="By-Products">By-Products</option>
+                                      <option value="Others">Others</option>
+                                    </>
+                                  )}
+                                </select>
                               </div>
 
                               <div style={{ display: 'flex', gap: 4, justifyContent: 'flex-end' }}>
@@ -807,9 +930,9 @@ export default function StockProductsPage() {
                       onSubmit={handleAddProductInline}
                       style={{
                         display: 'grid',
-                        gridTemplateColumns: '40px 1fr 1fr 110px',
+                        gridTemplateColumns: '36px 1.2fr 1fr 140px 105px',
                         alignItems: 'center',
-                        gap: 12,
+                        gap: 10,
                         padding: '12px 8px 0 8px',
                         borderTop: '1px dashed var(--border)',
                         marginTop: 8,
@@ -824,7 +947,7 @@ export default function StockProductsPage() {
                           value={newProdFullName}
                           onChange={e => setNewProdFullName(e.target.value)}
                           placeholder="Full Form (e.g. WHOLE MILK)"
-                          style={{ margin: 0, padding: '8px 12px', fontSize: '0.875rem' }}
+                          style={{ margin: 0, padding: '8px 10px', fontSize: '0.85rem' }}
                         />
                       </div>
                       <div>
@@ -834,8 +957,31 @@ export default function StockProductsPage() {
                           value={newProdShortName}
                           onChange={e => setNewProdShortName(e.target.value)}
                           placeholder="Short Form (e.g. WH.Milk)"
-                          style={{ margin: 0, padding: '8px 12px', fontSize: '0.875rem' }}
+                          style={{ margin: 0, padding: '8px 10px', fontSize: '0.85rem' }}
                         />
+                      </div>
+                      <div>
+                        <select
+                          className="form-input"
+                          value={newProdCategory}
+                          onChange={e => setNewProdCategory(e.target.value)}
+                          style={{ margin: 0, padding: '8px 8px', fontSize: '0.8rem', fontWeight: 600, cursor: 'pointer' }}
+                        >
+                          {categoriesList.length > 0 ? (
+                            categoriesList.map(c => (
+                              <option key={c.id || c.category_name} value={c.category_name}>
+                                {c.category_name}
+                              </option>
+                            ))
+                          ) : (
+                            <>
+                              <option value="Liquid Milk">Liquid Milk</option>
+                              <option value="Products">Products</option>
+                              <option value="By-Products">By-Products</option>
+                              <option value="Others">Others</option>
+                            </>
+                          )}
+                        </select>
                       </div>
                       <button
                         type="submit"
@@ -1309,6 +1455,130 @@ export default function StockProductsPage() {
         </div>
 
       </div>
+
+      {/* MANAGE CATEGORIES MODAL */}
+      {showManageCategoryModal && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 999, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
+          <div className="card animate-fade-in" style={{ maxWidth: 520, width: '100%', background: '#fff', borderRadius: 12, padding: 24 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+              <h3 style={{ margin: 0, fontSize: '1.1rem', fontWeight: 700, color: 'var(--brand-primary)' }}>🏷️ Product Categories Master</h3>
+              <button type="button" style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '1.2rem' }} onClick={() => setShowManageCategoryModal(false)}>✖</button>
+            </div>
+
+            {catActionMsg && (
+              <div style={{ background: catActionMsg.type === 'success' ? '#ecfdf5' : '#fef2f2', border: `1px solid ${catActionMsg.type === 'success' ? '#6ee7b7' : '#fca5a5'}`, color: catActionMsg.type === 'success' ? '#065f46' : '#991b1b', padding: '8px 12px', borderRadius: 6, marginBottom: 14, fontSize: '0.82rem' }}>
+                {catActionMsg.type === 'success' ? '✅' : '⚠️'} {catActionMsg.text}
+              </div>
+            )}
+
+            {/* Add Category Form */}
+            <form onSubmit={handleAddCategoryModalSubmit} style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
+              <input
+                type="text"
+                className="form-input"
+                value={newCatNameInput}
+                onChange={e => setNewCatNameInput(e.target.value)}
+                placeholder="New Category Name (e.g. Sweets)"
+                required
+                style={{ flex: 1, margin: 0, padding: '7px 10px', fontSize: '0.85rem' }}
+              />
+              <input
+                type="text"
+                className="form-input"
+                value={newCatCodeInput}
+                onChange={e => setNewCatCodeInput(e.target.value)}
+                placeholder="Code"
+                style={{ width: 80, margin: 0, padding: '7px 10px', fontSize: '0.85rem' }}
+              />
+              <button type="submit" className="btn btn-primary btn-sm" style={{ height: 36, whiteSpace: 'nowrap' }}>
+                ➕ Add Category
+              </button>
+            </form>
+
+            {/* Categories Table */}
+            <div style={{ border: '1px solid var(--border)', borderRadius: 8, maxHeight: 260, overflowY: 'auto' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.85rem' }}>
+                <thead>
+                  <tr style={{ background: '#f8fafc', borderBottom: '1px solid var(--border)', fontSize: '0.72rem', textTransform: 'uppercase', color: 'var(--text-secondary)' }}>
+                    <th style={{ padding: '8px 12px', textAlign: 'left' }}>Category Name</th>
+                    <th style={{ padding: '8px 12px', textAlign: 'left' }}>Code</th>
+                    <th style={{ padding: '8px 12px', textAlign: 'right' }}>Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {categoriesList.length === 0 ? (
+                    <tr><td colSpan={3} style={{ padding: 16, textAlign: 'center', color: 'var(--text-muted)' }}>No categories declared.</td></tr>
+                  ) : (
+                    categoriesList.map(cat => (
+                      <tr key={cat.id} style={{ borderBottom: '1px solid var(--border)' }}>
+                        <td style={{ padding: '8px 12px', fontWeight: 600 }}>
+                          {editingCatId === cat.id ? (
+                            <input
+                              type="text"
+                              className="form-input"
+                              value={editingCatName}
+                              onChange={e => setEditingCatName(e.target.value)}
+                              style={{ margin: 0, padding: '4px 8px', fontSize: '0.82rem' }}
+                            />
+                          ) : (
+                            cat.category_name
+                          )}
+                        </td>
+                        <td style={{ padding: '8px 12px', color: 'var(--text-secondary)', fontSize: '0.8rem' }}>{cat.code || '—'}</td>
+                        <td style={{ padding: '8px 12px', textAlign: 'right' }}>
+                          {editingCatId === cat.id ? (
+                            <div style={{ display: 'inline-flex', gap: 4 }}>
+                              <button
+                                type="button"
+                                className="btn btn-primary btn-xs"
+                                onClick={() => handleUpdateCategoryModalSubmit(cat.id, editingCatName)}
+                              >
+                                💾 Save
+                              </button>
+                              <button
+                                type="button"
+                                className="btn btn-secondary btn-xs"
+                                onClick={() => setEditingCatId(null)}
+                              >
+                                Cancel
+                              </button>
+                            </div>
+                          ) : (
+                            <div style={{ display: 'inline-flex', gap: 4 }}>
+                              <button
+                                type="button"
+                                className="btn btn-secondary btn-xs"
+                                onClick={() => { setEditingCatId(cat.id); setEditingCatName(cat.category_name); }}
+                              >
+                                ✏️ Edit
+                              </button>
+                              <button
+                                type="button"
+                                className="btn btn-secondary btn-xs"
+                                style={{ color: '#ef4444', borderColor: '#fca5a5' }}
+                                onClick={() => handleDeleteCategoryModal(cat.id, cat.category_name)}
+                              >
+                                🗑️ Delete
+                              </button>
+                            </div>
+                          )}
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+
+            <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 16 }}>
+              <button type="button" className="btn btn-secondary btn-sm" onClick={() => setShowManageCategoryModal(false)}>
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </>
   );
 }
+

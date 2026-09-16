@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getSupabaseServiceClient } from '@/lib/supabase';
 import { getAuthUserFromRequest } from '@/lib/auth';
+import { isLocalDbEnabled } from '@/lib/fileDb';
 import fs from 'fs';
 import path from 'path';
 
@@ -29,6 +30,15 @@ function writeLocalDb(data: any) {
 // GET /api/stock/config - Load Stock Products Configuration (Product Columns, Receipt Rows, Disposal Rows)
 export async function GET(req: NextRequest) {
   try {
+    if (isLocalDbEnabled()) {
+      const localDb = readLocalDb();
+      return NextResponse.json({
+        products: (localDb.products_master || []).filter((p: any) => p.is_active !== false),
+        receipt_rows: (localDb.receipt_rows || []).filter((r: any) => r.is_active !== false),
+        disposal_rows: (localDb.disposal_rows || []).filter((d: any) => d.is_active !== false),
+      });
+    }
+
     const supabase = getSupabaseServiceClient();
 
     // 1. Fetch Products Master
@@ -45,6 +55,7 @@ export async function GET(req: NextRequest) {
         key: p.product_key,
         full_name: p.product_name,
         short_name: p.short_name,
+        category: p.category || 'Liquid Milk',
         sort_order: p.sort_order || idx + 1,
         is_active: p.is_active,
       }));
@@ -133,7 +144,7 @@ export async function POST(req: NextRequest) {
 
     const body = await req.json();
     const { products, receipt_rows, disposal_rows, removed_product_ids, removed_receipt_ids, removed_disposal_ids } = body as {
-      products?: Array<{ id?: string; key?: string; full_name: string; short_name: string }>;
+      products?: Array<{ id?: string; key?: string; full_name: string; short_name: string; category?: string }>;
       receipt_rows?: Array<{ id?: string; full_name: string; short_name: string }>;
       disposal_rows?: Array<{ id?: string; full_name: string; short_name: string }>;
       removed_product_ids?: string[];
@@ -185,13 +196,14 @@ export async function POST(req: NextRequest) {
 
         const position = i + 1; // 1-indexed ordering position
         const key = prod.key || full_name.toLowerCase().replace(/\s+/g, '_');
+        const category = prod.category?.trim() || 'Liquid Milk';
 
         // Execute case-insensitive upsert SP fn_upsert_product_master
         const { data: spData, error: spErr } = await supabase.rpc('fn_upsert_product_master', {
           p_product_key: key,
           p_product_name: full_name,
           p_short_name: short_name,
-          p_category: 'Liquid Milk',
+          p_category: category,
           p_sort_order: position,
           p_is_active: true,
           p_actor: actorUsername,
@@ -207,6 +219,7 @@ export async function POST(req: NextRequest) {
               product_key: key,
               product_name: full_name,
               short_name: short_name,
+              category: category,
               sort_order: position,
               is_active: true,
               updated_by: actorUsername,
@@ -312,7 +325,7 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({
       success: true,
-      message: 'Stock products configuration saved successfully!',
+      message: 'Products saved successfully!',
       products: savedProducts,
       receipt_rows: savedReceiptRows,
       disposal_rows: savedDisposalRows,

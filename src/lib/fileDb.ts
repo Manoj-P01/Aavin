@@ -215,11 +215,8 @@ export async function saveDb(data: Schema) {
 }
 
 
-export function isLocalDbEnabled(): boolean {
-  return process.env.USE_LOCAL_STORAGE === 'true' ||
-         !process.env.NEXT_PUBLIC_SUPABASE_URL ||
-         process.env.NEXT_PUBLIC_SUPABASE_URL.includes('YOUR_PROJECT_REF');
-}
+import { isLocalDbEnabled } from './supabase';
+export { isLocalDbEnabled };
 
 // ─── Query Operations ─────────────────────────────────────────────────────────
 

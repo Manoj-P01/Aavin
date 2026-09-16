@@ -3,11 +3,13 @@
 import { useEffect, useState } from 'react';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import Header from '@/components/layout/Header';
+import Step, { DAILY_ENTRY_STEP_ITEMS } from '@/components/ui/Step';
 import TSReport from '@/components/reports/TSReport';
 import STGReport from '@/components/reports/STGReport';
+import StockReport from '@/components/reports/StockReport';
 import Link from 'next/link';
 import { calcTSTotals, fmtDate, generateDynamicBalanceRows } from '@/lib/calculations';
-import type { Entry, Shift, TSMilkRow, STGRow } from '@/lib/types';
+import type { Entry, Shift, TSMilkRow, STGRow, StockRow, SeparationDetails } from '@/lib/types';
 
 export default function TSViewPage() {
   const { date } = useParams<{ date: string }>();
@@ -18,20 +20,23 @@ export default function TSViewPage() {
 
   const [rows, setRows] = useState<TSMilkRow[]>([]);
   const [stgRows, setStgRows] = useState<STGRow[]>([]);
+  const [stockRows, setStockRows] = useState<StockRow[]>([]);
+  const [stockSeparation, setStockSeparation] = useState<SeparationDetails | null>(null);
   const [entryNotes, setEntryNotes] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  const [selectedTab, setSelectedTab] = useState<'TS' | 'STG' | null>(null);
+  const [selectedTab, setSelectedTab] = useState<'STOCK' | 'STG' | 'TS' | null>(null);
 
   const [availableShifts, setAvailableShifts] = useState<(Shift | null)[]>([]);
   const [shift, setShift] = useState<Shift | null>(null);
   const [reportMode, setReportMode] = useState<'full_day' | 'shift'>('full_day');
   const [globalStatements, setGlobalStatements] = useState<Array<{ key: string; label: string }>>([]);
-  const activeTab = selectedTab ?? ((tabParam === 'TS' || tabParam === 'ts') ? 'TS' : 'STG');
+  const activeTab = selectedTab ?? (tabParam?.toUpperCase() === 'STOCK' ? 'STOCK' : (tabParam?.toUpperCase() === 'TS' ? 'TS' : 'STG'));
 
   const [exportModalOpen, setExportModalOpen] = useState(false);
   const [exportSTG, setExportSTG] = useState(true);
   const [exportTS, setExportTS] = useState(true);
+  const [exportStock, setExportStock] = useState(true);
   const [exporting, setExporting] = useState(false);
 
   useEffect(() => {
@@ -136,6 +141,19 @@ export default function TSViewPage() {
           setStgRows(rawStgRows);
           setEntryNotes(notes);
         }
+
+        // 3. Fetch Stock details for active shift
+        try {
+          const stockRes = await fetch(`/api/stock?date=${date}${activeShift ? `&shift=${activeShift}` : ''}`);
+          if (stockRes.ok) {
+            const stockJson = await stockRes.json();
+            const sEntry = stockJson.data?.entries?.[0];
+            const sRows = stockJson.data?.stock_rows?.filter((r: any) => r.entry_id === sEntry?.id) || stockJson.data?.stock_rows || [];
+            const sSep = stockJson.data?.separation_details?.find((s: any) => s.entry_id === sEntry?.id) || stockJson.data?.separation_details?.[0] || null;
+            setStockRows(sRows);
+            setStockSeparation(sSep);
+          }
+        } catch {}
       } catch (e: unknown) {
         setError(e instanceof Error ? e.message : 'Failed to load');
       } finally {
@@ -151,7 +169,7 @@ export default function TSViewPage() {
   const handleExportExcel = async () => {
     setExporting(true);
     try {
-      const url = `/api/export-excel?date=${date}&shift=${shift ?? 'null'}&stg=${exportSTG}&ts=${exportTS}`;
+      const url = `/api/export-excel?date=${date}&shift=${shift ?? 'null'}&stg=${exportSTG}&ts=${exportTS}&stock=${exportStock}`;
       const res = await fetch(url);
       if (!res.ok) throw new Error('Export failed');
       const blob = await res.blob();
@@ -161,7 +179,7 @@ export default function TSViewPage() {
       const dateParts = date.split('-');
       const formattedDate = `${dateParts[2]}-${dateParts[1]}-${dateParts[0]}`;
       const shiftStr = shift ? `-${shift}` : '';
-      a.download = `${formattedDate}${shiftStr}-TS.xlsx`;
+      a.download = `${formattedDate}${shiftStr}-Statement.xlsx`;
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
@@ -184,6 +202,9 @@ export default function TSViewPage() {
         subtitle={`Total Solids and Solid Balance Details (${shift ? (shift === 'D' ? 'Day Shift' : 'Night Shift') : 'Full Day'})`}
         actions={
           <div style={{ display: 'flex', gap: 8 }} className="no-print">
+            <Link href={`/dashboard/stock/${date}/${shift || 'D'}`} className="btn btn-secondary btn-sm">
+              📦 Stock Statement
+            </Link>
             {activeTab === 'STG' ? (
               <Link href={`/dashboard/ts/new-stg?date=${date}&shift=${shift ?? 'null'}`} className="btn btn-primary btn-sm">
                 ✏️ Edit STG Entry
@@ -198,8 +219,25 @@ export default function TSViewPage() {
             <Link href="/dashboard/ts" className="btn btn-ghost btn-sm">← Back</Link>
           </div>
         }
-      />
+      >
+        <Step
+          items={DAILY_ENTRY_STEP_ITEMS}
+          flat={true}
+          activeStep="reports"
+          onStepClick={(key) => {
+            if (key === 'stock') {
+              router.push(`/dashboard/stock/new?date=${date}&shift=${shift || 'F'}`);
+            } else if (key === 'stg') {
+              router.push(`/dashboard/ts/new-stg?date=${date}&shift=${shift || 'F'}`);
+            } else if (key === 'ts') {
+              router.push(`/dashboard/ts/new?date=${date}&shift=${shift || 'F'}`);
+            }
+          }}
+          style={{ marginBottom: 0, marginTop: 4 }}
+        />
+      </Header>
       <div className="page-body animate-fade-in">
+
         {/* Date & Shift Selector Card */}
         <div className="card no-print" style={{ padding: '12px 16px', marginBottom: 16, display: 'flex', alignItems: 'center', gap: 24, flexWrap: 'wrap' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -261,6 +299,12 @@ export default function TSViewPage() {
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }} className="no-print">
           <div className="tabs">
             <button
+              className={`tab ${activeTab === 'STOCK' ? 'active' : ''}`}
+              onClick={() => setSelectedTab('STOCK')}
+            >
+              📦 Milk & Cream Stock Statement
+            </button>
+            <button
               className={`tab ${activeTab === 'STG' ? 'active' : ''}`}
               onClick={() => setSelectedTab('STG')}
             >
@@ -285,7 +329,7 @@ export default function TSViewPage() {
             ⚠️ {error}
             <button onClick={() => router.back()} style={{ marginLeft: 12 }} className="btn btn-ghost btn-sm">Go Back</button>
           </div>
-        ) : (rows.length === 0 && stgRows.length === 0 && !entryNotes) ? (
+        ) : (rows.length === 0 && stgRows.length === 0 && stockRows.length === 0 && !entryNotes) ? (
           <div className="empty-state">
             <div className="empty-state-icon">📋</div>
             <div className="empty-state-title">No data found for {date ? fmtDate(date) : ''} ({shift === 'D' ? 'Day Shift' : 'Night Shift'})</div>
@@ -293,7 +337,10 @@ export default function TSViewPage() {
               Please create an entry to compile the report.
             </div>
             <div style={{ display: 'flex', gap: 12, justifyContent: 'center', marginTop: 16 }}>
-              <Link href={`/dashboard/ts/new-stg?date=${date}&shift=${shift || 'D'}`} className="btn btn-primary">
+              <Link href={`/dashboard/stock/new?date=${date}&shift=${shift || 'F'}`} className="btn btn-primary">
+                📦 Create Stock Entry
+              </Link>
+              <Link href={`/dashboard/ts/new-stg?date=${date}&shift=${shift || 'D'}`} className="btn btn-secondary">
                 ⚖️ Create STG Entry
               </Link>
               <Link href={`/dashboard/ts/new?date=${date}`} className="btn btn-secondary">
@@ -303,7 +350,15 @@ export default function TSViewPage() {
           </div>
         ) : (
           <div className="card">
-            {activeTab === 'TS' ? (
+            {activeTab === 'STOCK' ? (
+              <StockReport
+                rows={stockRows}
+                separation={stockSeparation}
+                date={date}
+                shift={shift === 'D' ? 'D' : shift === 'N' ? 'N' : 'FULL_DAY'}
+                notes={entryNotes}
+              />
+            ) : activeTab === 'TS' ? (
               <TSReport rows={rows} totals={totals} date={date} shift={shift} notes={entryNotes} />
             ) : (
               <STGReport stgRows={stgRows} date={date} notes={entryNotes} shift={shift} />
@@ -333,11 +388,20 @@ export default function TSViewPage() {
               <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: '0.9rem', cursor: 'pointer' }}>
                 <input
                   type="checkbox"
+                  checked={exportStock}
+                  onChange={e => setExportStock(e.target.checked)}
+                  style={{ width: 18, height: 18 }}
+                />
+                📦 Milk & Cream Stock Statement Sheet
+              </label>
+              <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: '0.9rem', cursor: 'pointer' }}>
+                <input
+                  type="checkbox"
                   checked={exportSTG}
                   onChange={e => setExportSTG(e.target.checked)}
                   style={{ width: 18, height: 18 }}
                 />
-                Solid Balance (STG) Sheets
+                ⚖️ Solid Balance (STG) Sheets
               </label>
               <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: '0.9rem', cursor: 'pointer' }}>
                 <input
@@ -346,7 +410,7 @@ export default function TSViewPage() {
                   onChange={e => setExportTS(e.target.checked)}
                   style={{ width: 18, height: 18 }}
                 />
-                Total Solids (TS) Report Sheet
+                🧪 Total Solids (TS) Report Sheet
               </label>
             </div>
             
@@ -362,9 +426,9 @@ export default function TSViewPage() {
                 className="btn btn-primary btn-sm"
                 style={{ backgroundColor: '#16a34a', backgroundImage: 'none', boxShadow: 'none' }}
                 onClick={handleExportExcel}
-                disabled={exporting || (!exportSTG && !exportTS)}
+                disabled={exporting || (!exportSTG && !exportTS && !exportStock)}
               >
-                {exporting ? 'Exporting...' : '💾 Export Now'}
+                {exporting ? 'Exporting...' : '💾 Export Selected Sheets'}
               </button>
             </div>
           </div>

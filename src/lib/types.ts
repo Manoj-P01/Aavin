@@ -208,60 +208,14 @@ export interface DashboardStats {
 
 export const CMPDD_NORM_PCT = 0.5;
 
-export const TS_OB_PRODUCTS = ['WM', 'SSM', 'CREAM', 'DLT MILK', 'FC.MILK', 'STD.Milk', 'SMP'] as const;
+export const TS_OB_PRODUCTS: string[] = [];
+export const TS_RECEIPT_PRODUCTS: string[] = [];
+export const TS_DESPATCH_PRODUCTS: string[] = [];
+export const TS_LOCAL_SALE_PRODUCTS: string[] = [];
+export const TS_OTHER_DISPOSAL_PRODUCTS: string[] = [];
 
-export const TS_RECEIPT_PRODUCTS = [
-  'P.VELUR CC', "BMC's", 'LAB SAMPLE RTN', 'WF', 'SMP',
-  'RINSE MILK', 'BUTTER MILK', 'DLT SACHET RTN', 'FCM SACHET RTN', 'STD SACHET RTN',
-] as const;
+export const STOCK_RECEIPT_LABELS: string[] = [];
+export const STOCK_DISPOSAL_LABELS: string[] = [];
 
-export const TS_DESPATCH_PRODUCTS = [
-  'AMBATTUR-SSM', 'SNR-SSM', 'DCPP-SSM', 'ERODE-SSM', 'CBE-SSM',
-] as const;
+export const STOCK_PRODUCT_COLUMNS: { key: keyof StockColumns; label: string; full_name: string; short_name: string }[] = [];
 
-export const TS_LOCAL_SALE_PRODUCTS = ['DLT MILK', 'FC.MILK', 'STD.Milk', 'OTHERS'] as const;
-
-export const TS_OTHER_DISPOSAL_PRODUCTS = ['SMP', 'CURD/BM', 'TO KHOA', 'LAB SAMPLE', 'CREAM-CON'] as const;
-
-export const STOCK_RECEIPT_LABELS = [
-  'Receipts:',
-  'Re-Processing',
-  'Butter Milk',
-  'Prepac RTN',
-  'Lab RTN/Lab Sample',
-  'Cream',
-  'Water Flushing',
-  'Rince Milk',
-  'Others',
-] as const;
-
-export const STOCK_DISPOSAL_LABELS = [
-  'To other Dairies',
-  'To DLT Milk',
-  'To FC Milk',
-  'To STD Milk',
-  'To R.CON Milk',
-  'To Separation',
-  'To HMST',
-  'To MKT',
-  'To Convension',
-  'To Khoa',
-  'To Curd',
-  'To CUP Curd',
-  'To Lab Sampling',
-] as const;
-
-export const STOCK_PRODUCT_COLUMNS: { key: keyof StockColumns; label: string; full_name: string; short_name: string }[] = [
-  { key: 'wh_milk',     label: 'WH.Milk',          full_name: 'TENTATIVE WHOLE MILK', short_name: 'WH.Milk' },
-  { key: 'dlt_milk',    label: 'DLT.Milk',         full_name: 'DOUBLE TONED MILK',    short_name: 'DLT.Milk' },
-  { key: 'fc_milk',     label: 'FC. Milk',          full_name: 'FULL CREAM MILK',      short_name: 'FC. Milk' },
-  { key: 'std_milk',    label: 'STD.Milk',         full_name: 'STANDARDIZED MILK',    short_name: 'STD.Milk' },
-  { key: 'toned_curd',  label: 'Toned Milk CURD',  full_name: 'TONED MILK CURD',      short_name: 'TM Curd' },
-  { key: 'dtm',         label: 'DTM',              full_name: 'DOUBLE TONED MILK',    short_name: 'DTM' },
-  { key: 'skim_milk',   label: 'Skim Milk',        full_name: 'SKIMMED MILK',         short_name: 'Skim Milk' },
-  { key: 'cream',       label: 'Cream',            full_name: 'CREAM',                short_name: 'Cream' },
-  { key: 'butter_milk', label: 'Butter Milk',      full_name: 'BUTTER MILK',          short_name: 'BM' },
-  { key: 'r_con',       label: 'R.Con',            full_name: 'RECONSTITUTED MILK',   short_name: 'R.Con' },
-  { key: 'smp',         label: 'SMP',              full_name: 'SKIM MILK POWDER',     short_name: 'SMP' },
-  { key: 'water',       label: 'Water',            full_name: 'WATER',                short_name: 'Water' },
-];

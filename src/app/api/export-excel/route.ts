@@ -5,7 +5,7 @@ import XLSX from 'xlsx-js-style';
 import { getSupabaseServiceClient } from '@/lib/supabase';
 import { isLocalDbEnabled, initDb } from '@/lib/fileDb';
 import { generateDynamicBalanceRows, calcTSTotals } from '@/lib/calculations';
-import type { Shift, TSMilkRow, STGRow } from '@/lib/types';
+import type { Shift, TSMilkRow, STGRow, StockRow } from '@/lib/types';
 
 // Helper to create styled cell objects
 function cell(value: any, opts?: { isHeader?: boolean; isBold?: boolean; isNum?: boolean; isTitle?: boolean; alignment?: string; noBorder?: boolean }) {
@@ -60,6 +60,7 @@ export async function GET(req: NextRequest) {
     const shift = (rawShift === 'null' || !rawShift) ? null : rawShift as Shift;
     const includeStg = searchParams.get('stg') === 'true';
     const includeTs = searchParams.get('ts') === 'true';
+    const includeStock = searchParams.get('stock') === 'true';
 
     if (!date) {
       return NextResponse.json({ error: 'Date parameter is required' }, { status: 400 });
@@ -68,19 +69,28 @@ export async function GET(req: NextRequest) {
     let entryNotes = '';
     let stgRowsData: STGRow[] = [];
     let tsRowsData: TSMilkRow[] = [];
+    let stockRowsData: StockRow[] = [];
 
     // 1. Fetch data from DB or local JSON
     if (isLocalDbEnabled()) {
       const db = await initDb();
-      const entry = db.entries.find((e: any) =>
+      const tsEntry = db.entries.find((e: any) =>
         e.entry_date === date &&
         e.report_type === 'TS' &&
         (e.shift === shift || (!e.shift && !shift))
       );
-      if (entry) {
-        entryNotes = entry.notes || '';
-        stgRowsData = db.stg_rows.filter((r: any) => r.entry_id === entry.id) as STGRow[];
-        tsRowsData = db.ts_milk_rows.filter((r: any) => r.entry_id === entry.id) as TSMilkRow[];
+      if (tsEntry) {
+        entryNotes = tsEntry.notes || '';
+        stgRowsData = db.stg_rows.filter((r: any) => r.entry_id === tsEntry.id) as STGRow[];
+        tsRowsData = db.ts_milk_rows.filter((r: any) => r.entry_id === tsEntry.id) as TSMilkRow[];
+      }
+      const stockEntry = db.entries.find((e: any) =>
+        e.entry_date === date &&
+        e.report_type === 'STOCK' &&
+        (e.shift === shift || (!e.shift && !shift))
+      );
+      if (stockEntry) {
+        stockRowsData = db.stock_rows.filter((r: any) => r.entry_id === stockEntry.id) as StockRow[];
       }
     } else {
       const supabase = getSupabaseServiceClient();
@@ -116,15 +126,31 @@ export async function GET(req: NextRequest) {
             .order('sort_order', { ascending: true }),
         ]);
 
-        if (tsRows.error) throw tsRows.error;
-        if (stgRows.error) throw stgRows.error;
+        if (!tsRows.error) tsRowsData = tsRows.data as TSMilkRow[];
+        if (!stgRows.error) stgRowsData = stgRows.data as STGRow[];
+      }
 
-        tsRowsData = tsRows.data as TSMilkRow[];
-        stgRowsData = stgRows.data as STGRow[];
+      // Fetch Stock entry data if needed
+      let stockQuery = supabase
+        .from('entries')
+        .select('id')
+        .eq('entry_date', date)
+        .eq('report_type', 'STOCK');
+      if (shift) stockQuery = stockQuery.eq('shift', shift);
+      else stockQuery = stockQuery.is('shift', null);
+
+      const { data: stockEntries } = await stockQuery;
+      if (stockEntries && stockEntries.length > 0) {
+        const stockRes = await supabase
+          .from('stock_rows')
+          .select('*')
+          .eq('entry_id', stockEntries[0].id)
+          .order('sort_order', { ascending: true });
+        if (stockRes.data) stockRowsData = stockRes.data as StockRow[];
       }
     }
 
-    if (tsRowsData.length === 0 && stgRowsData.length === 0) {
+    if (tsRowsData.length === 0 && stgRowsData.length === 0 && stockRowsData.length === 0) {
       return NextResponse.json({ error: 'No report data found for this date and shift' }, { status: 404 });
     }
 
@@ -715,6 +741,112 @@ export async function GET(req: NextRequest) {
       stgWs['!cols'] = colWidths;
       stgWs['!merges'] = stgMerges;
       XLSX.utils.book_append_sheet(wb, stgWs, 'STG');
+    }
+
+    // 5. Build Stock Statement Sheet
+    if (includeStock && stockRowsData.length > 0) {
+      const stockCols = [
+        { key: 'wh_milk', label: 'WM' },
+        { key: 'dlt_milk', label: 'DLT' },
+        { key: 'fc_milk', label: 'FC' },
+        { key: 'std_milk', label: 'STD' },
+        { key: 'toned_curd', label: 'TC' },
+        { key: 'dtm', label: 'DTM' },
+        { key: 'skim_milk', label: 'SSM' },
+        { key: 'cream', label: 'CRM' },
+        { key: 'butter_milk', label: 'BM' },
+        { key: 'r_con', label: 'R.CON' },
+        { key: 'smp', label: 'SMP' },
+        { key: 'water', label: 'WATER' },
+      ];
+
+      const stockSheetData: any[][] = [
+        [cell('NAMAKKAL DISTRICT CO-OPERATIVE MILK PRODUCERS\' UNION LTD', { isBold: true, noBorder: true })],
+        [
+          cell('NKL — MILK AND CREAM STOCK STATEMENT', { isBold: true, noBorder: true }),
+          ...new Array(11).fill(cell('', { noBorder: true })),
+          cell(new Date(date).toLocaleDateString('en-IN'), { isBold: true, noBorder: true, alignment: 'right' })
+        ],
+        [
+          cell('Particulars', { isHeader: true }),
+          ...stockCols.map(c => cell(c.label, { isHeader: true })),
+          cell('Total', { isHeader: true })
+        ]
+      ];
+
+      const stockMerges: XLSX.Range[] = [
+        { s: { r: 0, c: 0 }, e: { r: 0, c: 13 } },
+        { s: { r: 1, c: 0 }, e: { r: 1, c: 12 } }
+      ];
+
+      const getSum = (rowType: 'OB' | 'RECEIPT' | 'DISPOSAL', colKey: string) => {
+        return stockRowsData.filter(r => r.row_type === rowType).reduce((sum, r) => sum + (Number((r as any)[colKey]) || 0), 0);
+      };
+
+      const addSummaryRow = (label: string, rowType: 'OB' | 'RECEIPT_TOTAL' | 'OB_RECEIPT_TOTAL' | 'DISPOSAL_TOTAL' | 'CB') => {
+        const rowVals = stockCols.map(col => {
+          if (rowType === 'OB') return getSum('OB', col.key);
+          if (rowType === 'RECEIPT_TOTAL') return getSum('RECEIPT', col.key);
+          if (rowType === 'OB_RECEIPT_TOTAL') return getSum('OB', col.key) + getSum('RECEIPT', col.key);
+          if (rowType === 'DISPOSAL_TOTAL') return getSum('DISPOSAL', col.key);
+          if (rowType === 'CB') return getSum('OB', col.key) + getSum('RECEIPT', col.key) - getSum('DISPOSAL', col.key);
+          return 0;
+        });
+        const total = rowVals.reduce((a, b) => a + b, 0);
+        stockSheetData.push([
+          cell(label, { isBold: true }),
+          ...rowVals.map(v => cell(val(v), { isBold: true, isNum: true })),
+          cell(val(total), { isBold: true, isNum: true })
+        ]);
+      };
+
+      // OB
+      addSummaryRow('OPENING BALANCE', 'OB');
+
+      // Receipts
+      const recHeaderIdx = stockSheetData.length;
+      stockSheetData.push([cell('RECEIPTS', { isBold: true }), ...new Array(13).fill(cell('', { noBorder: true }))]);
+      stockMerges.push({ s: { r: recHeaderIdx, c: 0 }, e: { r: recHeaderIdx, c: 13 } });
+
+      const receipts = stockRowsData.filter(r => r.row_type === 'RECEIPT');
+      receipts.forEach(r => {
+        const rowVals = stockCols.map(c => Number((r as any)[c.key]) || 0);
+        const total = rowVals.reduce((a, b) => a + b, 0);
+        stockSheetData.push([
+          cell(r.row_label),
+          ...rowVals.map(v => cell(val(v), { isNum: true })),
+          cell(val(total), { isNum: true })
+        ]);
+      });
+
+      addSummaryRow('TOTAL (Receipts)', 'RECEIPT_TOTAL');
+      addSummaryRow('TOTAL (OB + Receipts)', 'OB_RECEIPT_TOTAL');
+
+      // Disposals
+      const dispHeaderIdx = stockSheetData.length;
+      stockSheetData.push([cell('DISPOSALS', { isBold: true }), ...new Array(13).fill(cell('', { noBorder: true }))]);
+      stockMerges.push({ s: { r: dispHeaderIdx, c: 0 }, e: { r: dispHeaderIdx, c: 13 } });
+
+      const disposals = stockRowsData.filter(r => r.row_type === 'DISPOSAL');
+      disposals.forEach(r => {
+        const rowVals = stockCols.map(c => Number((r as any)[c.key]) || 0);
+        const total = rowVals.reduce((a, b) => a + b, 0);
+        stockSheetData.push([
+          cell(r.row_label),
+          ...rowVals.map(v => cell(val(v), { isNum: true })),
+          cell(val(total), { isNum: true })
+        ]);
+      });
+
+      addSummaryRow('TOTAL (Disposals)', 'DISPOSAL_TOTAL');
+
+      // CB
+      addSummaryRow('CLOSING BALANCE', 'CB');
+
+      const stockWs = XLSX.utils.aoa_to_sheet(stockSheetData);
+      stockWs['!cols'] = [{ wch: 24 }, ...new Array(13).fill({ wch: 12 })];
+      stockWs['!merges'] = stockMerges;
+      XLSX.utils.book_append_sheet(wb, stockWs, 'Stock Statement');
     }
 
     const excelBuffer = XLSX.write(wb, { bookType: 'xlsx', type: 'buffer' });

@@ -22,13 +22,19 @@ export const DAILY_ENTRY_STEP_ITEMS: StepItem[] = [
     key: 'stg',
     title: 'Solid Balance Details (STG)',
     description: 'Auto-compiled Receipts & Disposals',
-    icon: '🧪',
+    icon: '⚖️',
   },
   {
     key: 'ts',
     title: 'Total Solids (TS) Statement',
     description: 'Total Solids & Fat/SNF Balances',
-    icon: '📋',
+    icon: '🧪',
+  },
+  {
+    key: 'reports',
+    title: 'Reports & Downloads',
+    description: 'View PDF / Export Multi-Sheet Excel',
+    icon: '📥',
   },
 ];
 

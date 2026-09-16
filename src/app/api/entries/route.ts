@@ -70,6 +70,11 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'report_type is required' }, { status: 400 });
     }
 
+    let cleanNotes: string | null = null;
+    if (typeof notes === 'string' && notes.trim().length > 0) {
+      cleanNotes = notes.trim();
+    }
+
     if (isLocalDbEnabled()) {
       const db = await initDb();
       const exists = db.entries.find((e: any) => 
@@ -78,13 +83,13 @@ export async function POST(req: NextRequest) {
         (e.shift === shift || (!e.shift && !shift))
       );
       if (exists) {
-        exists.notes = notes || null;
+        exists.notes = cleanNotes;
         exists.updated_at = new Date().toISOString();
         await saveDb(db);
         return NextResponse.json({ data: exists }, { status: 200 });
       }
 
-      const data = await createLocalEntry(entry_date, shift, report_type, notes);
+      const data = await createLocalEntry(entry_date, shift, report_type, cleanNotes);
       return NextResponse.json({ data }, { status: 201 });
     }
 
@@ -112,7 +117,7 @@ export async function POST(req: NextRequest) {
       // Update existing entry's notes
       const { data, error } = await supabase
         .from('entries')
-        .update({ notes: notes || null, updated_by: actorUsername, updated_at: new Date().toISOString() })
+        .update({ notes: cleanNotes, updated_by: actorUsername, updated_at: new Date().toISOString() })
         .eq('id', existing[0].id)
         .select()
         .single();
@@ -126,7 +131,7 @@ export async function POST(req: NextRequest) {
           entry_date,
           shift: shift || null,
           report_type,
-          notes: notes || null,
+          notes: cleanNotes,
           created_by: actorUsername,
           updated_by: actorUsername,
         })

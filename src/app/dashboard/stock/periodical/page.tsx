@@ -84,6 +84,23 @@ export default function PeriodicalSummaryReportPage() {
     async function loadData() {
       setLoading(true);
       try {
+        try {
+          const cfgRes = await fetch('/api/stock/config');
+          if (cfgRes.ok) {
+            const cfgJson = await cfgRes.json();
+            if (Array.isArray(cfgJson.products) && cfgJson.products.length > 0) {
+              setColumns(cfgJson.products.map((p: any) => ({
+                key: p.key || p.product_key,
+                label: p.short_name || p.full_name || p.key,
+                short_name: p.short_name || p.code,
+                full_name: p.full_name || p.product_name,
+              })));
+            }
+          }
+        } catch (cfgErr) {
+          console.error('Failed to load DB stock config:', cfgErr);
+        }
+
         const res = await fetch('/api/entries?report_type=STOCK');
         if (res.ok) {
           const json = await res.json();
