@@ -157,26 +157,27 @@ export async function POST(req: NextRequest) {
 
     const actorUsername = req.headers.get('x-user-name') || 'admin';
 
-    const rowsToInsert = (stock_rows || []).map((r, i) => ({
-      entry_id,
-      row_type: r.row_type,
-      row_label: r.row_label,
-      wh_milk:     Number(r.wh_milk)     || 0,
-      dlt_milk:    Number(r.dlt_milk)    || 0,
-      fc_milk:     Number(r.fc_milk)     || 0,
-      std_milk:    Number(r.std_milk)    || 0,
-      toned_curd:  Number(r.toned_curd)  || 0,
-      dtm:         Number(r.dtm)         || 0,
-      skim_milk:   Number(r.skim_milk)   || 0,
-      cream:       Number(r.cream)       || 0,
-      butter_milk: Number(r.butter_milk) || 0,
-      r_con:       Number(r.r_con)       || 0,
-      smp:         Number(r.smp)         || 0,
-      water:       Number(r.water)       || 0,
-      sort_order:  r.sort_order ?? i,
-      created_by:  actorUsername,
-      updated_by:  actorUsername,
-    }));
+    const stdCols = ['wh_milk', 'dlt_milk', 'fc_milk', 'std_milk', 'toned_curd', 'dtm', 'skim_milk', 'cream', 'butter_milk', 'r_con', 'smp', 'water'];
+
+    const rowsToInsert = (stock_rows || []).map((r: any, i: number) => {
+      const rowObj: any = {
+        entry_id,
+        row_type: r.row_type,
+        row_label: r.row_label,
+        sort_order: r.sort_order ?? i,
+        created_by: actorUsername,
+        updated_by: actorUsername,
+      };
+
+      stdCols.forEach(colKey => {
+        const dotKey = colKey.replace(/_/g, '.');
+        const altDotKey = colKey === 'wh_milk' ? 'wh.milk' : colKey === 'dlt_milk' ? 'dlt.milk' : colKey === 'fc_milk' ? 'fc._milk' : colKey === 'std_milk' ? 'std.milk' : dotKey;
+        const val = r[colKey] ?? r[dotKey] ?? r[altDotKey];
+        rowObj[colKey] = Number(val) || 0;
+      });
+
+      return rowObj;
+    });
 
     // Delete existing then re-insert
     await Promise.all([
@@ -185,7 +186,11 @@ export async function POST(req: NextRequest) {
     ]);
 
     if (rowsToInsert.length > 0) {
-      await supabase.from('stock_rows').insert(rowsToInsert);
+      const { error: insertErr } = await supabase.from('stock_rows').insert(rowsToInsert);
+      if (insertErr) {
+        console.error('Failed to insert stock_rows in Supabase:', insertErr);
+        throw new Error(`Failed to insert stock rows: ${insertErr.message}`);
+      }
     }
 
     if (separation_details) {

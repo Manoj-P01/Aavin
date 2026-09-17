@@ -34,11 +34,7 @@ export const supabase = new Proxy({} as any, {
 });
 
 export function isLocalDbEnabled(): boolean {
-  return process.env.USE_LOCAL_STORAGE === 'true' ||
-         !process.env.NEXT_PUBLIC_SUPABASE_URL ||
-         process.env.NEXT_PUBLIC_SUPABASE_URL.includes('YOUR_PROJECT_REF') ||
-         !process.env.SUPABASE_SERVICE_ROLE_KEY ||
-         process.env.SUPABASE_SERVICE_ROLE_KEY.includes('YOUR_SERVICE_ROLE_KEY');
+  return false;
 }
 
 // ── Server client (service role — server-side only) ───────────────────────────

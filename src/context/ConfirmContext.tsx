@@ -1,18 +1,21 @@
 'use client';
 
-import React, { createContext, useContext, useState, ReactNode } from 'react';
+import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 
 export interface ConfirmOptions {
   title?: string;
   message: string;
   confirmText?: string;
   cancelText?: string;
-  type?: 'danger' | 'warning' | 'info';
+  type?: 'danger' | 'warning' | 'info' | 'success' | 'error';
 }
 
 export interface ConfirmContextType {
   confirm: (options: ConfirmOptions | string) => Promise<boolean>;
   showAlert: (message: string, title?: string) => Promise<void>;
+  showError: (message: string, title?: string) => Promise<void>;
+  showSuccess: (message: string, title?: string) => Promise<void>;
+  showWarning: (message: string, title?: string) => Promise<void>;
 }
 
 const ConfirmContext = createContext<ConfirmContextType | undefined>(undefined);
@@ -23,7 +26,7 @@ interface ModalState {
   message: string;
   confirmText: string;
   cancelText: string;
-  type: 'danger' | 'warning' | 'info';
+  type: 'danger' | 'warning' | 'info' | 'success' | 'error';
   isAlertOnly: boolean;
   resolve: (val: boolean) => void;
 }
@@ -31,12 +34,31 @@ interface ModalState {
 export function ConfirmProvider({ children }: { children: ReactNode }) {
   const [modal, setModal] = useState<ModalState | null>(null);
 
+  useEffect(() => {
+    if (!modal?.isOpen) return;
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        if (!modal.isAlertOnly) {
+          modal.resolve(false);
+        } else {
+          modal.resolve(true);
+        }
+      } else if (e.key === 'Enter') {
+        modal.resolve(true);
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [modal]);
+
   const confirm = (options: ConfirmOptions | string): Promise<boolean> => {
     return new Promise((resolve) => {
       const opts: ConfirmOptions = typeof options === 'string' ? { message: options } : options;
       setModal({
         isOpen: true,
-        title: opts.title || (opts.type === 'info' ? 'Information' : 'Confirm Action'),
+        title: opts.title || (opts.type === 'info' ? 'Information' : opts.type === 'danger' ? 'Confirm Action' : 'Notice'),
         message: opts.message,
         confirmText: opts.confirmText || 'Confirm',
         cancelText: opts.cancelText || 'Cancel',
@@ -68,8 +90,108 @@ export function ConfirmProvider({ children }: { children: ReactNode }) {
     });
   };
 
+  const showError = (message: string, title: string = 'Error'): Promise<void> => {
+    return new Promise((resolve) => {
+      setModal({
+        isOpen: true,
+        title,
+        message,
+        confirmText: 'OK',
+        cancelText: '',
+        type: 'error',
+        isAlertOnly: true,
+        resolve: () => {
+          setModal(null);
+          resolve();
+        },
+      });
+    });
+  };
+
+  const showSuccess = (message: string, title: string = 'Success'): Promise<void> => {
+    return new Promise((resolve) => {
+      setModal({
+        isOpen: true,
+        title,
+        message,
+        confirmText: 'OK',
+        cancelText: '',
+        type: 'success',
+        isAlertOnly: true,
+        resolve: () => {
+          setModal(null);
+          resolve();
+        },
+      });
+    });
+  };
+
+  const showWarning = (message: string, title: string = 'Warning'): Promise<void> => {
+    return new Promise((resolve) => {
+      setModal({
+        isOpen: true,
+        title,
+        message,
+        confirmText: 'OK',
+        cancelText: '',
+        type: 'warning',
+        isAlertOnly: true,
+        resolve: () => {
+          setModal(null);
+          resolve();
+        },
+      });
+    });
+  };
+
+  const getIcon = (type: ModalState['type']) => {
+    switch (type) {
+      case 'danger':
+        return '⚠️';
+      case 'error':
+        return '❌';
+      case 'warning':
+        return '⚡';
+      case 'success':
+        return '✅';
+      case 'info':
+      default:
+        return 'ℹ️';
+    }
+  };
+
+  const getIconBg = (type: ModalState['type']) => {
+    switch (type) {
+      case 'danger':
+      case 'error':
+        return 'rgba(239, 68, 68, 0.12)';
+      case 'warning':
+        return 'rgba(245, 158, 11, 0.12)';
+      case 'success':
+        return 'rgba(16, 185, 129, 0.12)';
+      case 'info':
+      default:
+        return 'rgba(14, 165, 233, 0.12)';
+    }
+  };
+
+  const getConfirmBtnStyle = (type: ModalState['type']) => {
+    switch (type) {
+      case 'danger':
+      case 'error':
+        return { background: '#ef4444', color: '#ffffff' };
+      case 'warning':
+        return { background: '#f59e0b', color: '#ffffff' };
+      case 'success':
+        return { background: '#10b981', color: '#ffffff' };
+      case 'info':
+      default:
+        return { background: '#0ea5e9', color: '#ffffff' };
+    }
+  };
+
   return (
-    <ConfirmContext.Provider value={{ confirm, showAlert }}>
+    <ConfirmContext.Provider value={{ confirm, showAlert, showError, showSuccess, showWarning }}>
       {children}
       {modal?.isOpen && (
         <div
@@ -80,13 +202,14 @@ export function ConfirmProvider({ children }: { children: ReactNode }) {
             left: 0,
             right: 0,
             bottom: 0,
-            background: 'rgba(15, 23, 42, 0.45)',
-            backdropFilter: 'blur(4px)',
-            WebkitBackdropFilter: 'blur(4px)',
+            background: 'rgba(15, 23, 42, 0.55)',
+            backdropFilter: 'blur(6px)',
+            WebkitBackdropFilter: 'blur(6px)',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
             zIndex: 9999,
+            padding: '16px',
           }}
           onClick={() => {
             if (!modal.isAlertOnly) modal.resolve(false);
@@ -97,60 +220,60 @@ export function ConfirmProvider({ children }: { children: ReactNode }) {
             style={{
               background: '#ffffff',
               border: '1px solid #e2e8f0',
-              borderRadius: '12px',
+              borderRadius: '14px',
               padding: '24px',
-              maxWidth: 440,
-              width: '90%',
-              boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.15), 0 8px 10px -6px rgba(0, 0, 0, 0.1)',
+              maxWidth: 460,
+              width: '100%',
+              boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.25)',
               display: 'flex',
               flexDirection: 'column',
               gap: 16,
               color: '#0f172a',
+              animation: 'modalPop 0.2s cubic-bezier(0.16, 1, 0.3, 1)',
             }}
             onClick={(e) => e.stopPropagation()}
           >
-            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
               <div
                 style={{
-                  width: 38,
-                  height: 38,
+                  width: 44,
+                  height: 44,
                   borderRadius: '50%',
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'center',
-                  background:
-                    modal.type === 'danger'
-                      ? '#fee2e2'
-                      : modal.type === 'warning'
-                      ? '#fef3c7'
-                      : '#e0f2fe',
-                  fontSize: '1.25rem',
+                  background: getIconBg(modal.type),
+                  fontSize: '1.4rem',
+                  flexShrink: 0,
                 }}
               >
-                {modal.type === 'danger' ? '⚠️' : modal.type === 'warning' ? '⚡' : 'ℹ️'}
+                {getIcon(modal.type)}
               </div>
-              <h3 style={{ margin: 0, fontSize: '1.1rem', fontWeight: 700, color: '#0f172a' }}>
-                {modal.title}
-              </h3>
+              <div>
+                <h3 style={{ margin: 0, fontSize: '1.125rem', fontWeight: 700, color: '#0f172a' }}>
+                  {modal.title}
+                </h3>
+              </div>
             </div>
 
-            <p style={{ margin: 0, fontSize: '0.875rem', color: '#475569', lineHeight: 1.5 }}>
+            <p style={{ margin: 0, fontSize: '0.9rem', color: '#475569', lineHeight: 1.55, whiteSpace: 'pre-line' }}>
               {modal.message}
             </p>
 
-            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, marginTop: 8 }}>
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, marginTop: 10 }}>
               {!modal.isAlertOnly && (
                 <button
                   type="button"
                   style={{
-                    padding: '8px 16px',
+                    padding: '9px 18px',
                     fontSize: '0.875rem',
                     fontWeight: 600,
                     background: '#f1f5f9',
                     color: '#334155',
                     border: '1px solid #cbd5e1',
-                    borderRadius: '6px',
+                    borderRadius: '8px',
                     cursor: 'pointer',
+                    transition: 'all 0.15s ease',
                   }}
                   onClick={() => modal.resolve(false)}
                 >
@@ -160,20 +283,15 @@ export function ConfirmProvider({ children }: { children: ReactNode }) {
               <button
                 type="button"
                 style={{
-                  padding: '8px 18px',
+                  padding: '9px 22px',
                   fontSize: '0.875rem',
                   fontWeight: 600,
-                  background:
-                    modal.type === 'danger'
-                      ? '#ef4444'
-                      : modal.type === 'warning'
-                      ? '#f59e0b'
-                      : '#0ea5e9',
-                  color: '#ffffff',
                   border: 'none',
-                  borderRadius: '6px',
+                  borderRadius: '8px',
                   cursor: 'pointer',
-                  boxShadow: '0 1px 2px 0 rgba(0, 0, 0, 0.05)',
+                  boxShadow: '0 2px 4px rgba(0,0,0,0.1)',
+                  transition: 'all 0.15s ease',
+                  ...getConfirmBtnStyle(modal.type),
                 }}
                 onClick={() => modal.resolve(true)}
               >

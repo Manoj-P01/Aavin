@@ -3,6 +3,7 @@
 import { useEffect, useState, useMemo } from 'react';
 import Header from '@/components/layout/Header';
 import Link from 'next/link';
+import { useConfirm } from '@/context/ConfirmContext';
 import { fmtDate } from '@/lib/calculations';
 import type { Entry } from '@/lib/types';
 
@@ -13,20 +14,7 @@ interface ProductCol {
   full_name?: string;
 }
 
-const DEFAULT_PRODUCTS: ProductCol[] = [
-  { key: 'wh_milk', label: 'WH.Milk', short_name: 'WH.Milk', full_name: 'Whole Milk' },
-  { key: 'dlt_milk', label: 'DLT.Milk', short_name: 'DLT.Milk', full_name: 'Double Toned Milk' },
-  { key: 'fc_milk', label: 'FC. Milk', short_name: 'FC. Milk', full_name: 'Full Cream Milk' },
-  { key: 'std_milk', label: 'STD.Milk', short_name: 'STD.Milk', full_name: 'Standardized Milk' },
-  { key: 'toned_curd', label: 'Toned Curd', short_name: 'Toned Curd', full_name: 'Toned Milk Curd' },
-  { key: 'dtm', label: 'DTM', short_name: 'DTM', full_name: 'Diagnostic/Double Toned Milk' },
-  { key: 'skim_milk', label: 'Skim Milk', short_name: 'Skim Milk', full_name: 'Skimmed Milk' },
-  { key: 'cream', label: 'Cream', short_name: 'Cream', full_name: 'Milk Cream' },
-  { key: 'butter_milk', label: 'Butter Milk', short_name: 'Butter Milk', full_name: 'Butter Milk' },
-  { key: 'r_con', label: 'R.Con', short_name: 'R.Con', full_name: 'Reconstituted Milk' },
-  { key: 'smp', label: 'SMP', short_name: 'SMP', full_name: 'Skimmed Milk Powder' },
-  { key: 'water', label: 'Water', short_name: 'Water', full_name: 'Water Content' },
-];
+
 
 const MONTH_NAMES = [
   { val: '01', name: 'January', short: 'Jan' },
@@ -76,7 +64,7 @@ export default function PeriodicalSummaryReportPage() {
 
   // Raw Stock Entries
   const [allEntries, setAllEntries] = useState<Entry[]>([]);
-  const [columns, setColumns] = useState<ProductCol[]>(DEFAULT_PRODUCTS);
+  const [columns, setColumns] = useState<ProductCol[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
 
   // Fetch all stock entries on mount
@@ -327,6 +315,40 @@ export default function PeriodicalSummaryReportPage() {
     );
   };
 
+  const { showWarning, showError } = useConfirm();
+
+  // Export Multi-Sheet Excel (Each daily statement in its own sheet tab like JULY-26STMT-1.xlsx)
+  const handleExportMultiSheetExcel = async () => {
+    if (!aggregatedReport || !aggregatedReport.startDate || !aggregatedReport.endDate) {
+      await showWarning('Please select a valid date range first.', 'Invalid Date Range');
+      return;
+    }
+    try {
+      const url = `/api/export-excel?startDate=${aggregatedReport.startDate}&endDate=${aggregatedReport.endDate}&stock=true&multi_sheet=true`;
+      const res = await fetch(url);
+      if (!res.ok) {
+        const json = await res.json().catch(() => ({}));
+        throw new Error(json.error || 'Failed to export multi-sheet Excel');
+      }
+      const blob = await res.blob();
+      const downloadUrl = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = downloadUrl;
+      const sParts = aggregatedReport.startDate.split('-');
+      const eParts = aggregatedReport.endDate.split('-');
+      const formattedS = sParts.length === 3 ? `${sParts[2]}-${sParts[1]}-${sParts[0]}` : aggregatedReport.startDate;
+      const formattedE = eParts.length === 3 ? `${eParts[2]}-${eParts[1]}-${eParts[0]}` : aggregatedReport.endDate;
+      a.download = `Stock-Statements-Daily-Sheets_${formattedS}_to_${formattedE}.xlsx`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      window.URL.revokeObjectURL(downloadUrl);
+    } catch (err) {
+      console.error(err);
+      await showError(err instanceof Error ? err.message : 'Failed to export multi-sheet Excel file', 'Export Failed');
+    }
+  };
+
   // Export to CSV
   const handleExportCSV = () => {
     if (!aggregatedReport) return;
@@ -380,11 +402,20 @@ export default function PeriodicalSummaryReportPage() {
           <div style={{ display: 'flex', gap: 10 }}>
             {aggregatedReport && (
               <>
-                <button type="button" className="btn btn-secondary btn-sm" onClick={handleExportCSV}>
-                  📥 Export CSV / Excel
+                <button
+                  type="button"
+                  className="btn btn-primary btn-sm"
+                  style={{ background: '#16a34a', borderColor: '#16a34a', fontWeight: 600 }}
+                  onClick={handleExportMultiSheetExcel}
+                  title="Extract Excel file with each daily Stock Statement in an individual sheet tab"
+                >
+                  📥 Extract Multi-Sheet Excel (Daily Sheets)
                 </button>
-                <button type="button" className="btn btn-primary btn-sm" onClick={() => window.print()}>
-                  🖨️ Print Summary Report
+                <button type="button" className="btn btn-secondary btn-sm" onClick={handleExportCSV}>
+                  📥 Export Consolidated CSV
+                </button>
+                <button type="button" className="btn btn-secondary btn-sm" onClick={() => window.print()}>
+                  🖨️ Print Report
                 </button>
               </>
             )}
@@ -661,12 +692,23 @@ export default function PeriodicalSummaryReportPage() {
 
             {/* Consolidated Stock Statement Table */}
             <div className="card" style={{ overflow: 'hidden' }}>
-              <div style={{ padding: '16px 20px', borderBottom: '1px solid var(--border)', background: '#fafafa', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div style={{ padding: '16px 20px', borderBottom: '1px solid var(--border)', background: '#fafafa', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12 }}>
                 <div style={{ fontWeight: 700, fontSize: '1rem', color: 'var(--text-primary)' }}>
                   📊 Consolidated Stock Statement ({fmtDate(aggregatedReport.startDate)} - {fmtDate(aggregatedReport.endDate)})
                 </div>
-                <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
-                  Showing sum total over {aggregatedReport.entriesCount} recorded days
+                <div style={{ display: 'flex', alignItems: 'center', gap: 12 }} className="no-print">
+                  <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+                    Summed over {aggregatedReport.entriesCount} days
+                  </span>
+                  <button
+                    type="button"
+                    className="btn btn-secondary btn-sm"
+                    style={{ borderColor: '#16a34a', color: '#16a34a', fontWeight: 600 }}
+                    onClick={handleExportMultiSheetExcel}
+                    title="Extract Excel file with each daily statement in an individual sheet tab"
+                  >
+                    📥 Extract Multi-Sheet Excel
+                  </button>
                 </div>
               </div>
 

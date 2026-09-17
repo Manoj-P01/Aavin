@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
+import { useConfirm } from '@/context/ConfirmContext';
 
 interface ProductItem {
   id: string;
@@ -292,8 +293,17 @@ export default function MasterDeclarationsPage() {
     }
   };
 
+  const { confirm } = useConfirm();
+
   const handleDeleteProduct = async (id: string, name: string) => {
-    if (!window.confirm(`Are you sure you want to delete product "${name}"?`)) return;
+    const isConfirmed = await confirm({
+      title: 'Delete Product',
+      message: `Are you sure you want to delete product "${name}"?`,
+      confirmText: 'Delete Product',
+      cancelText: 'Cancel',
+      type: 'danger',
+    });
+    if (!isConfirmed) return;
     setMessage(null);
     try {
       const res = await fetch(`/api/master/products?id=${id}`, { method: 'DELETE' });
@@ -307,7 +317,14 @@ export default function MasterDeclarationsPage() {
   };
 
   const handleDeleteDairy = async (id: string, name: string) => {
-    if (!window.confirm(`Are you sure you want to delete destination dairy "${name}"?`)) return;
+    const isConfirmed = await confirm({
+      title: 'Delete Destination Dairy',
+      message: `Are you sure you want to delete destination dairy "${name}"?`,
+      confirmText: 'Delete Dairy',
+      cancelText: 'Cancel',
+      type: 'danger',
+    });
+    if (!isConfirmed) return;
     setMessage(null);
     try {
       const res = await fetch(`/api/master/dairies?id=${id}`, { method: 'DELETE' });
@@ -321,7 +338,14 @@ export default function MasterDeclarationsPage() {
   };
 
   const handleDeleteCategory = async (id: string, name: string) => {
-    if (!window.confirm(`Are you sure you want to delete product category "${name}"?`)) return;
+    const isConfirmed = await confirm({
+      title: 'Delete Product Category',
+      message: `Are you sure you want to delete product category "${name}"?`,
+      confirmText: 'Delete Category',
+      cancelText: 'Cancel',
+      type: 'danger',
+    });
+    if (!isConfirmed) return;
     setMessage(null);
     try {
       const res = await fetch(`/api/master/categories?id=${id}`, { method: 'DELETE' });

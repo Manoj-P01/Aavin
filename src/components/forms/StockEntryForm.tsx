@@ -20,20 +20,7 @@ interface StockRowState {
   values: Partial<Record<ColKey, string>>;
 }
 
-const DEFAULT_PRODUCTS = [
-  { key: 'wh_milk', label: 'WH.Milk', full_name: 'TENTATIVE WHOLE MILK', short_name: 'WM', category: 'Liquid Milk' },
-  { key: 'dlt_milk', label: 'DLT.Milk', full_name: 'DOUBLE TONED MILK', short_name: 'DLT', category: 'Liquid Milk' },
-  { key: 'fc_milk', label: 'FC. Milk', full_name: 'FULL CREAM MILK', short_name: 'FC', category: 'Liquid Milk' },
-  { key: 'std_milk', label: 'STD.Milk', full_name: 'STANDARDIZED MILK', short_name: 'STD', category: 'Liquid Milk' },
-  { key: 'toned_curd', label: 'TM Curd', full_name: 'TONED MILK CURD', short_name: 'TC', category: 'Products' },
-  { key: 'dtm', label: 'DTM', full_name: 'DOUBLE TONED MILK', short_name: 'DTM', category: 'Liquid Milk' },
-  { key: 'skim_milk', label: 'Skim Milk', full_name: 'SKIMMED MILK', short_name: 'SSM', category: 'Liquid Milk' },
-  { key: 'cream', label: 'Cream', full_name: 'CREAM', short_name: 'CRM', category: 'Products' },
-  { key: 'butter_milk', label: 'BM', full_name: 'BUTTER MILK', short_name: 'BM', category: 'Products' },
-  { key: 'r_con', label: 'R.Con', full_name: 'RECONSTITUTED MILK', short_name: 'RC', category: 'Products' },
-  { key: 'smp', label: 'SMP', full_name: 'SKIM MILK POWDER', short_name: 'SMP', category: 'Products' },
-  { key: 'water', label: 'Water', full_name: 'WATER', short_name: 'WTR', category: 'Others' },
-];
+
 
 function makeDefaultRows(receipts: any[] = [], disposals: any[] = []): StockRowState[] {
   const make = (row_type: StockRowState['row_type'], row_label: string): StockRowState => ({
@@ -394,7 +381,7 @@ export default function StockEntryForm({
     setTimeout(() => setSuccess(''), 3000);
   };
 
-  // Load internal stock mappings (Receipts -> Disposals rules) on mount
+  // Load internal stock mappings (Receipts -> Disposals rules) on mount directly from DB
   useEffect(() => {
     async function loadInternalRules() {
       try {
@@ -402,12 +389,21 @@ export default function StockEntryForm({
         if (res.ok) {
           const json = await res.json();
           const entries: any[] = json.data || [];
-          const entry = entries.find((e: any) => e.notes && e.notes.startsWith('['));
+          const entry = entries.find((e: any) => {
+            if (!e.notes) return false;
+            try {
+              const parsed = JSON.parse(e.notes);
+              return Array.isArray(parsed);
+            } catch { return false; }
+          }) || entries[0];
+
           if (entry && entry.notes) {
             try {
               const list = JSON.parse(entry.notes);
               if (Array.isArray(list)) setInternalRules(list);
-            } catch {}
+            } catch (e) {
+              console.error('Failed parsing internal stock mapping rules:', e);
+            }
           }
         }
       } catch (err) {
@@ -472,9 +468,7 @@ export default function StockEntryForm({
           console.error('Error fetching database stock config:', cfgErr);
         }
 
-        if (masterProducts.length === 0) {
-          masterProducts = [...DEFAULT_PRODUCTS];
-        }
+
 
         setGlobalProducts(masterProducts);
         setColumnsUnique(masterProducts);
@@ -684,7 +678,7 @@ export default function StockEntryForm({
         if (!entry) return;
 
         if (active) {
-          let parsedCols = activeProducts && activeProducts.length > 0 ? [...activeProducts] : [...DEFAULT_PRODUCTS];
+          let parsedCols = activeProducts ? [...activeProducts] : [];
 
           let customVals: Record<string, Record<string, string>> = {};
           let cleanNotes = entry.notes || '';
@@ -727,7 +721,9 @@ export default function StockEntryForm({
 
               const values: Record<string, string> = {};
               parsedCols.forEach(col => {
-                const rawVal = dbRow[col.key] ?? dbRow[col.key.toLowerCase()] ?? dbRow[col.key.toUpperCase()];
+                const normKey = col.key.replace(/\./g, '_');
+                const dotKey = col.key.replace(/_/g, '.');
+                const rawVal = dbRow[col.key] ?? dbRow[normKey] ?? dbRow[dotKey] ?? dbRow[col.key.toLowerCase()] ?? dbRow[col.key.toUpperCase()];
                 if (rawVal !== undefined && rawVal !== null && rawVal !== '') {
                   const numVal = typeof rawVal === 'number' ? rawVal : parseFloat(String(rawVal));
                   values[col.key] = (!isNaN(numVal) && numVal !== 0) ? String(numVal) : (typeof rawVal === 'string' && rawVal.trim() !== '0' ? rawVal : '');
@@ -1221,8 +1217,7 @@ export default function StockEntryForm({
     setSaving(true); setError(''); setSuccess('');
     try {
       // 1. Extract custom columns and values metadata
-      const DB_COLUMNS = ['wh_milk', 'dlt_milk', 'fc_milk', 'std_milk', 'toned_curd', 'dtm', 'skim_milk', 'cream', 'butter_milk', 'r_con', 'smp', 'water'];
-      const customCols = columns.filter(c => !DB_COLUMNS.includes(c.key));
+      const customCols = columns.filter(c => (c as any).is_custom);
       const customValues: Record<string, Record<string, string>> = {}; // row_label -> colKey -> val
       rows.forEach(r => {
         const vals: Record<string, string> = {};
@@ -1236,15 +1231,16 @@ export default function StockEntryForm({
         }
       });
 
-      // 2. Format notes: if user provided notes in UI, attach metadata; otherwise store null in DB
+      // 2. Format notes: attach metadata if user provided notes or custom columns/values exist
       const userNotesText = notes ? notes.trim() : '';
       let finalNotes: string | null = null;
-      if (userNotesText) {
+      if (userNotesText || customCols.length > 0 || Object.keys(customValues).length > 0) {
         const metadata = {
           custom_columns: customCols,
           custom_values: customValues,
         };
-        finalNotes = userNotesText + "\n__METADATA__:" + JSON.stringify(metadata);
+        const metaStr = `__METADATA__:${JSON.stringify(metadata)}`;
+        finalNotes = userNotesText ? `${userNotesText}\n${metaStr}` : metaStr;
       }
 
       const entryRes = await fetch('/api/entries', {
@@ -1257,15 +1253,27 @@ export default function StockEntryForm({
 
       const entry_id = entryData.data.id;
 
-      // 3. Map standard 12 columns to standard postgres fields
-      const stockRows = rows.map((r, i) => ({
-        row_type: r.row_type,
-        row_label: r.row_label,
-        sort_order: i,
-        ...Object.fromEntries(
-          DB_COLUMNS.map(colKey => [colKey, parseFloat(r.values[colKey] || '0') || 0])
-        ),
-      }));
+      // 3. Map ALL columns dynamically to stock rows (setting col.key, normKey, and dotKey)
+      const stockRows = rows.map((r, i) => {
+        const rowObj: Record<string, any> = {
+          row_type: r.row_type,
+          row_label: r.row_label,
+          sort_order: i,
+        };
+
+        columns.forEach(col => {
+          const normKey = col.key.replace(/\./g, '_');
+          const dotKey = col.key.replace(/_/g, '.');
+          const valStr = r.values[col.key] ?? r.values[normKey] ?? r.values[dotKey] ?? '0';
+          const numVal = parseFloat(valStr) || 0;
+
+          rowObj[col.key] = numVal;
+          rowObj[normKey] = numVal;
+          rowObj[dotKey] = numVal;
+        });
+
+        return rowObj;
+      });
 
       const stockRes = await fetch('/api/stock', {
         method: 'POST',
@@ -1450,36 +1458,22 @@ export default function StockEntryForm({
                         >
                           {col.short_name || col.label} {isMappedReceiptCol ? '⚡' : ''}
                         </div>
-                        <div className="no-print" style={{ display: 'flex', gap: 6, marginTop: 2 }}>
-                          <button
-                            type="button"
-                            style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '0.8rem', padding: 0 }}
-                            title="Add column after this"
-                            onClick={() => addColumnAfter(col.key)}
-                          >
-                            ➕
-                          </button>
-                          <button
-                            type="button"
-                            style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '0.8rem', padding: 0 }}
-                            title={`Delete column (${col.short_name || col.label})`}
-                            onClick={() => deleteColumn(col.key)}
-                          >
-                            ❌
-                          </button>
-                        </div>
                       </div>
                     </th>
                   );
                 })}
                 <th style={{ minWidth: 110, fontSize: '0.65rem', textAlign: 'center', padding: '8px 4px', fontWeight: 700 }}>Total</th>
-                {!isBalanceSection && <th className="no-print" style={{ width: 70 }}>Actions</th>}
+                {!isBalanceSection && isDisposalsSection && <th className="no-print" style={{ width: 70 }}>Actions</th>}
               </tr>
             </thead>
             <tbody>
               {sRows.map(({ r, i }) => {
+                const mappedRule = internalRules.find(rule =>
+                  rule.enabled !== false &&
+                  (rule.sourceDisposalParticular || rule.targetDisposalParticular || '').trim().toLowerCase() === r.row_label.trim().toLowerCase()
+                );
                 const isMappedDisposalRow = isDisposalsSection && (
-                  internalRules.some(rule => rule.enabled !== false && (rule.sourceDisposalParticular || rule.targetDisposalParticular || '').trim().toLowerCase() === r.row_label.trim().toLowerCase()) ||
+                  !!mappedRule ||
                   (internalRules.length === 0 && r.row_label.trim().toLowerCase() === 'to dlt milk')
                 );
                 const isFocusedRow = focusedRowIdx === i;
@@ -1537,30 +1531,60 @@ export default function StockEntryForm({
                             )}
                           </div>
 
-                          {/* Split SSM to Dairies button below Particulars text input for "To other Dairies" */}
-                          {isDisposalsSection && (r.row_label.trim().toLowerCase().includes('dairy') || r.row_label.trim().toLowerCase().includes('dairies')) && (
-                            <div style={{ paddingLeft: 8, paddingBottom: 4 }}>
+                          {/* Receipts Internal Partitions button enabled strictly when mapped in Stock Statement Mapping Configuration */}
+                          {isDisposalsSection && (
+                            <div style={{ paddingLeft: 8, paddingBottom: 4, display: 'flex', gap: 6, flexWrap: 'wrap' }}>
                               <button
                                 type="button"
                                 className="btn btn-secondary btn-xs"
+                                disabled={!isMappedDisposalRow}
+                                onClick={() => openPartitionModal(i, 'RECEIPTS_PARTITION')}
+                                title={
+                                  isMappedDisposalRow
+                                    ? `🔀 Configure Receipts Internal Partitions for "${r.row_label}"`
+                                    : `⚠️ Map "${r.row_label}" in Stock Statement Mapping Configuration first to enable Receipts Internal Partitions`
+                                }
                                 style={{
                                   fontSize: '0.72rem',
                                   fontWeight: 700,
                                   padding: '2px 8px',
-                                  color: 'var(--brand-primary)',
-                                  background: '#eff6ff',
-                                  border: '1px solid #93c5fd',
+                                  color: isMappedDisposalRow ? '#047857' : '#94a3b8',
+                                  background: isMappedDisposalRow ? '#d1fae5' : '#f1f5f9',
+                                  border: `1px solid ${isMappedDisposalRow ? '#6ee7b7' : '#cbd5e1'}`,
                                   borderRadius: 4,
                                   display: 'inline-flex',
                                   alignItems: 'center',
                                   gap: 4,
-                                  cursor: 'pointer',
+                                  cursor: isMappedDisposalRow ? 'pointer' : 'not-allowed',
+                                  opacity: isMappedDisposalRow ? 1 : 0.6,
                                 }}
-                                title="🏢 Configure Destination Dairy Breakdown (Madurai-SSM, SNR-SSM, etc.)"
-                                onClick={() => openPartitionModal(i, 'DAIRY_BREAKDOWN')}
                               >
-                                🔀 Split SSM to Dairies
+                                🔀 Receipts Internal Partitions {Array.isArray(mappedRule?.partitions) && mappedRule.partitions.length > 0 ? `(${mappedRule.partitions.length})` : ''}
                               </button>
+
+                              {(r.row_label.trim().toLowerCase().includes('dairy') || r.row_label.trim().toLowerCase().includes('dairies')) && (
+                                <button
+                                  type="button"
+                                  className="btn btn-secondary btn-xs"
+                                  onClick={() => openPartitionModal(i, 'DAIRY_BREAKDOWN')}
+                                  title="🏢 Configure Destination Dairy Breakdown (Madurai-SSM, SNR-SSM, etc.)"
+                                  style={{
+                                    fontSize: '0.72rem',
+                                    fontWeight: 700,
+                                    padding: '2px 8px',
+                                    color: 'var(--brand-primary)',
+                                    background: '#eff6ff',
+                                    border: '1px solid #93c5fd',
+                                    borderRadius: 4,
+                                    display: 'inline-flex',
+                                    alignItems: 'center',
+                                    gap: 4,
+                                    cursor: 'pointer',
+                                  }}
+                                >
+                                  🏢 Split SSM to Dairies
+                                </button>
+                              )}
                             </div>
                           )}
                         </div>
@@ -1619,7 +1643,7 @@ export default function StockEntryForm({
                       }}
                     />
                   </td>
-                  {!isBalanceSection && (
+                  {!isBalanceSection && isDisposalsSection && (
                     <td className="no-print" style={{ textAlign: 'center' }}>
                       <div style={{ display: 'flex', gap: 6, justifyContent: 'center', alignItems: 'center' }}>
                         <button
@@ -1637,39 +1661,12 @@ export default function StockEntryForm({
                         >
                           🔀
                         </button>
-                        <button
-                          type="button"
-                          style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '1rem', padding: 0 }}
-                          title="Add row below"
-                          onClick={() => addRowAfter(rowType, i)}
-                        >
-                          ➕
-                        </button>
-                        <button
-                          type="button"
-                          style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '1rem', padding: 0 }}
-                          title="Delete row"
-                          onClick={() => deleteRow(i)}
-                        >
-                          ❌
-                        </button>
                       </div>
                     </td>
                   )}
                 </tr>
               );
             })}
-
-              {!isBalanceSection && (
-                <tr className="no-print" style={{ cursor: 'pointer', background: '#f8fafc' }} onClick={() => {
-                  const lastRow = sRows[sRows.length - 1];
-                  addRowAfter(rowType, lastRow ? lastRow.i : -1);
-                }}>
-                  <td colSpan={columns.length + 3} style={{ textAlign: 'center', color: 'var(--brand-primary)', fontWeight: 600, padding: 8 }}>
-                    ➕ Add Row
-                  </td>
-                </tr>
-              )}
             </tbody>
           </table>
         </div>
@@ -1825,13 +1822,60 @@ export default function StockEntryForm({
     }
   };
 
+  const handleExportDailyExcel = async () => {
+    if (!entryDate) {
+      alert('Please select a valid date.');
+      return;
+    }
+    try {
+      const shiftParam = shift ? `&shift=${shift}` : '';
+      const url = `/api/export-excel?date=${entryDate}${shiftParam}&stock=true`;
+      const res = await fetch(url);
+      if (!res.ok) throw new Error('Export failed');
+      const blob = await res.blob();
+      const downloadUrl = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = downloadUrl;
+      const dateParts = entryDate.split('-');
+      const formattedDate = `${dateParts[2]}-${dateParts[1]}-${dateParts[0]}`;
+      const shiftStr = shift ? `-${shift}` : '';
+      a.download = `Stock-Statement-${formattedDate}${shiftStr}.xlsx`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      window.URL.revokeObjectURL(downloadUrl);
+    } catch (err) {
+      console.error(err);
+      alert('Failed to export Excel stock statement');
+    }
+  };
+
   return (
     <>
       <Header
         title="Milk & Cream Stock Statement Entry"
         subtitle={`Enter daily milk & cream stock data (${reportMode === 'full_day' ? 'Full Day' : (shift === 'D' ? 'Day Shift' : 'Night Shift')})`}
         actions={
-          <Link href="/dashboard/stock" className="btn btn-secondary btn-sm">← Back to Stock List</Link>
+          <div style={{ display: 'flex', gap: 8 }} className="no-print">
+            <button
+              type="button"
+              className="btn btn-secondary btn-sm"
+              onClick={() => window.print()}
+              title="Print Stock Statement Entry"
+            >
+              🖨️ Print Statement
+            </button>
+            <button
+              type="button"
+              className="btn btn-secondary btn-sm"
+              style={{ borderColor: '#16a34a', color: '#16a34a', fontWeight: 600 }}
+              onClick={handleExportDailyExcel}
+              title="Download Stock Statement Entry as Excel"
+            >
+              📥 Download Excel
+            </button>
+            <Link href="/dashboard/stock" className="btn btn-secondary btn-sm">← Back to Stock List</Link>
+          </div>
         }
       >
         <Step
@@ -1846,7 +1890,27 @@ export default function StockEntryForm({
         {/* Header */}
         <div className="card" style={{ marginBottom: 20 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16, flexWrap: 'wrap', gap: 12 }}>
-            <div className="section-title" style={{ margin: 0 }}>Entry Details</div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+              <div className="section-title" style={{ margin: 0 }}>Entry Details</div>
+              <div style={{ display: 'flex', gap: 6 }} className="no-print">
+                <button
+                  type="button"
+                  className="btn btn-secondary btn-xs"
+                  onClick={() => window.print()}
+                  style={{ fontSize: '0.75rem', padding: '4px 10px' }}
+                >
+                  🖨️ Print
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-secondary btn-xs"
+                  style={{ borderColor: '#16a34a', color: '#16a34a', fontSize: '0.75rem', padding: '4px 10px', fontWeight: 600 }}
+                  onClick={handleExportDailyExcel}
+                >
+                  📥 Excel
+                </button>
+              </div>
+            </div>
             <button
               type="button"
               className="btn btn-primary btn-sm"

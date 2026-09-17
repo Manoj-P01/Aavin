@@ -2,43 +2,9 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getSupabaseServiceClient } from '@/lib/supabase';
 import { getAuthUserFromRequest } from '@/lib/auth';
 import { isLocalDbEnabled } from '@/lib/fileDb';
-import fs from 'fs';
-import path from 'path';
-
-const LOCAL_DB_PATH = path.join(process.cwd(), 'local_db.json');
-
-function readLocalDb() {
-  try {
-    if (fs.existsSync(LOCAL_DB_PATH)) {
-      const data = fs.readFileSync(LOCAL_DB_PATH, 'utf8');
-      return JSON.parse(data);
-    }
-  } catch (e) {
-    console.error('Error reading local_db.json:', e);
-  }
-  return {};
-}
-
-function writeLocalDb(data: any) {
-  try {
-    fs.writeFileSync(LOCAL_DB_PATH, JSON.stringify(data, null, 2), 'utf8');
-  } catch (e) {
-    console.error('Error writing local_db.json:', e);
-  }
-}
-
 // GET /api/stock/config - Load Stock Products Configuration (Product Columns, Receipt Rows, Disposal Rows)
 export async function GET(req: NextRequest) {
   try {
-    if (isLocalDbEnabled()) {
-      const localDb = readLocalDb();
-      return NextResponse.json({
-        products: (localDb.products_master || []).filter((p: any) => p.is_active !== false),
-        receipt_rows: (localDb.receipt_rows || []).filter((r: any) => r.is_active !== false),
-        disposal_rows: (localDb.disposal_rows || []).filter((d: any) => d.is_active !== false),
-      });
-    }
-
     const supabase = getSupabaseServiceClient();
 
     // 1. Fetch Products Master
@@ -99,24 +65,6 @@ export async function GET(req: NextRequest) {
       }));
     }
 
-    // 4. Local DB fallback sync if Supabase is empty or offline
-    const localDb = readLocalDb();
-    if (products.length === 0 && Array.isArray(localDb.products_master)) {
-      products = localDb.products_master
-        .filter((p: any) => p.is_active !== false)
-        .sort((a: any, b: any) => (a.sort_order || 0) - (b.sort_order || 0));
-    }
-    if (receiptRows.length === 0 && Array.isArray(localDb.receipt_rows)) {
-      receiptRows = localDb.receipt_rows
-        .filter((r: any) => r.is_active !== false)
-        .sort((a: any, b: any) => (a.sort_order || 0) - (b.sort_order || 0));
-    }
-    if (disposalRows.length === 0 && Array.isArray(localDb.disposal_rows)) {
-      disposalRows = localDb.disposal_rows
-        .filter((d: any) => d.is_active !== false)
-        .sort((a: any, b: any) => (a.sort_order || 0) - (b.sort_order || 0));
-    }
-
     return NextResponse.json({
       products,
       receipt_rows: receiptRows,
@@ -125,14 +73,7 @@ export async function GET(req: NextRequest) {
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : 'Failed to fetch stock config';
     console.error('GET /api/stock/config error:', msg);
-
-    // Local DB fallback on error
-    const localDb = readLocalDb();
-    return NextResponse.json({
-      products: (localDb.products_master || []).filter((p: any) => p.is_active !== false),
-      receipt_rows: (localDb.receipt_rows || []).filter((r: any) => r.is_active !== false),
-      disposal_rows: (localDb.disposal_rows || []).filter((d: any) => d.is_active !== false),
-    });
+    return NextResponse.json({ error: msg }, { status: 500 });
   }
 }
 
@@ -160,7 +101,9 @@ export async function POST(req: NextRequest) {
         if (!id) continue;
         const { error: rpcErr } = await supabase.rpc('fn_soft_delete_product_master', { p_id: id, p_actor: actorUsername });
         if (rpcErr) {
-          await supabase.from('products_master').update({ is_active: false, updated_by: actorUsername, updated_at: new Date().toISOString() }).eq('id', id);
+          const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id);
+          const filterCol = isUuid ? 'id' : 'product_key';
+          await supabase.from('products_master').update({ is_active: false, updated_by: actorUsername, updated_at: new Date().toISOString() }).eq(filterCol, id);
         }
       }
     }
@@ -170,7 +113,9 @@ export async function POST(req: NextRequest) {
         if (!id) continue;
         const { error: rpcErr } = await supabase.rpc('fn_soft_delete_particular_master', { p_id: id, p_actor: actorUsername });
         if (rpcErr) {
-          await supabase.from('particulars_master').update({ is_active: false, updated_by: actorUsername, updated_at: new Date().toISOString() }).eq('id', id);
+          const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id);
+          const filterCol = isUuid ? 'id' : 'particular_name';
+          await supabase.from('particulars_master').update({ is_active: false, updated_by: actorUsername, updated_at: new Date().toISOString() }).eq(filterCol, id);
         }
       }
     }
@@ -180,7 +125,9 @@ export async function POST(req: NextRequest) {
         if (!id) continue;
         const { error: rpcErr } = await supabase.rpc('fn_soft_delete_particular_master', { p_id: id, p_actor: actorUsername });
         if (rpcErr) {
-          await supabase.from('particulars_master').update({ is_active: false, updated_by: actorUsername, updated_at: new Date().toISOString() }).eq('id', id);
+          const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id);
+          const filterCol = isUuid ? 'id' : 'particular_name';
+          await supabase.from('particulars_master').update({ is_active: false, updated_by: actorUsername, updated_at: new Date().toISOString() }).eq(filterCol, id);
         }
       }
     }
@@ -315,13 +262,6 @@ export async function POST(req: NextRequest) {
         }
       }
     }
-
-    // 5. Also sync to local_db.json
-    const localDb = readLocalDb();
-    localDb.products_master = savedProducts;
-    localDb.receipt_rows = savedReceiptRows;
-    localDb.disposal_rows = savedDisposalRows;
-    writeLocalDb(localDb);
 
     return NextResponse.json({
       success: true,

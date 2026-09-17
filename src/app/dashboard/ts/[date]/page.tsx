@@ -8,10 +8,12 @@ import TSReport from '@/components/reports/TSReport';
 import STGReport from '@/components/reports/STGReport';
 import StockReport from '@/components/reports/StockReport';
 import Link from 'next/link';
+import { useConfirm } from '@/context/ConfirmContext';
 import { calcTSTotals, fmtDate, generateDynamicBalanceRows } from '@/lib/calculations';
 import type { Entry, Shift, TSMilkRow, STGRow, StockRow, SeparationDetails } from '@/lib/types';
 
 export default function TSViewPage() {
+  const { showSuccess, showError } = useConfirm();
   const { date } = useParams<{ date: string }>();
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -185,11 +187,11 @@ export default function TSViewPage() {
       document.body.removeChild(a);
       window.URL.revokeObjectURL(downloadUrl);
       
-      alert(`Report exported successfully!`);
+      await showSuccess('Report exported successfully!', 'Export Complete');
       setExportModalOpen(false);
     } catch (err) {
       console.error(err);
-      alert('Failed to export Excel report.');
+      await showError('Failed to export Excel report.', 'Export Error');
     } finally {
       setExporting(false);
     }

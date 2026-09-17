@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import * as XLSX from 'xlsx';
-import { isLocalDbEnabled, createLocalEntry, saveLocalTSData, saveLocalStockData } from '@/lib/fileDb';
+import { isLocalDbEnabled, initDb, createLocalEntry, saveLocalTSData, saveLocalStockData } from '@/lib/fileDb';
 import { getSupabaseServiceClient } from '@/lib/supabase';
 import { TS_OB_PRODUCTS, TS_RECEIPT_PRODUCTS, TS_DESPATCH_PRODUCTS, TS_LOCAL_SALE_PRODUCTS, TS_OTHER_DISPOSAL_PRODUCTS } from '@/lib/types';
 import type { TSSection, StockRowType, Shift } from '@/lib/types';
@@ -36,6 +36,19 @@ export async function POST(req: NextRequest) {
 
     const localEnabled = isLocalDbEnabled();
     const supabase = !localEnabled ? getSupabaseServiceClient() : null;
+
+    let activeProds: any[] = [];
+    if (localEnabled) {
+      const localDb = await initDb();
+      activeProds = ((localDb as any).products_master || []).filter((p: any) => p.is_active !== false);
+    } else if (supabase) {
+      const { data: dbProds } = await supabase
+        .from('products_master')
+        .select('*')
+        .eq('is_active', true)
+        .order('sort_order', { ascending: true });
+      if (dbProds) activeProds = dbProds;
+    }
 
     let importedCount = 0;
 
@@ -143,7 +156,7 @@ export async function POST(req: NextRequest) {
           sRows.push(row);
         }
 
-        let currentBlock: 'WM' | 'SSM' | 'CREAM' | 'SMP' | null = null;
+        let currentBlock: string | null = null;
 
         for (let r = 0; r < sRows.length; r++) {
           const row = sRows[r];
@@ -151,18 +164,25 @@ export async function POST(req: NextRequest) {
 
           const title = row[0] ? String(row[0]).trim() : '';
 
-          // Detect block header
-          if (title.includes('WHOLE MILK') || title.includes('TENTATIVE WHOLE')) {
-            currentBlock = 'WM';
-            continue;
-          } else if (title.includes('SKIMMED MILK') || title.includes('SKIM MILK')) {
-            currentBlock = 'SSM';
-            continue;
-          } else if (title.includes('CREAM')) {
-            currentBlock = 'CREAM';
-            continue;
-          } else if (title.includes('SMP') || title.includes('DELITE') || title.includes('SEPARATION')) {
-            currentBlock = 'SMP';
+          // Detect block header dynamically
+          let matchedBlock = '';
+          if (activeProds && activeProds.length > 0) {
+            for (const p of activeProds) {
+              const pKey = (p.product_key || p.key || '').toUpperCase();
+              const pShort = (p.short_name || '').toUpperCase();
+              const pName = (p.product_name || p.full_name || '').toUpperCase();
+              if ((pShort && title.includes(pShort)) || (pName && title.includes(pName)) || (pKey && title.includes(pKey))) {
+                matchedBlock = pShort || pKey;
+                break;
+              }
+            }
+          }
+          if (!matchedBlock && (title.includes('STATEMENT') || title.includes('RECEIPT AND DISPOSAL'))) {
+            matchedBlock = title.split('–')[0].split('-')[0].replace('STATEMENT', '').trim().toUpperCase();
+          }
+
+          if (matchedBlock) {
+            currentBlock = matchedBlock;
             continue;
           }
 
@@ -269,8 +289,7 @@ export async function POST(req: NextRequest) {
         const stockRows: any[] = [];
         let separationDetails: any = null;
 
-        // Stock Statement Columns layout (starts at col index 1: WH.Milk ... col index 12: Water)
-        const colsMap = ['wh_milk', 'dlt_milk', 'fc_milk', 'std_milk', 'toned_curd', 'dtm', 'skim_milk', 'cream', 'butter_milk', 'r_con', 'smp', 'water'] as const;
+        let activeCols: string[] = activeProds.map((p: any) => p.product_key || p.key || p.short_name);
 
         let currentType: StockRowType = 'OB';
 
@@ -306,8 +325,8 @@ export async function POST(req: NextRequest) {
             row_label: label,
           };
 
-          for (let c = 0; c < 12; c++) {
-            rowRecord[colsMap[c]] = Number(row[c + 1]) || 0;
+          for (let c = 0; c < activeCols.length; c++) {
+            rowRecord[activeCols[c]] = Number(row[c + 1]) || 0;
           }
 
           stockRows.push(rowRecord);

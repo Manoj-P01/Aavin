@@ -25,7 +25,7 @@ interface RowParticularConfig {
 }
 
 export default function StockProductsPage() {
-  const { confirm } = useConfirm();
+  const { confirm, showSuccess, showError } = useConfirm();
   const [products, setProducts] = useState<ProductConfig[]>([]);
   const [receiptRows, setReceiptRows] = useState<RowParticularConfig[]>([]);
   const [disposalRows, setDisposalRows] = useState<RowParticularConfig[]>([]);
@@ -64,7 +64,7 @@ export default function StockProductsPage() {
   const [newProdShortName, setNewProdShortName] = useState('');
   const [newProdCategory, setNewProdCategory] = useState('Liquid Milk');
   const productInputRef = useRef<HTMLInputElement>(null);
-  
+
   const [newReceiptFull, setNewReceiptFull] = useState('');
   const [newReceiptShort, setNewReceiptShort] = useState('');
   const [newDisposalFull, setNewDisposalFull] = useState('');
@@ -260,18 +260,36 @@ export default function StockProductsPage() {
   };
 
   const removeProduct = async (key: string) => {
+    const target = products.find(p => p.key === key);
+    if (!target) return;
+
     const ok = await confirm({
-      title: 'Remove Product Column',
-      message: 'Are you sure you want to remove this product column? It will be soft-deleted in the database upon saving.',
+      title: 'Remove Product',
+      message: `Are you sure you want to remove product "${target.full_name || target.short_name}"?`,
       type: 'danger',
     });
     if (!ok) return;
 
-    const target = products.find(p => p.key === key);
-    if (target?.id) {
+    const deleteId = target.id || target.key;
+    if (deleteId) {
+      try {
+        const res = await fetch(`/api/master/products?id=${encodeURIComponent(deleteId)}`, {
+          method: 'DELETE',
+        });
+        const json = await res.json();
+        if (!res.ok) throw new Error(json.error || 'Failed to delete product from database');
+      } catch (err: any) {
+        console.error('Error deleting product:', err);
+        await showError(err.message || 'Failed to delete product', 'Delete Error');
+        return;
+      }
+    }
+
+    if (target.id) {
       setRemovedProductIds(prev => [...prev, target.id!]);
     }
     setProducts(prev => prev.filter(p => p.key !== key));
+    await showSuccess(`Product "${target.full_name || target.short_name}" removed successfully!`, 'Product Removed');
   };
 
   const moveProdUp = (idx: number) => {
@@ -318,17 +336,36 @@ export default function StockProductsPage() {
   };
 
   const removeReceiptRow = async (idx: number) => {
+    const target = receiptRows[idx];
+    if (!target) return;
+
     const ok = await confirm({
       title: 'Remove Receipt Particular',
-      message: 'Are you sure you want to remove this receipt row?',
+      message: `Are you sure you want to remove receipt row "${target.full_name || target.short_name}"?`,
       type: 'danger',
     });
     if (!ok) return;
-    const target = receiptRows[idx];
-    if (target?.id) {
+
+    const deleteId = target.id || target.full_name;
+    if (deleteId) {
+      try {
+        const res = await fetch(`/api/master/particulars?id=${encodeURIComponent(deleteId)}`, {
+          method: 'DELETE',
+        });
+        const json = await res.json();
+        if (!res.ok) throw new Error(json.error || 'Failed to delete receipt row from database');
+      } catch (err: any) {
+        console.error('Error deleting receipt row:', err);
+        await showError(err.message || 'Failed to delete receipt row', 'Delete Error');
+        return;
+      }
+    }
+
+    if (target.id) {
       setRemovedReceiptIds(prev => [...prev, target.id!]);
     }
     setReceiptRows(prev => prev.filter((_, i) => i !== idx));
+    await showSuccess(`Receipt particular "${target.full_name || target.short_name}" removed successfully!`, 'Receipt Row Removed');
   };
 
   // Disposal Row Handling
@@ -353,17 +390,36 @@ export default function StockProductsPage() {
   };
 
   const removeDisposalRow = async (idx: number) => {
+    const target = disposalRows[idx];
+    if (!target) return;
+
     const ok = await confirm({
       title: 'Remove Disposal Particular',
-      message: 'Are you sure you want to remove this disposal row?',
+      message: `Are you sure you want to remove disposal row "${target.full_name || target.short_name}"?`,
       type: 'danger',
     });
     if (!ok) return;
-    const target = disposalRows[idx];
-    if (target?.id) {
+
+    const deleteId = target.id || target.full_name;
+    if (deleteId) {
+      try {
+        const res = await fetch(`/api/master/particulars?id=${encodeURIComponent(deleteId)}`, {
+          method: 'DELETE',
+        });
+        const json = await res.json();
+        if (!res.ok) throw new Error(json.error || 'Failed to delete disposal row from database');
+      } catch (err: any) {
+        console.error('Error deleting disposal row:', err);
+        await showError(err.message || 'Failed to delete disposal row', 'Delete Error');
+        return;
+      }
+    }
+
+    if (target.id) {
       setRemovedDisposalIds(prev => [...prev, target.id!]);
     }
     setDisposalRows(prev => prev.filter((_, i) => i !== idx));
+    await showSuccess(`Disposal particular "${target.full_name || target.short_name}" removed successfully!`, 'Disposal Row Removed');
   };
 
   // Save Configuration to Backend Database
@@ -408,9 +464,12 @@ export default function StockProductsPage() {
       }
 
       setSuccess('Products saved successfully in database!');
+      await showSuccess('Products saved successfully in database!', 'Database Updated');
       await loadConfig();
     } catch (err: any) {
-      setError(err.message || 'Save failed');
+      const errMsg = err.message || 'Save failed';
+      setError(errMsg);
+      await showError(errMsg, 'Save Error');
     } finally {
       setSaving(false);
     }

@@ -10,6 +10,9 @@ interface Schema {
   stg_rows: STGRow[];
   stock_rows: StockRow[];
   separation_details: SeparationDetails[];
+  products_master?: any[];
+  receipt_rows?: any[];
+  disposal_rows?: any[];
 }
 
 const KV_REST_API_URL = process.env.KV_REST_API_URL;
@@ -336,25 +339,21 @@ export async function saveLocalStockData(entryId: string, stockRows: any[], sepa
   db.stock_rows = db.stock_rows.filter(r => r.entry_id !== entryId);
   db.separation_details = db.separation_details.filter(r => r.entry_id !== entryId);
 
-  const rowsToInsert = stockRows.map((r, idx) => ({
-    id: Math.random().toString(36).substring(2, 11),
-    entry_id: entryId,
-    row_type: r.row_type,
-    row_label: r.row_label,
-    wh_milk: Number(r.wh_milk) || 0,
-    dlt_milk: Number(r.dlt_milk) || 0,
-    fc_milk: Number(r.fc_milk) || 0,
-    std_milk: Number(r.std_milk) || 0,
-    toned_curd: Number(r.toned_curd) || 0,
-    dtm: Number(r.dtm) || 0,
-    skim_milk: Number(r.skim_milk) || 0,
-    cream: Number(r.cream) || 0,
-    butter_milk: Number(r.butter_milk) || 0,
-    r_con: Number(r.r_con) || 0,
-    smp: Number(r.smp) || 0,
-    water: Number(r.water) || 0,
-    sort_order: r.sort_order ?? idx,
-  }));
+  const rowsToInsert = stockRows.map((r, idx) => {
+    const rowObj: any = {
+      id: Math.random().toString(36).substring(2, 11),
+      entry_id: entryId,
+      row_type: r.row_type,
+      row_label: r.row_label,
+      sort_order: r.sort_order ?? idx,
+    };
+    Object.keys(r).forEach(k => {
+      if (!['id', 'entry_id', 'row_type', 'row_label', 'sort_order'].includes(k)) {
+        rowObj[k] = Number((r as any)[k]) || 0;
+      }
+    });
+    return rowObj;
+  });
 
   db.stock_rows.push(...rowsToInsert);
 
@@ -403,25 +402,15 @@ export async function getLocalAggregatedStock(type: string, date?: string, month
       aggregatedMap[key] = {
         row_type: r.row_type,
         row_label: r.row_label,
-        wh_milk: 0, dlt_milk: 0, fc_milk: 0, std_milk: 0,
-        toned_curd: 0, dtm: 0, skim_milk: 0, cream: 0,
-        butter_milk: 0, r_con: 0, smp: 0, water: 0,
         sort_order: r.sort_order,
       };
     }
     const target = aggregatedMap[key];
-    target.wh_milk += r.wh_milk;
-    target.dlt_milk += r.dlt_milk;
-    target.fc_milk += r.fc_milk;
-    target.std_milk += r.std_milk;
-    target.toned_curd += r.toned_curd;
-    target.dtm += r.dtm;
-    target.skim_milk += r.skim_milk;
-    target.cream += r.cream;
-    target.butter_milk += r.butter_milk;
-    target.r_con += r.r_con;
-    target.smp += r.smp;
-    target.water += r.water;
+    Object.keys(r).forEach(k => {
+      if (!['id', 'entry_id', 'row_type', 'row_label', 'sort_order'].includes(k)) {
+        target[k] = (target[k] || 0) + (Number((r as any)[k]) || 0);
+      }
+    });
   }
 
   return Object.values(aggregatedMap).sort((a, b) => a.sort_order - b.sort_order);

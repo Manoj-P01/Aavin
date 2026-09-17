@@ -5,6 +5,7 @@ import { useParams, useRouter } from 'next/navigation';
 import Header from '@/components/layout/Header';
 import StockReport from '@/components/reports/StockReport';
 import Link from 'next/link';
+import { useConfirm } from '@/context/ConfirmContext';
 import { fmtDate, calcStockSummary, combineShiftSummaries } from '@/lib/calculations';
 import type { StockRow, SeparationDetails, Shift } from '@/lib/types';
 
@@ -14,6 +15,7 @@ interface ShiftData {
 }
 
 export default function StockViewPage() {
+  const { showError } = useConfirm();
   const { date, shift } = useParams<{ date: string; shift: string }>();
   const router = useRouter();
   const [data, setData] = useState<ShiftData | null>(null);
@@ -31,7 +33,7 @@ export default function StockViewPage() {
 
   const handleExportStockExcel = async () => {
     try {
-      const url = `/api/export-excel?date=${date}&shift=${shift}&stock=true&stg=true&ts=true`;
+      const url = `/api/export-excel?date=${date}&shift=${shift}&stock=true`;
       const res = await fetch(url);
       if (!res.ok) throw new Error('Export failed');
       const blob = await res.blob();
@@ -40,14 +42,15 @@ export default function StockViewPage() {
       a.href = downloadUrl;
       const dateParts = date.split('-');
       const formattedDate = `${dateParts[2]}-${dateParts[1]}-${dateParts[0]}`;
-      a.download = `${formattedDate}-${shift}-Stock-Statement.xlsx`;
+      const shiftStr = shift ? `-${shift}` : '';
+      a.download = `${formattedDate}${shiftStr}-Stock-Statement.xlsx`;
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
       window.URL.revokeObjectURL(downloadUrl);
     } catch (err) {
       console.error(err);
-      alert('Failed to export Excel report');
+      await showError('Failed to export Excel report', 'Export Error');
     }
   };
 

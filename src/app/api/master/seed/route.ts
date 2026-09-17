@@ -7,14 +7,13 @@ const SEED_PRODUCTS = [
   { product_key: 'dlt_milk', product_name: 'DLT Milk', short_name: 'DLT', category: 'Liquid Milk', sort_order: 2 },
   { product_key: 'fc_milk', product_name: 'FC Milk', short_name: 'FC', category: 'Liquid Milk', sort_order: 3 },
   { product_key: 'std_milk', product_name: 'STD Milk', short_name: 'STD', category: 'Liquid Milk', sort_order: 4 },
-  { product_key: 'toned_curd', product_name: 'Toned Curd', short_name: 'TC', category: 'Products', sort_order: 5 },
-  { product_key: 'dtm', product_name: 'DTM', short_name: 'DTM', category: 'Liquid Milk', sort_order: 6 },
-  { product_key: 'skim_milk', product_name: 'Skim Milk', short_name: 'SSM', category: 'Liquid Milk', sort_order: 7 },
-  { product_key: 'cream', product_name: 'Cream', short_name: 'CRM', category: 'Products', sort_order: 8 },
-  { product_key: 'butter_milk', product_name: 'Butter Milk', short_name: 'BM', category: 'Products', sort_order: 9 },
-  { product_key: 'r_con', product_name: 'R.Con', short_name: 'RC', category: 'Products', sort_order: 10 },
-  { product_key: 'smp', product_name: 'SMP', short_name: 'SMP', category: 'Products', sort_order: 11 },
-  { product_key: 'water', product_name: 'Water', short_name: 'WTR', category: 'Others', sort_order: 12 }
+  { product_key: 'dtm', product_name: 'DTM', short_name: 'DTM', category: 'Liquid Milk', sort_order: 5 },
+  { product_key: 'skim_milk', product_name: 'Skim Milk', short_name: 'SSM', category: 'Liquid Milk', sort_order: 6 },
+  { product_key: 'cream', product_name: 'Cream', short_name: 'CRM', category: 'Products', sort_order: 7 },
+  { product_key: 'butter_milk', product_name: 'Butter Milk', short_name: 'BM', category: 'Products', sort_order: 8 },
+  { product_key: 'r_con', product_name: 'R.Con', short_name: 'RC', category: 'Products', sort_order: 9 },
+  { product_key: 'smp', product_name: 'SMP', short_name: 'SMP', category: 'Products', sort_order: 10 },
+  { product_key: 'water', product_name: 'Water', short_name: 'WTR', category: 'Others', sort_order: 11 }
 ];
 
 const SEED_DAIRIES = [
@@ -42,12 +41,17 @@ export async function POST(req: NextRequest) {
     const actorUsername = authUser?.username || 'admin';
     const supabase = getSupabaseServiceClient();
 
+    const body = await req.json().catch(() => ({}));
+    const productsToSeed = Array.isArray(body.products) && body.products.length > 0 ? body.products : SEED_PRODUCTS;
+    const dairiesToSeed = Array.isArray(body.dairies) && body.dairies.length > 0 ? body.dairies : SEED_DAIRIES;
+    const categoriesToSeed = Array.isArray(body.categories) && body.categories.length > 0 ? body.categories : SEED_CATEGORIES;
+
     let seededProductsCount = 0;
     let seededDairiesCount = 0;
     let seededCategoriesCount = 0;
 
     // 1. Seed Product Categories Master
-    for (const c of SEED_CATEGORIES) {
+    for (const c of categoriesToSeed) {
       const { data: rpcData, error: rpcErr } = await supabase.rpc('fn_upsert_product_category', {
         p_category_name: c.category_name,
         p_code: c.code,
@@ -75,7 +79,7 @@ export async function POST(req: NextRequest) {
     }
 
     // 2. Seed Products Master
-    for (const p of SEED_PRODUCTS) {
+    for (const p of productsToSeed) {
       const { data: rpcData, error: rpcErr } = await supabase.rpc('fn_upsert_product_master', {
         p_product_key: p.product_key,
         p_product_name: p.product_name,
@@ -107,7 +111,7 @@ export async function POST(req: NextRequest) {
     }
 
     // 3. Seed Destination Union Dairies Master
-    for (const d of SEED_DAIRIES) {
+    for (const d of dairiesToSeed) {
       const { data: rpcData, error: rpcErr } = await supabase.rpc('fn_upsert_dairy_destination', {
         p_dairy_name: d.dairy_name,
         p_code: d.code,

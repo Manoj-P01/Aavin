@@ -2,7 +2,7 @@
 // Aavin Dashboard – TypeScript Type Definitions
 // ─────────────────────────────────────────────────────────────────────────────
 
-export type ReportType = 'TS' | 'STOCK';
+export type ReportType = 'TS' | 'STOCK' | 'STG' | 'INTERNAL_STOCK_MAPPING' | 'STOCK_MAPPING';
 export type Shift = 'D' | 'N' | 'F';
 
 export type TSSection =

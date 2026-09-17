@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { useSidebar } from '@/context/SidebarContext';
+import { useConfirm } from '@/context/ConfirmContext';
 
 interface ShiftConfig {
   key: 'D' | 'N';
@@ -17,6 +18,7 @@ interface ProductConfig {
 
 export default function ConfigPanel() {
   const { configOpen, setConfigOpen } = useSidebar();
+  const { confirm } = useConfirm();
   const [shifts, setShifts] = useState<ShiftConfig[]>([
     { key: 'D', label: 'Day Shift', start: '06:00', end: '18:00' },
     { key: 'N', label: 'Night Shift', start: '18:00', end: '06:00' },
@@ -39,8 +41,14 @@ export default function ConfigPanel() {
     setProducts(prev => [...prev, { key, label: label.trim() }]);
   };
 
-  const removeProduct = (key: string) => {
-    const ok = window.confirm("Are you sure you want to remove this product column?");
+  const removeProduct = async (key: string) => {
+    const ok = await confirm({
+      title: 'Remove Product Column',
+      message: 'Are you sure you want to remove this product column?',
+      confirmText: 'Remove',
+      cancelText: 'Cancel',
+      type: 'danger',
+    });
     if (!ok) return;
     setProducts(prev => prev.filter(p => p.key !== key));
   };

@@ -5,13 +5,15 @@ import Header from '@/components/layout/Header';
 import Link from 'next/link';
 import DashboardClient from './DashboardClient';
 import ImportExcelModal from '@/components/ImportExcelModal';
+import { useConfirm } from '@/context/ConfirmContext';
 
 export default function DashboardPage() {
+  const { showSuccess } = useConfirm();
   const [isImportOpen, setIsImportOpen] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
 
-  const handleImportSuccess = (count: number) => {
-    alert(`Successfully imported ${count} entries!`);
+  const handleImportSuccess = async (count: number) => {
+    await showSuccess(`Successfully imported ${count} entries!`, 'Import Successful');
     setRefreshKey(prev => prev + 1); // Refresh data
   };
 

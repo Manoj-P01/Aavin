@@ -658,20 +658,20 @@ export default function STGEntryForm({
       }
 
       if (stockProducts.length === 0) {
-        stockProducts = [
-          { key: 'wh_milk', label: 'WH.Milk', full_name: 'TENTATIVE WHOLE MILK' },
-          { key: 'dlt_milk', label: 'DLT.Milk', full_name: 'DOUBLE TONED MILK' },
-          { key: 'fc_milk', label: 'FC. Milk', full_name: 'FULL CREAM MILK' },
-          { key: 'std_milk', label: 'STD.Milk', full_name: 'STANDARDIZED MILK' },
-          { key: 'toned_curd', label: 'TM Curd', full_name: 'TONED MILK CURD' },
-          { key: 'dtm', label: 'DTM', full_name: 'DOUBLE TONED MILK' },
-          { key: 'skim_milk', label: 'Skim Milk', full_name: 'SKIMMED MILK' },
-          { key: 'cream', label: 'Cream', full_name: 'CREAM' },
-          { key: 'butter_milk', label: 'BM', full_name: 'BUTTER MILK' },
-          { key: 'r_con', label: 'R.Con', full_name: 'RECONSTITUTED MILK' },
-          { key: 'smp', label: 'SMP', full_name: 'SKIM MILK POWDER' },
-          { key: 'water', label: 'Water', full_name: 'WATER' },
-        ];
+        try {
+          const cfgRes = await fetch('/api/stock/config');
+          if (cfgRes.ok) {
+            const cfgJson = await cfgRes.json();
+            if (Array.isArray(cfgJson.products) && cfgJson.products.length > 0) {
+              stockProducts = cfgJson.products.map((p: any) => ({
+                key: p.key || p.product_key,
+                label: p.short_name || p.full_name || p.key,
+                full_name: p.full_name || p.product_name,
+                short_name: p.short_name || p.code,
+              }));
+            }
+          }
+        } catch {}
       }
 
       const getBlockInfo = (prod: { key: string; label: string; full_name?: string; short_name?: string }) => {
