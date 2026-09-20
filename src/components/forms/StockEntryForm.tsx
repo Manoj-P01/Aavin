@@ -1741,36 +1741,32 @@ export default function StockEntryForm({
                             )}
                           </div>
 
-                          {/* Receipts Internal Partitions button enabled strictly when mapped in Stock Statement Mapping Configuration */}
-                          {isDisposalsSection && (
+                          {/* Receipts Internal Partitions button shown strictly when mapped in Configuration */}
+                          {isDisposalsSection && (isMappedDisposalRow || r.row_label.trim().toLowerCase().includes('dairy') || r.row_label.trim().toLowerCase().includes('dairies')) && (
                             <div style={{ paddingLeft: 8, paddingBottom: 4, display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-                              <button
-                                type="button"
-                                className="btn btn-secondary btn-xs"
-                                disabled={!isMappedDisposalRow}
-                                onClick={() => openPartitionModal(i, 'RECEIPTS_PARTITION')}
-                                title={
-                                  isMappedDisposalRow
-                                    ? `🔀 Configure Receipts Internal Partitions for "${r.row_label}"`
-                                    : `⚠️ Map "${r.row_label}" in Stock Statement Mapping Configuration first to enable Receipts Internal Partitions`
-                                }
-                                style={{
-                                  fontSize: '0.72rem',
-                                  fontWeight: 700,
-                                  padding: '2px 8px',
-                                  color: isMappedDisposalRow ? '#047857' : '#94a3b8',
-                                  background: isMappedDisposalRow ? '#d1fae5' : '#f1f5f9',
-                                  border: `1px solid ${isMappedDisposalRow ? '#6ee7b7' : '#cbd5e1'}`,
-                                  borderRadius: 4,
-                                  display: 'inline-flex',
-                                  alignItems: 'center',
-                                  gap: 4,
-                                  cursor: isMappedDisposalRow ? 'pointer' : 'not-allowed',
-                                  opacity: isMappedDisposalRow ? 1 : 0.6,
-                                }}
-                              >
-                                🔀 Receipts Internal Partitions {Array.isArray(mappedRule?.partitions) && mappedRule.partitions.length > 0 ? `(${mappedRule.partitions.length})` : ''}
-                              </button>
+                              {isMappedDisposalRow && (
+                                <button
+                                  type="button"
+                                  className="btn btn-secondary btn-xs"
+                                  onClick={() => openPartitionModal(i, 'RECEIPTS_PARTITION')}
+                                  title={`🔀 Configure Receipts Internal Partitions for "${r.row_label}"`}
+                                  style={{
+                                    fontSize: '0.72rem',
+                                    fontWeight: 700,
+                                    padding: '2px 8px',
+                                    color: '#047857',
+                                    background: '#d1fae5',
+                                    border: '1px solid #6ee7b7',
+                                    borderRadius: 4,
+                                    display: 'inline-flex',
+                                    alignItems: 'center',
+                                    gap: 4,
+                                    cursor: 'pointer',
+                                  }}
+                                >
+                                  🔀 Receipts Internal Partitions {Array.isArray(mappedRule?.partitions) && mappedRule.partitions.length > 0 ? `(${mappedRule.partitions.length})` : ''}
+                                </button>
+                              )}
 
                               {(r.row_label.trim().toLowerCase().includes('dairy') || r.row_label.trim().toLowerCase().includes('dairies')) && (
                                 <button
@@ -1855,23 +1851,25 @@ export default function StockEntryForm({
                   </td>
                   {!isBalanceSection && isDisposalsSection && (
                     <td className="no-print" style={{ textAlign: 'center' }}>
-                      <div style={{ display: 'flex', gap: 6, justifyContent: 'center', alignItems: 'center' }}>
-                        <button
-                          type="button"
-                          style={{
-                            background: isMappedDisposalRow ? 'rgba(245, 158, 11, 0.15)' : 'none',
-                            border: isMappedDisposalRow ? '1px solid #f59e0b' : 'none',
-                            borderRadius: 4,
-                            cursor: 'pointer',
-                            fontSize: '0.95rem',
-                            padding: '2px 4px',
-                          }}
-                          title="🔀 Configure Receipts Internal Partitions Mapping"
-                          onClick={() => openPartitionModal(i, 'RECEIPTS_PARTITION')}
-                        >
-                          🔀
-                        </button>
-                      </div>
+                      {isMappedDisposalRow && (
+                        <div style={{ display: 'flex', gap: 6, justifyContent: 'center', alignItems: 'center' }}>
+                          <button
+                            type="button"
+                            style={{
+                              background: 'rgba(245, 158, 11, 0.15)',
+                              border: '1px solid #f59e0b',
+                              borderRadius: 4,
+                              cursor: 'pointer',
+                              fontSize: '0.95rem',
+                              padding: '2px 4px',
+                            }}
+                            title="🔀 Configure Receipts Internal Partitions Mapping"
+                            onClick={() => openPartitionModal(i, 'RECEIPTS_PARTITION')}
+                          >
+                            🔀
+                          </button>
+                        </div>
+                      )}
                     </td>
                   )}
                 </tr>
