@@ -11,6 +11,7 @@ import type { Shift } from '@/lib/types';
 import Header from '@/components/layout/Header';
 import Step, { DAILY_ENTRY_STEP_ITEMS } from '@/components/ui/Step';
 import Link from 'next/link';
+import { useConfirm } from '@/context/ConfirmContext';
 
 type ColKey = string;
 
@@ -60,6 +61,7 @@ export default function StockEntryForm({
 }: StockEntryFormProps = {}) {
   const router = useRouter();
   const searchParams = useSearchParams();
+  const { showWarning, showError } = useConfirm();
   const paramDate = searchParams.get('date');
   const paramShift = searchParams.get('shift');
 
@@ -162,7 +164,8 @@ export default function StockEntryForm({
     }
   };
 
-  const applyInternalMappings = (currentRows: StockRowState[], activeRules: any[]): StockRowState[] => {
+  const applyInternalMappings = (currentRows: StockRowState[], activeRules: any[], forceSync: boolean = false): StockRowState[] => {
+    if (receiptsUnlocked && !forceSync) return currentRows;
     const effectiveRules: any[] = activeRules.length > 0 ? activeRules : [
       {
         id: 'default_dlt_disposal_to_receipt',
@@ -557,80 +560,125 @@ export default function StockEntryForm({
 
     async function loadData() {
       try {
-        const res = await fetch(`/api/stock?date=${entryDate}&shift=${shift}`);
-        // Retrieve latest products config from state
         const activeProducts = globalProducts;
+
+        // Helper to get previous shift/date
+        const getPreviousShiftInfo = (): { date: string; shift: Shift } => {
+          if (reportMode === 'shift' && shift === 'N') {
+            return { date: entryDate, shift: 'D' };
+          } else {
+            const [year, month, day] = entryDate.split('-').map(Number);
+            const prevDateObj = new Date(year, month - 1, day - 1);
+            const yyyy = prevDateObj.getFullYear();
+            const mm = String(prevDateObj.getMonth() + 1).padStart(2, '0');
+            const dd = String(prevDateObj.getDate()).padStart(2, '0');
+            const prevDateStr = `${yyyy}-${mm}-${dd}`;
+            return { date: prevDateStr, shift: reportMode === 'shift' ? 'N' : 'F' };
+          }
+        };
+
+        // Helper to compute Closing Balance from rows
+        const calcClosingBalanceFromRows = (dbRows: any[], cols: any[], prevCustomValues: any = {}): Record<string, string> => {
+          const obSum: Record<string, number> = {};
+          const recSum: Record<string, number> = {};
+          const dispSum: Record<string, number> = {};
+
+          cols.forEach(col => {
+            const targetNorm = col.key.toLowerCase().replace(/[^a-z0-9]/g, '');
+            if (targetNorm) {
+              obSum[targetNorm] = 0;
+              recSum[targetNorm] = 0;
+              dispSum[targetNorm] = 0;
+            }
+          });
+
+          dbRows.forEach((r: any) => {
+            const label = (r.row_label || '').trim();
+            const rowVals = prevCustomValues[label] || prevCustomValues[r.row_label];
+
+            cols.forEach(col => {
+              const targetNorm = col.key.toLowerCase().replace(/[^a-z0-9]/g, '');
+              if (!targetNorm) return;
+
+              let val = 0;
+              const normKey = col.key.trim().replace(/\.+/g, '_').replace(/_+/g, '_').toLowerCase();
+              const direct = r[col.key] ?? r[normKey];
+              if (direct !== undefined && direct !== null && direct !== '') {
+                const num = parseFloat(String(direct));
+                if (!isNaN(num)) val = num;
+              }
+
+              if (val === 0 && targetNorm) {
+                for (const [rk, rv] of Object.entries(r)) {
+                  if (rv === undefined || rv === null || rv === '') continue;
+                  if (rk.toLowerCase().replace(/[^a-z0-9]/g, '') === targetNorm) {
+                    const num = parseFloat(String(rv));
+                    if (!isNaN(num)) {
+                      val = num;
+                      if (num !== 0) break;
+                    }
+                  }
+                }
+              }
+
+              if (val === 0 && rowVals && targetNorm) {
+                for (const [ck, cv] of Object.entries(rowVals)) {
+                  if (cv === undefined || cv === null || cv === '') continue;
+                  if (ck.toLowerCase().replace(/[^a-z0-9]/g, '') === targetNorm) {
+                    const num = parseFloat(String(cv));
+                    if (!isNaN(num)) {
+                      val = num;
+                      if (num !== 0) break;
+                    }
+                  }
+                }
+              }
+
+              if (r.row_type === 'OB') {
+                obSum[targetNorm] = (obSum[targetNorm] || 0) + val;
+              } else if (r.row_type === 'RECEIPT') {
+                recSum[targetNorm] = (recSum[targetNorm] || 0) + val;
+              } else if (r.row_type === 'DISPOSAL') {
+                dispSum[targetNorm] = (dispSum[targetNorm] || 0) + val;
+              }
+            });
+          });
+
+          const cb: Record<string, string> = {};
+          cols.forEach(col => {
+            const targetNorm = col.key.toLowerCase().replace(/[^a-z0-9]/g, '');
+            const val = (obSum[targetNorm] || 0) + (recSum[targetNorm] || 0) - (dispSum[targetNorm] || 0);
+            const valStr = val === 0 ? '' : String(Math.round((val + Number.EPSILON) * 1000) / 1000);
+
+            const normKey = col.key.trim().replace(/\.+/g, '_').replace(/_+/g, '_').toLowerCase();
+            const dotKey = normKey.replace(/_/g, '.');
+
+            cb[col.key] = valStr;
+            cb[normKey] = valStr;
+            cb[dotKey] = valStr;
+          });
+          return cb;
+        };
+
+
+        const res = await fetch(`/api/stock?date=${entryDate}&shift=${shift}`);
 
         if (!res.ok) {
           if (active) {
-            // Helper to get previous shift/date
-            const getPreviousShiftInfo = (): { date: string; shift: Shift } => {
-              if (reportMode === 'shift' && shift === 'N') {
-                return { date: entryDate, shift: 'D' };
-              } else {
-                const [year, month, day] = entryDate.split('-').map(Number);
-                const prevDateObj = new Date(year, month - 1, day - 1);
-                const yyyy = prevDateObj.getFullYear();
-                const mm = String(prevDateObj.getMonth() + 1).padStart(2, '0');
-                const dd = String(prevDateObj.getDate()).padStart(2, '0');
-                const prevDateStr = `${yyyy}-${mm}-${dd}`;
-                return { date: prevDateStr, shift: reportMode === 'shift' ? 'N' : 'F' };
-              }
-            };
-
-            // Helper to compute Closing Balance from rows
-            const calcClosingBalanceFromRows = (dbRows: any[], cols: any[], prevCustomValues: any = {}): Record<string, string> => {
-              const obSum: Record<string, number> = {};
-              const recSum: Record<string, number> = {};
-              const dispSum: Record<string, number> = {};
-              const DB_COLUMNS = ['wh_milk', 'dlt_milk', 'fc_milk', 'std_milk', 'toned_curd', 'dtm', 'skim_milk', 'cream', 'butter_milk', 'r_con', 'smp', 'water'];
-
-              cols.forEach(col => {
-                obSum[col.key] = 0;
-                recSum[col.key] = 0;
-                dispSum[col.key] = 0;
-              });
-
-              dbRows.forEach((r: any) => {
-                const label = r.row_label;
-                cols.forEach(col => {
-                  let val = 0;
-                  if (DB_COLUMNS.includes(col.key)) {
-                    val = Number(r[col.key]) || 0;
-                  } else {
-                    const rowVals = prevCustomValues[label];
-                    val = rowVals ? (parseFloat(rowVals[col.key]) || 0) : 0;
-                  }
-
-                  if (r.row_type === 'OB') {
-                    obSum[col.key] = (obSum[col.key] || 0) + val;
-                  } else if (r.row_type === 'RECEIPT') {
-                    recSum[col.key] = (recSum[col.key] || 0) + val;
-                  } else if (r.row_type === 'DISPOSAL') {
-                    dispSum[col.key] = (dispSum[col.key] || 0) + val;
-                  }
-                });
-              });
-
-              const cb: Record<string, string> = {};
-              cols.forEach(col => {
-                const val = obSum[col.key] + recSum[col.key] - dispSum[col.key];
-                cb[col.key] = val === 0 ? '' : String(val);
-              });
-              return cb;
-            };
-
             const fetchPrevShiftCB = async () => {
               let initialObValues: Record<string, string> = {};
               let finalCols = [...activeProducts];
               try {
                 const prevInfo = getPreviousShiftInfo();
-                const prevRes = await fetch(`/api/stock?date=${prevInfo.date}&shift=${prevInfo.shift}`);
+                let prevRes = await fetch(`/api/stock?date=${prevInfo.date}&shift=${prevInfo.shift}`);
+                if (!prevRes.ok) {
+                  prevRes = await fetch(`/api/stock?date=${prevInfo.date}`);
+                }
                 if (prevRes.ok) {
                   const prevJson = await prevRes.json();
                   const prevEntry = prevJson.data?.entries?.[0];
                   const prevRows = prevJson.data?.stock_rows || [];
-                  
+
                   let prevCustomCols: Array<{ key: ColKey; label: string }> = [];
                   let prevCustomVals: Record<string, Record<ColKey, string>> = {};
                   if (prevEntry && prevEntry.notes) {
@@ -648,7 +696,7 @@ export default function StockEntryForm({
                   }
 
                   prevCustomCols.forEach((cc: any) => {
-                    if (!finalCols.some(col => col.key === cc.key)) {
+                    if (!finalCols.some(col => col.key === cc.key || col.key.replace(/\./g, '_') === cc.key.replace(/\./g, '_'))) {
                       finalCols.push(cc);
                     }
                   });
@@ -718,34 +766,88 @@ export default function StockEntryForm({
             sortedDbRows.forEach((dbRow: any) => {
               const dbRowType = dbRow.row_type as StockRowState['row_type'];
               const dbRowLabel = (dbRow.row_label || '').trim();
+              const customValsRow = customVals[dbRowLabel] || customVals[dbRow.row_label];
 
               const values: Record<string, string> = {};
               parsedCols.forEach(col => {
-                const normKey = col.key.replace(/\./g, '_');
-                const dotKey = col.key.replace(/_/g, '.');
-                const rawVal = dbRow[col.key] ?? dbRow[normKey] ?? dbRow[dotKey] ?? dbRow[col.key.toLowerCase()] ?? dbRow[col.key.toUpperCase()];
-                if (rawVal !== undefined && rawVal !== null && rawVal !== '') {
-                  const numVal = typeof rawVal === 'number' ? rawVal : parseFloat(String(rawVal));
-                  values[col.key] = (!isNaN(numVal) && numVal !== 0) ? String(numVal) : (typeof rawVal === 'string' && rawVal.trim() !== '0' ? rawVal : '');
+                const normKey = col.key.trim().replace(/\.+/g, '_').replace(/_+/g, '_').toLowerCase();
+                const dotKey = normKey.replace(/_/g, '.');
+                const targetNorm = col.key.toLowerCase().replace(/[^a-z0-9]/g, '');
+
+                let foundVal = '';
+
+                // Direct exact lookup first
+                const directVal = dbRow[col.key] ?? dbRow[normKey];
+                if (directVal !== undefined && directVal !== null && directVal !== '') {
+                  const numVal = typeof directVal === 'number' ? directVal : parseFloat(String(directVal));
+                  if (!isNaN(numVal) && numVal !== 0) {
+                    foundVal = String(numVal);
+                  }
+                }
+
+                // Generic alphanumeric normalized lookup
+                if (!foundVal && targetNorm) {
+                  for (const [rk, rv] of Object.entries(dbRow)) {
+                    if (rv === undefined || rv === null || rv === '') continue;
+                    if (rk.toLowerCase().replace(/[^a-z0-9]/g, '') === targetNorm) {
+                      const numVal = typeof rv === 'number' ? rv : parseFloat(String(rv));
+                      if (!isNaN(numVal) && numVal !== 0) {
+                        foundVal = String(numVal);
+                        break;
+                      }
+                    }
+                  }
+                }
+
+                // Custom metadata fallback check
+                if (!foundVal && customValsRow && targetNorm) {
+                  for (const [ck, cv] of Object.entries(customValsRow)) {
+                    if (cv === undefined || cv === null || cv === '') continue;
+                    if (ck.toLowerCase().replace(/[^a-z0-9]/g, '') === targetNorm) {
+                      const numVal = typeof cv === 'number' ? cv : parseFloat(String(cv));
+                      if (!isNaN(numVal) && numVal !== 0) {
+                        foundVal = String(numVal);
+                        break;
+                      }
+                    }
+                  }
+                }
+
+                if (foundVal) {
+                  values[col.key] = foundVal;
+                  values[normKey] = foundVal;
+                  values[dotKey] = foundVal;
                 }
               });
 
-              if (customVals[dbRowLabel]) {
-                Object.entries(customVals[dbRowLabel]).forEach(([colKey, val]) => {
-                  values[colKey] = val;
+              if (customValsRow) {
+                Object.entries(customValsRow).forEach(([colKey, val]) => {
+                  if (val !== undefined && val !== null && val !== '') {
+                    values[colKey] = String(val);
+                  }
                 });
               }
 
               if (dbRowType === 'OB') {
-                // Merge OB values into Opening Balance row
-                loadedRows[0].values = {
-                  ...loadedRows[0].values,
-                  ...values,
-                };
+                const obIdx = loadedRows.findIndex(r => r.row_type === 'OB');
+                if (obIdx !== -1) {
+                  loadedRows[obIdx].values = {
+                    ...loadedRows[obIdx].values,
+                    ...values,
+                  };
+                } else {
+                  loadedRows[0].values = {
+                    ...loadedRows[0].values,
+                    ...values,
+                  };
+                }
               } else {
+                const normDbLabel = dbRowLabel.toLowerCase().replace(/[^a-z0-9]/g, '');
                 const existingIdx = loadedRows.findIndex(r =>
-                  r.row_type === dbRowType &&
-                  r.row_label.trim().toLowerCase() === dbRowLabel.toLowerCase()
+                  r.row_type === dbRowType && (
+                    r.row_label.trim().toLowerCase() === dbRowLabel.toLowerCase() ||
+                    (normDbLabel && r.row_label.toLowerCase().replace(/[^a-z0-9]/g, '') === normDbLabel)
+                  )
                 );
 
                 if (existingIdx !== -1) {
@@ -774,6 +876,54 @@ export default function StockEntryForm({
                 }
               }
             });
+          }
+
+
+          // Fallback: If loaded OB row has no non-zero values, populate from previous shift/day closing balance
+          const hasObValues = Object.values(loadedRows[0].values).some(v => v !== undefined && v !== null && v !== '' && parseFloat(v) !== 0);
+          if (!hasObValues) {
+            try {
+              const getPrevInfo = (): { date: string; shift: Shift } => {
+                if (reportMode === 'shift' && shift === 'N') {
+                  return { date: entryDate, shift: 'D' };
+                } else {
+                  const [year, month, day] = entryDate.split('-').map(Number);
+                  const prevDateObj = new Date(year, month - 1, day - 1);
+                  const yyyy = prevDateObj.getFullYear();
+                  const mm = String(prevDateObj.getMonth() + 1).padStart(2, '0');
+                  const dd = String(prevDateObj.getDate()).padStart(2, '0');
+                  const prevDateStr = `${yyyy}-${mm}-${dd}`;
+                  return { date: prevDateStr, shift: reportMode === 'shift' ? 'N' : 'F' };
+                }
+              };
+              const prevInfo = getPrevInfo();
+              let prevRes = await fetch(`/api/stock?date=${prevInfo.date}&shift=${prevInfo.shift}`);
+              if (!prevRes.ok) {
+                prevRes = await fetch(`/api/stock?date=${prevInfo.date}`);
+              }
+              if (prevRes.ok) {
+                const prevJson = await prevRes.json();
+                const prevRows = prevJson.data?.stock_rows || [];
+                let prevCustomVals: Record<string, Record<ColKey, string>> = {};
+                const prevEntry = prevJson.data?.entries?.[0];
+                if (prevEntry && prevEntry.notes) {
+                  const notesParts = prevEntry.notes.split('\n');
+                  notesParts.forEach((part: string) => {
+                    if (part.includes('__METADATA__:')) {
+                      const [, metaJson] = part.split('__METADATA__:');
+                      try {
+                        const meta = JSON.parse(metaJson);
+                        if (meta.custom_values) prevCustomVals = meta.custom_values;
+                      } catch {}
+                    }
+                  });
+                }
+                const prevObValues = calcClosingBalanceFromRows(prevRows, parsedCols, prevCustomVals);
+                loadedRows[0].values = { ...prevObValues, ...loadedRows[0].values };
+              }
+            } catch (prevErr) {
+              console.error('Error fetching fallback OB for existing entry:', prevErr);
+            }
           }
 
           setRows(loadedRows);
@@ -1231,17 +1381,47 @@ export default function StockEntryForm({
         }
       });
 
-      // 2. Format notes: attach metadata if user provided notes or custom columns/values exist
+      // 2. Compute Live Stock Summary Rows (JSON payload)
+      const stockSummaryRows = [
+        { summary_type: 'OB', row_label: 'Opening Balance', sort_order: 0, summary_data: {} as Record<string, number> },
+        { summary_type: 'TOTAL_RECEIPT', row_label: 'Total Receipts (+)', sort_order: 1, summary_data: {} as Record<string, number> },
+        { summary_type: 'TOTAL_DISPOSAL', row_label: 'Total Disposals (-)', sort_order: 2, summary_data: {} as Record<string, number> },
+        { summary_type: 'CB', row_label: 'Closing Balance (=)', sort_order: 3, summary_data: {} as Record<string, number> },
+      ];
+
+      columns.forEach(col => {
+        const normKey = col.key.trim().replace(/\.+/g, '_').replace(/_+/g, '_').toLowerCase();
+        const obVal = getSectionSum('OB', col.key);
+        const recVal = getSectionSum('RECEIPT', col.key);
+        const dispVal = getSectionSum('DISPOSAL', col.key);
+
+        stockSummaryRows[0].summary_data[col.key] = obVal;
+        stockSummaryRows[0].summary_data[normKey] = obVal;
+
+        stockSummaryRows[1].summary_data[col.key] = recVal;
+        stockSummaryRows[1].summary_data[normKey] = recVal;
+
+        stockSummaryRows[2].summary_data[col.key] = dispVal;
+        stockSummaryRows[2].summary_data[normKey] = dispVal;
+
+        stockSummaryRows[3].summary_data[col.key] = obVal + recVal - dispVal;
+        stockSummaryRows[3].summary_data[normKey] = obVal + recVal - dispVal;
+      });
+
+      // Format notes: attach metadata & stock summary JSON
       const userNotesText = notes ? notes.trim() : '';
-      let finalNotes: string | null = null;
-      if (userNotesText || customCols.length > 0 || Object.keys(customValues).length > 0) {
+      const notesParts: string[] = [];
+      if (userNotesText) notesParts.push(userNotesText);
+
+      if (customCols.length > 0 || Object.keys(customValues).length > 0) {
         const metadata = {
           custom_columns: customCols,
           custom_values: customValues,
         };
-        const metaStr = `__METADATA__:${JSON.stringify(metadata)}`;
-        finalNotes = userNotesText ? `${userNotesText}\n${metaStr}` : metaStr;
+        notesParts.push(`__METADATA__:${JSON.stringify(metadata)}`);
       }
+      notesParts.push(`__STOCK_SUMMARY__:${JSON.stringify(stockSummaryRows)}`);
+      const finalNotes = notesParts.join('\n');
 
       const entryRes = await fetch('/api/entries', {
         method: 'POST',
@@ -1253,7 +1433,10 @@ export default function StockEntryForm({
 
       const entry_id = entryData.data.id;
 
-      // 3. Map ALL columns dynamically to stock rows (setting col.key, normKey, and dotKey)
+      // Attach entry_id to summary rows for API post
+      const summaryRowsWithId = stockSummaryRows.map(s => ({ ...s, entry_id }));
+
+      // 3. Map ALL columns dynamically to stock rows
       const stockRows = rows.map((r, i) => {
         const rowObj: Record<string, any> = {
           row_type: r.row_type,
@@ -1262,14 +1445,32 @@ export default function StockEntryForm({
         };
 
         columns.forEach(col => {
-          const normKey = col.key.replace(/\./g, '_');
-          const dotKey = col.key.replace(/_/g, '.');
-          const valStr = r.values[col.key] ?? r.values[normKey] ?? r.values[dotKey] ?? '0';
-          const numVal = parseFloat(valStr) || 0;
+          const normKey = col.key.trim().replace(/\.+/g, '_').replace(/_+/g, '_').toLowerCase();
+          const targetNorm = col.key.toLowerCase().replace(/[^a-z0-9]/g, '');
 
-          rowObj[col.key] = numVal;
+          let numVal = 0;
+          if (r.values) {
+            const direct = r.values[col.key] ?? r.values[normKey];
+            if (direct !== undefined && direct !== null && direct !== '') {
+              const parsed = typeof direct === 'number' ? direct : parseFloat(String(direct));
+              if (!isNaN(parsed) && parsed !== 0) numVal = parsed;
+            }
+
+            if (numVal === 0 && targetNorm) {
+              for (const [vk, vv] of Object.entries(r.values)) {
+                if (vv === undefined || vv === null || vv === '') continue;
+                if (vk.toLowerCase().replace(/[^a-z0-9]/g, '') === targetNorm) {
+                  const parsed = typeof vv === 'number' ? vv : parseFloat(String(vv));
+                  if (!isNaN(parsed) && parsed !== 0) {
+                    numVal = parsed;
+                    break;
+                  }
+                }
+              }
+            }
+          }
+
           rowObj[normKey] = numVal;
-          rowObj[dotKey] = numVal;
         });
 
         return rowObj;
@@ -1278,7 +1479,7 @@ export default function StockEntryForm({
       const stockRes = await fetch('/api/stock', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ entry_id, stock_rows: stockRows, separation_details: null }),
+        body: JSON.stringify({ entry_id, stock_rows: stockRows, stock_summary_rows: summaryRowsWithId, separation_details: null }),
       });
       if (!stockRes.ok) {
         const d = await stockRes.json();
@@ -1383,7 +1584,16 @@ export default function StockEntryForm({
                 <button
                   type="button"
                   className="btn btn-secondary btn-sm no-print"
-                  onClick={() => setReceiptsUnlocked(!receiptsUnlocked)}
+                  onClick={() => {
+                    const nextUnlocked = !receiptsUnlocked;
+                    setReceiptsUnlocked(nextUnlocked);
+                    if (nextUnlocked) {
+                      setSuccess('Mapped Receipt cells unlocked. You can now update receipt values manually.');
+                      setTimeout(() => setSuccess(''), 4000);
+                    } else {
+                      setRows(prev => applyInternalMappings(prev, internalRules, true));
+                    }
+                  }}
                   style={{
                     padding: '4px 10px',
                     fontSize: '0.72rem',
@@ -1405,7 +1615,7 @@ export default function StockEntryForm({
                 <button
                   type="button"
                   className="btn btn-secondary btn-sm no-print"
-                  onClick={() => setRows(prev => applyInternalMappings(prev, internalRules))}
+                  onClick={() => setRows(prev => applyInternalMappings(prev, internalRules, true))}
                   title="Recalculate mapped Receipts from Disposals row totals"
                   style={{
                     padding: '4px 10px',
@@ -1824,7 +2034,7 @@ export default function StockEntryForm({
 
   const handleExportDailyExcel = async () => {
     if (!entryDate) {
-      alert('Please select a valid date.');
+      showWarning('Please select a valid date.', 'Date Required');
       return;
     }
     try {
@@ -1846,7 +2056,7 @@ export default function StockEntryForm({
       window.URL.revokeObjectURL(downloadUrl);
     } catch (err) {
       console.error(err);
-      alert('Failed to export Excel stock statement');
+      showError('Failed to export Excel stock statement', 'Export Error');
     }
   };
 

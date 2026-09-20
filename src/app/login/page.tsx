@@ -3,6 +3,8 @@
 import React, { useState, useEffect, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 
+export const dynamic = 'force-dynamic';
+
 function LoginFormContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -38,7 +40,7 @@ function LoginFormContent() {
         throw new Error(data.error || 'Authentication failed');
       }
 
-      const redirectUrl = searchParams.get('redirect') || '/dashboard/stock';
+      const redirectUrl = searchParams.get('redirect') || '/dashboard';
       router.push(redirectUrl);
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Login failed. Please check credentials.');

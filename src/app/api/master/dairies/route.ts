@@ -1,15 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getSupabaseServiceClient } from '@/lib/supabase';
 import { getAuthUserFromRequest } from '@/lib/auth';
-import { isLocalDbEnabled } from '@/lib/fileDb';
 
 // GET /api/master/dairies - List dairies dynamically from dairy_destinations_master
 export async function GET(req: NextRequest) {
   try {
-    if (isLocalDbEnabled()) {
-      return NextResponse.json({ data: [] });
-    }
-
     const supabase = getSupabaseServiceClient();
 
     // Try stored procedure fn_get_active_dairy_destinations() first

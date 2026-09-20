@@ -57,7 +57,7 @@ export default function StockViewPage() {
   useEffect(() => {
     async function load() {
       try {
-        // Load report mode configuration
+        // Load report mode configuration & database products master
         let parsedMode: 'full_day' | 'shift' = 'full_day';
         try {
           const configRes = await fetch('/api/entries?report_type=STOCK');
@@ -76,11 +76,22 @@ export default function StockViewPage() {
                 const parsed = JSON.parse(configEntry.notes);
                 if (parsed && typeof parsed === 'object') {
                   if (parsed.mode) parsedMode = parsed.mode;
-                  if (Array.isArray(parsed.products)) {
-                    setGlobalProducts(parsed.products);
-                  }
                 }
               } catch (e) {}
+            }
+          }
+
+          // Load products configuration directly from database table
+          const stockCfgRes = await fetch('/api/stock/config');
+          if (stockCfgRes.ok) {
+            const stockCfg = await stockCfgRes.json();
+            if (Array.isArray(stockCfg.products) && stockCfg.products.length > 0) {
+              setGlobalProducts(stockCfg.products.map((p: any) => ({
+                key: p.key || p.product_key,
+                label: p.short_name || p.full_name || p.label || p.key,
+                full_name: p.full_name || p.product_name,
+                short_name: p.short_name || p.code,
+              })));
             }
           }
         } catch (err) {
@@ -178,6 +189,59 @@ export default function StockViewPage() {
         }
       />
       <div className="page-body animate-fade-in">
+        {/* Date Selector Bar */}
+        <div
+          className="card no-print"
+          style={{
+            marginBottom: 16,
+            padding: '10px 16px',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            background: 'rgba(14, 165, 233, 0.05)',
+            border: '1px solid rgba(14, 165, 233, 0.2)',
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+            <label
+              htmlFor="stock-view-date-picker"
+              style={{
+                fontWeight: 700,
+                fontSize: '0.85rem',
+                color: 'var(--text-primary)',
+                margin: 0,
+                display: 'flex',
+                alignItems: 'center',
+                gap: 6,
+              }}
+            >
+              📅 Select Date to View Statement:
+            </label>
+            <input
+              id="stock-view-date-picker"
+              type="date"
+              className="form-input"
+              value={date}
+              onChange={e => {
+                if (e.target.value) {
+                  router.push(`/dashboard/stock/${e.target.value}/${shift}`);
+                }
+              }}
+              style={{
+                width: 160,
+                padding: '6px 12px',
+                margin: 0,
+                fontSize: '0.85rem',
+                fontWeight: 600,
+                cursor: 'pointer',
+              }}
+            />
+          </div>
+          <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
+            Selected Date: <strong style={{ color: 'var(--brand-primary)' }}>{fmtDate(date)}</strong>
+          </div>
+        </div>
+
         {/* Other shift link */}
         {!loading && !error && reportMode === 'shift' && (
           <div style={{ display: 'flex', gap: 12, marginBottom: 16 }} className="no-print">

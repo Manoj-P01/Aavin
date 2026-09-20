@@ -308,6 +308,24 @@ CREATE TABLE IF NOT EXISTS separation_details (
   UNIQUE(entry_id)
 );
 
+-- Stock Summary Rows Table (Live Summary Table)
+CREATE TABLE IF NOT EXISTS stock_summary_rows (
+  id           uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+  entry_id     uuid NOT NULL REFERENCES entries(id) ON DELETE CASCADE,
+  summary_type text NOT NULL CHECK (summary_type IN ('OB','TOTAL_RECEIPT','TOTAL_DISPOSAL','CB')),
+  row_label    text NOT NULL,
+  summary_data jsonb NOT NULL DEFAULT '{}'::jsonb,
+  sort_order   int DEFAULT 0,
+  created_by   text DEFAULT 'admin',
+  created_at   timestamptz NOT NULL DEFAULT now(),
+  updated_by   text DEFAULT 'admin',
+  updated_at   timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_stock_summary_rows_entry ON stock_summary_rows(entry_id);
+DROP TRIGGER IF EXISTS trg_stock_summary_rows_audit ON stock_summary_rows;
+CREATE TRIGGER trg_stock_summary_rows_audit BEFORE INSERT OR UPDATE ON stock_summary_rows FOR EACH ROW EXECUTE FUNCTION fn_set_audit_fields();
+
 -- ─────────────────────────────────────────────────────────────
 -- 5. STORED PROCEDURES (SPs) AND FUNCTIONS
 -- ─────────────────────────────────────────────────────────────
@@ -543,6 +561,7 @@ ALTER TABLE entries                   ENABLE ROW LEVEL SECURITY;
 ALTER TABLE ts_milk_rows              ENABLE ROW LEVEL SECURITY;
 ALTER TABLE stg_rows                  ENABLE ROW LEVEL SECURITY;
 ALTER TABLE stock_rows                ENABLE ROW LEVEL SECURITY;
+ALTER TABLE stock_summary_rows        ENABLE ROW LEVEL SECURITY;
 ALTER TABLE separation_details         ENABLE ROW LEVEL SECURITY;
 
 CREATE POLICY "Allow all users" ON users                     FOR ALL USING (true) WITH CHECK (true);
@@ -555,4 +574,5 @@ CREATE POLICY "Allow all entries" ON entries                   FOR ALL USING (tr
 CREATE POLICY "Allow all ts_rows" ON ts_milk_rows              FOR ALL USING (true) WITH CHECK (true);
 CREATE POLICY "Allow all stg_rows" ON stg_rows                  FOR ALL USING (true) WITH CHECK (true);
 CREATE POLICY "Allow all stock_rows" ON stock_rows                FOR ALL USING (true) WITH CHECK (true);
+CREATE POLICY "Allow all stock_summary_rows" ON stock_summary_rows FOR ALL USING (true) WITH CHECK (true);
 CREATE POLICY "Allow all separation" ON separation_details         FOR ALL USING (true) WITH CHECK (true);

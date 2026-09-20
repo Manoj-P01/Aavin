@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getSupabaseServiceClient } from '@/lib/supabase';
-import { isLocalDbEnabled, getLocalEntries, createLocalEntry, initDb, saveDb } from '@/lib/fileDb';
 import type { ReportType, Shift } from '@/lib/types';
 
 // GET /api/entries?report_type=TS&month=2026-06
@@ -14,13 +13,6 @@ export async function GET(req: NextRequest) {
     const shift = (rawShift === 'null' || !rawShift) ? null : rawShift as Shift;
 
     const today = new Date().toISOString().split('T')[0];
-
-    if (isLocalDbEnabled()) {
-      const resolvedShift = searchParams.has('shift') ? shift : undefined;
-      const rawData = await getLocalEntries(report_type || undefined, month || undefined, date || undefined, resolvedShift);
-      const data = rawData.map((e: any) => e.entry_date === '1970-01-01' ? { ...e, entry_date: today } : e);
-      return NextResponse.json({ data });
-    }
 
     const supabase = getSupabaseServiceClient();
 
@@ -108,6 +100,37 @@ export async function GET(req: NextRequest) {
     const { data: rawData, error } = await query;
     if (error) throw error;
     const data = (rawData || []).map((e: any) => e.entry_date === '1970-01-01' ? { ...e, entry_date: today } : e);
+
+    if (dbReportType === 'STOCK' && data.length > 0) {
+      const entryIds = data.map((e: any) => e.id);
+      try {
+        const [rowsRes, summaryRes] = await Promise.all([
+          supabase.from('stock_rows').select('*').in('entry_id', entryIds).order('sort_order'),
+          supabase.from('stock_summary_rows').select('*').in('entry_id', entryIds).order('sort_order'),
+        ]);
+
+        const rowsMap: Record<string, any[]> = {};
+        const summaryMap: Record<string, any[]> = {};
+
+        (rowsRes.data || []).forEach((r: any) => {
+          if (!rowsMap[r.entry_id]) rowsMap[r.entry_id] = [];
+          rowsMap[r.entry_id].push(r);
+        });
+
+        (summaryRes.data || []).forEach((s: any) => {
+          if (!summaryMap[s.entry_id]) summaryMap[s.entry_id] = [];
+          summaryMap[s.entry_id].push(s);
+        });
+
+        data.forEach((e: any) => {
+          e.stock_rows = rowsMap[e.id] || [];
+          e.stock_summary_rows = summaryMap[e.id] || [];
+        });
+      } catch (err) {
+        console.warn('Warning fetching stock_rows or stock_summary_rows for entries:', err);
+      }
+    }
+
     return NextResponse.json({ data });
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : 'Unknown error';
@@ -135,24 +158,6 @@ export async function POST(req: NextRequest) {
     let cleanNotes: string | null = null;
     if (typeof notes === 'string' && notes.trim().length > 0) {
       cleanNotes = notes.trim();
-    }
-
-    if (isLocalDbEnabled()) {
-      const db = await initDb();
-      const exists = db.entries.find((e: any) => 
-        e.entry_date === entry_date && 
-        e.report_type === report_type &&
-        (e.shift === shift || (!e.shift && !shift))
-      );
-      if (exists) {
-        exists.notes = cleanNotes;
-        exists.updated_at = new Date().toISOString();
-        await saveDb(db);
-        return NextResponse.json({ data: exists }, { status: 200 });
-      }
-
-      const data = await createLocalEntry(entry_date, shift, report_type, cleanNotes);
-      return NextResponse.json({ data }, { status: 201 });
     }
 
     const supabase = getSupabaseServiceClient();

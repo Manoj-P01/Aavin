@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getSupabaseServiceClient } from '@/lib/supabase';
-import { isLocalDbEnabled, getLocalEntries } from '@/lib/fileDb';
 import type { Entry } from '@/lib/types';
 
 export async function GET(req: NextRequest) {
@@ -11,31 +10,6 @@ export async function GET(req: NextRequest) {
     const monthEnd = new Date(now.getFullYear(), now.getMonth() + 1, 0)
       .toISOString().split('T')[0];
 
-    if (isLocalDbEnabled()) {
-      const allEntries = await getLocalEntries();
-      const tsEntries = allEntries.filter(e => e.report_type === 'TS');
-      const stockEntries = allEntries.filter(e => e.report_type === 'STOCK');
-
-      const thisMonthTs = tsEntries.filter(e => e.entry_date >= monthStart && e.entry_date <= monthEnd);
-      const thisMonthStock = stockEntries.filter(e => e.entry_date >= monthStart && e.entry_date <= monthEnd);
-
-      const latestTs = tsEntries[0] || null;
-      const latestStock = stockEntries[0] || null;
-
-      return NextResponse.json({
-        data: {
-          tsCount: tsEntries.length,
-          stockCount: stockEntries.length,
-          thisMonthTs: thisMonthTs.length,
-          thisMonthStock: thisMonthStock.length,
-          latestTs,
-          latestStock,
-          recentEntries: allEntries.slice(0, 8),
-        }
-      });
-    }
-
-    // Supabase path
     const supabase = getSupabaseServiceClient();
 
     const [allTs, allStock, monthTs, monthStock, recentAll] = await Promise.all([

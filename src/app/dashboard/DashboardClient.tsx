@@ -121,13 +121,9 @@ export default function DashboardClient() {
                       </span>
                     </td>
                     <td>
-                      {entry.shift ? (
-                        <span className={`badge ${entry.shift === 'D' ? 'badge-day' : 'badge-night'}`}>
-                          {entry.shift === 'D' ? '☀️ Day' : '🌙 Night'}
-                        </span>
-                      ) : (
-                        <span className="badge badge-blue">🗓️ Full Day</span>
-                      )}
+                      <span className={`badge ${entry.shift === 'D' ? 'badge-day' : entry.shift === 'N' ? 'badge-night' : 'badge-blue'}`}>
+                        {entry.shift === 'D' ? '☀️ Day' : entry.shift === 'N' ? '🌙 Night' : '🗓️ Full Day'}
+                      </span>
                     </td>
                     <td style={{ color: 'var(--text-muted)', fontSize: '0.75rem' }}>
                       {new Date(entry.created_at).toLocaleDateString('en-IN')}
@@ -136,7 +132,7 @@ export default function DashboardClient() {
                       <Link
                         href={entry.report_type === 'TS'
                           ? `/dashboard/ts/${entry.entry_date}${entry.shift ? `?shift=${entry.shift}` : ''}`
-                          : `/dashboard/stock/${entry.entry_date}/${entry.shift}`}
+                          : `/dashboard/stock/${entry.entry_date}/${entry.shift || 'F'}`}
                         className="btn btn-secondary btn-sm"
                       >
                         View →

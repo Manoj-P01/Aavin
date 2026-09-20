@@ -95,6 +95,19 @@ export interface SeparationDetails {
   ssm_snf_pct: number;
 }
 
+export type StockSummaryRowType = 'OB' | 'TOTAL_RECEIPT' | 'TOTAL_DISPOSAL' | 'CB';
+
+export interface StockSummaryRow {
+  id?: string;
+  entry_id: string;
+  summary_type: StockSummaryRowType;
+  row_label: string;
+  sort_order?: number;
+  created_at?: string;
+  updated_at?: string;
+  [key: string]: any;
+}
+
 // ─── Aggregated / Computed Types ────────────────────────────────────────────────
 
 export interface TSTotals {
@@ -190,6 +203,7 @@ export interface EntryWithData extends Entry {
   ts_milk_rows?: TSMilkRow[];
   stg_rows?: STGRow[];
   stock_rows?: StockRow[];
+  stock_summary_rows?: StockSummaryRow[];
   separation_details?: SeparationDetails;
 }
 

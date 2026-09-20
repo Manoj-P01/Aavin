@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
 import * as XLSX from 'xlsx';
-import { isLocalDbEnabled, initDb, createLocalEntry, saveLocalTSData, saveLocalStockData } from '@/lib/fileDb';
 import { getSupabaseServiceClient } from '@/lib/supabase';
 import { TS_OB_PRODUCTS, TS_RECEIPT_PRODUCTS, TS_DESPATCH_PRODUCTS, TS_LOCAL_SALE_PRODUCTS, TS_OTHER_DISPOSAL_PRODUCTS } from '@/lib/types';
 import type { TSSection, StockRowType, Shift } from '@/lib/types';
@@ -34,21 +33,15 @@ export async function POST(req: NextRequest) {
     const bytes = await file.arrayBuffer();
     const workbook = XLSX.read(bytes, { type: 'array', cellDates: true });
 
-    const localEnabled = isLocalDbEnabled();
-    const supabase = !localEnabled ? getSupabaseServiceClient() : null;
+    const supabase = getSupabaseServiceClient();
 
     let activeProds: any[] = [];
-    if (localEnabled) {
-      const localDb = await initDb();
-      activeProds = ((localDb as any).products_master || []).filter((p: any) => p.is_active !== false);
-    } else if (supabase) {
-      const { data: dbProds } = await supabase
-        .from('products_master')
-        .select('*')
-        .eq('is_active', true)
-        .order('sort_order', { ascending: true });
-      if (dbProds) activeProds = dbProds;
-    }
+    const { data: dbProds } = await supabase
+      .from('products_master')
+      .select('*')
+      .eq('is_active', true)
+      .order('sort_order', { ascending: true });
+    if (dbProds) activeProds = dbProds;
 
     let importedCount = 0;
 
@@ -225,37 +218,32 @@ export async function POST(req: NextRequest) {
       }
 
       // Persist
-      if (localEnabled) {
-        const entry = await createLocalEntry(entryDate, null, 'TS');
-        await saveLocalTSData(entry.id, tsRows, stgRows);
-      } else {
-        const { data: entry, error: entErr } = await supabase!
-          .from('entries')
-          .insert({ entry_date: entryDate, report_type: 'TS' })
-          .select()
-          .single();
-        if (entErr && entErr.code !== '23505') throw entErr;
+      const { data: entry, error: entErr } = await supabase
+        .from('entries')
+        .insert({ entry_date: entryDate, report_type: 'TS' })
+        .select()
+        .single();
+      if (entErr && entErr.code !== '23505') throw entErr;
 
-        let entryId = entry?.id;
-        if (!entryId) {
-          const { data: ext } = await supabase!.from('entries').select('id').eq('entry_date', entryDate).eq('report_type', 'TS').single();
-          entryId = ext?.id;
-        }
+      let entryId = entry?.id;
+      if (!entryId) {
+        const { data: ext } = await supabase.from('entries').select('id').eq('entry_date', entryDate).eq('report_type', 'TS').single();
+        entryId = ext?.id;
+      }
 
-        if (entryId) {
-          await Promise.all([
-            supabase!.from('ts_milk_rows').delete().eq('entry_id', entryId),
-            supabase!.from('stg_rows').delete().eq('entry_id', entryId),
-          ]);
-          await Promise.all([
-            supabase!.from('ts_milk_rows').insert(
-              tsRows.map((r, sort_order) => ({ ...r, entry_id: entryId, sort_order }))
-            ),
-            stgRows.length > 0 ? supabase!.from('stg_rows').insert(
-              stgRows.map((r, sort_order) => ({ ...r, entry_id: entryId, sort_order }))
-            ) : Promise.resolve(),
-          ]);
-        }
+      if (entryId) {
+        await Promise.all([
+          supabase.from('ts_milk_rows').delete().eq('entry_id', entryId),
+          supabase.from('stg_rows').delete().eq('entry_id', entryId),
+        ]);
+        await Promise.all([
+          supabase.from('ts_milk_rows').insert(
+            tsRows.map((r, sort_order) => ({ ...r, entry_id: entryId, sort_order }))
+          ),
+          stgRows.length > 0 ? supabase.from('stg_rows').insert(
+            stgRows.map((r, sort_order) => ({ ...r, entry_id: entryId, sort_order }))
+          ) : Promise.resolve(),
+        ]);
       }
       importedCount = 1;
 
@@ -333,33 +321,28 @@ export async function POST(req: NextRequest) {
         }
 
         // Persist
-        if (localEnabled) {
-          const entry = await createLocalEntry(entryDate, shift, 'STOCK');
-          await saveLocalStockData(entry.id, stockRows, separationDetails);
-        } else {
-          const { data: entry, error: entErr } = await supabase!
-            .from('entries')
-            .insert({ entry_date: entryDate, shift, report_type: 'STOCK' })
-            .select()
-            .single();
-          if (entErr && entErr.code !== '23505') throw entErr;
+        const { data: entry, error: entErr } = await supabase
+          .from('entries')
+          .insert({ entry_date: entryDate, shift, report_type: 'STOCK' })
+          .select()
+          .single();
+        if (entErr && entErr.code !== '23505') throw entErr;
 
-          let entryId = entry?.id;
-          if (!entryId) {
-            const { data: ext } = await supabase!.from('entries').select('id').eq('entry_date', entryDate).eq('shift', shift).eq('report_type', 'STOCK').single();
-            entryId = ext?.id;
-          }
+        let entryId = entry?.id;
+        if (!entryId) {
+          const { data: ext } = await supabase.from('entries').select('id').eq('entry_date', entryDate).eq('shift', shift).eq('report_type', 'STOCK').single();
+          entryId = ext?.id;
+        }
 
-          if (entryId) {
-            await Promise.all([
-              supabase!.from('stock_rows').delete().eq('entry_id', entryId),
-              supabase!.from('separation_details').delete().eq('entry_id', entryId),
-            ]);
+        if (entryId) {
+          await Promise.all([
+            supabase.from('stock_rows').delete().eq('entry_id', entryId),
+            supabase.from('separation_details').delete().eq('entry_id', entryId),
+          ]);
 
-            await supabase!.from('stock_rows').insert(
-              stockRows.map((r, sort_order) => ({ ...r, entry_id: entryId, sort_order }))
-            );
-          }
+          await supabase.from('stock_rows').insert(
+            stockRows.map((r, sort_order) => ({ ...r, entry_id: entryId, sort_order }))
+          );
         }
         importedCount++;
       }

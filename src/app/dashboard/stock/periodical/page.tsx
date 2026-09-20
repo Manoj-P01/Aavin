@@ -151,6 +151,18 @@ export default function PeriodicalSummaryReportPage() {
     }).sort((a, b) => a.entry_date.localeCompare(b.entry_date));
   }, [allEntries, filterMode, selectedYear, selectedMonths, selectedYears, fromDate, toDate]);
 
+  // Statement Selector Tab State: 'STOCK' | 'STG' | 'TS'
+  const [activeStatementType, setActiveStatementType] = useState<'STOCK' | 'STG' | 'TS'>('STOCK');
+
+  // Date-Wise View Mode State: 'CONSOLIDATED' | 'PRODUCT_WISE'
+  const [dateWiseViewMode, setDateWiseViewMode] = useState<'CONSOLIDATED' | 'PRODUCT_WISE'>('CONSOLIDATED');
+  // Sub-view mode for Product-Wise View: 'SEPARATE' (individual statement tables per product) | 'COMBINED' (particulars breakdown table)
+  const [productSubViewMode, setProductSubViewMode] = useState<'SEPARATE' | 'COMBINED'>('SEPARATE');
+  // Multi-select product keys for Product-Wise View
+  const [selectedProductKeys, setSelectedProductKeys] = useState<string[]>([]);
+  // Checkbox dropdown popover toggle state
+  const [isProductDropdownOpen, setIsProductDropdownOpen] = useState<boolean>(false);
+
   // Aggregated Stock Statement Data Calculation
   const aggregatedReport = useMemo(() => {
     if (filteredEntries.length === 0) return null;
@@ -209,7 +221,18 @@ export default function PeriodicalSummaryReportPage() {
         .filter(r => r && r.row_type === 'OB')
         .forEach(r => {
           columns.forEach(c => {
-            obValues[c.key] += parseFloat(r.values?.[c.key] || '0') || 0;
+            const normK = c.key.toLowerCase().replace(/[^a-z0-9]/g, '');
+            let valNum = 0;
+            for (const [k, v] of Object.entries(r.values || {})) {
+              if (k.toLowerCase().replace(/[^a-z0-9]/g, '') === normK) {
+                const num = parseFloat(String(v));
+                if (!isNaN(num)) {
+                  valNum = num;
+                  if (num !== 0) break;
+                }
+              }
+            }
+            obValues[c.key] += valNum;
           });
         });
     }
@@ -218,6 +241,143 @@ export default function PeriodicalSummaryReportPage() {
     const receiptParticularsMap: Record<string, Record<string, number>> = {};
     // 3. Aggregate Disposals (Grouped by row Particulars)
     const disposalParticularsMap: Record<string, Record<string, number>> = {};
+
+    // 4. Date-wise Statements calculation
+    const dateWiseStatements = parsedEntries.map(item => {
+      const e = item.entry;
+      const dateStr = e.entry_date;
+      const shiftStr = e.shift || 'F';
+
+      const dayOb: Record<string, number> = {};
+      const dayRec: Record<string, number> = {};
+      const dayDisp: Record<string, number> = {};
+      const dayCb: Record<string, number> = {};
+
+      const dayRecParticulars: Record<string, Record<string, number>> = {};
+      const dayDispParticulars: Record<string, Record<string, number>> = {};
+      const allRecParticulars: Record<string, number> = {};
+      const allDispParticulars: Record<string, number> = {};
+
+      columns.forEach(c => {
+        dayOb[c.key] = 0;
+        dayRec[c.key] = 0;
+        dayDisp[c.key] = 0;
+        dayCb[c.key] = 0;
+        dayRecParticulars[c.key] = {};
+        dayDispParticulars[c.key] = {};
+      });
+
+      // Check if entry has stored stock_summary_rows table data or embedded in notes
+      let summaryRows = (e as any).stock_summary_rows as any[] | undefined;
+
+      if ((!summaryRows || summaryRows.length === 0) && e.notes && e.notes.includes('__STOCK_SUMMARY__:')) {
+        try {
+          const match = e.notes.split('__STOCK_SUMMARY__:')[1];
+          if (match) {
+            const summaryStr = match.split('\n')[0];
+            const parsed = JSON.parse(summaryStr);
+            if (Array.isArray(parsed)) summaryRows = parsed;
+          }
+        } catch (err) {}
+      }
+
+      let hasSummaryData = false;
+
+      if (Array.isArray(summaryRows) && summaryRows.length > 0) {
+        summaryRows.forEach(sRow => {
+          const sType = sRow.summary_type || sRow.row_type;
+          const sDataObj = sRow.summary_data || sRow.values || sRow;
+
+          columns.forEach(c => {
+            const normK = c.key.toLowerCase().replace(/[^a-z0-9]/g, '');
+            let valNum = 0;
+            if (sDataObj && typeof sDataObj === 'object') {
+              if (sDataObj[c.key] !== undefined && sDataObj[c.key] !== null && sDataObj[c.key] !== '') {
+                const num = parseFloat(String(sDataObj[c.key]));
+                if (!isNaN(num)) valNum = num;
+              } else {
+                for (const [k, v] of Object.entries(sDataObj)) {
+                  if (k !== 'summary_type' && k !== 'row_type' && k !== 'row_label' && k !== 'id' && k !== 'entry_id' && k !== 'summary_data') {
+                    if (k.toLowerCase().replace(/[^a-z0-9]/g, '') === normK) {
+                      const num = parseFloat(String(v));
+                      if (!isNaN(num)) {
+                        valNum = num;
+                        if (num !== 0) break;
+                      }
+                    }
+                  }
+                }
+              }
+            }
+            if (sType === 'OB') { dayOb[c.key] = valNum; hasSummaryData = true; }
+            else if (sType === 'TOTAL_RECEIPT') { dayRec[c.key] = valNum; hasSummaryData = true; }
+            else if (sType === 'TOTAL_DISPOSAL') { dayDisp[c.key] = valNum; hasSummaryData = true; }
+            else if (sType === 'CB') { dayCb[c.key] = valNum; hasSummaryData = true; }
+          });
+        });
+      }
+
+      item.rows.forEach(r => {
+        if (!r) return;
+        const vals = r.values || {};
+        columns.forEach(c => {
+          const normK = c.key.toLowerCase().replace(/[^a-z0-9]/g, '');
+          let valNum = 0;
+          for (const [k, v] of Object.entries(vals)) {
+            if (k.toLowerCase().replace(/[^a-z0-9]/g, '') === normK) {
+              const num = parseFloat(String(v));
+              if (!isNaN(num)) {
+                valNum = num;
+                if (num !== 0) break;
+              }
+            }
+          }
+
+          if (r.row_type === 'OB') {
+            if (!hasSummaryData) dayOb[c.key] += valNum;
+          } else if (r.row_type === 'RECEIPT') {
+            if (!hasSummaryData) dayRec[c.key] += valNum;
+            const label = (r.row_label || '').trim() || 'Receipts';
+            dayRecParticulars[c.key][label] = (dayRecParticulars[c.key][label] || 0) + valNum;
+            allRecParticulars[label] = (allRecParticulars[label] || 0) + valNum;
+          } else if (r.row_type === 'DISPOSAL') {
+            if (!hasSummaryData) dayDisp[c.key] += valNum;
+            const label = (r.row_label || '').trim() || 'Disposals';
+            dayDispParticulars[c.key][label] = (dayDispParticulars[c.key][label] || 0) + valNum;
+            allDispParticulars[label] = (allDispParticulars[label] || 0) + valNum;
+          }
+        });
+      });
+
+      columns.forEach(c => {
+        if (!hasSummaryData || dayCb[c.key] === undefined) {
+          dayCb[c.key] = (dayOb[c.key] || 0) + (dayRec[c.key] || 0) - (dayDisp[c.key] || 0);
+        }
+      });
+
+      const totalOb = Object.values(dayOb).reduce((sum, v) => sum + v, 0);
+      const totalRec = Object.values(dayRec).reduce((sum, v) => sum + v, 0);
+      const totalDisp = Object.values(dayDisp).reduce((sum, v) => sum + v, 0);
+      const totalCb = Object.values(dayCb).reduce((sum, v) => sum + v, 0);
+
+      return {
+        id: e.id,
+        date: dateStr,
+        shift: shiftStr,
+        dayOb,
+        dayRec,
+        dayDisp,
+        dayCb,
+        dayRecParticulars,
+        dayDispParticulars,
+        allRecParticulars,
+        allDispParticulars,
+        totalOb,
+        totalRec,
+        totalDisp,
+        totalCb,
+      };
+    });
 
     parsedEntries.forEach(item => {
       if (!item || !Array.isArray(item.rows)) return;
@@ -231,7 +391,18 @@ export default function PeriodicalSummaryReportPage() {
             columns.forEach(c => (receiptParticularsMap[label][c.key] = 0));
           }
           columns.forEach(c => {
-            receiptParticularsMap[label][c.key] += parseFloat(values[c.key] || '0') || 0;
+            const normK = c.key.toLowerCase().replace(/[^a-z0-9]/g, '');
+            let valNum = 0;
+            for (const [k, v] of Object.entries(values)) {
+              if (k.toLowerCase().replace(/[^a-z0-9]/g, '') === normK) {
+                const num = parseFloat(String(v));
+                if (!isNaN(num)) {
+                  valNum = num;
+                  if (num !== 0) break;
+                }
+              }
+            }
+            receiptParticularsMap[label][c.key] += valNum;
           });
         }
 
@@ -242,7 +413,18 @@ export default function PeriodicalSummaryReportPage() {
             columns.forEach(c => (disposalParticularsMap[label][c.key] = 0));
           }
           columns.forEach(c => {
-            disposalParticularsMap[label][c.key] += parseFloat(values[c.key] || '0') || 0;
+            const normK = c.key.toLowerCase().replace(/[^a-z0-9]/g, '');
+            let valNum = 0;
+            for (const [k, v] of Object.entries(values)) {
+              if (k.toLowerCase().replace(/[^a-z0-9]/g, '') === normK) {
+                const num = parseFloat(String(v));
+                if (!isNaN(num)) {
+                  valNum = num;
+                  if (num !== 0) break;
+                }
+              }
+            }
+            disposalParticularsMap[label][c.key] += valNum;
           });
         }
       });
@@ -290,6 +472,7 @@ export default function PeriodicalSummaryReportPage() {
       grandTotalReceipts,
       grandTotalDisposals,
       grandTotalCB,
+      dateWiseStatements,
     };
   }, [filteredEntries, columns]);
 
@@ -391,6 +574,552 @@ export default function PeriodicalSummaryReportPage() {
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
+  };
+
+  // Helper to render Product-Wise Date Table
+  const renderProductWiseTable = () => {
+    if (!aggregatedReport) return null;
+    const activeKeys = selectedProductKeys.length === 0 ? columns.map(c => c.key) : selectedProductKeys;
+    const isSingleProduct = activeKeys.length === 1;
+    const recLabels = Object.keys(aggregatedReport.receiptParticularsMap);
+    const dispLabels = Object.keys(aggregatedReport.disposalParticularsMap);
+    const selectedCols = columns.filter(c => activeKeys.includes(c.key));
+
+    const prodTitle = activeKeys.length === columns.length
+      ? 'ALL Products (Consolidated Total)'
+      : activeKeys.length === 1
+        ? `${selectedCols[0]?.label || ''}`
+        : `${activeKeys.length} Selected Products (${selectedCols.map(c => c.short_name || c.key).join(', ')})`;
+
+    // Helper to render individual product statement card
+    const renderSingleProductStatementCard = (pKey: string) => {
+      const col = columns.find(c => c.key === pKey);
+      const prodLabel = col?.label || col?.full_name || pKey;
+      const shortName = col?.short_name || pKey;
+
+      const pRecLabels = recLabels.filter(l =>
+        aggregatedReport.dateWiseStatements.some(s => (s.dayRecParticulars?.[pKey]?.[l] || 0) !== 0)
+      );
+      const pDispLabels = dispLabels.filter(l =>
+        aggregatedReport.dateWiseStatements.some(s => (s.dayDispParticulars?.[pKey]?.[l] || 0) !== 0)
+      );
+
+      let pPeriodOb = 0;
+      let pPeriodRec = 0;
+      let pPeriodDisp = 0;
+      let pPeriodCb = 0;
+      const pPeriodRecParticularsTotal: Record<string, number> = {};
+      const pPeriodDispParticularsTotal: Record<string, number> = {};
+
+      pRecLabels.forEach(l => (pPeriodRecParticularsTotal[l] = 0));
+      pDispLabels.forEach(l => (pPeriodDispParticularsTotal[l] = 0));
+
+      const pRows = aggregatedReport.dateWiseStatements.map((stmt, idx) => {
+        const ob = stmt.dayOb[pKey] || 0;
+        const totalRec = stmt.dayRec[pKey] || 0;
+        const totalDisp = stmt.dayDisp[pKey] || 0;
+        const cb = stmt.dayCb[pKey] !== undefined ? stmt.dayCb[pKey] : (ob + totalRec - totalDisp);
+
+        if (idx === 0) pPeriodOb = ob;
+        pPeriodRec += totalRec;
+        pPeriodDisp += totalDisp;
+        pPeriodCb = cb;
+
+        const recVals: Record<string, number> = {};
+        pRecLabels.forEach(l => {
+          const val = stmt.dayRecParticulars?.[pKey]?.[l] || 0;
+          recVals[l] = val;
+          pPeriodRecParticularsTotal[l] += val;
+        });
+
+        const dispVals: Record<string, number> = {};
+        pDispLabels.forEach(l => {
+          const val = stmt.dayDispParticulars?.[pKey]?.[l] || 0;
+          dispVals[l] = val;
+          pPeriodDispParticularsTotal[l] += val;
+        });
+
+        return { stmt, ob, recVals, totalRec, dispVals, totalDisp, cb };
+      });
+
+      const hasParticulars = pRecLabels.length > 0 || pDispLabels.length > 0;
+
+      return (
+        <div key={`p_card_${pKey}`} className="card" style={{ marginBottom: 20, border: '1px solid var(--border)', overflow: 'hidden' }}>
+          <div style={{ padding: '12px 18px', background: 'linear-gradient(90deg, #f0f9ff 0%, #e0f2fe 100%)', borderBottom: '1px solid var(--border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 10 }}>
+            <div style={{ fontWeight: 700, fontSize: '0.95rem', color: '#0369a1', display: 'flex', alignItems: 'center', gap: 10 }}>
+              <span>📦 Stock Statement:</span>
+              <span style={{ fontSize: '1.05rem', color: 'var(--brand-primary)', fontWeight: 800 }}>{prodLabel}</span>
+              <span style={{ fontSize: '0.75rem', background: '#0284c7', color: '#fff', padding: '3px 10px', borderRadius: 12, fontWeight: 700 }}>
+                {shortName}
+              </span>
+            </div>
+            <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', fontWeight: 600 }}>
+              {pRows.length} Daily Statements ({fmtDate(aggregatedReport.startDate)} - {fmtDate(aggregatedReport.endDate)})
+            </div>
+          </div>
+
+          <div style={{ overflowX: 'auto' }}>
+            <table className="inline-table" style={{ minWidth: hasParticulars ? 950 : 850, width: '100%' }}>
+              <thead>
+                <tr>
+                  <th rowSpan={hasParticulars ? 2 : 1} style={{ textAlign: 'center', width: 130, background: '#f1f5f9', verticalAlign: 'middle' }}>Date</th>
+                  <th rowSpan={hasParticulars ? 2 : 1} style={{ textAlign: 'center', width: 75, background: '#f1f5f9', verticalAlign: 'middle' }}>Shift</th>
+                  <th rowSpan={hasParticulars ? 2 : 1} style={{ textAlign: 'right', width: 130, background: '#e0f2fe', color: '#0369a1', verticalAlign: 'middle' }}>Opening (OB)</th>
+
+                  {pRecLabels.length > 0 ? (
+                    <th colSpan={pRecLabels.length + 1} style={{ textAlign: 'center', background: '#d1fae5', color: '#047857', fontWeight: 700, fontSize: '0.8rem' }}>
+                      📥 RECEIPTS ({shortName})
+                    </th>
+                  ) : (
+                    <th rowSpan={hasParticulars ? 2 : 1} style={{ textAlign: 'right', width: 130, background: '#d1fae5', color: '#047857', verticalAlign: 'middle' }}>Total Receipts</th>
+                  )}
+
+                  {pDispLabels.length > 0 ? (
+                    <th colSpan={pDispLabels.length + 1} style={{ textAlign: 'center', background: '#fef3c7', color: '#b45309', fontWeight: 700, fontSize: '0.8rem' }}>
+                      📤 DISPOSALS ({shortName})
+                    </th>
+                  ) : (
+                    <th rowSpan={hasParticulars ? 2 : 1} style={{ textAlign: 'right', width: 130, background: '#fef3c7', color: '#b45309', verticalAlign: 'middle' }}>Total Disposals</th>
+                  )}
+
+                  <th rowSpan={hasParticulars ? 2 : 1} style={{ textAlign: 'right', width: 130, background: '#e0e7ff', color: '#3730a3', verticalAlign: 'middle' }}>Closing (CB)</th>
+                  <th rowSpan={hasParticulars ? 2 : 1} style={{ textAlign: 'center', width: 100, background: '#f1f5f9', verticalAlign: 'middle' }}>Action</th>
+                </tr>
+
+                {hasParticulars && (
+                  <tr>
+                    {pRecLabels.map(l => (
+                      <th key={`rec_hdr_${pKey}_${l}`} style={{ textAlign: 'right', minWidth: 95, fontSize: '0.72rem', background: '#ecfdf5', color: '#065f46' }}>
+                        {l}
+                      </th>
+                    ))}
+                    {pRecLabels.length > 0 && (
+                      <th style={{ textAlign: 'right', minWidth: 105, fontSize: '0.75rem', background: '#a7f3d0', color: '#047857', fontWeight: 800 }}>
+                        TOTAL RECEIPTS
+                      </th>
+                    )}
+
+                    {pDispLabels.map(l => (
+                      <th key={`disp_hdr_${pKey}_${l}`} style={{ textAlign: 'right', minWidth: 95, fontSize: '0.72rem', background: '#fffbeb', color: '#92400e' }}>
+                        {l}
+                      </th>
+                    ))}
+                    {pDispLabels.length > 0 && (
+                      <th style={{ textAlign: 'right', minWidth: 105, fontSize: '0.75rem', background: '#fde68a', color: '#b45309', fontWeight: 800 }}>
+                        TOTAL DISPOSALS
+                      </th>
+                    )}
+                  </tr>
+                )}
+              </thead>
+              <tbody>
+                {pRows.map(({ stmt, ob, recVals, totalRec, dispVals, totalDisp, cb }) => (
+                  <tr key={`stmt_${pKey}_${stmt.id}_${stmt.date}_${stmt.shift}`}>
+                    <td style={{ textAlign: 'center', fontWeight: 700, color: 'var(--text-primary)' }}>
+                      {fmtDate(stmt.date)}
+                    </td>
+                    <td style={{ textAlign: 'center' }}>
+                      <span style={{
+                        padding: '2px 8px',
+                        borderRadius: 10,
+                        fontSize: '0.72rem',
+                        fontWeight: 700,
+                        background: stmt.shift === 'D' ? '#fef3c7' : stmt.shift === 'N' ? '#e0e7ff' : '#dcfce7',
+                        color: stmt.shift === 'D' ? '#b45309' : stmt.shift === 'N' ? '#3730a3' : '#15803d',
+                      }}>
+                        {stmt.shift === 'D' ? 'Day' : stmt.shift === 'N' ? 'Night' : 'Full Day'}
+                      </span>
+                    </td>
+                    <td style={{ textAlign: 'right', fontFamily: 'var(--font-numbers)', fontWeight: 600, background: '#f0f9ff' }}>
+                      {ob === 0 ? '—' : ob.toLocaleString('en-IN', { maximumFractionDigits: 3 })}
+                    </td>
+
+                    {pRecLabels.map(l => (
+                      <td key={`rec_${pKey}_${l}`} style={{ textAlign: 'right', fontFamily: 'var(--font-numbers)' }}>
+                        {(recVals[l] || 0) === 0 ? '—' : recVals[l].toLocaleString('en-IN', { maximumFractionDigits: 3 })}
+                      </td>
+                    ))}
+                    <td style={{ textAlign: 'right', fontFamily: 'var(--font-numbers)', fontWeight: 700, color: '#059669', background: '#ecfdf5' }}>
+                      {totalRec === 0 ? '—' : totalRec.toLocaleString('en-IN', { maximumFractionDigits: 3 })}
+                    </td>
+
+                    {pDispLabels.map(l => (
+                      <td key={`disp_${pKey}_${l}`} style={{ textAlign: 'right', fontFamily: 'var(--font-numbers)' }}>
+                        {(dispVals[l] || 0) === 0 ? '—' : dispVals[l].toLocaleString('en-IN', { maximumFractionDigits: 3 })}
+                      </td>
+                    ))}
+                    <td style={{ textAlign: 'right', fontFamily: 'var(--font-numbers)', fontWeight: 700, color: '#b45309', background: '#fffbeb' }}>
+                      {totalDisp === 0 ? '—' : totalDisp.toLocaleString('en-IN', { maximumFractionDigits: 3 })}
+                    </td>
+
+                    <td style={{ textAlign: 'right', fontFamily: 'var(--font-numbers)', fontWeight: 800, color: '#4338ca', background: '#eef2ff' }}>
+                      {cb === 0 ? '—' : cb.toLocaleString('en-IN', { maximumFractionDigits: 3 })}
+                    </td>
+                    <td style={{ textAlign: 'center' }}>
+                      <Link
+                        href={`/dashboard/stock/${stmt.date}/${stmt.shift}`}
+                        className="btn btn-secondary btn-sm"
+                        style={{ fontSize: '0.75rem', padding: '3px 10px', fontWeight: 600 }}
+                      >
+                        👁️ View
+                      </Link>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+              <tfoot>
+                <tr style={{ background: '#f8fafc', borderTop: '2px solid #cbd5e1', fontWeight: 800 }}>
+                  <td colSpan={2} style={{ textAlign: 'center', padding: '10px 8px', color: 'var(--text-primary)', fontSize: '0.82rem' }}>
+                    PERIOD TOTAL ({shortName})
+                  </td>
+                  <td style={{ textAlign: 'right', fontFamily: 'var(--font-numbers)', color: '#0369a1', background: '#e0f2fe' }}>
+                    {pPeriodOb === 0 ? '—' : pPeriodOb.toLocaleString('en-IN', { maximumFractionDigits: 3 })}
+                  </td>
+
+                  {pRecLabels.map(l => (
+                    <td key={`tot_rec_${pKey}_${l}`} style={{ textAlign: 'right', fontFamily: 'var(--font-numbers)', color: '#047857' }}>
+                      {(pPeriodRecParticularsTotal[l] || 0) === 0 ? '—' : pPeriodRecParticularsTotal[l].toLocaleString('en-IN', { maximumFractionDigits: 3 })}
+                    </td>
+                  ))}
+                  <td style={{ textAlign: 'right', fontFamily: 'var(--font-numbers)', color: '#047857', background: '#a7f3d0' }}>
+                    {pPeriodRec === 0 ? '—' : pPeriodRec.toLocaleString('en-IN', { maximumFractionDigits: 3 })}
+                  </td>
+
+                  {pDispLabels.map(l => (
+                    <td key={`tot_disp_${pKey}_${l}`} style={{ textAlign: 'right', fontFamily: 'var(--font-numbers)', color: '#b45309' }}>
+                      {(pPeriodDispParticularsTotal[l] || 0) === 0 ? '—' : pPeriodDispParticularsTotal[l].toLocaleString('en-IN', { maximumFractionDigits: 3 })}
+                    </td>
+                  ))}
+                  <td style={{ textAlign: 'right', fontFamily: 'var(--font-numbers)', color: '#b45309', background: '#fde68a' }}>
+                    {pPeriodDisp === 0 ? '—' : pPeriodDisp.toLocaleString('en-IN', { maximumFractionDigits: 3 })}
+                  </td>
+
+                  <td style={{ textAlign: 'right', fontFamily: 'var(--font-numbers)', color: '#3730a3', background: '#c7d2fe', fontSize: '0.88rem' }}>
+                    {pPeriodCb === 0 ? '—' : pPeriodCb.toLocaleString('en-IN', { maximumFractionDigits: 3 })}
+                  </td>
+                  <td />
+                </tr>
+              </tfoot>
+            </table>
+          </div>
+        </div>
+      );
+    };
+
+    if (productSubViewMode === 'SEPARATE') {
+      return (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+          {activeKeys.map(k => renderSingleProductStatementCard(k))}
+        </div>
+      );
+    }
+
+    // Period summary accumulator for Combined Particulars Breakdown table
+    let periodTotalOb = 0;
+    let periodTotalRec = 0;
+    let periodTotalDisp = 0;
+    let periodTotalCb = 0;
+    const periodRecParticularsTotal: Record<string, number> = {};
+    const periodDispParticularsTotal: Record<string, number> = {};
+
+    recLabels.forEach(l => (periodRecParticularsTotal[l] = 0));
+    dispLabels.forEach(l => (periodDispParticularsTotal[l] = 0));
+
+    const tableRows = aggregatedReport.dateWiseStatements.map((stmt, idx) => {
+      let ob = 0;
+      let totalRec = 0;
+      let totalDisp = 0;
+
+      activeKeys.forEach(k => {
+        ob += (stmt.dayOb[k] || 0);
+        totalRec += (stmt.dayRec[k] || 0);
+        totalDisp += (stmt.dayDisp[k] || 0);
+      });
+      const cb = ob + totalRec - totalDisp;
+
+      if (idx === 0) periodTotalOb = ob;
+
+      periodTotalRec += totalRec;
+      periodTotalDisp += totalDisp;
+      periodTotalCb = cb;
+
+      const recVals: Record<string, number> = {};
+      recLabels.forEach(l => {
+        let val = 0;
+        activeKeys.forEach(k => {
+          val += (stmt.dayRecParticulars?.[k]?.[l] || 0);
+        });
+        recVals[l] = val;
+        periodRecParticularsTotal[l] += val;
+      });
+
+      const dispVals: Record<string, number> = {};
+      dispLabels.forEach(l => {
+        let val = 0;
+        activeKeys.forEach(k => {
+          val += (stmt.dayDispParticulars?.[k]?.[l] || 0);
+        });
+        dispVals[l] = val;
+        periodDispParticularsTotal[l] += val;
+      });
+
+      return {
+        stmt,
+        ob,
+        recVals,
+        totalRec,
+        dispVals,
+        totalDisp,
+        cb,
+      };
+    });
+
+    // Single Product View: Show Opening (OB), Total Receipts, Total Disposals, Closing (CB)
+    if (isSingleProduct) {
+      return (
+        <div style={{ overflowX: 'auto' }}>
+          <table className="inline-table" style={{ minWidth: 900, width: '100%' }}>
+            <thead>
+              <tr>
+                <th style={{ textAlign: 'center', width: 140, background: '#f1f5f9' }}>Date</th>
+                <th style={{ textAlign: 'center', width: 80, background: '#f1f5f9' }}>Shift</th>
+                <th style={{ textAlign: 'right', width: 140, background: '#e0f2fe', color: '#0369a1' }}>Opening (OB)</th>
+                <th style={{ textAlign: 'right', width: 140, background: '#d1fae5', color: '#047857' }}>Total Receipts</th>
+                <th style={{ textAlign: 'right', width: 140, background: '#fef3c7', color: '#b45309' }}>Total Disposals</th>
+                <th style={{ textAlign: 'right', width: 150, background: '#e0e7ff', color: '#3730a3' }}>Closing (CB)</th>
+                <th style={{ textAlign: 'center', width: 120, background: '#f1f5f9' }}>Action</th>
+              </tr>
+            </thead>
+            <tbody>
+              {tableRows.map(({ stmt, ob, totalRec, totalDisp, cb }) => (
+                <tr key={`p_stmt_${stmt.id}_${stmt.date}_${stmt.shift}`}>
+                  <td style={{ textAlign: 'center', fontWeight: 700, color: 'var(--text-primary)' }}>
+                    {fmtDate(stmt.date)}
+                  </td>
+                  <td style={{ textAlign: 'center' }}>
+                    <span style={{
+                      padding: '2px 8px',
+                      borderRadius: 10,
+                      fontSize: '0.72rem',
+                      fontWeight: 700,
+                      background: stmt.shift === 'D' ? '#fef3c7' : stmt.shift === 'N' ? '#e0e7ff' : '#dcfce7',
+                      color: stmt.shift === 'D' ? '#b45309' : stmt.shift === 'N' ? '#3730a3' : '#15803d',
+                    }}>
+                      {stmt.shift === 'D' ? 'Day' : stmt.shift === 'N' ? 'Night' : 'Full Day'}
+                    </span>
+                  </td>
+                  <td style={{ textAlign: 'right', fontFamily: 'var(--font-numbers)', fontWeight: 600, background: '#f0f9ff' }}>
+                    {ob === 0 ? '—' : ob.toLocaleString('en-IN', { maximumFractionDigits: 3 })}
+                  </td>
+                  <td style={{ textAlign: 'right', fontFamily: 'var(--font-numbers)', fontWeight: 700, color: '#059669', background: '#ecfdf5' }}>
+                    {totalRec === 0 ? '—' : totalRec.toLocaleString('en-IN', { maximumFractionDigits: 3 })}
+                  </td>
+                  <td style={{ textAlign: 'right', fontFamily: 'var(--font-numbers)', fontWeight: 700, color: '#b45309', background: '#fffbeb' }}>
+                    {totalDisp === 0 ? '—' : totalDisp.toLocaleString('en-IN', { maximumFractionDigits: 3 })}
+                  </td>
+                  <td style={{ textAlign: 'right', fontFamily: 'var(--font-numbers)', fontWeight: 800, color: '#4338ca', background: '#eef2ff' }}>
+                    {cb === 0 ? '—' : cb.toLocaleString('en-IN', { maximumFractionDigits: 3 })}
+                  </td>
+                  <td style={{ textAlign: 'center' }}>
+                    <Link
+                      href={`/dashboard/stock/${stmt.date}/${stmt.shift}`}
+                      className="btn btn-secondary btn-sm"
+                      style={{ fontSize: '0.75rem', padding: '3px 10px', fontWeight: 600 }}
+                    >
+                      👁️ View
+                    </Link>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+            <tfoot>
+              <tr style={{ background: '#f8fafc', borderTop: '2px solid #cbd5e1', fontWeight: 800 }}>
+                <td colSpan={2} style={{ textAlign: 'center', padding: '10px 8px', color: 'var(--text-primary)', fontSize: '0.82rem' }}>
+                  PERIOD TOTAL ({prodTitle})
+                </td>
+                <td style={{ textAlign: 'right', fontFamily: 'var(--font-numbers)', color: '#0369a1', background: '#e0f2fe' }}>
+                  {periodTotalOb === 0 ? '—' : periodTotalOb.toLocaleString('en-IN', { maximumFractionDigits: 3 })}
+                </td>
+                <td style={{ textAlign: 'right', fontFamily: 'var(--font-numbers)', color: '#047857', background: '#a7f3d0' }}>
+                  {periodTotalRec === 0 ? '—' : periodTotalRec.toLocaleString('en-IN', { maximumFractionDigits: 3 })}
+                </td>
+                <td style={{ textAlign: 'right', fontFamily: 'var(--font-numbers)', color: '#b45309', background: '#fde68a' }}>
+                  {periodTotalDisp === 0 ? '—' : periodTotalDisp.toLocaleString('en-IN', { maximumFractionDigits: 3 })}
+                </td>
+                <td style={{ textAlign: 'right', fontFamily: 'var(--font-numbers)', color: '#3730a3', background: '#c7d2fe', fontSize: '0.88rem' }}>
+                  {periodTotalCb === 0 ? '—' : periodTotalCb.toLocaleString('en-IN', { maximumFractionDigits: 3 })}
+                </td>
+                <td />
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+      );
+    }
+
+    // Multi-Product Detailed View with Breakdown sub-columns
+    return (
+      <div style={{ overflowX: 'auto' }}>
+        <table className="inline-table" style={{ minWidth: 1200, width: '100%' }}>
+          <thead>
+            <tr>
+              <th rowSpan={2} style={{ textAlign: 'center', width: 120, background: '#f1f5f9', verticalAlign: 'middle' }}>Date</th>
+              <th rowSpan={2} style={{ textAlign: 'center', width: 70, background: '#f1f5f9', verticalAlign: 'middle' }}>Shift</th>
+              <th rowSpan={2} style={{ textAlign: 'right', width: 120, background: '#e0f2fe', color: '#0369a1', verticalAlign: 'middle' }}>Opening (OB)</th>
+              
+              {recLabels.length > 0 ? (
+                <th colSpan={recLabels.length + 1} style={{ textAlign: 'center', background: '#d1fae5', color: '#047857', fontWeight: 700, fontSize: '0.8rem' }}>
+                  📥 RECEIPTS ({prodTitle})
+                </th>
+              ) : (
+                <th style={{ textAlign: 'right', width: 120, background: '#d1fae5', color: '#047857', verticalAlign: 'middle' }}>Total Receipts</th>
+              )}
+
+              {dispLabels.length > 0 ? (
+                <th colSpan={dispLabels.length + 1} style={{ textAlign: 'center', background: '#fef3c7', color: '#b45309', fontWeight: 700, fontSize: '0.8rem' }}>
+                  📤 DISPOSALS ({prodTitle})
+                </th>
+              ) : (
+                <th style={{ textAlign: 'right', width: 120, background: '#fef3c7', color: '#b45309', verticalAlign: 'middle' }}>Total Disposals</th>
+              )}
+
+              <th rowSpan={2} style={{ textAlign: 'right', width: 130, background: '#e0e7ff', color: '#3730a3', verticalAlign: 'middle' }}>Closing (CB)</th>
+              <th rowSpan={2} style={{ textAlign: 'center', width: 110, background: '#f1f5f9', verticalAlign: 'middle' }}>Action</th>
+            </tr>
+
+            {(recLabels.length > 0 || dispLabels.length > 0) && (
+              <tr>
+                {recLabels.map(l => (
+                  <th key={`rec_hdr_${l}`} style={{ textAlign: 'right', minWidth: 100, fontSize: '0.72rem', background: '#ecfdf5', color: '#065f46' }}>
+                    {l}
+                  </th>
+                ))}
+                {recLabels.length > 0 && (
+                  <th style={{ textAlign: 'right', minWidth: 110, fontSize: '0.75rem', background: '#a7f3d0', color: '#047857', fontWeight: 800 }}>
+                    TOTAL RECEIPTS
+                  </th>
+                )}
+
+                {dispLabels.map(l => (
+                  <th key={`disp_hdr_${l}`} style={{ textAlign: 'right', minWidth: 100, fontSize: '0.72rem', background: '#fffbeb', color: '#92400e' }}>
+                    {l}
+                  </th>
+                ))}
+                {dispLabels.length > 0 && (
+                  <th style={{ textAlign: 'right', minWidth: 110, fontSize: '0.75rem', background: '#fde68a', color: '#b45309', fontWeight: 800 }}>
+                    TOTAL DISPOSALS
+                  </th>
+                )}
+              </tr>
+            )}
+          </thead>
+          <tbody>
+            {tableRows.map(({ stmt, ob, recVals, totalRec, dispVals, totalDisp, cb }) => (
+              <tr key={`p_stmt_${stmt.id}_${stmt.date}_${stmt.shift}`}>
+                <td style={{ textAlign: 'center', fontWeight: 700, color: 'var(--text-primary)' }}>
+                  {fmtDate(stmt.date)}
+                </td>
+                <td style={{ textAlign: 'center' }}>
+                  <span style={{
+                    padding: '2px 8px',
+                    borderRadius: 10,
+                    fontSize: '0.72rem',
+                    fontWeight: 700,
+                    background: stmt.shift === 'D' ? '#fef3c7' : stmt.shift === 'N' ? '#e0e7ff' : '#dcfce7',
+                    color: stmt.shift === 'D' ? '#b45309' : stmt.shift === 'N' ? '#3730a3' : '#15803d',
+                  }}>
+                    {stmt.shift === 'D' ? 'Day' : stmt.shift === 'N' ? 'Night' : 'Full Day'}
+                  </span>
+                </td>
+
+                {/* OB */}
+                <td style={{ textAlign: 'right', fontFamily: 'var(--font-numbers)', fontWeight: 600, background: '#f0f9ff' }}>
+                  {ob === 0 ? '—' : ob.toLocaleString('en-IN', { maximumFractionDigits: 3 })}
+                </td>
+
+                {/* Receipt breakdown */}
+                {recLabels.map(l => (
+                  <td key={`rec_val_${l}`} style={{ textAlign: 'right', fontFamily: 'var(--font-numbers)' }}>
+                    {(recVals[l] || 0) === 0 ? '—' : recVals[l].toLocaleString('en-IN', { maximumFractionDigits: 3 })}
+                  </td>
+                ))}
+                <td style={{ textAlign: 'right', fontFamily: 'var(--font-numbers)', fontWeight: 700, color: '#059669', background: '#ecfdf5' }}>
+                  {totalRec === 0 ? '—' : totalRec.toLocaleString('en-IN', { maximumFractionDigits: 3 })}
+                </td>
+
+                {/* Disposal breakdown */}
+                {dispLabels.map(l => (
+                  <td key={`disp_val_${l}`} style={{ textAlign: 'right', fontFamily: 'var(--font-numbers)' }}>
+                    {(dispVals[l] || 0) === 0 ? '—' : dispVals[l].toLocaleString('en-IN', { maximumFractionDigits: 3 })}
+                  </td>
+                ))}
+                <td style={{ textAlign: 'right', fontFamily: 'var(--font-numbers)', fontWeight: 700, color: '#b45309', background: '#fffbeb' }}>
+                  {totalDisp === 0 ? '—' : totalDisp.toLocaleString('en-IN', { maximumFractionDigits: 3 })}
+                </td>
+
+                {/* CB */}
+                <td style={{ textAlign: 'right', fontFamily: 'var(--font-numbers)', fontWeight: 800, color: '#4338ca', background: '#eef2ff' }}>
+                  {cb === 0 ? '—' : cb.toLocaleString('en-IN', { maximumFractionDigits: 3 })}
+                </td>
+
+                {/* Action */}
+                <td style={{ textAlign: 'center' }}>
+                  <Link
+                    href={`/dashboard/stock/${stmt.date}/${stmt.shift}`}
+                    className="btn btn-secondary btn-sm"
+                    style={{ fontSize: '0.75rem', padding: '3px 10px', fontWeight: 600 }}
+                  >
+                    👁️ View
+                  </Link>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+
+          {/* Summary Footer Row */}
+          <tfoot>
+            <tr style={{ background: '#f8fafc', borderTop: '2px solid #cbd5e1', fontWeight: 800 }}>
+              <td colSpan={2} style={{ textAlign: 'center', padding: '10px 8px', color: 'var(--text-primary)', fontSize: '0.82rem' }}>
+                PERIOD TOTAL ({prodTitle})
+              </td>
+
+              {/* Period OB */}
+              <td style={{ textAlign: 'right', fontFamily: 'var(--font-numbers)', color: '#0369a1', background: '#e0f2fe' }}>
+                {periodTotalOb === 0 ? '—' : periodTotalOb.toLocaleString('en-IN', { maximumFractionDigits: 3 })}
+              </td>
+
+              {/* Period Receipt Particulars Totals */}
+              {recLabels.map(l => (
+                <td key={`tot_rec_${l}`} style={{ textAlign: 'right', fontFamily: 'var(--font-numbers)', color: '#047857' }}>
+                  {(periodRecParticularsTotal[l] || 0) === 0 ? '—' : periodRecParticularsTotal[l].toLocaleString('en-IN', { maximumFractionDigits: 3 })}
+                </td>
+              ))}
+              <td style={{ textAlign: 'right', fontFamily: 'var(--font-numbers)', color: '#047857', background: '#a7f3d0' }}>
+                {periodTotalRec === 0 ? '—' : periodTotalRec.toLocaleString('en-IN', { maximumFractionDigits: 3 })}
+              </td>
+
+              {/* Period Disposal Particulars Totals */}
+              {dispLabels.map(l => (
+                <td key={`tot_disp_${l}`} style={{ textAlign: 'right', fontFamily: 'var(--font-numbers)', color: '#b45309' }}>
+                  {(periodDispParticularsTotal[l] || 0) === 0 ? '—' : periodDispParticularsTotal[l].toLocaleString('en-IN', { maximumFractionDigits: 3 })}
+                </td>
+              ))}
+              <td style={{ textAlign: 'right', fontFamily: 'var(--font-numbers)', color: '#b45309', background: '#fde68a' }}>
+                {periodTotalDisp === 0 ? '—' : periodTotalDisp.toLocaleString('en-IN', { maximumFractionDigits: 3 })}
+              </td>
+
+              {/* Period Final CB */}
+              <td style={{ textAlign: 'right', fontFamily: 'var(--font-numbers)', color: '#3730a3', background: '#c7d2fe', fontSize: '0.88rem' }}>
+                {periodTotalCb === 0 ? '—' : periodTotalCb.toLocaleString('en-IN', { maximumFractionDigits: 3 })}
+              </td>
+
+              <td />
+            </tr>
+          </tfoot>
+        </table>
+      </div>
+    );
   };
 
   return (
@@ -639,220 +1368,529 @@ export default function PeriodicalSummaryReportPage() {
           </div>
         ) : (
           <>
-            {/* KPI Cards */}
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 16, marginBottom: 20 }}>
-              <div className="card" style={{ borderLeft: '4px solid var(--brand-primary)', padding: 16 }}>
-                <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', textTransform: 'uppercase', fontWeight: 600 }}>
-                  Statements Count
-                </div>
-                <div style={{ fontSize: '1.5rem', fontWeight: 700, color: 'var(--text-primary)', marginTop: 4 }}>
-                  {aggregatedReport.entriesCount} Days
-                </div>
-                <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginTop: 2 }}>
-                  {fmtDate(aggregatedReport.startDate)} ➔ {fmtDate(aggregatedReport.endDate)}
-                </div>
-              </div>
-
-              <div className="card" style={{ borderLeft: '4px solid #10b981', padding: 16 }}>
-                <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', textTransform: 'uppercase', fontWeight: 600 }}>
-                  Total Receipts
-                </div>
-                <div style={{ fontSize: '1.5rem', fontWeight: 700, color: '#059669', marginTop: 4 }}>
-                  {aggregatedReport.grandTotalReceipts.toLocaleString('en-IN', { maximumFractionDigits: 3 })}
-                </div>
-                <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginTop: 2 }}>
-                  Summed across all product columns
-                </div>
-              </div>
-
-              <div className="card" style={{ borderLeft: '4px solid #f59e0b', padding: 16 }}>
-                <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', textTransform: 'uppercase', fontWeight: 600 }}>
-                  Total Disposals
-                </div>
-                <div style={{ fontSize: '1.5rem', fontWeight: 700, color: '#b45309', marginTop: 4 }}>
-                  {aggregatedReport.grandTotalDisposals.toLocaleString('en-IN', { maximumFractionDigits: 3 })}
-                </div>
-                <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginTop: 2 }}>
-                  Summed across all product columns
-                </div>
-              </div>
-
-              <div className="card" style={{ borderLeft: '4px solid #6366f1', padding: 16 }}>
-                <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', textTransform: 'uppercase', fontWeight: 600 }}>
-                  Consolidated CB Total
-                </div>
-                <div style={{ fontSize: '1.5rem', fontWeight: 700, color: '#4f46e5', marginTop: 4 }}>
-                  {aggregatedReport.grandTotalCB.toLocaleString('en-IN', { maximumFractionDigits: 3 })}
-                </div>
-                <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginTop: 2 }}>
-                  OB + Receipts - Disposals
-                </div>
-              </div>
-            </div>
-
-            {/* Consolidated Stock Statement Table */}
-            <div className="card" style={{ overflow: 'hidden' }}>
-              <div style={{ padding: '16px 20px', borderBottom: '1px solid var(--border)', background: '#fafafa', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12 }}>
-                <div style={{ fontWeight: 700, fontSize: '1rem', color: 'var(--text-primary)' }}>
-                  📊 Consolidated Stock Statement ({fmtDate(aggregatedReport.startDate)} - {fmtDate(aggregatedReport.endDate)})
-                </div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 12 }} className="no-print">
-                  <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
-                    Summed over {aggregatedReport.entriesCount} days
+            {/* Statement Selector Cards */}
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: 16, marginBottom: 20 }}>
+              <div
+                className="card"
+                onClick={() => setActiveStatementType('STOCK')}
+                style={{
+                  padding: 18,
+                  cursor: 'pointer',
+                  background: activeStatementType === 'STOCK' ? 'rgba(14, 165, 233, 0.08)' : '#fff',
+                  border: activeStatementType === 'STOCK' ? '2px solid var(--brand-primary)' : '1px solid var(--border)',
+                  borderLeft: '6px solid var(--brand-primary)',
+                  transition: 'all 0.2s ease',
+                  boxShadow: activeStatementType === 'STOCK' ? '0 4px 12px rgba(14, 165, 233, 0.15)' : 'none',
+                }}
+              >
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <div style={{ fontSize: '0.8rem', color: 'var(--brand-primary)', textTransform: 'uppercase', fontWeight: 700 }}>
+                    📦 Stock Statement
+                  </div>
+                  <span style={{ fontSize: '0.7rem', padding: '2px 8px', borderRadius: 12, background: '#0284c7', color: '#fff', fontWeight: 700 }}>
+                    ACTIVE
                   </span>
-                  <button
-                    type="button"
-                    className="btn btn-secondary btn-sm"
-                    style={{ borderColor: '#16a34a', color: '#16a34a', fontWeight: 600 }}
-                    onClick={handleExportMultiSheetExcel}
-                    title="Extract Excel file with each daily statement in an individual sheet tab"
-                  >
-                    📥 Extract Multi-Sheet Excel
-                  </button>
+                </div>
+                <div style={{ fontSize: '1.3rem', fontWeight: 700, color: 'var(--text-primary)', marginTop: 6 }}>
+                  Date-Wise Stock Statement
+                </div>
+                <div style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', marginTop: 4 }}>
+                  {aggregatedReport.dateWiseStatements.length} Statements ({fmtDate(aggregatedReport.startDate)} - {fmtDate(aggregatedReport.endDate)})
                 </div>
               </div>
 
-              <div style={{ overflowX: 'auto' }}>
-                <table className="inline-table" style={{ minWidth: 1200, width: '100%' }}>
-                  <thead>
-                    <tr>
-                      <th style={{ textAlign: 'left', minWidth: 240, background: '#f1f5f9' }}>Particulars</th>
-                      {columns.map(col => (
-                        <th key={col.key} style={{ minWidth: 110, fontSize: '0.68rem', textAlign: 'center', padding: '8px 4px', background: '#f1f5f9' }}>
-                          <div style={{ fontWeight: 700 }}>{col.short_name || col.label}</div>
-                        </th>
-                      ))}
-                      <th style={{ minWidth: 120, fontSize: '0.7rem', textAlign: 'center', padding: '8px 4px', fontWeight: 700, background: '#e2e8f0' }}>
-                        Row Total
-                      </th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {/* ─── SECTION 1: OPENING BALANCE ───────────────────────────────── */}
-                    <tr style={{ background: 'rgba(14, 165, 233, 0.06)' }}>
-                      <td style={{ fontWeight: 700, color: 'var(--brand-primary)', padding: '10px 12px' }}>
-                        Opening Balance (OB)
-                      </td>
-                      {columns.map(col => {
-                        const val = aggregatedReport.obValues[col.key] || 0;
-                        return (
-                          <td key={col.key} style={{ textAlign: 'right', fontWeight: 600, fontFamily: 'var(--font-numbers)', padding: '8px' }}>
-                            {val === 0 ? '—' : val.toLocaleString('en-IN', { maximumFractionDigits: 3 })}
-                          </td>
-                        );
-                      })}
-                      <td style={{ textAlign: 'right', fontWeight: 700, fontFamily: 'var(--font-numbers)', padding: '8px', background: 'rgba(14, 165, 233, 0.12)', color: 'var(--brand-primary)' }}>
-                        {aggregatedReport.grandTotalOB.toLocaleString('en-IN', { maximumFractionDigits: 3 })}
-                      </td>
-                    </tr>
+              <div
+                className="card"
+                onClick={() => setActiveStatementType('STG')}
+                style={{
+                  padding: 18,
+                  cursor: 'pointer',
+                  background: activeStatementType === 'STG' ? 'rgba(16, 185, 129, 0.08)' : '#fff',
+                  border: activeStatementType === 'STG' ? '2px solid #10b981' : '1px solid var(--border)',
+                  borderLeft: '6px solid #10b981',
+                  transition: 'all 0.2s ease',
+                  boxShadow: activeStatementType === 'STG' ? '0 4px 12px rgba(16, 185, 129, 0.15)' : 'none',
+                }}
+              >
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <div style={{ fontSize: '0.8rem', color: '#059669', textTransform: 'uppercase', fontWeight: 700 }}>
+                    ⚖️ STG Statement
+                  </div>
+                  <span style={{ fontSize: '0.7rem', padding: '2px 8px', borderRadius: 12, background: '#f59e0b', color: '#fff', fontWeight: 700 }}>
+                    FUTURE PLAN
+                  </span>
+                </div>
+                <div style={{ fontSize: '1.3rem', fontWeight: 700, color: 'var(--text-primary)', marginTop: 6 }}>
+                  STG Solid Balance
+                </div>
+                <div style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', marginTop: 4 }}>
+                  Date-wise STG Statement (Planned for future)
+                </div>
+              </div>
 
-                    {/* ─── SECTION 2: RECEIPTS ───────────────────────────────────────── */}
-                    <tr style={{ background: '#ecfdf5' }}>
-                      <td colSpan={columns.length + 2} style={{ fontWeight: 700, color: '#047857', padding: '8px 12px', fontSize: '0.85rem' }}>
-                        📥 Receipts (Period Total)
-                      </td>
-                    </tr>
-                    {Object.entries(aggregatedReport.receiptParticularsMap).map(([pName, pValues]) => {
-                      const rowTotal = columns.reduce((sum, c) => sum + (pValues[c.key] || 0), 0);
-                      return (
-                        <tr key={`rec_${pName}`}>
-                          <td style={{ paddingLeft: 24, fontWeight: 500 }}>{pName}</td>
-                          {columns.map(col => {
-                            const val = pValues[col.key] || 0;
-                            return (
-                              <td key={col.key} style={{ textAlign: 'right', fontFamily: 'var(--font-numbers)', padding: '8px' }}>
-                                {val === 0 ? '—' : val.toLocaleString('en-IN', { maximumFractionDigits: 3 })}
-                              </td>
-                            );
-                          })}
-                          <td style={{ textAlign: 'right', fontWeight: 600, fontFamily: 'var(--font-numbers)', padding: '8px', background: '#f0fdf4' }}>
-                            {rowTotal === 0 ? '—' : rowTotal.toLocaleString('en-IN', { maximumFractionDigits: 3 })}
-                          </td>
-                        </tr>
-                      );
-                    })}
-                    {/* Receipts Total Row */}
-                    <tr style={{ background: '#d1fae5', borderTop: '1px solid #a7f3d0', borderBottom: '2px solid #059669' }}>
-                      <td style={{ fontWeight: 700, color: '#047857', padding: '10px 12px' }}>
-                        TOTAL RECEIPTS
-                      </td>
-                      {columns.map(col => {
-                        const val = aggregatedReport.totalReceiptsCol[col.key] || 0;
-                        return (
-                          <td key={col.key} style={{ textAlign: 'right', fontWeight: 700, fontFamily: 'var(--font-numbers)', padding: '8px', color: '#047857' }}>
-                            {val === 0 ? '—' : val.toLocaleString('en-IN', { maximumFractionDigits: 3 })}
-                          </td>
-                        );
-                      })}
-                      <td style={{ textAlign: 'right', fontWeight: 800, fontFamily: 'var(--font-numbers)', padding: '8px', color: '#047857', background: '#a7f3d0' }}>
-                        {aggregatedReport.grandTotalReceipts.toLocaleString('en-IN', { maximumFractionDigits: 3 })}
-                      </td>
-                    </tr>
-
-                    {/* ─── SECTION 3: DISPOSALS ──────────────────────────────────────── */}
-                    <tr style={{ background: '#fffbeb' }}>
-                      <td colSpan={columns.length + 2} style={{ fontWeight: 700, color: '#b45309', padding: '8px 12px', fontSize: '0.85rem' }}>
-                        📤 Disposals (Period Total)
-                      </td>
-                    </tr>
-                    {Object.entries(aggregatedReport.disposalParticularsMap).map(([pName, pValues]) => {
-                      const rowTotal = columns.reduce((sum, c) => sum + (pValues[c.key] || 0), 0);
-                      return (
-                        <tr key={`disp_${pName}`}>
-                          <td style={{ paddingLeft: 24, fontWeight: 500 }}>{pName}</td>
-                          {columns.map(col => {
-                            const val = pValues[col.key] || 0;
-                            return (
-                              <td key={col.key} style={{ textAlign: 'right', fontFamily: 'var(--font-numbers)', padding: '8px' }}>
-                                {val === 0 ? '—' : val.toLocaleString('en-IN', { maximumFractionDigits: 3 })}
-                              </td>
-                            );
-                          })}
-                          <td style={{ textAlign: 'right', fontWeight: 600, fontFamily: 'var(--font-numbers)', padding: '8px', background: '#fef3c7' }}>
-                            {rowTotal === 0 ? '—' : rowTotal.toLocaleString('en-IN', { maximumFractionDigits: 3 })}
-                          </td>
-                        </tr>
-                      );
-                    })}
-                    {/* Disposals Total Row */}
-                    <tr style={{ background: '#fef3c7', borderTop: '1px solid #fde68a', borderBottom: '2px solid #d97706' }}>
-                      <td style={{ fontWeight: 700, color: '#b45309', padding: '10px 12px' }}>
-                        TOTAL DISPOSALS
-                      </td>
-                      {columns.map(col => {
-                        const val = aggregatedReport.totalDisposalsCol[col.key] || 0;
-                        return (
-                          <td key={col.key} style={{ textAlign: 'right', fontWeight: 700, fontFamily: 'var(--font-numbers)', padding: '8px', color: '#b45309' }}>
-                            {val === 0 ? '—' : val.toLocaleString('en-IN', { maximumFractionDigits: 3 })}
-                          </td>
-                        );
-                      })}
-                      <td style={{ textAlign: 'right', fontWeight: 800, fontFamily: 'var(--font-numbers)', padding: '8px', color: '#b45309', background: '#fde68a' }}>
-                        {aggregatedReport.grandTotalDisposals.toLocaleString('en-IN', { maximumFractionDigits: 3 })}
-                      </td>
-                    </tr>
-
-                    {/* ─── SECTION 4: CLOSING BALANCE ───────────────────────────────── */}
-                    <tr style={{ background: 'rgba(99, 102, 241, 0.08)', borderTop: '2px solid #4f46e5' }}>
-                      <td style={{ fontWeight: 800, color: '#4338ca', padding: '12px 12px', fontSize: '0.9rem' }}>
-                        Closing Balance (CB)
-                      </td>
-                      {columns.map(col => {
-                        const val = aggregatedReport.cbValues[col.key] || 0;
-                        return (
-                          <td key={col.key} style={{ textAlign: 'right', fontWeight: 800, fontFamily: 'var(--font-numbers)', padding: '8px', color: '#4338ca' }}>
-                            {val === 0 ? '—' : val.toLocaleString('en-IN', { maximumFractionDigits: 3 })}
-                          </td>
-                        );
-                      })}
-                      <td style={{ textAlign: 'right', fontWeight: 900, fontFamily: 'var(--font-numbers)', padding: '8px', color: '#4338ca', background: 'rgba(99, 102, 241, 0.18)', fontSize: '0.95rem' }}>
-                        {aggregatedReport.grandTotalCB.toLocaleString('en-IN', { maximumFractionDigits: 3 })}
-                      </td>
-                    </tr>
-                  </tbody>
-                </table>
+              <div
+                className="card"
+                onClick={() => setActiveStatementType('TS')}
+                style={{
+                  padding: 18,
+                  cursor: 'pointer',
+                  background: activeStatementType === 'TS' ? 'rgba(99, 102, 241, 0.08)' : '#fff',
+                  border: activeStatementType === 'TS' ? '2px solid #6366f1' : '1px solid var(--border)',
+                  borderLeft: '6px solid #6366f1',
+                  transition: 'all 0.2s ease',
+                  boxShadow: activeStatementType === 'TS' ? '0 4px 12px rgba(99, 102, 241, 0.15)' : 'none',
+                }}
+              >
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <div style={{ fontSize: '0.8rem', color: '#4f46e5', textTransform: 'uppercase', fontWeight: 700 }}>
+                    📊 TS Statement
+                  </div>
+                  <span style={{ fontSize: '0.7rem', padding: '2px 8px', borderRadius: 12, background: '#f59e0b', color: '#fff', fontWeight: 700 }}>
+                    FUTURE PLAN
+                  </span>
+                </div>
+                <div style={{ fontSize: '1.3rem', fontWeight: 700, color: 'var(--text-primary)', marginTop: 6 }}>
+                  TS Quality Statement
+                </div>
+                <div style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', marginTop: 4 }}>
+                  Date-wise TS Sample Statement (Planned for future)
+                </div>
               </div>
             </div>
+
+            {/* Render selected statement view */}
+            {activeStatementType !== 'STOCK' ? (
+              <div className="card" style={{ padding: 40, textAlign: 'center' }}>
+                <div style={{ fontSize: '2.5rem', marginBottom: 12 }}>⏳</div>
+                <div style={{ fontWeight: 700, fontSize: '1.2rem', marginBottom: 6 }}>
+                  {activeStatementType === 'STG' ? 'STG Solid Balance Statement' : 'TS Quality Sample Statement'} (Planned for Future)
+                </div>
+                <div style={{ color: 'var(--text-muted)', fontSize: '0.9rem', marginBottom: 16, maxWidth: 500, margin: '0 auto 16px' }}>
+                  Date-wise {activeStatementType} statements can be planned in future releases. Date-wise Consolidated Stock Statements are active above.
+                </div>
+                <button
+                  type="button"
+                  className="btn btn-primary btn-sm"
+                  onClick={() => setActiveStatementType('STOCK')}
+                >
+                  📦 Switch to Date-Wise Stock Statements
+                </button>
+              </div>
+            ) : (
+              <>
+                {/* ─── DATE-WISE STOCK STATEMENTS CARD (CONSOLIDATED OR PRODUCT-WISE) ─── */}
+                <div className="card" style={{ overflow: 'hidden', marginBottom: 24 }}>
+                  {/* Header & Controls */}
+                  <div style={{ padding: '16px 20px', borderBottom: '1px solid var(--border)', background: '#fafafa', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap' }}>
+                      <div style={{ fontWeight: 700, fontSize: '1rem', color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: 8 }}>
+                        <span>📅 Date-Wise Stock Statements</span>
+                        <span style={{ fontSize: '0.75rem', background: '#e0f2fe', color: '#0284c7', padding: '2px 8px', borderRadius: 12, fontWeight: 700 }}>
+                          {aggregatedReport.dateWiseStatements.length} Statements
+                        </span>
+                      </div>
+
+                      {/* View Mode Switcher */}
+                      <div style={{ display: 'flex', background: '#e2e8f0', padding: 3, borderRadius: 8, gap: 3 }}>
+                        <button
+                          type="button"
+                          className={`btn btn-sm ${dateWiseViewMode === 'CONSOLIDATED' ? 'btn-primary' : 'btn-ghost'}`}
+                          onClick={() => setDateWiseViewMode('CONSOLIDATED')}
+                          style={{ padding: '4px 10px', fontSize: '0.75rem', fontWeight: 600 }}
+                        >
+                          🌐 Consolidated Date View
+                        </button>
+                        <button
+                          type="button"
+                          className={`btn btn-sm ${dateWiseViewMode === 'PRODUCT_WISE' ? 'btn-primary' : 'btn-ghost'}`}
+                          onClick={() => setDateWiseViewMode('PRODUCT_WISE')}
+                          style={{ padding: '4px 10px', fontSize: '0.75rem', fontWeight: 600 }}
+                        >
+                          📦 Product-Wise Date View
+                        </button>
+                      </div>
+
+                      {/* Multi-Select Product Checkbox Popover Dropdown */}
+                      {dateWiseViewMode === 'PRODUCT_WISE' && (
+                        <div style={{ position: 'relative' }}>
+                          <button
+                            type="button"
+                            className="btn btn-secondary btn-sm"
+                            onClick={() => setIsProductDropdownOpen(!isProductDropdownOpen)}
+                            style={{
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: 8,
+                              fontSize: '0.8rem',
+                              fontWeight: 700,
+                              background: '#fff',
+                              borderColor: 'var(--brand-primary)',
+                              color: 'var(--brand-primary)',
+                              padding: '4px 12px',
+                              height: 34,
+                            }}
+                          >
+                            <span>
+                              {(selectedProductKeys.length === 0 || selectedProductKeys.length === columns.length)
+                                ? '📦 All Products Selected'
+                                : selectedProductKeys.length === 1
+                                  ? `📦 Product: ${columns.find(c => c.key === selectedProductKeys[0])?.label || selectedProductKeys[0]}`
+                                  : `📦 ${selectedProductKeys.length} Products Selected`}
+                            </span>
+                            <span style={{ fontSize: '0.7rem' }}>{isProductDropdownOpen ? '▲' : '▼'}</span>
+                          </button>
+
+                          {isProductDropdownOpen && (
+                            <>
+                              <div
+                                style={{ position: 'fixed', inset: 0, zIndex: 99 }}
+                                onClick={() => setIsProductDropdownOpen(false)}
+                              />
+                              <div
+                                style={{
+                                  position: 'absolute',
+                                  top: '100%',
+                                  left: 0,
+                                  marginTop: 6,
+                                  width: 320,
+                                  background: '#ffffff',
+                                  borderRadius: 8,
+                                  boxShadow: '0 10px 25px rgba(0,0,0,0.18)',
+                                  border: '1px solid var(--border)',
+                                  zIndex: 100,
+                                  padding: 12,
+                                }}
+                              >
+                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid var(--border)', paddingBottom: 8, marginBottom: 8 }}>
+                                  <span style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--text-secondary)' }}>
+                                    Filter Products ({(selectedProductKeys.length === 0 ? columns.length : selectedProductKeys.length)}/{columns.length}):
+                                  </span>
+                                  <div style={{ display: 'flex', gap: 8 }}>
+                                    <button
+                                      type="button"
+                                      style={{ fontSize: '0.72rem', background: 'none', border: 'none', color: 'var(--brand-primary)', fontWeight: 700, cursor: 'pointer', padding: 0 }}
+                                      onClick={() => setSelectedProductKeys(columns.map(c => c.key))}
+                                    >
+                                      Select All
+                                    </button>
+                                    <span style={{ fontSize: '0.72rem', color: '#ccc' }}>|</span>
+                                    <button
+                                      type="button"
+                                      style={{ fontSize: '0.72rem', background: 'none', border: 'none', color: '#ef4444', fontWeight: 600, cursor: 'pointer', padding: 0 }}
+                                      onClick={() => setSelectedProductKeys(columns.length > 0 ? [columns[0].key] : [])}
+                                    >
+                                      Clear
+                                    </button>
+                                  </div>
+                                </div>
+
+                                <div style={{ maxHeight: 240, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 4 }}>
+                                  {columns.map(c => {
+                                    const activeKeys = selectedProductKeys.length === 0 ? columns.map(col => col.key) : selectedProductKeys;
+                                    const isChecked = activeKeys.includes(c.key);
+                                    return (
+                                      <label
+                                        key={`chk_${c.key}`}
+                                        style={{
+                                          display: 'flex',
+                                          alignItems: 'center',
+                                          gap: 8,
+                                          fontSize: '0.8rem',
+                                          cursor: 'pointer',
+                                          padding: '5px 8px',
+                                          borderRadius: 6,
+                                          background: isChecked ? 'rgba(14, 165, 233, 0.08)' : 'transparent',
+                                        }}
+                                      >
+                                        <input
+                                          type="checkbox"
+                                          checked={isChecked}
+                                          onChange={() => {
+                                            if (isChecked) {
+                                              if (activeKeys.length > 1) {
+                                                setSelectedProductKeys(activeKeys.filter(k => k !== c.key));
+                                              }
+                                            } else {
+                                              setSelectedProductKeys([...activeKeys, c.key]);
+                                            }
+                                          }}
+                                          style={{ accentColor: 'var(--brand-primary)', width: 15, height: 15, cursor: 'pointer' }}
+                                        />
+                                        <span style={{ fontWeight: isChecked ? 700 : 500, color: isChecked ? 'var(--brand-primary)' : 'var(--text-primary)' }}>
+                                          {c.label} <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>({c.short_name || c.key})</span>
+                                        </span>
+                                      </label>
+                                    );
+                                  })}
+                                </div>
+                              </div>
+                            </>
+                          )}
+                        </div>
+                      )}
+
+                      {/* Sub-view switcher for Product-Wise View */}
+                      {dateWiseViewMode === 'PRODUCT_WISE' && (
+                        <div style={{ display: 'flex', background: '#e2e8f0', padding: 3, borderRadius: 8, gap: 3 }}>
+                          <button
+                            type="button"
+                            className={`btn btn-sm ${productSubViewMode === 'SEPARATE' ? 'btn-primary' : 'btn-ghost'}`}
+                            onClick={() => setProductSubViewMode('SEPARATE')}
+                            style={{ padding: '4px 10px', fontSize: '0.75rem', fontWeight: 600 }}
+                            title="Render each selected product in a separate statement table"
+                          >
+                            📑 Separate Statements
+                          </button>
+                          <button
+                            type="button"
+                            className={`btn btn-sm ${productSubViewMode === 'COMBINED' ? 'btn-primary' : 'btn-ghost'}`}
+                            onClick={() => setProductSubViewMode('COMBINED')}
+                            style={{ padding: '4px 10px', fontSize: '0.75rem', fontWeight: 600 }}
+                            title="Render combined particulars breakdown table"
+                          >
+                            📊 Particulars Breakdown
+                          </button>
+                        </div>
+                      )}
+                    </div>
+
+                    <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+                      Click "👁️ View" on any date to view complete statement details
+                    </div>
+                  </div>
+
+                  {/* ─── OPTION 1: CONSOLIDATED DATE-WISE TABLE ──────────────────────── */}
+                  {dateWiseViewMode === 'CONSOLIDATED' ? (
+                    <div style={{ overflowX: 'auto' }}>
+                      <table className="inline-table" style={{ minWidth: 1000, width: '100%' }}>
+                        <thead>
+                          <tr>
+                            <th style={{ textAlign: 'center', width: 140, background: '#f1f5f9' }}>Date</th>
+                            <th style={{ textAlign: 'center', width: 80, background: '#f1f5f9' }}>Shift</th>
+                            <th style={{ textAlign: 'right', width: 130, background: '#f1f5f9' }}>Opening (OB)</th>
+                            <th style={{ textAlign: 'right', width: 130, background: '#f1f5f9' }}>Total Receipts</th>
+                            <th style={{ textAlign: 'right', width: 130, background: '#f1f5f9' }}>Total Disposals</th>
+                            <th style={{ textAlign: 'right', width: 140, background: '#e0e7ff', color: '#3730a3' }}>Closing (CB)</th>
+                            <th style={{ textAlign: 'center', width: 130, background: '#f1f5f9' }}>Action</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {aggregatedReport.dateWiseStatements.map((stmt) => (
+                            <tr key={`stmt_${stmt.id}_${stmt.date}_${stmt.shift}`}>
+                              <td style={{ textAlign: 'center', fontWeight: 700, color: 'var(--text-primary)' }}>
+                                {fmtDate(stmt.date)}
+                              </td>
+                              <td style={{ textAlign: 'center' }}>
+                                <span style={{
+                                  padding: '2px 8px',
+                                  borderRadius: 10,
+                                  fontSize: '0.72rem',
+                                  fontWeight: 700,
+                                  background: stmt.shift === 'D' ? '#fef3c7' : stmt.shift === 'N' ? '#e0e7ff' : '#dcfce7',
+                                  color: stmt.shift === 'D' ? '#b45309' : stmt.shift === 'N' ? '#3730a3' : '#15803d',
+                                }}>
+                                  {stmt.shift === 'D' ? 'Day' : stmt.shift === 'N' ? 'Night' : 'Full Day'}
+                                </span>
+                              </td>
+                              <td style={{ textAlign: 'right', fontFamily: 'var(--font-numbers)', fontWeight: 600 }}>
+                                {stmt.totalOb.toLocaleString('en-IN', { maximumFractionDigits: 3 })}
+                              </td>
+                              <td style={{ textAlign: 'right', fontFamily: 'var(--font-numbers)', fontWeight: 600, color: '#059669' }}>
+                                {stmt.totalRec === 0 ? '—' : stmt.totalRec.toLocaleString('en-IN', { maximumFractionDigits: 3 })}
+                              </td>
+                              <td style={{ textAlign: 'right', fontFamily: 'var(--font-numbers)', fontWeight: 600, color: '#b45309' }}>
+                                {stmt.totalDisp === 0 ? '—' : stmt.totalDisp.toLocaleString('en-IN', { maximumFractionDigits: 3 })}
+                              </td>
+                              <td style={{ textAlign: 'right', fontFamily: 'var(--font-numbers)', fontWeight: 700, color: '#4338ca', background: '#eef2ff' }}>
+                                {stmt.totalCb.toLocaleString('en-IN', { maximumFractionDigits: 3 })}
+                              </td>
+                              <td style={{ textAlign: 'center' }}>
+                                <Link
+                                  href={`/dashboard/stock/${stmt.date}/${stmt.shift}`}
+                                  className="btn btn-secondary btn-sm"
+                                  style={{ fontSize: '0.75rem', padding: '3px 10px', fontWeight: 600 }}
+                                >
+                                  👁️ View Statement
+                                </Link>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  ) : (
+                    /* ─── OPTION 2: PRODUCT-WISE DATE-WISE TABLE ──────────────────────── */
+                    renderProductWiseTable()
+                  )}
+                </div>
+
+                {/* ─── CONSOLIDATED PERIODICAL STOCK STATEMENT TABLE (Only in Consolidated Date View) ─── */}
+                {dateWiseViewMode === 'CONSOLIDATED' && (
+                  <div className="card" style={{ overflow: 'hidden' }}>
+                    <div style={{ padding: '16px 20px', borderBottom: '1px solid var(--border)', background: '#fafafa', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12 }}>
+                      <div style={{ fontWeight: 700, fontSize: '1rem', color: 'var(--text-primary)' }}>
+                        📊 Consolidated Period Stock Statement ({fmtDate(aggregatedReport.startDate)} - {fmtDate(aggregatedReport.endDate)})
+                      </div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 12 }} className="no-print">
+                        <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+                          Summed over {aggregatedReport.entriesCount} days
+                        </span>
+                        <button
+                          type="button"
+                          className="btn btn-secondary btn-sm"
+                          style={{ borderColor: '#16a34a', color: '#16a34a', fontWeight: 600 }}
+                          onClick={handleExportMultiSheetExcel}
+                          title="Extract Excel file with each daily statement in an individual sheet tab"
+                        >
+                          📥 Extract Multi-Sheet Excel
+                        </button>
+                      </div>
+                    </div>
+
+                    <div style={{ overflowX: 'auto' }}>
+                      <table className="inline-table" style={{ minWidth: 1200, width: '100%' }}>
+                        <thead>
+                          <tr>
+                            <th style={{ textAlign: 'left', minWidth: 240, background: '#f1f5f9' }}>Particulars</th>
+                            {columns.map(col => (
+                              <th key={col.key} style={{ minWidth: 110, fontSize: '0.68rem', textAlign: 'center', padding: '8px 4px', background: '#f1f5f9' }}>
+                                <div style={{ fontWeight: 700 }}>{col.short_name || col.label}</div>
+                              </th>
+                            ))}
+                            <th style={{ minWidth: 120, fontSize: '0.7rem', textAlign: 'center', padding: '8px 4px', fontWeight: 700, background: '#e2e8f0' }}>
+                              Row Total
+                            </th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {/* ─── SECTION 1: OPENING BALANCE ───────────────────────────────── */}
+                          <tr style={{ background: 'rgba(14, 165, 233, 0.06)' }}>
+                            <td style={{ fontWeight: 700, color: 'var(--brand-primary)', padding: '10px 12px' }}>
+                              Opening Balance (OB)
+                            </td>
+                            {columns.map(col => {
+                              const val = aggregatedReport.obValues[col.key] || 0;
+                              return (
+                                <td key={col.key} style={{ textAlign: 'right', fontWeight: 600, fontFamily: 'var(--font-numbers)', padding: '8px' }}>
+                                  {val === 0 ? '—' : val.toLocaleString('en-IN', { maximumFractionDigits: 3 })}
+                                </td>
+                              );
+                            })}
+                            <td style={{ textAlign: 'right', fontWeight: 700, fontFamily: 'var(--font-numbers)', padding: '8px', background: 'rgba(14, 165, 233, 0.12)', color: 'var(--brand-primary)' }}>
+                              {aggregatedReport.grandTotalOB.toLocaleString('en-IN', { maximumFractionDigits: 3 })}
+                            </td>
+                          </tr>
+
+                          {/* ─── SECTION 2: RECEIPTS ───────────────────────────────────────── */}
+                          <tr style={{ background: '#ecfdf5' }}>
+                            <td colSpan={columns.length + 2} style={{ fontWeight: 700, color: '#047857', padding: '8px 12px', fontSize: '0.85rem' }}>
+                              📥 Receipts (Period Total)
+                            </td>
+                          </tr>
+                          {Object.entries(aggregatedReport.receiptParticularsMap).map(([pName, pValues]) => {
+                            const rowTotal = columns.reduce((sum, c) => sum + (pValues[c.key] || 0), 0);
+                            return (
+                              <tr key={`rec_${pName}`}>
+                                <td style={{ paddingLeft: 24, fontWeight: 500 }}>{pName}</td>
+                                {columns.map(col => {
+                                  const val = pValues[col.key] || 0;
+                                  return (
+                                    <td key={col.key} style={{ textAlign: 'right', fontFamily: 'var(--font-numbers)', padding: '8px' }}>
+                                      {val === 0 ? '—' : val.toLocaleString('en-IN', { maximumFractionDigits: 3 })}
+                                    </td>
+                                  );
+                                })}
+                                <td style={{ textAlign: 'right', fontWeight: 600, fontFamily: 'var(--font-numbers)', padding: '8px', background: '#f0fdf4' }}>
+                                  {rowTotal === 0 ? '—' : rowTotal.toLocaleString('en-IN', { maximumFractionDigits: 3 })}
+                                </td>
+                              </tr>
+                            );
+                          })}
+                          {/* Receipts Total Row */}
+                          <tr style={{ background: '#d1fae5', borderTop: '1px solid #a7f3d0', borderBottom: '2px solid #059669' }}>
+                            <td style={{ fontWeight: 700, color: '#047857', padding: '10px 12px' }}>
+                              TOTAL RECEIPTS
+                            </td>
+                            {columns.map(col => {
+                              const val = aggregatedReport.totalReceiptsCol[col.key] || 0;
+                              return (
+                                <td key={col.key} style={{ textAlign: 'right', fontWeight: 700, fontFamily: 'var(--font-numbers)', padding: '8px', color: '#047857' }}>
+                                  {val === 0 ? '—' : val.toLocaleString('en-IN', { maximumFractionDigits: 3 })}
+                                </td>
+                              );
+                            })}
+                            <td style={{ textAlign: 'right', fontWeight: 800, fontFamily: 'var(--font-numbers)', padding: '8px', color: '#047857', background: '#a7f3d0' }}>
+                              {aggregatedReport.grandTotalReceipts.toLocaleString('en-IN', { maximumFractionDigits: 3 })}
+                            </td>
+                          </tr>
+
+                          {/* ─── SECTION 3: DISPOSALS ──────────────────────────────────────── */}
+                          <tr style={{ background: '#fffbeb' }}>
+                            <td colSpan={columns.length + 2} style={{ fontWeight: 700, color: '#b45309', padding: '8px 12px', fontSize: '0.85rem' }}>
+                              📤 Disposals (Period Total)
+                            </td>
+                          </tr>
+                          {Object.entries(aggregatedReport.disposalParticularsMap).map(([pName, pValues]) => {
+                            const rowTotal = columns.reduce((sum, c) => sum + (pValues[c.key] || 0), 0);
+                            return (
+                              <tr key={`disp_${pName}`}>
+                                <td style={{ paddingLeft: 24, fontWeight: 500 }}>{pName}</td>
+                                {columns.map(col => {
+                                  const val = pValues[col.key] || 0;
+                                  return (
+                                    <td key={col.key} style={{ textAlign: 'right', fontFamily: 'var(--font-numbers)', padding: '8px' }}>
+                                      {val === 0 ? '—' : val.toLocaleString('en-IN', { maximumFractionDigits: 3 })}
+                                    </td>
+                                  );
+                                })}
+                                <td style={{ textAlign: 'right', fontWeight: 600, fontFamily: 'var(--font-numbers)', padding: '8px', background: '#fef3c7' }}>
+                                  {rowTotal === 0 ? '—' : rowTotal.toLocaleString('en-IN', { maximumFractionDigits: 3 })}
+                                </td>
+                              </tr>
+                            );
+                          })}
+                          {/* Disposals Total Row */}
+                          <tr style={{ background: '#fef3c7', borderTop: '1px solid #fde68a', borderBottom: '2px solid #d97706' }}>
+                            <td style={{ fontWeight: 700, color: '#b45309', padding: '10px 12px' }}>
+                              TOTAL DISPOSALS
+                            </td>
+                            {columns.map(col => {
+                              const val = aggregatedReport.totalDisposalsCol[col.key] || 0;
+                              return (
+                                <td key={col.key} style={{ textAlign: 'right', fontWeight: 700, fontFamily: 'var(--font-numbers)', padding: '8px', color: '#b45309' }}>
+                                  {val === 0 ? '—' : val.toLocaleString('en-IN', { maximumFractionDigits: 3 })}
+                                </td>
+                              );
+                            })}
+                            <td style={{ textAlign: 'right', fontWeight: 800, fontFamily: 'var(--font-numbers)', padding: '8px', color: '#b45309', background: '#fde68a' }}>
+                              {aggregatedReport.grandTotalDisposals.toLocaleString('en-IN', { maximumFractionDigits: 3 })}
+                            </td>
+                          </tr>
+
+                          {/* ─── SECTION 4: CLOSING BALANCE ───────────────────────────────── */}
+                          <tr style={{ background: 'rgba(99, 102, 241, 0.08)', borderTop: '2px solid #4f46e5' }}>
+                            <td style={{ fontWeight: 800, color: '#4338ca', padding: '12px 12px', fontSize: '0.9rem' }}>
+                              Closing Balance (CB)
+                            </td>
+                            {columns.map(col => {
+                              const val = aggregatedReport.cbValues[col.key] || 0;
+                              return (
+                                <td key={col.key} style={{ textAlign: 'right', fontWeight: 800, fontFamily: 'var(--font-numbers)', padding: '8px', color: '#4338ca' }}>
+                                  {val === 0 ? '—' : val.toLocaleString('en-IN', { maximumFractionDigits: 3 })}
+                                </td>
+                              );
+                            })}
+                            <td style={{ textAlign: 'right', fontWeight: 900, fontFamily: 'var(--font-numbers)', padding: '8px', color: '#4338ca', background: 'rgba(99, 102, 241, 0.18)', fontSize: '0.95rem' }}>
+                              {aggregatedReport.grandTotalCB.toLocaleString('en-IN', { maximumFractionDigits: 3 })}
+                            </td>
+                          </tr>
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                )}
+              </>
+            )}
           </>
         )}
       </div>
