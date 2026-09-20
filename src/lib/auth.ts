@@ -1,24 +1,23 @@
-import { SignJWT, jwtVerify } from 'jose';
 import bcrypt from 'bcryptjs';
-import { cookies } from 'next/headers';
-import { NextRequest, NextResponse } from 'next/server';
-import { getSupabaseServiceClient, isLocalDbEnabled } from './supabase';
+import { NextRequest } from 'next/server';
+import { getSupabaseServiceClient } from './supabase';
+import {
+  signAccessToken,
+  verifyAccessToken,
+  ACCESS_TOKEN_COOKIE,
+  REFRESH_TOKEN_COOKIE,
+  IDLE_TIMEOUT_MINUTES,
+  type AuthUserPayload
+} from './jwt';
 
-const JWT_SECRET = new TextEncoder().encode(
-  process.env.JWT_SECRET || 'aavin_dairy_dashboard_jwt_secret_key_2026_super_secure_987654321'
-);
-
-export const ACCESS_TOKEN_COOKIE = 'aavin_access_token';
-export const REFRESH_TOKEN_COOKIE = 'aavin_refresh_token';
-export const IDLE_TIMEOUT_MINUTES = 10;
-
-export interface AuthUserPayload {
-  userId: string;
-  username: string;
-  fullName: string;
-  role: 'admin' | 'operator' | 'viewer';
-  sessionId?: string;
-}
+export {
+  signAccessToken,
+  verifyAccessToken,
+  ACCESS_TOKEN_COOKIE,
+  REFRESH_TOKEN_COOKIE,
+  IDLE_TIMEOUT_MINUTES,
+  type AuthUserPayload
+};
 
 // ─────────────────────────────────────────────────────────────
 // Password Hashing
@@ -39,25 +38,6 @@ export async function comparePassword(password: string, hash: string): Promise<b
   return bcrypt.compare(password, hash);
 }
 
-// ─────────────────────────────────────────────────────────────
-// JWT Token Signing & Verification
-// ─────────────────────────────────────────────────────────────
-export async function signAccessToken(payload: AuthUserPayload): Promise<string> {
-  return new SignJWT({ ...payload })
-    .setProtectedHeader({ alg: 'HS256' })
-    .setIssuedAt()
-    .setExpirationTime('1h') // Access token duration
-    .sign(JWT_SECRET);
-}
-
-export async function verifyAccessToken(token: string): Promise<AuthUserPayload | null> {
-  try {
-    const { payload } = await jwtVerify(token, JWT_SECRET);
-    return payload as unknown as AuthUserPayload;
-  } catch (err) {
-    return null;
-  }
-}
 
 // ─────────────────────────────────────────────────────────────
 // Session & 10-Minute Idle Auto-Cancellation Logic
@@ -69,9 +49,6 @@ export async function createSession(
   userAgent?: string
 ): Promise<{ sessionId: string; token: string }> {
   const tokenRaw = `${userId}_${Date.now()}_${Math.random().toString(36).substring(2)}`;
-  if (isLocalDbEnabled()) {
-    return { sessionId: '00000000-0000-0000-0000-000000000001', token: tokenRaw };
-  }
   const supabase = getSupabaseServiceClient();
   const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); // 7 days max lifetime if active
   const tokenHash = await hashPassword(tokenRaw);
@@ -97,9 +74,6 @@ export async function createSession(
 }
 
 export async function checkAndTouchSession(sessionId: string, username: string): Promise<boolean> {
-  if (isLocalDbEnabled()) {
-    return true;
-  }
   const supabase = getSupabaseServiceClient();
   const now = new Date();
   const tenMinsAgo = new Date(now.getTime() - IDLE_TIMEOUT_MINUTES * 60 * 1000);
@@ -144,9 +118,6 @@ export async function checkAndTouchSession(sessionId: string, username: string):
 }
 
 export async function revokeSession(sessionId: string, username: string): Promise<void> {
-  if (isLocalDbEnabled()) {
-    return;
-  }
   const supabase = getSupabaseServiceClient();
   await supabase
     .from('user_sessions')

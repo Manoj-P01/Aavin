@@ -488,7 +488,7 @@ export default function StockProductsPage() {
               onClick={handleSave}
               disabled={loading || saving}
             >
-              {saving ? '💾 Saving...' : '💾 Save to Database'}
+              {saving ? '💾 Saving...' : '💾 Save'}
             </button>
             <Link href="/dashboard/stock" className="btn btn-secondary btn-sm">
               ← Back to Register
@@ -1505,7 +1505,7 @@ export default function StockProductsPage() {
                 disabled={loading || saving}
                 style={{ padding: '12px 32px', fontSize: '1rem', fontWeight: 600, width: '100%' }}
               >
-                {saving ? 'Saving Config to Database...' : '💾 Save Configuration to Database'}
+                {saving ? 'Saving Config to Database...' : '💾 Save'}
               </button>
             </div>
 

@@ -19,7 +19,7 @@ const NAV_SECTIONS = [
       { href: '/dashboard/stock/new', icon: '📦', label: 'New Stock Statement Entry' },
       { href: '/dashboard/stock', icon: '📦', label: 'Stock Register' },
       { href: '/dashboard/stock/products', icon: '⚙️', label: 'Products List' },
-      { href: '/dashboard/stock/mappings', icon: '🔗', label: 'Statement Mapping' },
+      { href: '/dashboard/stock/mappings', icon: '🔄', label: 'Disposals ➔ Receipts Mappings' },
     ],
   },
   {
@@ -28,13 +28,13 @@ const NAV_SECTIONS = [
       { href: '/dashboard/ts/new-stg', icon: '⚖️', label: 'New STG Entry' },
       { href: '/dashboard/ts/new', icon: '🧪', label: 'New TS Entry' },
       { href: '/dashboard/ts', icon: '🧪', label: 'Total Solids (TS)' },
+      { href: '/dashboard/ts/mappings', icon: '🔗', label: 'Stock ⇄ STG Mappings' },
     ],
   },
   {
     label: 'Configuration',
     items: [
       { href: '/dashboard/ts/config', icon: '🧮', label: 'STG Calculation Settings' },
-      { href: '/dashboard/masters', icon: '⚙️', label: 'Master Declarations' },
       { action: 'settings', icon: '🔧', label: 'Shift Settings' },
     ],
   },
@@ -114,7 +114,7 @@ export default function Sidebar() {
                   if (href === '/dashboard/ts') {
                     return pathSegments[1] === 'dashboard' && 
                            pathSegments[2] === 'ts' && 
-                           !['new', 'new-stg', 'config'].includes(pathSegments[3]);
+                           !['new', 'new-stg', 'config', 'mappings'].includes(pathSegments[3]);
                   }
                   if (href === '/dashboard/stock') {
                     return pathSegments[1] === 'dashboard' && 

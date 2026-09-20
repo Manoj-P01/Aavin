@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getSupabaseServiceClient } from '@/lib/supabase';
 import { getAuthUserFromRequest } from '@/lib/auth';
-import { isLocalDbEnabled } from '@/lib/fileDb';
 // GET /api/stock/config - Load Stock Products Configuration (Product Columns, Receipt Rows, Disposal Rows)
 export async function GET(req: NextRequest) {
   try {

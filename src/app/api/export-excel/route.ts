@@ -1,9 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
-import fs from 'fs';
-import path from 'path';
 import XLSX from 'xlsx-js-style';
 import { getSupabaseServiceClient } from '@/lib/supabase';
-import { isLocalDbEnabled, initDb } from '@/lib/fileDb';
 import { generateDynamicBalanceRows, calcTSTotals } from '@/lib/calculations';
 import type { Shift, TSMilkRow, STGRow, StockRow } from '@/lib/types';
 
@@ -62,65 +59,34 @@ async function fetchMasterStockConfig() {
   let receiptRows: Array<{ label: string; sort_order: number }> = [];
   let disposalRows: Array<{ label: string; sort_order: number }> = [];
 
-  if (isLocalDbEnabled()) {
-    const db = await initDb();
-    if (Array.isArray(db.products_master) && db.products_master.length > 0) {
-      products = db.products_master
-        .filter((p: any) => p.is_active !== false)
-        .sort((a: any, b: any) => (a.sort_order ?? 0) - (b.sort_order ?? 0))
-        .map((p: any) => ({
-          key: p.product_key,
-          label: p.short_name || p.product_name || p.product_key,
-        }));
-    }
-    if (Array.isArray(db.receipt_rows) && db.receipt_rows.length > 0) {
-      receiptRows = db.receipt_rows
-        .filter((r: any) => r.is_active !== false)
-        .sort((a: any, b: any) => (a.sort_order ?? 0) - (b.sort_order ?? 0))
-        .map((r: any) => ({
-          label: r.particular_name || r.code || '',
-          sort_order: r.sort_order ?? 0,
-        }));
-    }
-    if (Array.isArray(db.disposal_rows) && db.disposal_rows.length > 0) {
-      disposalRows = db.disposal_rows
-        .filter((d: any) => d.is_active !== false)
-        .sort((a: any, b: any) => (a.sort_order ?? 0) - (b.sort_order ?? 0))
-        .map((d: any) => ({
-          label: d.particular_name || d.code || '',
-          sort_order: d.sort_order ?? 0,
-        }));
-    }
-  } else {
-    try {
-      const supabase = getSupabaseServiceClient();
-      const [prodRes, recRes, dispRes] = await Promise.all([
-        supabase.from('products_master').select('*').eq('is_active', true).order('sort_order', { ascending: true }),
-        supabase.from('particulars_master').select('*').eq('section_type', 'RECEIPT').eq('is_active', true).order('sort_order', { ascending: true }),
-        supabase.from('particulars_master').select('*').eq('section_type', 'DISPOSAL').eq('is_active', true).order('sort_order', { ascending: true }),
-      ]);
+  try {
+    const supabase = getSupabaseServiceClient();
+    const [prodRes, recRes, dispRes] = await Promise.all([
+      supabase.from('products_master').select('*').eq('is_active', true).order('sort_order', { ascending: true }),
+      supabase.from('particulars_master').select('*').eq('section_type', 'RECEIPT').eq('is_active', true).order('sort_order', { ascending: true }),
+      supabase.from('particulars_master').select('*').eq('section_type', 'DISPOSAL').eq('is_active', true).order('sort_order', { ascending: true }),
+    ]);
 
-      if (prodRes.data && prodRes.data.length > 0) {
-        products = prodRes.data.map((p: any) => ({
-          key: p.product_key,
-          label: p.short_name || p.product_name || p.product_key,
-        }));
-      }
-      if (recRes.data && recRes.data.length > 0) {
-        receiptRows = recRes.data.map((r: any) => ({
-          label: r.particular_name || r.code || '',
-          sort_order: r.sort_order ?? 0,
-        }));
-      }
-      if (dispRes.data && dispRes.data.length > 0) {
-        disposalRows = dispRes.data.map((d: any) => ({
-          label: d.particular_name || d.code || '',
-          sort_order: d.sort_order ?? 0,
-        }));
-      }
-    } catch (e) {
-      console.error('Error fetching DB master stock config:', e);
+    if (prodRes.data && prodRes.data.length > 0) {
+      products = prodRes.data.map((p: any) => ({
+        key: p.product_key,
+        label: p.short_name || p.product_name || p.product_key,
+      }));
     }
+    if (recRes.data && recRes.data.length > 0) {
+      receiptRows = recRes.data.map((r: any) => ({
+        label: r.particular_name || r.code || '',
+        sort_order: r.sort_order ?? 0,
+      }));
+    }
+    if (dispRes.data && dispRes.data.length > 0) {
+      disposalRows = dispRes.data.map((d: any) => ({
+        label: d.particular_name || d.code || '',
+        sort_order: d.sort_order ?? 0,
+      }));
+    }
+  } catch (e) {
+    console.error('Error fetching DB master stock config:', e);
   }
 
   return { products, receiptRows, disposalRows };
@@ -376,53 +342,36 @@ function buildStockStatementSheet(
 }
 
 async function getStockEntriesForPeriod(startDate: string, endDate: string) {
-  if (isLocalDbEnabled()) {
-    const db = await initDb();
-    const stockEntries = db.entries
-      .filter((e: any) =>
-        e.report_type === 'STOCK' &&
-        e.entry_date &&
-        e.entry_date >= startDate &&
-        e.entry_date <= endDate
-      )
-      .sort((a: any, b: any) => a.entry_date.localeCompare(b.entry_date));
+  const supabase = getSupabaseServiceClient();
+  const { data: entries, error } = await supabase
+    .from('entries')
+    .select('*')
+    .eq('report_type', 'STOCK')
+    .gte('entry_date', startDate)
+    .lte('entry_date', endDate)
+    .order('entry_date', { ascending: true });
 
-    return stockEntries.map((entry: any) => {
-      const stockRows = db.stock_rows.filter((r: any) => r.entry_id === entry.id);
-      return { entry, stockRows };
-    });
-  } else {
-    const supabase = getSupabaseServiceClient();
-    const { data: entries, error } = await supabase
-      .from('entries')
-      .select('*')
-      .eq('report_type', 'STOCK')
-      .gte('entry_date', startDate)
-      .lte('entry_date', endDate)
-      .order('entry_date', { ascending: true });
+  if (error || !entries) return [];
 
-    if (error || !entries) return [];
+  const entryIds = entries.map((e: any) => e.id);
+  if (entryIds.length === 0) return [];
 
-    const entryIds = entries.map((e: any) => e.id);
-    if (entryIds.length === 0) return [];
+  const { data: allRows } = await supabase
+    .from('stock_rows')
+    .select('*')
+    .in('entry_id', entryIds)
+    .order('sort_order', { ascending: true });
 
-    const { data: allRows } = await supabase
-      .from('stock_rows')
-      .select('*')
-      .in('entry_id', entryIds)
-      .order('sort_order', { ascending: true });
+  const rowsByEntryId: Record<string, StockRow[]> = {};
+  (allRows || []).forEach((r: any) => {
+    if (!rowsByEntryId[r.entry_id]) rowsByEntryId[r.entry_id] = [];
+    rowsByEntryId[r.entry_id].push(r);
+  });
 
-    const rowsByEntryId: Record<string, StockRow[]> = {};
-    (allRows || []).forEach((r: any) => {
-      if (!rowsByEntryId[r.entry_id]) rowsByEntryId[r.entry_id] = [];
-      rowsByEntryId[r.entry_id].push(r);
-    });
-
-    return entries.map((entry: any) => ({
-      entry,
-      stockRows: rowsByEntryId[entry.id] || [],
-    }));
-  }
+  return entries.map((entry: any) => ({
+    entry,
+    stockRows: rowsByEntryId[entry.id] || [],
+  }));
 }
 
 export async function GET(req: NextRequest) {
@@ -482,98 +431,72 @@ export async function GET(req: NextRequest) {
     let tsRowsData: TSMilkRow[] = [];
     let stockRowsData: StockRow[] = [];
 
-    // 1. Fetch data from DB or local JSON
-    if (isLocalDbEnabled()) {
-      const db = await initDb();
-      const tsEntry = db.entries.find((e: any) =>
-        e.entry_date === date &&
-        e.report_type === 'TS' &&
-        (e.shift === shift || (!e.shift && !shift))
-      );
-      if (tsEntry) {
-        entryNotes = tsEntry.notes || '';
-        stgRowsData = db.stg_rows.filter((r: any) => r.entry_id === tsEntry.id) as STGRow[];
-        tsRowsData = db.ts_milk_rows.filter((r: any) => r.entry_id === tsEntry.id) as TSMilkRow[];
-      }
-      const stockEntry = db.entries.find((e: any) =>
-        e.entry_date === date &&
-        e.report_type === 'STOCK' &&
-        (!shift || e.shift === shift || (!e.shift && !shift))
-      ) || db.entries.find((e: any) =>
-        e.entry_date === date &&
-        e.report_type === 'STOCK'
-      );
-      if (stockEntry) {
-        if (!entryNotes) entryNotes = stockEntry.notes || '';
-        stockRowsData = db.stock_rows.filter((r: any) => r.entry_id === stockEntry.id) as StockRow[];
-      }
+    // 1. Fetch data from DB
+    const supabase = getSupabaseServiceClient();
+    let query = supabase
+      .from('entries')
+      .select('id, notes')
+      .eq('entry_date', date)
+      .eq('report_type', 'TS');
+
+    if (shift) {
+      query = query.eq('shift', shift);
     } else {
-      const supabase = getSupabaseServiceClient();
-      let query = supabase
-        .from('entries')
-        .select('id, notes')
-        .eq('entry_date', date)
-        .eq('report_type', 'TS');
+      query = query.is('shift', null);
+    }
 
-      if (shift) {
-        query = query.eq('shift', shift);
-      } else {
-        query = query.is('shift', null);
-      }
+    const { data: entries, error: entryErr } = await query;
+    if (entryErr) throw entryErr;
 
-      const { data: entries, error: entryErr } = await query;
-      if (entryErr) throw entryErr;
+    if (entries && entries.length > 0) {
+      const entryId = entries[0].id;
+      entryNotes = entries[0].notes || '';
 
-      if (entries && entries.length > 0) {
-        const entryId = entries[0].id;
-        entryNotes = entries[0].notes || '';
+      const [tsRows, stgRows] = await Promise.all([
+        supabase
+          .from('ts_milk_rows')
+          .select('*')
+          .eq('entry_id', entryId)
+          .order('sort_order', { ascending: true }),
+        supabase
+          .from('stg_rows')
+          .select('*')
+          .eq('entry_id', entryId)
+          .order('sort_order', { ascending: true }),
+      ]);
 
-        const [tsRows, stgRows] = await Promise.all([
-          supabase
-            .from('ts_milk_rows')
-            .select('*')
-            .eq('entry_id', entryId)
-            .order('sort_order', { ascending: true }),
-          supabase
-            .from('stg_rows')
-            .select('*')
-            .eq('entry_id', entryId)
-            .order('sort_order', { ascending: true }),
-        ]);
+      if (!tsRows.error) tsRowsData = tsRows.data as TSMilkRow[];
+      if (!stgRows.error) stgRowsData = stgRows.data as STGRow[];
+    }
 
-        if (!tsRows.error) tsRowsData = tsRows.data as TSMilkRow[];
-        if (!stgRows.error) stgRowsData = stgRows.data as STGRow[];
-      }
+    // Fetch Stock entry data if needed
+    let stockQuery = supabase
+      .from('entries')
+      .select('id, notes')
+      .eq('entry_date', date)
+      .eq('report_type', 'STOCK');
+    if (shift) stockQuery = stockQuery.eq('shift', shift);
 
-      // Fetch Stock entry data if needed
-      let stockQuery = supabase
+    const { data: stockEntries } = await stockQuery;
+    let targetStockEntry = stockEntries && stockEntries.length > 0 ? stockEntries[0] : null;
+
+    if (!targetStockEntry && shift) {
+      const { data: fallbackEntries } = await supabase
         .from('entries')
         .select('id, notes')
         .eq('entry_date', date)
         .eq('report_type', 'STOCK');
-      if (shift) stockQuery = stockQuery.eq('shift', shift);
+      if (fallbackEntries && fallbackEntries.length > 0) targetStockEntry = fallbackEntries[0];
+    }
 
-      const { data: stockEntries } = await stockQuery;
-      let targetStockEntry = stockEntries && stockEntries.length > 0 ? stockEntries[0] : null;
-
-      if (!targetStockEntry && shift) {
-        const { data: fallbackEntries } = await supabase
-          .from('entries')
-          .select('id, notes')
-          .eq('entry_date', date)
-          .eq('report_type', 'STOCK');
-        if (fallbackEntries && fallbackEntries.length > 0) targetStockEntry = fallbackEntries[0];
-      }
-
-      if (targetStockEntry) {
-        if (!entryNotes) entryNotes = targetStockEntry.notes || '';
-        const stockRes = await supabase
-          .from('stock_rows')
-          .select('*')
-          .eq('entry_id', targetStockEntry.id)
-          .order('sort_order', { ascending: true });
-        if (stockRes.data) stockRowsData = stockRes.data as StockRow[];
-      }
+    if (targetStockEntry) {
+      if (!entryNotes) entryNotes = targetStockEntry.notes || '';
+      const stockRes = await supabase
+        .from('stock_rows')
+        .select('*')
+        .eq('entry_id', targetStockEntry.id)
+        .order('sort_order', { ascending: true });
+      if (stockRes.data) stockRowsData = stockRes.data as StockRow[];
     }
 
     if (tsRowsData.length === 0 && stgRowsData.length === 0 && stockRowsData.length === 0) {
@@ -618,33 +541,18 @@ export async function GET(req: NextRequest) {
     if (includeTs && tsRowsData.length > 0) {
       // Get global statements config
       let gStmts: any[] = [];
-      if (isLocalDbEnabled()) {
-        const db = await initDb();
-        const tsEntries = db.entries.filter((e: any) => e.report_type === 'TS').sort((a: any, b: any) => (b.entry_date || '').localeCompare(a.entry_date || ''));
-        const configEntry = tsEntries.find((e: any) => {
+      const supabase = getSupabaseServiceClient();
+      const { data } = await supabase.from('entries').select('notes').eq('report_type', 'TS').order('entry_date', { ascending: false });
+      if (data && data.length > 0) {
+        const configRow = data.find((e: any) => {
           if (!e.notes || e.notes.includes('__METADATA__:')) return false;
           try {
             const parsed = JSON.parse(e.notes);
             return Array.isArray(parsed) && (parsed.length === 0 || parsed[0]?.key !== undefined);
           } catch { return false; }
         });
-        if (configEntry && configEntry.notes) {
-          try { gStmts = JSON.parse(configEntry.notes) || []; } catch {}
-        }
-      } else {
-        const supabase = getSupabaseServiceClient();
-        const { data } = await supabase.from('entries').select('notes').eq('report_type', 'TS').order('entry_date', { ascending: false });
-        if (data && data.length > 0) {
-          const configRow = data.find((e: any) => {
-            if (!e.notes || e.notes.includes('__METADATA__:')) return false;
-            try {
-              const parsed = JSON.parse(e.notes);
-              return Array.isArray(parsed) && (parsed.length === 0 || parsed[0]?.key !== undefined);
-            } catch { return false; }
-          });
-          if (configRow && configRow.notes) {
-            try { gStmts = JSON.parse(configRow.notes) || []; } catch {}
-          }
+        if (configRow && configRow.notes) {
+          try { gStmts = JSON.parse(configRow.notes) || []; } catch {}
         }
       }
 

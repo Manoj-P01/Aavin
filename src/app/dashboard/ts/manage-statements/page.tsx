@@ -10,6 +10,7 @@ import { useRouter } from 'next/navigation';
 import Header from '@/components/layout/Header';
 import Link from 'next/link';
 import { useConfirm } from '@/context/ConfirmContext';
+import { buildStgStatementsFromProducts } from '@/lib/calculations';
 
 interface StatementConfig {
   key: string;
@@ -34,6 +35,7 @@ export default function ManageStatementsPage() {
           setLoading(false);
           return;
         }
+        let hasSavedConfig = false;
         const json = await res.json();
         const entries: any[] = json.data || [];
         const configEntry = entries.find((e: any) => {
@@ -48,9 +50,20 @@ export default function ManageStatementsPage() {
             const list = JSON.parse(configEntry.notes);
             if (Array.isArray(list) && list.length > 0) {
               setStatements(list);
+              hasSavedConfig = true;
             }
           } catch (e) {
             console.error('Failed to parse global config notes:', e);
+          }
+        }
+
+        if (!hasSavedConfig) {
+          const stockCfgRes = await fetch('/api/stock/config');
+          if (stockCfgRes.ok) {
+            const stockCfg = await stockCfgRes.json();
+            if (Array.isArray(stockCfg.products) && stockCfg.products.length > 0) {
+              setStatements(buildStgStatementsFromProducts(stockCfg.products));
+            }
           }
         }
       } catch (err) {

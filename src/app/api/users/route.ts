@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getSupabaseServiceClient } from '@/lib/supabase';
 import { getAuthUserFromRequest, hashPassword } from '@/lib/auth';
-import { isLocalDbEnabled } from '@/lib/fileDb';
 
 // GET /api/users - List all users (Admin & Operator access)
 export async function GET(req: NextRequest) {
@@ -9,24 +8,6 @@ export async function GET(req: NextRequest) {
     const authUser = await getAuthUserFromRequest(req);
     // Allow admin access or default for initial setup
     const isMasterAdmin = !authUser || authUser.role === 'admin' || authUser.username === 'admin';
-
-    if (isLocalDbEnabled()) {
-      return NextResponse.json({
-        data: [
-          {
-            id: '00000000-0000-0000-0000-000000000001',
-            username: 'admin',
-            full_name: 'Master System Administrator',
-            role: 'admin',
-            is_active: true,
-            created_by: 'system',
-            created_at: new Date().toISOString(),
-            updated_by: 'system',
-            updated_at: new Date().toISOString(),
-          },
-        ],
-      });
-    }
 
     const supabase = getSupabaseServiceClient();
     const { data: users, error } = await supabase

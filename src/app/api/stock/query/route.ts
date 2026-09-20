@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getSupabaseServiceClient } from '@/lib/supabase';
-import { isLocalDbEnabled, getLocalAggregatedStock } from '@/lib/fileDb';
 
 export async function GET(req: NextRequest) {
   try {
@@ -14,11 +13,6 @@ export async function GET(req: NextRequest) {
 
     if (!type) {
       return NextResponse.json({ error: 'Invalid parameters' }, { status: 400 });
-    }
-
-    if (isLocalDbEnabled()) {
-      const data = await getLocalAggregatedStock(type, date || undefined, month || undefined, year || undefined, from || undefined, to || undefined);
-      return NextResponse.json({ data });
     }
 
     const supabase = getSupabaseServiceClient();
@@ -56,34 +50,83 @@ export async function GET(req: NextRequest) {
       .order('sort_order');
     if (rowsErr) throw rowsErr;
 
+    // Dynamic product keys from products_master and standard defaults
+    const defaultCols = ['wh_milk', 'dlt_milk', 'fc_milk', 'std_milk', 'dtm', 'skim_milk', 'cream', 'butter_milk', 'r_con', 'smp', 'water'];
+
+    let dbCols: string[] = [];
+    try {
+      const { data: dbProds } = await supabase
+        .from('products_master')
+        .select('product_key')
+        .eq('is_active', true)
+        .order('sort_order', { ascending: true });
+      if (Array.isArray(dbProds) && dbProds.length > 0) {
+        dbCols = dbProds.map(p => p.product_key.replace(/\./g, '_').toLowerCase());
+      }
+    } catch (e) {
+      console.warn('Could not fetch products_master in GET /api/stock/query:', e);
+    }
+    const allProdKeys = Array.from(new Set([...defaultCols, ...dbCols]));
+    const metadataKeys = new Set(['id', 'entry_id', 'row_type', 'row_label', 'sort_order', 'created_at', 'created_by', 'updated_at', 'updated_by']);
+
     // Aggregate by row_type and row_label
     const aggregatedMap: Record<string, any> = {};
 
     for (const r of rows) {
       const key = `${r.row_type}_${r.row_label}`;
       if (!aggregatedMap[key]) {
-        aggregatedMap[key] = {
+        const initObj: Record<string, any> = {
           row_type: r.row_type,
           row_label: r.row_label,
-          wh_milk: 0, dlt_milk: 0, fc_milk: 0, std_milk: 0,
-          toned_curd: 0, dtm: 0, skim_milk: 0, cream: 0,
-          butter_milk: 0, r_con: 0, smp: 0, water: 0,
           sort_order: r.sort_order,
         };
+        allProdKeys.forEach(pKey => {
+          initObj[pKey] = 0;
+        });
+        aggregatedMap[key] = initObj;
       }
       const target = aggregatedMap[key];
-      target.wh_milk += Number(r.wh_milk) || 0;
-      target.dlt_milk += Number(r.dlt_milk) || 0;
-      target.fc_milk += Number(r.fc_milk) || 0;
-      target.std_milk += Number(r.std_milk) || 0;
-      target.toned_curd += Number(r.toned_curd) || 0;
-      target.dtm += Number(r.dtm) || 0;
-      target.skim_milk += Number(r.skim_milk) || 0;
-      target.cream += Number(r.cream) || 0;
-      target.butter_milk += Number(r.butter_milk) || 0;
-      target.r_con += Number(r.r_con) || 0;
-      target.smp += Number(r.smp) || 0;
-      target.water += Number(r.water) || 0;
+
+      const processedCols = new Set<string>();
+
+      // Process active product keys with generic alphanumeric lookup
+      for (const pKey of allProdKeys) {
+        const targetNorm = pKey.toLowerCase().replace(/[^a-z0-9]/g, '');
+        let numVal = 0;
+
+        if (r[pKey] !== undefined && r[pKey] !== null && r[pKey] !== '') {
+          const num = typeof r[pKey] === 'number' ? r[pKey] : parseFloat(String(r[pKey]));
+          if (!isNaN(num) && num !== 0) numVal = num;
+        }
+
+        if (numVal === 0 && targetNorm) {
+          for (const [rk, rv] of Object.entries(r)) {
+            if (rv === undefined || rv === null || rv === '') continue;
+            if (rk.toLowerCase().replace(/[^a-z0-9]/g, '') === targetNorm) {
+              const num = typeof rv === 'number' ? rv : parseFloat(String(rv));
+              if (!isNaN(num) && num !== 0) {
+                numVal = num;
+                break;
+              }
+            }
+          }
+        }
+
+        target[pKey] = (target[pKey] || 0) + numVal;
+      }
+
+
+      // Process any remaining dynamic columns on r
+      for (const [col, val] of Object.entries(r)) {
+        if (metadataKeys.has(col) || processedCols.has(col)) continue;
+        if (val === undefined || val === null || val === '') continue;
+
+        const numVal = typeof val === 'number' ? val : parseFloat(String(val));
+        if (isNaN(numVal) || numVal === 0) continue;
+
+        const normalizedKey = col.replace(/\./g, '_').toLowerCase();
+        target[normalizedKey] = (target[normalizedKey] || 0) + numVal;
+      }
     }
 
     // Return sorted by sort_order
@@ -94,3 +137,4 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: msg }, { status: 500 });
   }
 }
+

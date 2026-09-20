@@ -11,7 +11,8 @@ import Link from 'next/link';
 import Header from '@/components/layout/Header';
 import Step, { DAILY_ENTRY_STEP_ITEMS } from '@/components/ui/Step';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { fmtNum } from '@/lib/calculations';
+import { fmtNum, buildStgStatementsFromProducts } from '@/lib/calculations';
+import { useConfirm } from '@/context/ConfirmContext';
 import { CALC_CONFIG } from '@/lib/config';
 import type { Shift } from '@/lib/types';
 
@@ -39,7 +40,7 @@ interface STGBlockState {
 }
 
 const DEFAULT_STATEMENTS = [
-  { key: 'WM', label: 'TENTATIVE WHOLE MILK - RECEIPT AND DISPOSAL STATEMENT' },
+  { key: 'WM', label: 'WHOLE MILK - RECEIPT AND DISPOSAL STATEMENT' },
   { key: 'DLT_MILK', label: 'DOUBLE TONED MILK STATEMENT' },
   { key: 'FC_MILK', label: 'FULL CREAM MILK STATEMENT' },
   { key: 'STD_MILK', label: 'STANDARDIZED MILK STATEMENT' },
@@ -129,6 +130,7 @@ export default function STGEntryForm({
 }: STGEntryFormProps) {
   const router = useRouter();
   const searchParams = useSearchParams();
+  const { showSuccess, showWarning, showError } = useConfirm();
   const paramDate = searchParams.get('date');
   const paramShift = searchParams.get('shift');
 
@@ -300,6 +302,20 @@ export default function STGEntryForm({
             } catch (e) {
               console.error('Failed to parse global config notes:', e);
             }
+          }
+        }
+
+        if (globalStatements.length === 0) {
+          try {
+            const stockCfgRes = await fetch('/api/stock/config');
+            if (stockCfgRes.ok) {
+              const stockCfg = await stockCfgRes.json();
+              if (Array.isArray(stockCfg.products) && stockCfg.products.length > 0) {
+                globalStatements = buildStgStatementsFromProducts(stockCfg.products);
+              }
+            }
+          } catch (e) {
+            console.error('Failed fetching DB products for STG statements:', e);
           }
         }
 
@@ -1516,7 +1532,7 @@ export default function STGEntryForm({
 
   const removeStatement = (key: string) => {
     if (['WM', 'SSM', 'CREAM', 'SMP'].includes(key)) {
-      alert("Standard statements (WM, SSM, CREAM, SMP) cannot be deleted.");
+      showWarning("Standard statements (WM, SSM, CREAM, SMP) cannot be deleted.", "Delete Restricted");
       return;
     }
 
@@ -1812,7 +1828,7 @@ export default function STGEntryForm({
             row_label: 'Opening Balance',
             wh_milk: blocks.WM ? parseFloat(blocks.WM.opening_balance.qty_lts) || 0 : 0,
             dlt_milk: blocks.SMP ? parseFloat(blocks.SMP.opening_balance.qty_lts) || 0 : 0,
-            fc_milk: 0, std_milk: 0, toned_curd: 0, dtm: 0,
+            fc_milk: 0, std_milk: 0, dtm: 0,
             skim_milk: blocks.SSM ? parseFloat(blocks.SSM.opening_balance.qty_lts) || 0 : 0,
             cream: blocks.CREAM ? parseFloat(blocks.CREAM.opening_balance.qty_lts) || 0 : 0,
             butter_milk: 0, r_con: 0,
@@ -1823,16 +1839,16 @@ export default function STGEntryForm({
           stock_rows.push({
             row_type: 'RECEIPT', row_label: "BMC's",
             wh_milk: blocks.WM ? findQty(blocks.WM.receipts, "BMC") : 0,
-            dlt_milk: 0, fc_milk: 0, std_milk: 0, toned_curd: 0, dtm: 0, skim_milk: 0, cream: 0, butter_milk: 0, r_con: 0, smp: 0, water: 0
+            dlt_milk: 0, fc_milk: 0, std_milk: 0, dtm: 0, skim_milk: 0, cream: 0, butter_milk: 0, r_con: 0, smp: 0, water: 0
           });
           stock_rows.push({
             row_type: 'RECEIPT', row_label: 'P.VELUR CC',
             wh_milk: blocks.WM ? findQty(blocks.WM.receipts, "VELUR") : 0,
-            dlt_milk: 0, fc_milk: 0, std_milk: 0, toned_curd: 0, dtm: 0, skim_milk: 0, cream: 0, butter_milk: 0, r_con: 0, smp: 0, water: 0
+            dlt_milk: 0, fc_milk: 0, std_milk: 0, dtm: 0, skim_milk: 0, cream: 0, butter_milk: 0, r_con: 0, smp: 0, water: 0
           });
           stock_rows.push({
             row_type: 'RECEIPT', row_label: 'Separation',
-            wh_milk: 0, dlt_milk: 0, fc_milk: 0, std_milk: 0, toned_curd: 0, dtm: 0,
+            wh_milk: 0, dlt_milk: 0, fc_milk: 0, std_milk: 0, dtm: 0,
             skim_milk: blocks.SSM ? findQty(blocks.SSM.receipts, "RECEIPT") : 0,
             cream: blocks.CREAM ? findQty(blocks.CREAM.receipts, "RECEIPT") : 0,
             butter_milk: 0, r_con: 0, smp: 0, water: 0
@@ -1841,7 +1857,7 @@ export default function STGEntryForm({
           stock_rows.push({
             row_type: 'DISPOSAL', row_label: 'Separation',
             wh_milk: blocks.WM ? (findQty(blocks.WM.disposals, "SEPERATION") || findQty(blocks.WM.disposals, "SEPARATION")) : 0,
-            dlt_milk: 0, fc_milk: 0, std_milk: 0, toned_curd: 0, dtm: 0, skim_milk: 0, cream: 0, butter_milk: 0, r_con: 0, smp: 0, water: 0
+            dlt_milk: 0, fc_milk: 0, std_milk: 0, dtm: 0, skim_milk: 0, cream: 0, butter_milk: 0, r_con: 0, smp: 0, water: 0
           });
           stock_rows.push({
             row_type: 'DISPOSAL', row_label: 'Sachet Filling',
@@ -1849,19 +1865,20 @@ export default function STGEntryForm({
             dlt_milk: blocks.WM ? findQty(blocks.WM.disposals, "DLT") : 0,
             fc_milk: blocks.WM ? findQty(blocks.WM.disposals, "FC") : 0,
             std_milk: blocks.WM ? findQty(blocks.WM.disposals, "STD") : 0,
-            toned_curd: 0, dtm: 0, skim_milk: 0, cream: 0, butter_milk: 0, r_con: 0, smp: 0, water: 0
+            dtm: 0, skim_milk: 0, cream: 0, butter_milk: 0, r_con: 0, smp: 0, water: 0
           });
 
           stock_rows.push({
             row_type: 'PHYSICAL', row_label: 'physical',
             wh_milk: blocks.WM ? parseFloat(blocks.WM.physical_count.qty_lts) || 0 : 0,
-            dlt_milk: 0, fc_milk: 0, std_milk: 0, toned_curd: 0, dtm: 0,
+            dlt_milk: 0, fc_milk: 0, std_milk: 0, dtm: 0,
             skim_milk: blocks.SSM ? parseFloat(blocks.SSM.physical_count.qty_lts) || 0 : 0,
             cream: blocks.CREAM ? parseFloat(blocks.CREAM.physical_count.qty_lts) || 0 : 0,
             butter_milk: 0, r_con: 0,
             smp: blocks.SMP ? parseFloat(blocks.SMP.physical_count.qty_kg) || 0 : 0,
             water: 0,
           });
+
 
           await fetch('/api/stock', {
             method: 'POST',
@@ -2855,9 +2872,9 @@ export default function STGEntryForm({
               const { blocks: mapped, count } = await syncFromStockEntry(blocks, entryDate, shift);
               setBlocks(mapped);
               if (count > 0) {
-                alert(`Successfully synced ${count} mapped field(s) from Stock Statement Entry for ${entryDate}!`);
+                showSuccess(`Successfully synced ${count} mapped field(s) from Stock Statement Entry for ${entryDate}!`, 'Sync Successful');
               } else {
-                alert(`No matching Stock Statement Entry data found for ${entryDate}. Please ensure a Stock Statement Entry exists for this date.`);
+                showWarning(`No matching Stock Statement Entry data found for ${entryDate}. Please ensure a Stock Statement Entry exists for this date.`, 'Data Not Found');
               }
             }}
           >

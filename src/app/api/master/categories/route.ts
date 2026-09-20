@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getSupabaseServiceClient } from '@/lib/supabase';
 import { getAuthUserFromRequest } from '@/lib/auth';
-import { isLocalDbEnabled } from '@/lib/fileDb';
 
 const DEFAULT_CATEGORIES = [
   { id: 'cat_1', category_name: 'Liquid Milk', code: 'MILK', sort_order: 1, is_active: true },
@@ -13,10 +12,6 @@ const DEFAULT_CATEGORIES = [
 // GET /api/master/categories - List active product categories from product_categories_master
 export async function GET(req: NextRequest) {
   try {
-    if (isLocalDbEnabled()) {
-      return NextResponse.json({ data: DEFAULT_CATEGORIES });
-    }
-
     const supabase = getSupabaseServiceClient();
 
     // Query product_categories_master

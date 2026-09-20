@@ -54,7 +54,7 @@ export default function StockListPage() {
         const byDate: Record<string, DayGroup> = {};
         for (const e of entries) {
           if (!byDate[e.entry_date]) byDate[e.entry_date] = { date: e.entry_date, day: null, night: null };
-          if (e.shift === 'D') byDate[e.entry_date].day = e;
+          if (e.shift === 'D' || e.shift === 'F' || !e.shift) byDate[e.entry_date].day = e;
           if (e.shift === 'N') byDate[e.entry_date].night = e;
         }
         setGroups(Object.values(byDate).sort((a, b) => a.date.localeCompare(b.date)));
@@ -136,11 +136,11 @@ export default function StockListPage() {
                       {reportMode === 'full_day' ? (
                         <td className="center">
                           {g.day ? (
-                            <Link href={`/dashboard/stock/${g.date}/D`} className="btn btn-secondary btn-sm">
+                            <Link href={`/dashboard/stock/${g.date}/${g.day.shift || 'F'}`} className="btn btn-secondary btn-sm">
                               View Statement →
                             </Link>
                           ) : (
-                            <Link href={`/dashboard/stock/new?date=${g.date}&shift=D`} className="btn btn-ghost btn-sm" style={{ opacity: 0.5 }}>
+                            <Link href={`/dashboard/stock/new?date=${g.date}&shift=F`} className="btn btn-ghost btn-sm" style={{ opacity: 0.5 }}>
                               + Add Entry
                             </Link>
                           )}

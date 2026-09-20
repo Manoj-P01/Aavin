@@ -77,7 +77,7 @@ export function generateDynamicBalanceRows(
   }
   
   if (stmtMap.size === 0) {
-    stmtMap.set('WM', { key: 'WM', label: 'TENTATIVE WHOLE MILK' });
+    stmtMap.set('WM', { key: 'WM', label: 'WHOLE MILK STATEMENT' });
     stmtMap.set('SSM', { key: 'SSM', label: 'SKIMMED MILK' });
     stmtMap.set('CREAM', { key: 'CREAM', label: 'CREAM' });
   }
@@ -235,17 +235,48 @@ function subtractColumns(a: StockColumns, b: StockColumns): StockColumns {
   return result;
 }
 
+export function getRowValueFromStockRow(r: any, colKey: string): number {
+  if (!r || typeof r !== 'object') return 0;
+  const targetNorm = colKey.toLowerCase().replace(/[^a-z0-9]/g, '');
+
+  const sources = [r, r.values].filter(Boolean);
+  for (const src of sources) {
+    for (const [k, v] of Object.entries(src)) {
+      if (k === 'id' || k === 'entry_id' || k === 'row_type' || k === 'row_label' || k === 'sort_order' || k === 'values') continue;
+      if (v !== undefined && v !== null && v !== '') {
+        const normKey = k.toLowerCase().replace(/[^a-z0-9]/g, '');
+        if (normKey === targetNorm) {
+          const num = typeof v === 'number' ? v : parseFloat(String(v));
+          if (!isNaN(num) && num !== 0) return num;
+        }
+      }
+    }
+  }
+  return 0;
+}
+
 export function calcStockSummary(rows: StockRow[]): StockSummary {
   const obRows       = rows.filter(r => r.row_type === 'OB');
   const receiptRows  = rows.filter(r => r.row_type === 'RECEIPT');
   const disposalRows = rows.filter(r => r.row_type === 'DISPOSAL');
 
-  const sumRows = (arr: StockRow[]) =>
-    arr.reduce((acc, r) => addColumns(acc, r as unknown as Partial<StockColumns>), zeroColumns());
+  const standardCols = ['wh_milk', 'dlt_milk', 'fc_milk', 'std_milk', 'toned_curd', 'dtm', 'skim_milk', 'cream', 'butter_milk', 'r_con', 'smp', 'water'];
 
-  const ob       = sumRows(obRows);
-  const receipts = sumRows(receiptRows);
-  const disposals = sumRows(disposalRows);
+  const sumRowsForCols = (arr: StockRow[]): StockColumns => {
+    const res = zeroColumns();
+    standardCols.forEach(cKey => {
+      let colSum = 0;
+      arr.forEach(r => {
+        colSum += getRowValueFromStockRow(r, cKey);
+      });
+      (res as any)[cKey] = colSum;
+    });
+    return res;
+  };
+
+  const ob        = sumRowsForCols(obRows);
+  const receipts  = sumRowsForCols(receiptRows);
+  const disposals = sumRowsForCols(disposalRows);
 
   // Closing Balance = OB + Total Receipts - Total Disposals
   const closing = subtractColumns(addColumns(ob, receipts), disposals);
@@ -295,4 +326,47 @@ export function fmtPct(val: number | null | undefined, decimals = 4): string {
 export function fmtDate(dateStr: string): string {
   const d = new Date(dateStr);
   return d.toLocaleDateString('en-IN', { day: '2-digit', month: '2-digit', year: 'numeric' });
+}
+
+export function buildStgStatementsFromProducts(dbProducts: Array<{ key?: string; product_key?: string; full_name?: string; product_name?: string; short_name?: string }>) {
+  const BLOCK_MAP: Record<string, { key: string; label: string }> = {
+    wh_milk: { key: 'WM', label: 'WHOLE MILK - RECEIPT AND DISPOSAL STATEMENT' },
+    wm: { key: 'WM', label: 'WHOLE MILK - RECEIPT AND DISPOSAL STATEMENT' },
+    dlt_milk: { key: 'DLT_MILK', label: 'DOUBLE TONED MILK STATEMENT' },
+    dlt: { key: 'DLT_MILK', label: 'DOUBLE TONED MILK STATEMENT' },
+    fc_milk: { key: 'FC_MILK', label: 'FULL CREAM MILK STATEMENT' },
+    fc: { key: 'FC_MILK', label: 'FULL CREAM MILK STATEMENT' },
+    std_milk: { key: 'STD_MILK', label: 'STANDARDIZED MILK STATEMENT' },
+    std: { key: 'STD_MILK', label: 'STANDARDIZED MILK STATEMENT' },
+    skim_milk: { key: 'SSM', label: 'SKIMMED MILK STATEMENT' },
+    ssm: { key: 'SSM', label: 'SKIMMED MILK STATEMENT' },
+    cream: { key: 'CREAM', label: 'CREAM STATEMENT' },
+    crm: { key: 'CREAM', label: 'CREAM STATEMENT' },
+    smp: { key: 'SMP', label: 'SKIM MILK POWDER STATEMENT' },
+    water: { key: 'WATER', label: 'WATER STATEMENT' },
+    wtr: { key: 'WATER', label: 'WATER STATEMENT' },
+  };
+
+  const list: Array<{ key: string; label: string }> = [];
+  const seenKeys = new Set<string>();
+
+  (dbProducts || []).forEach(p => {
+    const rawKey = ((p.key || p.product_key || '') as string).toLowerCase();
+    const mapped = BLOCK_MAP[rawKey];
+    if (mapped) {
+      if (!seenKeys.has(mapped.key)) {
+        seenKeys.add(mapped.key);
+        list.push(mapped);
+      }
+    } else {
+      const bKey = ((p.short_name || p.key || p.product_key || '') as string).toUpperCase().replace(/[^A-Z0-9_]/g, '_');
+      if (bKey && !seenKeys.has(bKey)) {
+        seenKeys.add(bKey);
+        const name = ((p.full_name || p.product_name || p.key || bKey) as string).toUpperCase();
+        list.push({ key: bKey, label: name.endsWith('STATEMENT') ? name : `${name} STATEMENT` });
+      }
+    }
+  });
+
+  return list;
 }

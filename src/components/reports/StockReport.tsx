@@ -1,11 +1,6 @@
-// ─────────────────────────────────────────────────────────────────────────────
-// Aavin Dashboard – NKL Stock Statement Report View
-// ─────────────────────────────────────────────────────────────────────────────
-
-'use client';
-
+﻿import { fmtNum, getRowValueFromStockRow } from '@/lib/calculations';
 import type { StockRow, SeparationDetails } from '@/lib/types';
-import { fmtNum } from '@/lib/calculations';
+import React from 'react';
 
 interface Props {
   rows: StockRow[];
@@ -19,10 +14,22 @@ interface Props {
 function ColNum({ val }: { val: number }) {
   const abs = Math.abs(val);
   const color = val < 0 ? '#ef4444' : val > 0 ? 'inherit' : 'var(--text-muted)';
-  return <td className="num" style={{ color, fontSize: '0.78rem', fontFamily: 'var(--font-numbers)' }}>{val === 0 ? '—' : fmtNum(abs)}</td>;
+  return <td className="num" style={{ color, fontSize: '0.78rem', fontFamily: 'var(--font-numbers)' }}>{val === 0 ? '-' : fmtNum(abs)}</td>;
 }
 
-
+const DEFAULT_REPORT_PRODUCTS = [
+  { key: 'wh_milk', label: 'WH.MILK' },
+  { key: 'dlt_milk', label: 'DLT.MILK' },
+  { key: 'fc_milk', label: 'FC.MILK' },
+  { key: 'std_milk', label: 'STD.MILK' },
+  { key: 'dtm', label: 'DTM' },
+  { key: 'skim_milk', label: 'SKIM.MILK' },
+  { key: 'cream', label: 'CREAM' },
+  { key: 'butter_milk', label: 'BUTTER.MILK' },
+  { key: 'r_con', label: 'R.CON' },
+  { key: 'smp', label: 'SMP' },
+  { key: 'water', label: 'WATER' },
+];
 
 export default function StockReport({ rows, separation, date, shift, notes, products }: Props) {
   const dateDisplay = new Date(date).toLocaleDateString('en-IN', {
@@ -31,13 +38,11 @@ export default function StockReport({ rows, separation, date, shift, notes, prod
 
   const shiftLabel = shift === 'D' ? 'Day (D)' : shift === 'N' ? 'Night (N)' : shift === 'FULL_DAY' ? 'Full Day' : 'Combined (D+N)';
 
-  // Parse custom columns and values from notes metadata
-  let columns = products && products.length > 0 ? [...products] : [];
-  const customValues: Record<string, Record<string, number>> = {}; // rowLabel -> colKey -> val
+  let columns = products && products.length > 0 ? [...products] : [...DEFAULT_REPORT_PRODUCTS];
+  const customValues: Record<string, Record<string, number>> = {};
   let cleanNotes = notes || '';
 
   if (notes) {
-    // If combined view, we might have multiple metadata blocks merged
     const notesParts = notes.split('\n');
     notesParts.forEach(part => {
       if (part.includes('__METADATA__:')) {
@@ -73,50 +78,46 @@ export default function StockReport({ rows, separation, date, shift, notes, prod
       .trim();
   }
 
-  // Dynamic sum helper for both standard and custom columns
-  const getSum = (rowType: 'OB' | 'RECEIPT' | 'DISPOSAL' | 'PHYSICAL', colKey: string): number => {
-    const matchingRows = rows.filter(r => r.row_type === rowType);
-    return matchingRows.reduce((sum, r) => {
-      if (colKey in r || (r as any)[colKey] !== undefined) {
-        return sum + (Number(r[colKey as keyof StockRow]) || 0);
-      } else {
-        const rowVals = customValues[r.row_label];
-        return sum + (rowVals ? (rowVals[colKey] || 0) : 0);
+  const getRowVal = (row: StockRow, colKey: string): number => {
+    const directVal = getRowValueFromStockRow(row, colKey);
+    if (directVal !== 0) return directVal;
+
+    const customValsRow = customValues[row.row_label];
+    if (customValsRow) {
+      const normTarget = colKey.toLowerCase().replace(/[^a-z0-9]/g, '');
+      for (const [k, v] of Object.entries(customValsRow)) {
+        if (k.toLowerCase().replace(/[^a-z0-9]/g, '') === normTarget) {
+          const num = typeof v === 'number' ? v : parseFloat(String(v));
+          if (!isNaN(num) && num !== 0) return num;
+        }
       }
-    }, 0);
+    }
+    return 0;
   };
 
-  // Helper to render dynamic rows from database matching a rowType
+  const getSum = (rowType: 'OB' | 'RECEIPT' | 'DISPOSAL', colKey: string): number => {
+    const matchingRows = rows.filter(r => r.row_type === rowType);
+    return matchingRows.reduce((sum, r) => sum + getRowVal(r, colKey), 0);
+  };
+
   const renderRows = (rowType: 'RECEIPT' | 'DISPOSAL') => {
     const matchingRows = [...rows]
       .filter(r => r.row_type === rowType)
       .sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0));
 
-    return matchingRows.map(row => {
+    return matchingRows.map((row, idx) => {
       const label = row.row_label;
-      const rowTotal = columns.reduce((sum, col) => {
-        if (col.key in row || (row as any)[col.key] !== undefined) {
-          return sum + (Number(row[col.key as keyof StockRow]) || 0);
-        } else {
-          const rowVals = customValues[label];
-          return sum + (rowVals ? (rowVals[col.key] || 0) : 0);
-        }
-      }, 0);
+      const rowTotal = columns.reduce((sum, col) => sum + getRowVal(row, col.key), 0);
 
       return (
-        <tr key={label}>
+        <tr key={label || idx}>
           <td style={{ paddingLeft: 20, color: 'var(--text-secondary)', fontSize: '0.78rem' }}>{label}</td>
           {columns.map(col => {
-            let val = 0;
-            if (col.key in row || (row as any)[col.key] !== undefined) {
-              val = Number(row[col.key as keyof StockRow]) || 0;
-            } else {
-              val = customValues[label] ? (customValues[label][col.key] || 0) : 0;
-            }
+            const val = getRowVal(row, col.key);
             return <ColNum key={col.key} val={val} />;
           })}
           <td className="num text-right" style={{ fontWeight: 700, fontSize: '0.78rem', fontFamily: 'var(--font-numbers)', paddingRight: 8 }}>
-            {rowTotal === 0 ? '—' : fmtNum(rowTotal)}
+            {rowTotal === 0 ? '-' : fmtNum(rowTotal)}
           </td>
         </tr>
       );
@@ -148,7 +149,7 @@ export default function StockReport({ rows, separation, date, shift, notes, prod
           <ColNum key={col.key} val={rowValues[idx]} />
         ))}
         <td className="num text-right" style={{ fontWeight: 700, fontSize: '0.78rem', fontFamily: 'var(--font-numbers)', paddingRight: 8 }}>
-          {rowTotal === 0 ? '—' : fmtNum(rowTotal)}
+          {rowTotal === 0 ? '-' : fmtNum(rowTotal)}
         </td>
       </tr>
     );
@@ -156,13 +157,12 @@ export default function StockReport({ rows, separation, date, shift, notes, prod
 
   return (
     <div>
-      {/* Header */}
       <div className="print-header" style={{ marginBottom: 16 }}>
         <div style={{ fontSize: '1rem', fontWeight: 700, color: 'var(--text-primary)' }}>
-          NAMAKKAL DISTRICT CO-OPERATIVE MILK PRODUCERS&apos; UNION LTD
+          NAMAKKAL DISTRICT CO-OPERATIVE MILK PRODUCERS' UNION LTD
         </div>
         <div style={{ fontSize: '0.875rem', color: 'var(--brand-primary)', fontWeight: 600, marginTop: 4 }}>
-          NKL — MILK AND CREAM STOCK STATEMENT
+          NKL - MILK AND CREAM STOCK STATEMENT
         </div>
         <div style={{ display: 'flex', gap: 24, marginTop: 4, fontFamily: 'var(--font-numbers)' }}>
           <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>DATE: {dateDisplay}</div>
@@ -183,12 +183,10 @@ export default function StockReport({ rows, separation, date, shift, notes, prod
             </tr>
           </thead>
           <tbody>
-            {/* Opening Balance */}
             {renderSummaryRow('OPENING BALANCE', 'OB', {
               background: 'rgba(14,165,233,0.08)',
             })}
 
-            {/* Receipt header */}
             <tr>
               <td colSpan={columns.length + 2} style={{
                 background: 'rgba(16,185,129,0.08)',
@@ -211,7 +209,6 @@ export default function StockReport({ rows, separation, date, shift, notes, prod
               fontWeight: 700,
             })}
 
-            {/* Disposal header */}
             <tr>
               <td colSpan={columns.length + 2} style={{
                 background: 'rgba(245,158,11,0.08)',
@@ -230,7 +227,6 @@ export default function StockReport({ rows, separation, date, shift, notes, prod
               background: 'rgba(245,158,11,0.06)',
             })}
 
-            {/* Closing Balance */}
             {renderSummaryRow('CLOSING BALANCE', 'CB', {
               background: 'rgba(14,165,233,0.12)',
               fontWeight: 700,
@@ -242,3 +238,4 @@ export default function StockReport({ rows, separation, date, shift, notes, prod
     </div>
   );
 }
+
