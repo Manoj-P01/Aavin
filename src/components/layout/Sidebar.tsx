@@ -20,6 +20,7 @@ const NAV_SECTIONS = [
       { href: '/dashboard/stock', icon: '📦', label: 'Stock Register' },
       { href: '/dashboard/stock/products', icon: '⚙️', label: 'Products List' },
       { href: '/dashboard/stock/mappings', icon: '🔄', label: 'Disposals ➔ Receipts Mappings' },
+      { href: '/dashboard/stock/partitions', icon: '🔀', label: 'Receipts Internal Partitions' },
     ],
   },
   {
@@ -122,6 +123,7 @@ export default function Sidebar() {
                            pathSegments[3] !== 'new' &&
                            pathSegments[3] !== 'products' &&
                            pathSegments[3] !== 'mappings' &&
+                           pathSegments[3] !== 'partitions' &&
                            pathSegments[3] !== 'periodical';
                   }
                   
