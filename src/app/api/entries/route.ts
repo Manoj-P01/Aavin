@@ -23,13 +23,75 @@ export async function GET(req: NextRequest) {
     }
 
     const supabase = getSupabaseServiceClient();
+
+    if (report_type === 'INTERNAL_STOCK_MAPPING') {
+      const { data: partitionRules } = await supabase
+        .from('receipt_partition_mappings')
+        .select('*');
+      if (Array.isArray(partitionRules) && partitionRules.length > 0) {
+        const formatted = partitionRules.map((r: any) => ({
+          id: r.id,
+          sourceDisposalParticular: r.source_disposal_particular,
+          targetReceiptProductKey: r.target_receipt_product_key,
+          targetReceiptProductLabel: r.target_receipt_product_label,
+          partitions: r.partitions,
+          enabled: r.enabled !== false,
+        }));
+        return NextResponse.json({
+          data: [{
+            id: 'db-internal-mappings',
+            report_type: 'INTERNAL_STOCK_MAPPING',
+            entry_date: today,
+            notes: JSON.stringify(formatted)
+          }]
+        });
+      }
+    } else if (report_type === 'STOCK_MAPPING') {
+      const { data: stmtRules } = await supabase
+        .from('statement_mapping_rules')
+        .select('*');
+      if (Array.isArray(stmtRules) && stmtRules.length > 0) {
+        const formatted = stmtRules.map((r: any) => ({
+          id: r.id,
+          stockProductKey: r.stock_product_key,
+          stockProductLabel: r.stock_product_label,
+          stockSection: r.stock_section,
+          stockParticular: r.stock_particular,
+          stgBlockKey: r.stg_block_key,
+          stgBlockLabel: r.stg_block_label,
+          stgSection: r.stg_section,
+          stgItemName: r.stg_item_name,
+          stgTargetField: r.stg_target_field
+        }));
+        return NextResponse.json({
+          data: [{
+            id: 'db-stock-mappings',
+            report_type: 'STOCK_MAPPING',
+            entry_date: today,
+            notes: JSON.stringify(formatted)
+          }]
+        });
+      }
+    }
+
+    let dbReportType = report_type;
+    let targetDate = date;
+
+    if (report_type === 'INTERNAL_STOCK_MAPPING') {
+      dbReportType = 'STOCK';
+      targetDate = '1970-01-02';
+    } else if (report_type === 'STOCK_MAPPING') {
+      dbReportType = 'STOCK';
+      targetDate = '1970-01-03';
+    }
+
     let query = supabase.from('entries').select('*').order('entry_date', { ascending: false });
 
-    if (report_type) query = query.eq('report_type', report_type);
-    if (date) query = query.eq('entry_date', date);
+    if (dbReportType) query = query.eq('report_type', dbReportType);
+    if (targetDate) query = query.eq('entry_date', targetDate);
     if (shift) {
       query = query.eq('shift', shift);
-    } else if (searchParams.has('shift') && !shift) {
+    } else if (searchParams.has('shift') && !shift && report_type !== 'INTERNAL_STOCK_MAPPING' && report_type !== 'STOCK_MAPPING') {
       query = query.is('shift', null);
     }
     if (month) {
@@ -70,6 +132,11 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'report_type is required' }, { status: 400 });
     }
 
+    let cleanNotes: string | null = null;
+    if (typeof notes === 'string' && notes.trim().length > 0) {
+      cleanNotes = notes.trim();
+    }
+
     if (isLocalDbEnabled()) {
       const db = await initDb();
       const exists = db.entries.find((e: any) => 
@@ -78,19 +145,117 @@ export async function POST(req: NextRequest) {
         (e.shift === shift || (!e.shift && !shift))
       );
       if (exists) {
-        exists.notes = notes || null;
+        exists.notes = cleanNotes;
         exists.updated_at = new Date().toISOString();
         await saveDb(db);
         return NextResponse.json({ data: exists }, { status: 200 });
       }
 
-      const data = await createLocalEntry(entry_date, shift, report_type, notes);
+      const data = await createLocalEntry(entry_date, shift, report_type, cleanNotes);
       return NextResponse.json({ data }, { status: 201 });
     }
 
     const supabase = getSupabaseServiceClient();
 
-    // Query if entry already exists
+    const actorUsername = req.headers.get('x-user-name') || 'admin';
+
+    // ── Direct Handling for INTERNAL_STOCK_MAPPING ───────────────────────────
+    if (report_type === 'INTERNAL_STOCK_MAPPING') {
+      if (!cleanNotes) {
+        return NextResponse.json({ success: true, data: [] }, { status: 200 });
+      }
+      const rules = JSON.parse(cleanNotes);
+      if (!Array.isArray(rules)) {
+        return NextResponse.json({ error: 'Invalid rules array' }, { status: 400 });
+      }
+
+      // Delete existing records in receipt_partition_mappings
+      await supabase.from('receipt_partition_mappings').delete().neq('id', '00000000-0000-0000-0000-000000000000');
+
+      const toInsert = rules.map((r: any) => ({
+        source_disposal_particular: r.sourceDisposalParticular,
+        target_receipt_product_key: r.targetReceiptProductKey || null,
+        target_receipt_product_label: r.targetReceiptProductLabel || null,
+        partitions: r.partitions || null,
+        enabled: r.enabled !== false,
+        created_by: actorUsername,
+        updated_by: actorUsername,
+      }));
+
+      if (toInsert.length > 0) {
+        const { data: insData, error: insErr } = await supabase
+          .from('receipt_partition_mappings')
+          .insert(toInsert)
+          .select('*');
+
+        if (insErr) {
+          console.error('Error writing to receipt_partition_mappings:', insErr);
+          // If schema cache error PGRST204 (missing partitions column), retry without optional columns
+          if (insErr.code === 'PGRST204' || insErr.message?.includes('partitions')) {
+            const fallbackInsert = rules.map((r: any) => ({
+              source_disposal_particular: r.sourceDisposalParticular,
+              target_receipt_product_key: r.targetReceiptProductKey || null,
+              enabled: r.enabled !== false,
+              created_by: actorUsername,
+              updated_by: actorUsername,
+            }));
+            const { data: fbData, error: fbErr } = await supabase
+              .from('receipt_partition_mappings')
+              .insert(fallbackInsert)
+              .select('*');
+            if (fbErr) throw fbErr;
+            return NextResponse.json({ success: true, data: fbData }, { status: 200 });
+          }
+          throw insErr;
+        }
+        return NextResponse.json({ success: true, data: insData }, { status: 200 });
+      }
+      return NextResponse.json({ success: true, data: [] }, { status: 200 });
+    }
+
+    // ── Direct Handling for STOCK_MAPPING ────────────────────────────────────
+    if (report_type === 'STOCK_MAPPING') {
+      if (!cleanNotes) {
+        return NextResponse.json({ success: true, data: [] }, { status: 200 });
+      }
+      const rules = JSON.parse(cleanNotes);
+      if (!Array.isArray(rules)) {
+        return NextResponse.json({ error: 'Invalid rules array' }, { status: 400 });
+      }
+
+      // Delete existing records in statement_mapping_rules
+      await supabase.from('statement_mapping_rules').delete().neq('id', '00000000-0000-0000-0000-000000000000');
+
+      const toInsert = rules.map((r: any) => ({
+        stock_product_key: r.stockProductKey,
+        stock_product_label: r.stockProductLabel || '',
+        stock_section: r.stockSection,
+        stock_particular: r.stockParticular,
+        stg_block_key: r.stgBlockKey,
+        stg_block_label: r.stgBlockLabel || '',
+        stg_section: r.stgSection,
+        stg_item_name: r.stgItemName,
+        stg_target_field: r.stgTargetField || 'qty_lts',
+        created_by: actorUsername,
+        updated_by: actorUsername,
+      }));
+
+      if (toInsert.length > 0) {
+        const { data: insData, error: insErr } = await supabase
+          .from('statement_mapping_rules')
+          .insert(toInsert)
+          .select('*');
+
+        if (insErr) {
+          console.error('Error writing to statement_mapping_rules:', insErr);
+          throw insErr;
+        }
+        return NextResponse.json({ success: true, data: insData }, { status: 200 });
+      }
+      return NextResponse.json({ success: true, data: [] }, { status: 200 });
+    }
+
+    // ── Regular Entries Processing ───────────────────────────────────────────
     let query = supabase
       .from('entries')
       .select('id')
@@ -99,34 +264,28 @@ export async function POST(req: NextRequest) {
     
     if (shift) {
       query = query.eq('shift', shift);
-    } else {
-      query = query.is('shift', null);
     }
 
     const { data: existing, error: findErr } = await query;
     if (findErr) throw findErr;
 
-    const actorUsername = req.headers.get('x-user-name') || 'admin';
-
     if (existing && existing.length > 0) {
-      // Update existing entry's notes
       const { data, error } = await supabase
         .from('entries')
-        .update({ notes: notes || null, updated_by: actorUsername, updated_at: new Date().toISOString() })
+        .update({ notes: cleanNotes, updated_by: actorUsername, updated_at: new Date().toISOString() })
         .eq('id', existing[0].id)
         .select()
         .single();
       if (error) throw error;
       return NextResponse.json({ data }, { status: 200 });
     } else {
-      // Insert new entry
       const { data, error } = await supabase
         .from('entries')
         .insert({
-          entry_date,
+          entry_date: entry_date,
           shift: shift || null,
-          report_type,
-          notes: notes || null,
+          report_type: report_type,
+          notes: cleanNotes,
           created_by: actorUsername,
           updated_by: actorUsername,
         })

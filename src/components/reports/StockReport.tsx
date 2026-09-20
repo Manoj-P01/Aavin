@@ -5,7 +5,6 @@
 'use client';
 
 import type { StockRow, SeparationDetails } from '@/lib/types';
-import { STOCK_PRODUCT_COLUMNS } from '@/lib/types';
 import { fmtNum } from '@/lib/calculations';
 
 interface Props {
@@ -23,6 +22,8 @@ function ColNum({ val }: { val: number }) {
   return <td className="num" style={{ color, fontSize: '0.78rem', fontFamily: 'var(--font-numbers)' }}>{val === 0 ? '—' : fmtNum(abs)}</td>;
 }
 
+
+
 export default function StockReport({ rows, separation, date, shift, notes, products }: Props) {
   const dateDisplay = new Date(date).toLocaleDateString('en-IN', {
     day: '2-digit', month: '2-digit', year: 'numeric',
@@ -31,7 +32,7 @@ export default function StockReport({ rows, separation, date, shift, notes, prod
   const shiftLabel = shift === 'D' ? 'Day (D)' : shift === 'N' ? 'Night (N)' : shift === 'FULL_DAY' ? 'Full Day' : 'Combined (D+N)';
 
   // Parse custom columns and values from notes metadata
-  let columns = products && products.length > 0 ? [...products] : [...STOCK_PRODUCT_COLUMNS];
+  let columns = products && products.length > 0 ? [...products] : [];
   const customValues: Record<string, Record<string, number>> = {}; // rowLabel -> colKey -> val
   let cleanNotes = notes || '';
 
@@ -73,12 +74,10 @@ export default function StockReport({ rows, separation, date, shift, notes, prod
   }
 
   // Dynamic sum helper for both standard and custom columns
-  const DB_COLUMNS = ['wh_milk', 'dlt_milk', 'fc_milk', 'std_milk', 'toned_curd', 'dtm', 'skim_milk', 'cream', 'butter_milk', 'r_con', 'smp', 'water'];
-
   const getSum = (rowType: 'OB' | 'RECEIPT' | 'DISPOSAL' | 'PHYSICAL', colKey: string): number => {
     const matchingRows = rows.filter(r => r.row_type === rowType);
     return matchingRows.reduce((sum, r) => {
-      if (DB_COLUMNS.includes(colKey)) {
+      if (colKey in r || (r as any)[colKey] !== undefined) {
         return sum + (Number(r[colKey as keyof StockRow]) || 0);
       } else {
         const rowVals = customValues[r.row_label];
@@ -96,7 +95,7 @@ export default function StockReport({ rows, separation, date, shift, notes, prod
     return matchingRows.map(row => {
       const label = row.row_label;
       const rowTotal = columns.reduce((sum, col) => {
-        if (DB_COLUMNS.includes(col.key)) {
+        if (col.key in row || (row as any)[col.key] !== undefined) {
           return sum + (Number(row[col.key as keyof StockRow]) || 0);
         } else {
           const rowVals = customValues[label];
@@ -109,7 +108,7 @@ export default function StockReport({ rows, separation, date, shift, notes, prod
           <td style={{ paddingLeft: 20, color: 'var(--text-secondary)', fontSize: '0.78rem' }}>{label}</td>
           {columns.map(col => {
             let val = 0;
-            if (DB_COLUMNS.includes(col.key)) {
+            if (col.key in row || (row as any)[col.key] !== undefined) {
               val = Number(row[col.key as keyof StockRow]) || 0;
             } else {
               val = customValues[label] ? (customValues[label][col.key] || 0) : 0;

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getSupabaseServiceClient } from '@/lib/supabase';
 import { comparePassword, signAccessToken, createSession, ACCESS_TOKEN_COOKIE, REFRESH_TOKEN_COOKIE } from '@/lib/auth';
+import { isLocalDbEnabled } from '@/lib/fileDb';
 
 export async function POST(req: NextRequest) {
   try {
@@ -11,19 +12,9 @@ export async function POST(req: NextRequest) {
     }
 
     const cleanUsername = String(username).trim().toLowerCase();
-    const supabase = getSupabaseServiceClient();
+    let validUser: any = null;
 
-    // Query user record
-    const { data: user, error } = await supabase
-      .from('users')
-      .select('id, username, password_hash, full_name, role, is_active')
-      .eq('username', cleanUsername)
-      .single();
-
-    let validUser = user;
-
-    // Fallback for Master Admin Account (admin / admin or Admin@123) if DB is empty or unseeded
-    if (error || !validUser) {
+    if (isLocalDbEnabled()) {
       if (cleanUsername === 'admin' && (password === 'admin' || password === 'Admin@123')) {
         validUser = {
           id: '00000000-0000-0000-0000-000000000001',
@@ -35,6 +26,33 @@ export async function POST(req: NextRequest) {
         };
       } else {
         return NextResponse.json({ error: 'Invalid username or password' }, { status: 401 });
+      }
+    } else {
+      const supabase = getSupabaseServiceClient();
+
+      // Query user record
+      const { data: user, error } = await supabase
+        .from('users')
+        .select('id, username, password_hash, full_name, role, is_active')
+        .eq('username', cleanUsername)
+        .single();
+
+      validUser = user;
+
+      // Fallback for Master Admin Account (admin / admin or Admin@123) if DB is empty or unseeded
+      if (error || !validUser) {
+        if (cleanUsername === 'admin' && (password === 'admin' || password === 'Admin@123')) {
+          validUser = {
+            id: '00000000-0000-0000-0000-000000000001',
+            username: 'admin',
+            password_hash: '$2b$10$wN1QY8uE1Gz3oN0X7b2v.e0bM0qL0R0S0T0U0V0W0X0Y0Z0A0B0C0',
+            full_name: 'Master System Administrator',
+            role: 'admin',
+            is_active: true,
+          };
+        } else {
+          return NextResponse.json({ error: 'Invalid username or password' }, { status: 401 });
+        }
       }
     }
 

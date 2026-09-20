@@ -9,6 +9,7 @@ import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import Header from '@/components/layout/Header';
 import Link from 'next/link';
+import { useConfirm } from '@/context/ConfirmContext';
 
 interface StatementConfig {
   key: string;
@@ -17,6 +18,7 @@ interface StatementConfig {
 
 export default function ManageStatementsPage() {
   const router = useRouter();
+  const { confirm, showSuccess } = useConfirm();
   const [statements, setStatements] = useState<StatementConfig[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -100,7 +102,7 @@ export default function ManageStatementsPage() {
         throw new Error(data.error || 'Failed to save configuration.');
       }
       setSuccess('Statement configurations saved successfully!');
-      window.alert('Statement configurations saved successfully!');
+      await showSuccess('Statement configurations saved successfully!', 'Saved');
       setTimeout(() => setSuccess(''), 4000);
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Save failed');
@@ -121,8 +123,14 @@ export default function ManageStatementsPage() {
     });
   };
 
-  const deleteStatement = (key: string, label: string) => {
-    const ok = window.confirm(`Are you sure you want to delete "${label || 'Unnamed Statement'}" from the template?`);
+  const deleteStatement = async (key: string, label: string) => {
+    const ok = await confirm({
+      title: 'Delete Statement',
+      message: `Are you sure you want to delete "${label || 'Unnamed Statement'}" from the template?`,
+      confirmText: 'Delete Statement',
+      cancelText: 'Cancel',
+      type: 'danger',
+    });
     if (!ok) return;
 
     setStatements(prev => prev.filter(s => s.key !== key));

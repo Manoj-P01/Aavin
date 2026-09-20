@@ -1,31 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getSupabaseServiceClient } from '@/lib/supabase';
 import { getAuthUserFromRequest } from '@/lib/auth';
-import fs from 'fs';
-import path from 'path';
-
-const LOCAL_DB_PATH = path.join(process.cwd(), 'local_db.json');
-
-function readLocalDb() {
-  try {
-    if (fs.existsSync(LOCAL_DB_PATH)) {
-      const data = fs.readFileSync(LOCAL_DB_PATH, 'utf8');
-      return JSON.parse(data);
-    }
-  } catch (e) {
-    console.error('Error reading local_db.json:', e);
-  }
-  return {};
-}
-
-function writeLocalDb(data: any) {
-  try {
-    fs.writeFileSync(LOCAL_DB_PATH, JSON.stringify(data, null, 2), 'utf8');
-  } catch (e) {
-    console.error('Error writing local_db.json:', e);
-  }
-}
-
+import { isLocalDbEnabled } from '@/lib/fileDb';
 // GET /api/stock/config - Load Stock Products Configuration (Product Columns, Receipt Rows, Disposal Rows)
 export async function GET(req: NextRequest) {
   try {
@@ -45,6 +21,7 @@ export async function GET(req: NextRequest) {
         key: p.product_key,
         full_name: p.product_name,
         short_name: p.short_name,
+        category: p.category || 'Liquid Milk',
         sort_order: p.sort_order || idx + 1,
         is_active: p.is_active,
       }));
@@ -88,24 +65,6 @@ export async function GET(req: NextRequest) {
       }));
     }
 
-    // 4. Local DB fallback sync if Supabase is empty or offline
-    const localDb = readLocalDb();
-    if (products.length === 0 && Array.isArray(localDb.products_master)) {
-      products = localDb.products_master
-        .filter((p: any) => p.is_active !== false)
-        .sort((a: any, b: any) => (a.sort_order || 0) - (b.sort_order || 0));
-    }
-    if (receiptRows.length === 0 && Array.isArray(localDb.receipt_rows)) {
-      receiptRows = localDb.receipt_rows
-        .filter((r: any) => r.is_active !== false)
-        .sort((a: any, b: any) => (a.sort_order || 0) - (b.sort_order || 0));
-    }
-    if (disposalRows.length === 0 && Array.isArray(localDb.disposal_rows)) {
-      disposalRows = localDb.disposal_rows
-        .filter((d: any) => d.is_active !== false)
-        .sort((a: any, b: any) => (a.sort_order || 0) - (b.sort_order || 0));
-    }
-
     return NextResponse.json({
       products,
       receipt_rows: receiptRows,
@@ -114,14 +73,7 @@ export async function GET(req: NextRequest) {
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : 'Failed to fetch stock config';
     console.error('GET /api/stock/config error:', msg);
-
-    // Local DB fallback on error
-    const localDb = readLocalDb();
-    return NextResponse.json({
-      products: (localDb.products_master || []).filter((p: any) => p.is_active !== false),
-      receipt_rows: (localDb.receipt_rows || []).filter((r: any) => r.is_active !== false),
-      disposal_rows: (localDb.disposal_rows || []).filter((d: any) => d.is_active !== false),
-    });
+    return NextResponse.json({ error: msg }, { status: 500 });
   }
 }
 
@@ -133,7 +85,7 @@ export async function POST(req: NextRequest) {
 
     const body = await req.json();
     const { products, receipt_rows, disposal_rows, removed_product_ids, removed_receipt_ids, removed_disposal_ids } = body as {
-      products?: Array<{ id?: string; key?: string; full_name: string; short_name: string }>;
+      products?: Array<{ id?: string; key?: string; full_name: string; short_name: string; category?: string }>;
       receipt_rows?: Array<{ id?: string; full_name: string; short_name: string }>;
       disposal_rows?: Array<{ id?: string; full_name: string; short_name: string }>;
       removed_product_ids?: string[];
@@ -149,7 +101,9 @@ export async function POST(req: NextRequest) {
         if (!id) continue;
         const { error: rpcErr } = await supabase.rpc('fn_soft_delete_product_master', { p_id: id, p_actor: actorUsername });
         if (rpcErr) {
-          await supabase.from('products_master').update({ is_active: false, updated_by: actorUsername, updated_at: new Date().toISOString() }).eq('id', id);
+          const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id);
+          const filterCol = isUuid ? 'id' : 'product_key';
+          await supabase.from('products_master').update({ is_active: false, updated_by: actorUsername, updated_at: new Date().toISOString() }).eq(filterCol, id);
         }
       }
     }
@@ -159,7 +113,9 @@ export async function POST(req: NextRequest) {
         if (!id) continue;
         const { error: rpcErr } = await supabase.rpc('fn_soft_delete_particular_master', { p_id: id, p_actor: actorUsername });
         if (rpcErr) {
-          await supabase.from('particulars_master').update({ is_active: false, updated_by: actorUsername, updated_at: new Date().toISOString() }).eq('id', id);
+          const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id);
+          const filterCol = isUuid ? 'id' : 'particular_name';
+          await supabase.from('particulars_master').update({ is_active: false, updated_by: actorUsername, updated_at: new Date().toISOString() }).eq(filterCol, id);
         }
       }
     }
@@ -169,7 +125,9 @@ export async function POST(req: NextRequest) {
         if (!id) continue;
         const { error: rpcErr } = await supabase.rpc('fn_soft_delete_particular_master', { p_id: id, p_actor: actorUsername });
         if (rpcErr) {
-          await supabase.from('particulars_master').update({ is_active: false, updated_by: actorUsername, updated_at: new Date().toISOString() }).eq('id', id);
+          const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id);
+          const filterCol = isUuid ? 'id' : 'particular_name';
+          await supabase.from('particulars_master').update({ is_active: false, updated_by: actorUsername, updated_at: new Date().toISOString() }).eq(filterCol, id);
         }
       }
     }
@@ -185,13 +143,14 @@ export async function POST(req: NextRequest) {
 
         const position = i + 1; // 1-indexed ordering position
         const key = prod.key || full_name.toLowerCase().replace(/\s+/g, '_');
+        const category = prod.category?.trim() || 'Liquid Milk';
 
         // Execute case-insensitive upsert SP fn_upsert_product_master
         const { data: spData, error: spErr } = await supabase.rpc('fn_upsert_product_master', {
           p_product_key: key,
           p_product_name: full_name,
           p_short_name: short_name,
-          p_category: 'Liquid Milk',
+          p_category: category,
           p_sort_order: position,
           p_is_active: true,
           p_actor: actorUsername,
@@ -207,6 +166,7 @@ export async function POST(req: NextRequest) {
               product_key: key,
               product_name: full_name,
               short_name: short_name,
+              category: category,
               sort_order: position,
               is_active: true,
               updated_by: actorUsername,
@@ -303,16 +263,9 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // 5. Also sync to local_db.json
-    const localDb = readLocalDb();
-    localDb.products_master = savedProducts;
-    localDb.receipt_rows = savedReceiptRows;
-    localDb.disposal_rows = savedDisposalRows;
-    writeLocalDb(localDb);
-
     return NextResponse.json({
       success: true,
-      message: 'Stock products configuration saved successfully!',
+      message: 'Products saved successfully!',
       products: savedProducts,
       receipt_rows: savedReceiptRows,
       disposal_rows: savedDisposalRows,

@@ -8,7 +8,6 @@ import type {
   TSTotals, STGProductTotals, StockSummary,
   StockColumns, TSSection,
 } from './types';
-import { STOCK_PRODUCT_COLUMNS } from './types';
 import { CALC_CONFIG } from './config';
 
 // ─── Helper ───────────────────────────────────────────────────────────────────

@@ -16,13 +16,6 @@ interface Props {
   shift?: string | null;
 }
 
-const BLOCK_LABELS: Record<string, string> = {
-  WM: 'TENTATIVE WHOLE MILK – RECEIPT AND DISPOSAL STATEMENT',
-  SSM: 'SKIMMED MILK – RECEIPT AND DISPOSAL STATEMENT',
-  CREAM: 'CREAM – RECEIPT AND DISPOSAL STATEMENT',
-  SMP: 'SMP / OTHER – RECEIPT AND DISPOSAL STATEMENT',
-};
-
 export default function STGReport({ stgRows, date, notes, shift }: Props) {
   // Parse custom statements from notes
   let customStatements: Array<{ key: string; label: string }> = [];
@@ -52,12 +45,6 @@ export default function STGReport({ stgRows, date, notes, shift }: Props) {
     });
   }
 
-  const baseBlocks = [
-    { key: 'WM', label: 'TENTATIVE WHOLE MILK – RECEIPT AND DISPOSAL STATEMENT' },
-    { key: 'SSM', label: 'SKIMMED MILK – RECEIPT AND DISPOSAL STATEMENT' },
-    { key: 'CREAM', label: 'CREAM – RECEIPT AND DISPOSAL STATEMENT' },
-    { key: 'SMP', label: 'SKIM MILK POWDER STATEMENT' },
-  ];
   const blockMap = new Map<string, { key: string; label: string }>();
   if (customStatements && customStatements.length > 0) {
     customStatements.forEach(s => {
@@ -65,16 +52,23 @@ export default function STGReport({ stgRows, date, notes, shift }: Props) {
         blockMap.set(s.key, s);
       }
     });
-  } else {
-    baseBlocks.forEach(b => blockMap.set(b.key, b));
   }
 
-  // Dynamically collect any block keys present in stgRows
+  // Dynamically collect any block keys present in stgRows or customBlocks metadata
+  if (customBlocks) {
+    Object.keys(customBlocks).forEach(bKey => {
+      if (!blockMap.has(bKey)) {
+        const cleanKey = bKey.toUpperCase();
+        blockMap.set(bKey, { key: bKey, label: `${cleanKey} – RECEIPT AND DISPOSAL STATEMENT` });
+      }
+    });
+  }
+
   stgRows.forEach(r => {
     if (r.product_block && !blockMap.has(r.product_block)) {
       const cleanKey = r.product_block.toUpperCase();
       const customMatch = customStatements.find(cs => cs.key === r.product_block);
-      const label = customMatch ? customMatch.label : `${cleanKey} STATEMENT`;
+      const label = customMatch ? customMatch.label : `${cleanKey} – RECEIPT AND DISPOSAL STATEMENT`;
       blockMap.set(r.product_block, { key: r.product_block, label });
     }
   });
@@ -88,7 +82,6 @@ export default function STGReport({ stgRows, date, notes, shift }: Props) {
       if (upperLabel.includes('STATEMENT')) return upperLabel;
       return `${upperLabel} – RECEIPT AND DISPOSAL STATEMENT`;
     }
-    if (BLOCK_LABELS[blockKey]) return BLOCK_LABELS[blockKey];
     const upperLabel = (blockKey).toUpperCase().trim();
     if (upperLabel.includes('STATEMENT')) return upperLabel;
     return `${upperLabel} – RECEIPT AND DISPOSAL STATEMENT`;

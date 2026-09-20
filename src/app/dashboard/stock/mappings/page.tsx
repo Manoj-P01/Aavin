@@ -10,6 +10,7 @@
 import { useState, useEffect } from 'react';
 import Header from '@/components/layout/Header';
 import Link from 'next/link';
+import { useConfirm } from '@/context/ConfirmContext';
 
 // ─── Interfaces ───────────────────────────────────────────────────────────────
 
@@ -41,128 +42,7 @@ export interface MappingRule {
 
 
 
-const DEFAULT_MAPPINGS: MappingRule[] = [
-  {
-    id: 'map_wm_ob',
-    stockProductKey: 'wh_milk',
-    stockProductLabel: 'WH.Milk',
-    stockSection: 'OB',
-    stockParticular: 'Opening Balance',
-    stgBlockKey: 'WM',
-    stgBlockLabel: 'TENTATIVE WHOLE MILK - RECEIPT AND DISPOSAL STATEMENT',
-    stgSection: 'OB',
-    stgItemName: 'OB',
-    stgTargetField: 'qty_lts',
-  },
-  {
-    id: 'map_wm_receipts',
-    stockProductKey: 'wh_milk',
-    stockProductLabel: 'WH.Milk',
-    stockSection: 'RECEIPT',
-    stockParticular: 'Receipts:',
-    stgBlockKey: 'WM',
-    stgBlockLabel: 'TENTATIVE WHOLE MILK - RECEIPT AND DISPOSAL STATEMENT',
-    stgSection: 'RECEIPT',
-    stgItemName: 'Receipt',
-    stgTargetField: 'qty_lts',
-  },
-  {
-    id: 'map_wm_disposals_dlt',
-    stockProductKey: 'wh_milk',
-    stockProductLabel: 'WH.Milk',
-    stockSection: 'DISPOSAL',
-    stockParticular: 'To DLT Milk',
-    stgBlockKey: 'WM',
-    stgBlockLabel: 'TENTATIVE WHOLE MILK - RECEIPT AND DISPOSAL STATEMENT',
-    stgSection: 'DISPOSAL',
-    stgItemName: 'To DLT Milk',
-    stgTargetField: 'qty_lts',
-  },
-  {
-    id: 'map_wm_disposals_fc',
-    stockProductKey: 'wh_milk',
-    stockProductLabel: 'WH.Milk',
-    stockSection: 'DISPOSAL',
-    stockParticular: 'To FC Milk',
-    stgBlockKey: 'WM',
-    stgBlockLabel: 'TENTATIVE WHOLE MILK - RECEIPT AND DISPOSAL STATEMENT',
-    stgSection: 'DISPOSAL',
-    stgItemName: 'To FC Milk',
-    stgTargetField: 'qty_lts',
-  },
-  {
-    id: 'map_wm_disposals_std',
-    stockProductKey: 'wh_milk',
-    stockProductLabel: 'WH.Milk',
-    stockSection: 'DISPOSAL',
-    stockParticular: 'To STD Milk',
-    stgBlockKey: 'WM',
-    stgBlockLabel: 'TENTATIVE WHOLE MILK - RECEIPT AND DISPOSAL STATEMENT',
-    stgSection: 'DISPOSAL',
-    stgItemName: 'To STD Milk',
-    stgTargetField: 'qty_lts',
-  },
-  {
-    id: 'map_wm_disposals_mkt',
-    stockProductKey: 'wh_milk',
-    stockProductLabel: 'WH.Milk',
-    stockSection: 'DISPOSAL',
-    stockParticular: 'To MKT',
-    stgBlockKey: 'WM',
-    stgBlockLabel: 'TENTATIVE WHOLE MILK - RECEIPT AND DISPOSAL STATEMENT',
-    stgSection: 'DISPOSAL',
-    stgItemName: 'To MKT',
-    stgTargetField: 'qty_lts',
-  },
-  {
-    id: 'map_ssm_ob',
-    stockProductKey: 'skim_milk',
-    stockProductLabel: 'Skim Milk',
-    stockSection: 'OB',
-    stockParticular: 'Opening Balance',
-    stgBlockKey: 'SSM',
-    stgBlockLabel: 'SKIM MILK STATEMENT',
-    stgSection: 'OB',
-    stgItemName: 'OB',
-    stgTargetField: 'qty_lts',
-  },
-  {
-    id: 'map_ssm_receipts',
-    stockProductKey: 'skim_milk',
-    stockProductLabel: 'Skim Milk',
-    stockSection: 'RECEIPT',
-    stockParticular: 'Receipts:',
-    stgBlockKey: 'SSM',
-    stgBlockLabel: 'SKIM MILK STATEMENT',
-    stgSection: 'RECEIPT',
-    stgItemName: 'Receipt',
-    stgTargetField: 'qty_lts',
-  },
-  {
-    id: 'map_cream_ob',
-    stockProductKey: 'cream',
-    stockProductLabel: 'Cream',
-    stockSection: 'OB',
-    stockParticular: 'Opening Balance',
-    stgBlockKey: 'CREAM',
-    stgBlockLabel: 'CREAM STATEMENT',
-    stgSection: 'OB',
-    stgItemName: 'OB',
-    stgTargetField: 'qty_kg',
-  },
-  {
-    id: 'map_smp_ob',
-    stockProductKey: 'smp',
-    stockProductLabel: 'SMP',
-    stockSection: 'OB',
-    stockParticular: 'Opening Balance',
-    stgBlockKey: 'SMP',
-    stgBlockLabel: 'SMP STATEMENT',
-    stgSection: 'OB',
-    stgItemName: 'OB',
-    stgTargetField: 'qty_kg',
-  },
-];
+
 
 export default function StatementMappingConfigPage() {
   const [activeTab, setActiveTab] = useState<'INTERNAL' | 'STG'>('INTERNAL');
@@ -178,21 +58,7 @@ export default function StatementMappingConfigPage() {
   const [mappings, setMappings] = useState<MappingRule[]>([]);
   const [filterProduct, setFilterProduct] = useState<string>('ALL');
 
-  // Global Config Lists
-  const [stockProducts, setStockProducts] = useState<Array<{ key: string; label: string }>>([
-    { key: 'wh_milk', label: 'WH.Milk' },
-    { key: 'dlt_milk', label: 'DLT.Milk' },
-    { key: 'fc_milk', label: 'FC. Milk' },
-    { key: 'std_milk', label: 'STD.Milk' },
-    { key: 'toned_curd', label: 'Toned Milk CURD' },
-    { key: 'dtm', label: 'DTM' },
-    { key: 'skim_milk', label: 'Skim Milk' },
-    { key: 'cream', label: 'Cream' },
-    { key: 'butter_milk', label: 'Butter Milk' },
-    { key: 'r_con', label: 'R.Con' },
-    { key: 'smp', label: 'SMP' },
-    { key: 'water', label: 'Water' },
-  ]);
+  const [stockProducts, setStockProducts] = useState<Array<{ key: string; label: string }>>([]);
   const [stgStatements, setStgStatements] = useState<Array<{ key: string; label: string }>>([
     { key: 'WM', label: 'TENTATIVE WHOLE MILK - RECEIPT AND DISPOSAL STATEMENT' },
     { key: 'SSM', label: 'SKIM MILK STATEMENT' },
@@ -223,24 +89,16 @@ export default function StatementMappingConfigPage() {
       setLoading(true);
       setError('');
       try {
-        // 1. Load stock products config
-        const stockConfigRes = await fetch('/api/entries?report_type=STOCK');
+        // 1. Load stock products config from database
+        const stockConfigRes = await fetch('/api/stock/config');
         if (stockConfigRes.ok) {
-          const json = await stockConfigRes.json();
-          const entries: any[] = json.data || [];
-          const entry = entries.find((e: any) => {
-            if (!e.notes || e.notes.includes('__METADATA__:')) return false;
-            try {
-              const parsed = JSON.parse(e.notes);
-              return parsed && typeof parsed === 'object' && !Array.isArray(parsed);
-            } catch { return false; }
-          });
-          if (entry && entry.notes) {
-            try {
-              const parsed = JSON.parse(entry.notes);
-              if (parsed.products && Array.isArray(parsed.products)) setStockProducts(parsed.products);
-            } catch (e) {
-              console.error('Failed parsing stock products config:', e);
+          const stockCfg = await stockConfigRes.json();
+          if (Array.isArray(stockCfg.products) && stockCfg.products.length > 0) {
+            if (active) {
+              setStockProducts(stockCfg.products.map((p: any) => ({
+                key: p.key || p.product_key,
+                label: p.short_name || p.full_name || p.key,
+              })));
             }
           }
         }
@@ -309,17 +167,17 @@ export default function StatementMappingConfigPage() {
               if (Array.isArray(savedList) && savedList.length > 0) {
                 if (active) setMappings(savedList);
               } else if (active) {
-                setMappings(DEFAULT_MAPPINGS);
+                setMappings([]);
               }
             } catch (e) {
               console.error('Failed parsing saved mappings:', e);
-              if (active) setMappings(DEFAULT_MAPPINGS);
+              if (active) setMappings([]);
             }
           } else if (active) {
-            setMappings(DEFAULT_MAPPINGS);
+            setMappings([]);
           }
         } else if (active) {
-          setMappings(DEFAULT_MAPPINGS);
+          setMappings([]);
         }
       } catch (err) {
         console.error('Error loading mapping configuration:', err);
@@ -354,7 +212,6 @@ export default function StatementMappingConfigPage() {
       }
 
       setSuccess('Disposals ➔ Receipts mapping saved successfully!');
-      if (alertSuccess) window.alert('Disposals ➔ Receipts mapping saved successfully!');
       setTimeout(() => setSuccess(''), 4000);
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Save failed');
@@ -383,7 +240,6 @@ export default function StatementMappingConfigPage() {
       }
 
       setSuccess('Statement Mapping configuration saved successfully!');
-      if (alertSuccess) window.alert('Statement Mapping configuration saved successfully!');
       setTimeout(() => setSuccess(''), 4000);
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Save failed');
@@ -392,12 +248,61 @@ export default function StatementMappingConfigPage() {
     }
   };
 
-  // ─── Internal Mapping Helpers (Disposals ➔ Receipts) ─────────────────────────
+  const ALL_DISPOSAL_PARTICULARS = [
+    'To DLT Milk',
+    'To FC Milk',
+    'To STD Milk',
+    'To MKT',
+    'To R.CON Milk',
+    'To Separation',
+    'To HMST',
+    'To Convension',
+    'To Khoa',
+    'To Curd',
+    'To CUP Curd',
+    'To Lab Sampling',
+    'To other Dairies',
+  ];
+
+  const mappedSourceParticulars = internalRules
+    .filter(r => r.id !== internalEditingId)
+    .map(r => (r.sourceDisposalParticular || '').trim().toLowerCase());
+
+  const availableDisposalParticulars = ALL_DISPOSAL_PARTICULARS.filter(
+    dRow => !mappedSourceParticulars.includes(dRow.trim().toLowerCase())
+  );
+
+  const selectableDisposalParticulars = (internalEditingId && formSourceParticular)
+    ? Array.from(new Set([formSourceParticular, ...availableDisposalParticulars]))
+    : availableDisposalParticulars;
+
+  const mappedTargetReceiptKeys = internalRules
+    .filter(r => r.id !== internalEditingId)
+    .map(r => (r.targetReceiptProductKey || '').trim().toLowerCase());
+
+  const availableReceiptProducts = stockProducts.filter(
+    p => !mappedTargetReceiptKeys.includes((p.key || '').trim().toLowerCase())
+  );
+
+  const selectableReceiptProducts = (internalEditingId && formTargetReceiptKey)
+    ? Array.from(new Set([
+        formTargetReceiptKey,
+        ...availableReceiptProducts.map(p => p.key)
+      ])).map(k => stockProducts.find(p => p.key === k)!).filter(Boolean)
+    : availableReceiptProducts;
 
   const openNewInternalForm = () => {
+    const mapped = internalRules.map(r => (r.sourceDisposalParticular || '').trim().toLowerCase());
+    const avail = ALL_DISPOSAL_PARTICULARS.filter(d => !mapped.includes(d.trim().toLowerCase()));
+    const initialParticular = avail[0] || 'To DLT Milk';
+
+    const mappedTargetKeys = internalRules.map(r => (r.targetReceiptProductKey || '').trim().toLowerCase());
+    const availProds = stockProducts.filter(p => !mappedTargetKeys.includes((p.key || '').trim().toLowerCase()));
+    const initialTargetKey = availProds[0]?.key || stockProducts[0]?.key || 'dlt_milk';
+
     setInternalEditingId(null);
-    setFormSourceParticular('To DLT Milk');
-    setFormTargetReceiptKey(stockProducts[1]?.key || 'dlt_milk');
+    setFormSourceParticular(initialParticular);
+    setFormTargetReceiptKey(initialTargetKey);
     setIsInternalEditing(true);
   };
 
@@ -448,8 +353,17 @@ export default function StatementMappingConfigPage() {
     saveInternalToApi(updated);
   };
 
-  const deleteInternalRule = (id: string) => {
-    if (!window.confirm('Delete this mapping rule?')) return;
+  const { confirm } = useConfirm();
+
+  const deleteInternalRule = async (id: string) => {
+    const ok = await confirm({
+      title: 'Delete Rule',
+      message: 'Are you sure you want to delete this internal mapping rule?',
+      confirmText: 'Delete Rule',
+      cancelText: 'Cancel',
+      type: 'danger',
+    });
+    if (!ok) return;
     const updated = internalRules.filter(r => r.id !== id);
     setInternalRules(updated);
     saveInternalToApi(updated);
@@ -530,17 +444,31 @@ export default function StatementMappingConfigPage() {
     saveStgToApi(updated);
   };
 
-  const deleteStgRule = (id: string) => {
-    if (!window.confirm('Delete this mapping rule?')) return;
+  const deleteStgRule = async (id: string) => {
+    const ok = await confirm({
+      title: 'Delete STG Rule',
+      message: 'Are you sure you want to delete this STG mapping rule?',
+      confirmText: 'Delete Rule',
+      cancelText: 'Cancel',
+      type: 'danger',
+    });
+    if (!ok) return;
     const updated = mappings.filter(r => r.id !== id);
     setMappings(updated);
     saveStgToApi(updated);
   };
 
-  const handleResetStgDefault = () => {
-    if (!window.confirm('Reset STG statement mappings to default standard configurations?')) return;
-    setMappings(DEFAULT_MAPPINGS);
-    saveStgToApi(DEFAULT_MAPPINGS, true);
+  const handleResetStgDefault = async () => {
+    const ok = await confirm({
+      title: 'Clear STG Rules',
+      message: 'Are you sure you want to clear all STG statement mapping rules?',
+      confirmText: 'Clear All Rules',
+      cancelText: 'Cancel',
+      type: 'danger',
+    });
+    if (!ok) return;
+    setMappings([]);
+    saveStgToApi([], true);
   };
 
   const filteredStgMappings = filterProduct === 'ALL'
@@ -554,6 +482,22 @@ export default function StatementMappingConfigPage() {
         subtitle="Configure auto-calculation rules between Disposals & Receipts and STG Statements"
         actions={
           <div style={{ display: 'flex', gap: 8 }}>
+            <button
+              type="button"
+              className="btn btn-success btn-sm"
+              onClick={() => {
+                if (activeTab === 'INTERNAL') {
+                  saveInternalToApi(internalRules, true);
+                } else {
+                  saveStgToApi(mappings, true);
+                }
+              }}
+              disabled={loading || saving}
+              title="Save all mapping configurations directly to Database"
+              style={{ display: 'flex', alignItems: 'center', gap: 6, fontWeight: 700 }}
+            >
+              💾 Save Configuration to DB
+            </button>
             <Link href="/dashboard/stock/new" className="btn btn-primary btn-sm">
               ➕ New Stock Entry
             </Link>
@@ -635,6 +579,16 @@ export default function StatementMappingConfigPage() {
                 <div style={{ display: 'flex', gap: 10 }}>
                   <button
                     type="button"
+                    className="btn btn-success btn-sm"
+                    onClick={() => saveInternalToApi(internalRules, true)}
+                    disabled={loading || saving}
+                    title="Save all Disposals ➔ Receipts mapping rules directly to Database"
+                    style={{ display: 'flex', alignItems: 'center', gap: 6, fontWeight: 700 }}
+                  >
+                    💾 Save Mappings to DB
+                  </button>
+                  <button
+                    type="button"
                     className="btn btn-primary btn-sm"
                     onClick={openNewInternalForm}
                     disabled={loading || saving}
@@ -675,28 +629,23 @@ export default function StatementMappingConfigPage() {
                           onChange={e => setFormSourceParticular(e.target.value)}
                           style={{ width: '100%' }}
                         >
-                          {[
-                            'To DLT Milk',
-                            'To FC Milk',
-                            'To STD Milk',
-                            'To MKT',
-                            'To R.CON Milk',
-                            'To Separation',
-                            'To HMST',
-                            'To Convension',
-                            'To Khoa',
-                            'To Curd',
-                            'To CUP Curd',
-                            'To Lab Sampling',
-                            'To other Dairies',
-                          ].map(dRow => (
-                            <option key={dRow} value={dRow}>
-                              Disposals Row: {dRow}
-                            </option>
-                          ))}
+                          {selectableDisposalParticulars.length === 0 ? (
+                            <option value={formSourceParticular}>{formSourceParticular}</option>
+                          ) : (
+                            selectableDisposalParticulars.map(dRow => (
+                              <option key={dRow} value={dRow}>
+                                Disposals Row: {dRow}
+                              </option>
+                            ))
+                          )}
                         </select>
+                        {availableDisposalParticulars.length === 0 && !internalEditingId && (
+                          <div style={{ fontSize: '0.75rem', color: '#b45309', marginTop: 4, fontWeight: 600 }}>
+                            ⚠️ All standard Disposals row particulars are already configured below.
+                          </div>
+                        )}
                         <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: 4 }}>
-                          Select the Disposals row whose total value will be calculated.
+                          Select the Disposals row whose total value will be calculated. Already configured rows are hidden.
                         </div>
                       </div>
                     </div>
@@ -716,14 +665,23 @@ export default function StatementMappingConfigPage() {
                           onChange={e => setFormTargetReceiptKey(e.target.value)}
                           style={{ width: '100%' }}
                         >
-                          {stockProducts.map(p => (
-                            <option key={p.key} value={p.key}>
-                              {p.label} ({p.key})
-                            </option>
-                          ))}
+                          {selectableReceiptProducts.length === 0 ? (
+                            <option value={formTargetReceiptKey}>{formTargetReceiptKey}</option>
+                          ) : (
+                            selectableReceiptProducts.map(p => (
+                              <option key={p.key} value={p.key}>
+                                Receipts Column: {p.label} ({p.key})
+                              </option>
+                            ))
+                          )}
                         </select>
+                        {availableReceiptProducts.length === 0 && !internalEditingId && (
+                          <div style={{ fontSize: '0.75rem', color: '#059669', marginTop: 4, fontWeight: 600 }}>
+                            ⚠️ All Receipt product columns are already mapped.
+                          </div>
+                        )}
                         <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: 4 }}>
-                          Receipt value of this product will show the Disposals row total.
+                          Receipt value of this product will show the Disposals row total. Already mapped products are hidden.
                         </div>
                       </div>
                     </div>

@@ -658,20 +658,20 @@ export default function STGEntryForm({
       }
 
       if (stockProducts.length === 0) {
-        stockProducts = [
-          { key: 'wh_milk', label: 'WH.Milk', full_name: 'TENTATIVE WHOLE MILK' },
-          { key: 'dlt_milk', label: 'DLT.Milk', full_name: 'DOUBLE TONED MILK' },
-          { key: 'fc_milk', label: 'FC. Milk', full_name: 'FULL CREAM MILK' },
-          { key: 'std_milk', label: 'STD.Milk', full_name: 'STANDARDIZED MILK' },
-          { key: 'toned_curd', label: 'TM Curd', full_name: 'TONED MILK CURD' },
-          { key: 'dtm', label: 'DTM', full_name: 'DOUBLE TONED MILK' },
-          { key: 'skim_milk', label: 'Skim Milk', full_name: 'SKIMMED MILK' },
-          { key: 'cream', label: 'Cream', full_name: 'CREAM' },
-          { key: 'butter_milk', label: 'BM', full_name: 'BUTTER MILK' },
-          { key: 'r_con', label: 'R.Con', full_name: 'RECONSTITUTED MILK' },
-          { key: 'smp', label: 'SMP', full_name: 'SKIM MILK POWDER' },
-          { key: 'water', label: 'Water', full_name: 'WATER' },
-        ];
+        try {
+          const cfgRes = await fetch('/api/stock/config');
+          if (cfgRes.ok) {
+            const cfgJson = await cfgRes.json();
+            if (Array.isArray(cfgJson.products) && cfgJson.products.length > 0) {
+              stockProducts = cfgJson.products.map((p: any) => ({
+                key: p.key || p.product_key,
+                label: p.short_name || p.full_name || p.key,
+                full_name: p.full_name || p.product_name,
+                short_name: p.short_name || p.code,
+              }));
+            }
+          }
+        } catch {}
       }
 
       const getBlockInfo = (prod: { key: string; label: string; full_name?: string; short_name?: string }) => {
@@ -1634,14 +1634,18 @@ export default function STGEntryForm({
         }
       });
 
-      const metadata = {
-        custom_statements: statements.filter(s => enabledBlockKeys.includes(s.key)),
-        custom_blocks: customBlocks,
-        enabled_blocks: enabledBlockKeys,
-        manual_rows: manualRows,
-        cmpdd_norms: cmpddNorms,
-      };
-      const finalNotes = notes.trim() + "\n__METADATA__:" + JSON.stringify(metadata);
+      const userNotesText = notes ? notes.trim() : '';
+      let finalNotes: string | null = null;
+      if (userNotesText) {
+        const metadata = {
+          custom_statements: statements.filter(s => enabledBlockKeys.includes(s.key)),
+          custom_blocks: customBlocks,
+          enabled_blocks: enabledBlockKeys,
+          manual_rows: manualRows,
+          cmpdd_norms: cmpddNorms,
+        };
+        finalNotes = userNotesText + "\n__METADATA__:" + JSON.stringify(metadata);
+      }
 
       const entryRes = await fetch('/api/entries', {
         method: 'POST',
@@ -2785,25 +2789,40 @@ export default function STGEntryForm({
     );
   };
 
+  const handleStepClick = (key: string) => {
+    if (onStepChange) {
+      onStepChange(key);
+      return;
+    }
+    const s = shift ?? 'F';
+    if (key === 'stock') {
+      router.push(`/dashboard/stock/new?date=${entryDate}&shift=${s}`);
+    } else if (key === 'stg') {
+      router.push(`/dashboard/ts/new-stg?date=${entryDate}&shift=${s}`);
+    } else if (key === 'ts') {
+      router.push(`/dashboard/ts/new?date=${entryDate}&shift=${s}`);
+    } else if (key === 'reports') {
+      router.push(`/dashboard/ts/${entryDate}?shift=${s}`);
+    }
+  };
+
   return (
     <>
-      {stepMode && (
-        <Header
-          title="New Stock Statement Entry"
-          subtitle={`Solid Balance Details (STG) - Auto-compiled Receipts & Disposals (${reportMode === 'full_day' ? 'Full Day' : (shift === 'D' ? 'Day Shift' : 'Night Shift')})`}
-          actions={
-            <Link href="/dashboard/stock" className="btn btn-secondary btn-sm">← Back to Stock List</Link>
-          }
-        >
-          <Step
-            items={DAILY_ENTRY_STEP_ITEMS}
-            flat={true}
-            activeStep={activeStep || 'stg'}
-            onStepClick={(key) => onStepChange?.(key)}
-            style={{ marginBottom: 0, marginTop: 4 }}
-          />
-        </Header>
-      )}
+      <Header
+        title="Solid Balance Details (STG)"
+        subtitle={`Auto-compiled Receipts & Disposals (${reportMode === 'full_day' ? 'Full Day' : (shift === 'D' ? 'Day Shift' : 'Night Shift')})`}
+        actions={
+          <Link href="/dashboard/ts" className="btn btn-secondary btn-sm">← Back to Register</Link>
+        }
+      >
+        <Step
+          items={DAILY_ENTRY_STEP_ITEMS}
+          flat={true}
+          activeStep={activeStep || 'stg'}
+          onStepClick={handleStepClick}
+          style={{ marginBottom: 0, marginTop: 4 }}
+        />
+      </Header>
       <div className="form-container">
       {/* Top action buttons */}
       <div ref={saveButtonRef} className="no-print" style={{ display: 'flex', gap: 12, justifyContent: 'flex-end', alignItems: 'center', marginBottom: 20 }}>

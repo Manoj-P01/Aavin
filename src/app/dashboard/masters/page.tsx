@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
+import { useConfirm } from '@/context/ConfirmContext';
 
 interface ProductItem {
   id: string;
@@ -28,8 +29,20 @@ interface DairyItem {
   updated_at?: string;
 }
 
+interface CategoryItem {
+  id: string;
+  category_name: string;
+  code?: string;
+  sort_order: number;
+  is_active: boolean;
+  created_by?: string;
+  created_at?: string;
+  updated_by?: string;
+  updated_at?: string;
+}
+
 export default function MasterDeclarationsPage() {
-  const [activeTab, setActiveTab] = useState<'PRODUCTS' | 'DAIRIES'>('PRODUCTS');
+  const [activeTab, setActiveTab] = useState<'PRODUCTS' | 'DAIRIES' | 'CATEGORIES'>('PRODUCTS');
   
   // Products State
   const [products, setProducts] = useState<ProductItem[]>([]);
@@ -49,6 +62,14 @@ export default function MasterDeclarationsPage() {
   const [newDairyCode, setNewDairyCode] = useState('');
   const [editingDairy, setEditingDairy] = useState<DairyItem | null>(null);
 
+  // Categories Master State
+  const [categories, setCategories] = useState<CategoryItem[]>([]);
+  const [loadingCategories, setLoadingCategories] = useState(true);
+  const [showAddCategoryModal, setShowAddCategoryModal] = useState(false);
+  const [newCategoryName, setNewCategoryName] = useState('');
+  const [newCategoryCode, setNewCategoryCode] = useState('');
+  const [editingCategory, setEditingCategory] = useState<CategoryItem | null>(null);
+
   const [isSeeding, setIsSeeding] = useState(false);
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
@@ -60,7 +81,7 @@ export default function MasterDeclarationsPage() {
       const json = await res.json();
       if (!res.ok) throw new Error(json.error || 'Failed seeding master data');
       setMessage({ type: 'success', text: json.message || 'Master data seeded successfully!' });
-      await Promise.all([fetchProducts(), fetchDairies()]);
+      await Promise.all([fetchProducts(), fetchDairies(), fetchCategories()]);
     } catch (err: unknown) {
       setMessage({ type: 'error', text: err instanceof Error ? err.message : 'Error seeding master data' });
     } finally {
@@ -94,9 +115,23 @@ export default function MasterDeclarationsPage() {
     }
   };
 
+  const fetchCategories = async () => {
+    try {
+      setLoadingCategories(true);
+      const res = await fetch('/api/master/categories');
+      const json = await res.json();
+      if (res.ok && json.data) setCategories(json.data);
+    } catch {
+      // handled silently
+    } finally {
+      setLoadingCategories(false);
+    }
+  };
+
   useEffect(() => {
     fetchProducts();
     fetchDairies();
+    fetchCategories();
   }, []);
 
   const handleAddProduct = async (e: React.FormEvent) => {
@@ -206,8 +241,69 @@ export default function MasterDeclarationsPage() {
     }
   };
 
+  const handleAddCategory = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setMessage(null);
+    if (!newCategoryName.trim()) return;
+
+    try {
+      const res = await fetch('/api/master/categories', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          category_name: newCategoryName,
+          code: newCategoryCode || newCategoryName.substring(0, 4).toUpperCase(),
+          sort_order: categories.length + 1,
+        }),
+      });
+
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || 'Failed declaring category');
+
+      setMessage({ type: 'success', text: `Product Category "${newCategoryName}" declared successfully!` });
+      setShowAddCategoryModal(false);
+      setNewCategoryName('');
+      setNewCategoryCode('');
+      fetchCategories();
+    } catch (err: unknown) {
+      setMessage({ type: 'error', text: err instanceof Error ? err.message : 'Error declaring category' });
+    }
+  };
+
+  const handleUpdateCategory = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingCategory) return;
+    setMessage(null);
+
+    try {
+      const res = await fetch('/api/master/categories', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(editingCategory),
+      });
+
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || 'Failed updating category');
+
+      setMessage({ type: 'success', text: `Product Category "${editingCategory.category_name}" updated!` });
+      setEditingCategory(null);
+      fetchCategories();
+    } catch (err: unknown) {
+      setMessage({ type: 'error', text: err instanceof Error ? err.message : 'Error updating category' });
+    }
+  };
+
+  const { confirm } = useConfirm();
+
   const handleDeleteProduct = async (id: string, name: string) => {
-    if (!window.confirm(`Are you sure you want to delete product "${name}"?`)) return;
+    const isConfirmed = await confirm({
+      title: 'Delete Product',
+      message: `Are you sure you want to delete product "${name}"?`,
+      confirmText: 'Delete Product',
+      cancelText: 'Cancel',
+      type: 'danger',
+    });
+    if (!isConfirmed) return;
     setMessage(null);
     try {
       const res = await fetch(`/api/master/products?id=${id}`, { method: 'DELETE' });
@@ -221,7 +317,14 @@ export default function MasterDeclarationsPage() {
   };
 
   const handleDeleteDairy = async (id: string, name: string) => {
-    if (!window.confirm(`Are you sure you want to delete destination dairy "${name}"?`)) return;
+    const isConfirmed = await confirm({
+      title: 'Delete Destination Dairy',
+      message: `Are you sure you want to delete destination dairy "${name}"?`,
+      confirmText: 'Delete Dairy',
+      cancelText: 'Cancel',
+      type: 'danger',
+    });
+    if (!isConfirmed) return;
     setMessage(null);
     try {
       const res = await fetch(`/api/master/dairies?id=${id}`, { method: 'DELETE' });
@@ -234,6 +337,27 @@ export default function MasterDeclarationsPage() {
     }
   };
 
+  const handleDeleteCategory = async (id: string, name: string) => {
+    const isConfirmed = await confirm({
+      title: 'Delete Product Category',
+      message: `Are you sure you want to delete product category "${name}"?`,
+      confirmText: 'Delete Category',
+      cancelText: 'Cancel',
+      type: 'danger',
+    });
+    if (!isConfirmed) return;
+    setMessage(null);
+    try {
+      const res = await fetch(`/api/master/categories?id=${id}`, { method: 'DELETE' });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || 'Failed deleting category');
+      setMessage({ type: 'success', text: `Product Category "${name}" deleted successfully!` });
+      fetchCategories();
+    } catch (err: unknown) {
+      setMessage({ type: 'error', text: err instanceof Error ? err.message : 'Error deleting category' });
+    }
+  };
+
   return (
     <div style={{ padding: '24px 32px', maxWidth: 1200, margin: '0 auto' }}>
       {/* Page Header */}
@@ -243,7 +367,7 @@ export default function MasterDeclarationsPage() {
             <span>⚙️ Master Entity Declarations</span>
           </h1>
           <p style={{ fontSize: '0.88rem', color: 'var(--text-secondary)', marginTop: 4, margin: 0 }}>
-            User-declared master tables for Products (`products_master`) and Destination Union Dairies (`dairy_destinations_master`).
+            User-declared master tables for Products (`products_master`), Product Categories (`product_categories_master`), and Destination Union Dairies (`dairy_destinations_master`).
           </p>
         </div>
 
@@ -254,12 +378,12 @@ export default function MasterDeclarationsPage() {
             onClick={handleSeedMasters}
             disabled={isSeeding}
             style={{ fontSize: '0.85rem', fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: 6 }}
-            title="Seed default products and destination dairies into the database"
+            title="Seed default products, categories and destination dairies into database"
           >
             {isSeeding ? '⏳ Seeding...' : '🌱 Seed Default Masters'}
           </button>
 
-          {activeTab === 'PRODUCTS' ? (
+          {activeTab === 'PRODUCTS' && (
             <button
               type="button"
               className="btn btn-primary"
@@ -268,7 +392,9 @@ export default function MasterDeclarationsPage() {
             >
               ➕ Declare New Product
             </button>
-          ) : (
+          )}
+
+          {activeTab === 'DAIRIES' && (
             <button
               type="button"
               className="btn btn-primary"
@@ -276,6 +402,17 @@ export default function MasterDeclarationsPage() {
               style={{ fontSize: '0.85rem', fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: 6 }}
             >
               ➕ Declare Destination Dairy
+            </button>
+          )}
+
+          {activeTab === 'CATEGORIES' && (
+            <button
+              type="button"
+              className="btn btn-primary"
+              onClick={() => setShowAddCategoryModal(true)}
+              style={{ fontSize: '0.85rem', fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: 6 }}
+            >
+              ➕ Declare Product Category
             </button>
           )}
         </div>
@@ -315,7 +452,24 @@ export default function MasterDeclarationsPage() {
             cursor: 'pointer',
           }}
         >
-          🥛 Products Master ({products.length})
+          📦 Products Master ({products.length})
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setActiveTab('CATEGORIES')}
+          style={{
+            padding: '10px 20px',
+            fontSize: '0.9rem',
+            fontWeight: 700,
+            border: 'none',
+            background: 'none',
+            borderBottom: activeTab === 'CATEGORIES' ? '3px solid var(--brand-primary)' : '3px solid transparent',
+            color: activeTab === 'CATEGORIES' ? 'var(--brand-primary)' : 'var(--text-muted)',
+            cursor: 'pointer',
+          }}
+        >
+          🏷️ Product Categories Master ({categories.length})
         </button>
 
         <button
@@ -379,6 +533,53 @@ export default function MasterDeclarationsPage() {
                     <div style={{ display: 'inline-flex', gap: 6 }}>
                       <button type="button" className="btn btn-secondary btn-xs" onClick={() => setEditingProduct(p)}>✏️ Edit</button>
                       <button type="button" className="btn btn-secondary btn-xs" style={{ color: '#ef4444', borderColor: '#fca5a5' }} onClick={() => handleDeleteProduct(p.id, p.product_name)}>🗑️ Delete</button>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {/* Categories Tab View */}
+      {activeTab === 'CATEGORIES' && (
+        <div className="card" style={{ background: '#fff', borderRadius: 12, border: '1px solid var(--border)', overflow: 'hidden' }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.85rem' }}>
+            <thead>
+              <tr style={{ background: '#f8fafc', borderBottom: '1px solid var(--border)', color: 'var(--text-secondary)', textTransform: 'uppercase', fontSize: '0.72rem', letterSpacing: '0.05em' }}>
+                <th style={{ padding: '12px 16px' }}>Category Name</th>
+                <th style={{ padding: '12px 16px' }}>Code</th>
+                <th style={{ padding: '12px 16px' }}>Status</th>
+                <th style={{ padding: '12px 16px' }}>Declared By / Date</th>
+                <th style={{ padding: '12px 16px' }}>Updated By / Date</th>
+                <th style={{ padding: '12px 16px', textAlign: 'center' }}>Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {loadingCategories ? (
+                <tr><td colSpan={6} style={{ padding: 24, textAlign: 'center', color: 'var(--text-muted)' }}>Loading declared product categories...</td></tr>
+              ) : categories.map(c => (
+                <tr key={c.id} style={{ borderBottom: '1px solid var(--border)' }}>
+                  <td style={{ padding: '12px 16px', fontWeight: 700, color: 'var(--text-primary)' }}>{c.category_name}</td>
+                  <td style={{ padding: '12px 16px', fontWeight: 600, color: '#0ea5e9' }}>{c.code || '—'}</td>
+                  <td style={{ padding: '12px 16px' }}>
+                    <span style={{ padding: '2px 8px', borderRadius: 12, fontSize: '0.72rem', fontWeight: 700, background: c.is_active ? '#d1fae5' : '#fee2e2', color: c.is_active ? '#065f46' : '#991b1b' }}>
+                      {c.is_active ? 'Active' : 'Disabled'}
+                    </span>
+                  </td>
+                  <td style={{ padding: '12px 16px', fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
+                    <div><strong>{c.created_by || 'admin'}</strong></div>
+                    <div style={{ color: 'var(--text-muted)' }}>{c.created_at ? new Date(c.created_at).toLocaleDateString('en-IN') : '—'}</div>
+                  </td>
+                  <td style={{ padding: '12px 16px', fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
+                    <div><strong>{c.updated_by || 'admin'}</strong></div>
+                    <div style={{ color: 'var(--text-muted)' }}>{c.updated_at ? new Date(c.updated_at).toLocaleDateString('en-IN') : '—'}</div>
+                  </td>
+                  <td style={{ padding: '12px 16px', textAlign: 'center' }}>
+                    <div style={{ display: 'inline-flex', gap: 6 }}>
+                      <button type="button" className="btn btn-secondary btn-xs" onClick={() => setEditingCategory(c)}>✏️ Edit</button>
+                      <button type="button" className="btn btn-secondary btn-xs" style={{ color: '#ef4444', borderColor: '#fca5a5' }} onClick={() => handleDeleteCategory(c.id, c.category_name)}>🗑️ Delete</button>
                     </div>
                   </td>
                 </tr>
@@ -459,9 +660,16 @@ export default function MasterDeclarationsPage() {
               <div>
                 <label style={{ fontSize: '0.8rem', fontWeight: 600, display: 'block', marginBottom: 4 }}>Category</label>
                 <select className="form-select" value={newProdCategory} onChange={e => setNewProdCategory(e.target.value)} style={{ width: '100%' }}>
-                  <option value="Liquid Milk">Liquid Milk</option>
-                  <option value="Products">Products</option>
-                  <option value="Others">Others</option>
+                  {categories.length > 0 ? categories.map(c => (
+                    <option key={c.id} value={c.category_name}>{c.category_name}</option>
+                  )) : (
+                    <>
+                      <option value="Liquid Milk">Liquid Milk</option>
+                      <option value="Products">Products</option>
+                      <option value="By-Products">By-Products</option>
+                      <option value="Others">Others</option>
+                    </>
+                  )}
                 </select>
               </div>
               <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, marginTop: 12 }}>
@@ -491,6 +699,21 @@ export default function MasterDeclarationsPage() {
                 <input type="text" className="form-input" value={editingProduct.short_name || ''} onChange={e => setEditingProduct({ ...editingProduct, short_name: e.target.value })} style={{ width: '100%' }} />
               </div>
               <div>
+                <label style={{ fontSize: '0.8rem', fontWeight: 600, display: 'block', marginBottom: 4 }}>Category</label>
+                <select className="form-select" value={editingProduct.category || 'Liquid Milk'} onChange={e => setEditingProduct({ ...editingProduct, category: e.target.value })} style={{ width: '100%' }}>
+                  {categories.length > 0 ? categories.map(c => (
+                    <option key={c.id} value={c.category_name}>{c.category_name}</option>
+                  )) : (
+                    <>
+                      <option value="Liquid Milk">Liquid Milk</option>
+                      <option value="Products">Products</option>
+                      <option value="By-Products">By-Products</option>
+                      <option value="Others">Others</option>
+                    </>
+                  )}
+                </select>
+              </div>
+              <div>
                 <label style={{ fontSize: '0.8rem', fontWeight: 600, display: 'block', marginBottom: 4 }}>Status</label>
                 <select className="form-select" value={editingProduct.is_active ? 'active' : 'disabled'} onChange={e => setEditingProduct({ ...editingProduct, is_active: e.target.value === 'active' })} style={{ width: '100%' }}>
                   <option value="active">Active</option>
@@ -499,6 +722,65 @@ export default function MasterDeclarationsPage() {
               </div>
               <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, marginTop: 12 }}>
                 <button type="button" className="btn btn-secondary btn-sm" onClick={() => setEditingProduct(null)}>Cancel</button>
+                <button type="submit" className="btn btn-primary btn-sm">💾 Save Changes</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Add Category Modal */}
+      {showAddCategoryModal && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 999, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
+          <div className="card animate-fade-in" style={{ maxWidth: 460, width: '100%', background: '#fff', borderRadius: 12, padding: 24 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 16 }}>
+              <h3 style={{ margin: 0, fontSize: '1.1rem', fontWeight: 700, color: 'var(--brand-primary)' }}>➕ Declare Product Category</h3>
+              <button type="button" style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '1.2rem' }} onClick={() => setShowAddCategoryModal(false)}>✖</button>
+            </div>
+            <form onSubmit={handleAddCategory} style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+              <div>
+                <label style={{ fontSize: '0.8rem', fontWeight: 600, display: 'block', marginBottom: 4 }}>Category Name (e.g. Liquid Milk)</label>
+                <input type="text" placeholder="e.g. Liquid Milk" className="form-input" value={newCategoryName} onChange={e => setNewCategoryName(e.target.value)} required style={{ width: '100%' }} />
+              </div>
+              <div>
+                <label style={{ fontSize: '0.8rem', fontWeight: 600, display: 'block', marginBottom: 4 }}>Category Code</label>
+                <input type="text" placeholder="e.g. MILK" className="form-input" value={newCategoryCode} onChange={e => setNewCategoryCode(e.target.value)} style={{ width: '100%' }} />
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, marginTop: 12 }}>
+                <button type="button" className="btn btn-secondary btn-sm" onClick={() => setShowAddCategoryModal(false)}>Cancel</button>
+                <button type="submit" className="btn btn-primary btn-sm">💾 Declare Category</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Edit Category Modal */}
+      {editingCategory && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 999, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
+          <div className="card animate-fade-in" style={{ maxWidth: 460, width: '100%', background: '#fff', borderRadius: 12, padding: 24 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 16 }}>
+              <h3 style={{ margin: 0, fontSize: '1.1rem', fontWeight: 700, color: 'var(--brand-primary)' }}>✏️ Edit Category: {editingCategory.category_name}</h3>
+              <button type="button" style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '1.2rem' }} onClick={() => setEditingCategory(null)}>✖</button>
+            </div>
+            <form onSubmit={handleUpdateCategory} style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+              <div>
+                <label style={{ fontSize: '0.8rem', fontWeight: 600, display: 'block', marginBottom: 4 }}>Category Name</label>
+                <input type="text" className="form-input" value={editingCategory.category_name} onChange={e => setEditingCategory({ ...editingCategory, category_name: e.target.value })} required style={{ width: '100%' }} />
+              </div>
+              <div>
+                <label style={{ fontSize: '0.8rem', fontWeight: 600, display: 'block', marginBottom: 4 }}>Category Code</label>
+                <input type="text" className="form-input" value={editingCategory.code || ''} onChange={e => setEditingCategory({ ...editingCategory, code: e.target.value })} style={{ width: '100%' }} />
+              </div>
+              <div>
+                <label style={{ fontSize: '0.8rem', fontWeight: 600, display: 'block', marginBottom: 4 }}>Status</label>
+                <select className="form-select" value={editingCategory.is_active ? 'active' : 'disabled'} onChange={e => setEditingCategory({ ...editingCategory, is_active: e.target.value === 'active' })} style={{ width: '100%' }}>
+                  <option value="active">Active</option>
+                  <option value="disabled">Disabled</option>
+                </select>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, marginTop: 12 }}>
+                <button type="button" className="btn btn-secondary btn-sm" onClick={() => setEditingCategory(null)}>Cancel</button>
                 <button type="submit" className="btn btn-primary btn-sm">💾 Save Changes</button>
               </div>
             </form>
@@ -567,3 +849,4 @@ export default function MasterDeclarationsPage() {
     </div>
   );
 }
+

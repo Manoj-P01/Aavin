@@ -360,10 +360,11 @@ export default function TSEntryForm({
 
   // Helper to ensure the main entry exists, returning the entry ID
   const getOrCreateEntryId = async (): Promise<string> => {
+    const cleanNotesText = notes ? notes.trim() : '';
     const entryRes = await fetch('/api/entries', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ entry_date: entryDate, shift, report_type: 'TS', notes }),
+      body: JSON.stringify({ entry_date: entryDate, shift, report_type: 'TS', notes: cleanNotesText || null }),
     });
     const entryData = await entryRes.json();
     if (!entryRes.ok && entryRes.status !== 409) {
@@ -446,25 +447,40 @@ export default function TSEntryForm({
     }
   };
 
+  const handleStepClick = (key: string) => {
+    if (onStepChange) {
+      onStepChange(key);
+      return;
+    }
+    const s = shift ?? 'F';
+    if (key === 'stock') {
+      router.push(`/dashboard/stock/new?date=${entryDate}&shift=${s}`);
+    } else if (key === 'stg') {
+      router.push(`/dashboard/ts/new-stg?date=${entryDate}&shift=${s}`);
+    } else if (key === 'ts') {
+      router.push(`/dashboard/ts/new?date=${entryDate}&shift=${s}`);
+    } else if (key === 'reports') {
+      router.push(`/dashboard/ts/${entryDate}?shift=${s}`);
+    }
+  };
+
   return (
     <>
-      {stepMode && (
-        <Header
-          title="New Stock Statement Entry"
-          subtitle={`Total Solids (TS) Statement - Auto-calculated Fat & SNF Balances (${reportMode === 'full_day' ? 'Full Day' : (shift === 'D' ? 'Day Shift' : 'Night Shift')})`}
-          actions={
-            <Link href="/dashboard/stock" className="btn btn-secondary btn-sm">← Back to Stock List</Link>
-          }
-        >
-          <Step
-            items={DAILY_ENTRY_STEP_ITEMS}
-            flat={true}
-            activeStep={activeStep || 'ts'}
-            onStepClick={(key) => onStepChange?.(key)}
-            style={{ marginBottom: 0, marginTop: 4 }}
-          />
-        </Header>
-      )}
+      <Header
+        title="Total Solids (TS) Statement"
+        subtitle={`Auto-calculated Fat & SNF Balances (${reportMode === 'full_day' ? 'Full Day' : (shift === 'D' ? 'Day Shift' : 'Night Shift')})`}
+        actions={
+          <Link href="/dashboard/ts" className="btn btn-secondary btn-sm">← Back to TS List</Link>
+        }
+      >
+        <Step
+          items={DAILY_ENTRY_STEP_ITEMS}
+          flat={true}
+          activeStep={activeStep || 'ts'}
+          onStepClick={handleStepClick}
+          style={{ marginBottom: 0, marginTop: 4 }}
+        />
+      </Header>
       <div className="form-container">
       {/* Date / Shift / Notes */}
       <div className="card" style={{ marginBottom: 20 }}>

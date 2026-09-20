@@ -1,10 +1,15 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getSupabaseServiceClient } from '@/lib/supabase';
 import { getAuthUserFromRequest } from '@/lib/auth';
+import { isLocalDbEnabled } from '@/lib/fileDb';
 
 // GET /api/master/products - List products dynamically from products_master
 export async function GET(req: NextRequest) {
   try {
+    if (isLocalDbEnabled()) {
+      return NextResponse.json({ data: [] });
+    }
+
     const supabase = getSupabaseServiceClient();
 
     // Try stored procedure fn_get_active_products_master() first
@@ -188,11 +193,18 @@ export async function DELETE(req: NextRequest) {
       return NextResponse.json({ success: true, message: 'Product soft-deleted successfully' });
     }
 
-    // Direct table soft delete fallback
-    const { error } = await supabase
+    const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id);
+    let dbQuery = supabase
       .from('products_master')
-      .update({ is_active: false, updated_by: actorUsername, updated_at: new Date().toISOString() })
-      .eq('id', id);
+      .update({ is_active: false, updated_by: actorUsername, updated_at: new Date().toISOString() });
+
+    if (isUuid) {
+      dbQuery = dbQuery.eq('id', id);
+    } else {
+      dbQuery = dbQuery.eq('product_key', id);
+    }
+
+    const { error } = await dbQuery;
 
     if (error) throw error;
 

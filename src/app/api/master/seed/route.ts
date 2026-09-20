@@ -7,14 +7,13 @@ const SEED_PRODUCTS = [
   { product_key: 'dlt_milk', product_name: 'DLT Milk', short_name: 'DLT', category: 'Liquid Milk', sort_order: 2 },
   { product_key: 'fc_milk', product_name: 'FC Milk', short_name: 'FC', category: 'Liquid Milk', sort_order: 3 },
   { product_key: 'std_milk', product_name: 'STD Milk', short_name: 'STD', category: 'Liquid Milk', sort_order: 4 },
-  { product_key: 'toned_curd', product_name: 'Toned Curd', short_name: 'TC', category: 'Products', sort_order: 5 },
-  { product_key: 'dtm', product_name: 'DTM', short_name: 'DTM', category: 'Liquid Milk', sort_order: 6 },
-  { product_key: 'skim_milk', product_name: 'Skim Milk', short_name: 'SSM', category: 'Liquid Milk', sort_order: 7 },
-  { product_key: 'cream', product_name: 'Cream', short_name: 'CRM', category: 'Products', sort_order: 8 },
-  { product_key: 'butter_milk', product_name: 'Butter Milk', short_name: 'BM', category: 'Products', sort_order: 9 },
-  { product_key: 'r_con', product_name: 'R.Con', short_name: 'RC', category: 'Products', sort_order: 10 },
-  { product_key: 'smp', product_name: 'SMP', short_name: 'SMP', category: 'Products', sort_order: 11 },
-  { product_key: 'water', product_name: 'Water', short_name: 'WTR', category: 'Others', sort_order: 12 }
+  { product_key: 'dtm', product_name: 'DTM', short_name: 'DTM', category: 'Liquid Milk', sort_order: 5 },
+  { product_key: 'skim_milk', product_name: 'Skim Milk', short_name: 'SSM', category: 'Liquid Milk', sort_order: 6 },
+  { product_key: 'cream', product_name: 'Cream', short_name: 'CRM', category: 'Products', sort_order: 7 },
+  { product_key: 'butter_milk', product_name: 'Butter Milk', short_name: 'BM', category: 'Products', sort_order: 8 },
+  { product_key: 'r_con', product_name: 'R.Con', short_name: 'RC', category: 'Products', sort_order: 9 },
+  { product_key: 'smp', product_name: 'SMP', short_name: 'SMP', category: 'Products', sort_order: 10 },
+  { product_key: 'water', product_name: 'Water', short_name: 'WTR', category: 'Others', sort_order: 11 }
 ];
 
 const SEED_DAIRIES = [
@@ -28,6 +27,13 @@ const SEED_DAIRIES = [
   { dairy_name: 'Salem-SSM', code: 'SLM', sort_order: 8 }
 ];
 
+const SEED_CATEGORIES = [
+  { category_name: 'Liquid Milk', code: 'MILK', sort_order: 1 },
+  { category_name: 'Products', code: 'PROD', sort_order: 2 },
+  { category_name: 'By-Products', code: 'BYPROD', sort_order: 3 },
+  { category_name: 'Others', code: 'OTHR', sort_order: 4 },
+];
+
 // POST /api/master/seed - Seed Default Preset Master Data from UI
 export async function POST(req: NextRequest) {
   try {
@@ -35,12 +41,45 @@ export async function POST(req: NextRequest) {
     const actorUsername = authUser?.username || 'admin';
     const supabase = getSupabaseServiceClient();
 
+    const body = await req.json().catch(() => ({}));
+    const productsToSeed = Array.isArray(body.products) && body.products.length > 0 ? body.products : SEED_PRODUCTS;
+    const dairiesToSeed = Array.isArray(body.dairies) && body.dairies.length > 0 ? body.dairies : SEED_DAIRIES;
+    const categoriesToSeed = Array.isArray(body.categories) && body.categories.length > 0 ? body.categories : SEED_CATEGORIES;
+
     let seededProductsCount = 0;
     let seededDairiesCount = 0;
+    let seededCategoriesCount = 0;
 
-    // 1. Seed Products Master
-    for (const p of SEED_PRODUCTS) {
-      // Try SP fn_upsert_product_master first
+    // 1. Seed Product Categories Master
+    for (const c of categoriesToSeed) {
+      const { data: rpcData, error: rpcErr } = await supabase.rpc('fn_upsert_product_category', {
+        p_category_name: c.category_name,
+        p_code: c.code,
+        p_sort_order: c.sort_order,
+        p_is_active: true,
+        p_actor: actorUsername,
+      });
+
+      if (!rpcErr && rpcData) {
+        seededCategoriesCount++;
+      } else {
+        const { error: upsertErr } = await supabase
+          .from('product_categories_master')
+          .upsert({
+            category_name: c.category_name,
+            code: c.code,
+            sort_order: c.sort_order,
+            is_active: true,
+            created_by: actorUsername,
+            updated_by: actorUsername,
+          }, { onConflict: 'category_name' });
+
+        if (!upsertErr) seededCategoriesCount++;
+      }
+    }
+
+    // 2. Seed Products Master
+    for (const p of productsToSeed) {
       const { data: rpcData, error: rpcErr } = await supabase.rpc('fn_upsert_product_master', {
         p_product_key: p.product_key,
         p_product_name: p.product_name,
@@ -54,7 +93,6 @@ export async function POST(req: NextRequest) {
       if (!rpcErr && rpcData) {
         seededProductsCount++;
       } else {
-        // Direct table upsert fallback
         const { error: upsertErr } = await supabase
           .from('products_master')
           .upsert({
@@ -72,9 +110,8 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // 2. Seed Destination Union Dairies Master
-    for (const d of SEED_DAIRIES) {
-      // Try SP fn_upsert_dairy_destination first
+    // 3. Seed Destination Union Dairies Master
+    for (const d of dairiesToSeed) {
       const { data: rpcData, error: rpcErr } = await supabase.rpc('fn_upsert_dairy_destination', {
         p_dairy_name: d.dairy_name,
         p_code: d.code,
@@ -86,7 +123,6 @@ export async function POST(req: NextRequest) {
       if (!rpcErr && rpcData) {
         seededDairiesCount++;
       } else {
-        // Direct table upsert fallback
         const { error: upsertErr } = await supabase
           .from('dairy_destinations_master')
           .upsert({
@@ -104,7 +140,8 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({
       success: true,
-      message: `Successfully seeded ${seededProductsCount} products and ${seededDairiesCount} destination union dairies!`,
+      message: `Successfully seeded ${seededCategoriesCount} categories, ${seededProductsCount} products and ${seededDairiesCount} destination union dairies!`,
+      categories_count: seededCategoriesCount,
       products_count: seededProductsCount,
       dairies_count: seededDairiesCount,
     });

@@ -33,6 +33,10 @@ export const supabase = new Proxy({} as any, {
   }
 });
 
+export function isLocalDbEnabled(): boolean {
+  return false;
+}
+
 // ── Server client (service role — server-side only) ───────────────────────────
 export function getSupabaseServiceClient() {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;

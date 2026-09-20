@@ -5,6 +5,7 @@ import { useParams, useRouter } from 'next/navigation';
 import Header from '@/components/layout/Header';
 import StockReport from '@/components/reports/StockReport';
 import Link from 'next/link';
+import { useConfirm } from '@/context/ConfirmContext';
 import { fmtDate, calcStockSummary, combineShiftSummaries } from '@/lib/calculations';
 import type { StockRow, SeparationDetails, Shift } from '@/lib/types';
 
@@ -14,6 +15,7 @@ interface ShiftData {
 }
 
 export default function StockViewPage() {
+  const { showError } = useConfirm();
   const { date, shift } = useParams<{ date: string; shift: string }>();
   const router = useRouter();
   const [data, setData] = useState<ShiftData | null>(null);
@@ -28,6 +30,29 @@ export default function StockViewPage() {
   // Also load the opposite shift for combined view
   const [otherShiftData, setOtherShiftData] = useState<ShiftData | null>(null);
   const otherShift: Shift = shift === 'D' ? 'N' : 'D';
+
+  const handleExportStockExcel = async () => {
+    try {
+      const url = `/api/export-excel?date=${date}&shift=${shift}&stock=true`;
+      const res = await fetch(url);
+      if (!res.ok) throw new Error('Export failed');
+      const blob = await res.blob();
+      const downloadUrl = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = downloadUrl;
+      const dateParts = date.split('-');
+      const formattedDate = `${dateParts[2]}-${dateParts[1]}-${dateParts[0]}`;
+      const shiftStr = shift ? `-${shift}` : '';
+      a.download = `${formattedDate}${shiftStr}-Stock-Statement.xlsx`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      window.URL.revokeObjectURL(downloadUrl);
+    } catch (err) {
+      console.error(err);
+      await showError('Failed to export Excel report', 'Export Error');
+    }
+  };
 
   useEffect(() => {
     async function load() {
@@ -147,6 +172,7 @@ export default function StockViewPage() {
               </div>
             )}
             <button className="btn btn-secondary btn-sm no-print" onClick={() => window.print()}>🖨 Print / PDF</button>
+            <button className="btn btn-secondary btn-sm no-print" style={{ borderColor: '#16a34a', color: '#16a34a' }} onClick={handleExportStockExcel}>📥 Export Excel</button>
             <Link href="/dashboard/stock" className="btn btn-ghost btn-sm">← Back</Link>
           </div>
         }

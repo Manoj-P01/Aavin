@@ -2,7 +2,7 @@ import { SignJWT, jwtVerify } from 'jose';
 import bcrypt from 'bcryptjs';
 import { cookies } from 'next/headers';
 import { NextRequest, NextResponse } from 'next/server';
-import { getSupabaseServiceClient } from './supabase';
+import { getSupabaseServiceClient, isLocalDbEnabled } from './supabase';
 
 const JWT_SECRET = new TextEncoder().encode(
   process.env.JWT_SECRET || 'aavin_dairy_dashboard_jwt_secret_key_2026_super_secure_987654321'
@@ -68,9 +68,12 @@ export async function createSession(
   ipAddress?: string,
   userAgent?: string
 ): Promise<{ sessionId: string; token: string }> {
+  const tokenRaw = `${userId}_${Date.now()}_${Math.random().toString(36).substring(2)}`;
+  if (isLocalDbEnabled()) {
+    return { sessionId: '00000000-0000-0000-0000-000000000001', token: tokenRaw };
+  }
   const supabase = getSupabaseServiceClient();
   const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); // 7 days max lifetime if active
-  const tokenRaw = `${userId}_${Date.now()}_${Math.random().toString(36).substring(2)}`;
   const tokenHash = await hashPassword(tokenRaw);
 
   const { data, error } = await supabase
@@ -94,6 +97,9 @@ export async function createSession(
 }
 
 export async function checkAndTouchSession(sessionId: string, username: string): Promise<boolean> {
+  if (isLocalDbEnabled()) {
+    return true;
+  }
   const supabase = getSupabaseServiceClient();
   const now = new Date();
   const tenMinsAgo = new Date(now.getTime() - IDLE_TIMEOUT_MINUTES * 60 * 1000);
@@ -138,6 +144,9 @@ export async function checkAndTouchSession(sessionId: string, username: string):
 }
 
 export async function revokeSession(sessionId: string, username: string): Promise<void> {
+  if (isLocalDbEnabled()) {
+    return;
+  }
   const supabase = getSupabaseServiceClient();
   await supabase
     .from('user_sessions')
