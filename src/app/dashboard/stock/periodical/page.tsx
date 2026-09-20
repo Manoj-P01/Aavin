@@ -155,7 +155,7 @@ export default function PeriodicalSummaryReportPage() {
   const [activeStatementType, setActiveStatementType] = useState<'STOCK' | 'STG' | 'TS'>('STOCK');
 
   // Date-Wise View Mode State: 'CONSOLIDATED' | 'PRODUCT_WISE'
-  const [dateWiseViewMode, setDateWiseViewMode] = useState<'CONSOLIDATED' | 'PRODUCT_WISE'>('CONSOLIDATED');
+  const [dateWiseViewMode, setDateWiseViewMode] = useState<'CONSOLIDATED' | 'PRODUCT_WISE'>('PRODUCT_WISE');
   // Sub-view mode for Product-Wise View: 'SEPARATE' (individual statement tables per product) | 'COMBINED' (particulars breakdown table)
   const [productSubViewMode, setProductSubViewMode] = useState<'SEPARATE' | 'COMBINED'>('SEPARATE');
   // Multi-select product keys for Product-Wise View
@@ -1492,14 +1492,14 @@ export default function PeriodicalSummaryReportPage() {
 
                       {/* View Mode Switcher */}
                       <div style={{ display: 'flex', background: '#e2e8f0', padding: 3, borderRadius: 8, gap: 3 }}>
-                        <button
+                        {/* <button
                           type="button"
                           className={`btn btn-sm ${dateWiseViewMode === 'CONSOLIDATED' ? 'btn-primary' : 'btn-ghost'}`}
                           onClick={() => setDateWiseViewMode('CONSOLIDATED')}
                           style={{ padding: '4px 10px', fontSize: '0.75rem', fontWeight: 600 }}
                         >
                           🌐 Consolidated Date View
-                        </button>
+                        </button> */}
                         <button
                           type="button"
                           className={`btn btn-sm ${dateWiseViewMode === 'PRODUCT_WISE' ? 'btn-primary' : 'btn-ghost'}`}
@@ -1725,7 +1725,7 @@ export default function PeriodicalSummaryReportPage() {
                 </div>
 
                 {/* ─── CONSOLIDATED PERIODICAL STOCK STATEMENT TABLE (Only in Consolidated Date View) ─── */}
-                {dateWiseViewMode === 'CONSOLIDATED' && (
+                {/* dateWiseViewMode === 'CONSOLIDATED' && (
                   <div className="card" style={{ overflow: 'hidden' }}>
                     <div style={{ padding: '16px 20px', borderBottom: '1px solid var(--border)', background: '#fafafa', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12 }}>
                       <div style={{ fontWeight: 700, fontSize: '1rem', color: 'var(--text-primary)' }}>
@@ -1763,7 +1763,6 @@ export default function PeriodicalSummaryReportPage() {
                           </tr>
                         </thead>
                         <tbody>
-                          {/* ─── SECTION 1: OPENING BALANCE ───────────────────────────────── */}
                           <tr style={{ background: 'rgba(14, 165, 233, 0.06)' }}>
                             <td style={{ fontWeight: 700, color: 'var(--brand-primary)', padding: '10px 12px' }}>
                               Opening Balance (OB)
@@ -1781,7 +1780,6 @@ export default function PeriodicalSummaryReportPage() {
                             </td>
                           </tr>
 
-                          {/* ─── SECTION 2: RECEIPTS ───────────────────────────────────────── */}
                           <tr style={{ background: '#ecfdf5' }}>
                             <td colSpan={columns.length + 2} style={{ fontWeight: 700, color: '#047857', padding: '8px 12px', fontSize: '0.85rem' }}>
                               📥 Receipts (Period Total)
@@ -1806,7 +1804,6 @@ export default function PeriodicalSummaryReportPage() {
                               </tr>
                             );
                           })}
-                          {/* Receipts Total Row */}
                           <tr style={{ background: '#d1fae5', borderTop: '1px solid #a7f3d0', borderBottom: '2px solid #059669' }}>
                             <td style={{ fontWeight: 700, color: '#047857', padding: '10px 12px' }}>
                               TOTAL RECEIPTS
@@ -1824,7 +1821,6 @@ export default function PeriodicalSummaryReportPage() {
                             </td>
                           </tr>
 
-                          {/* ─── SECTION 3: DISPOSALS ──────────────────────────────────────── */}
                           <tr style={{ background: '#fffbeb' }}>
                             <td colSpan={columns.length + 2} style={{ fontWeight: 700, color: '#b45309', padding: '8px 12px', fontSize: '0.85rem' }}>
                               📤 Disposals (Period Total)
@@ -1849,7 +1845,6 @@ export default function PeriodicalSummaryReportPage() {
                               </tr>
                             );
                           })}
-                          {/* Disposals Total Row */}
                           <tr style={{ background: '#fef3c7', borderTop: '1px solid #fde68a', borderBottom: '2px solid #d97706' }}>
                             <td style={{ fontWeight: 700, color: '#b45309', padding: '10px 12px' }}>
                               TOTAL DISPOSALS
@@ -1867,7 +1862,6 @@ export default function PeriodicalSummaryReportPage() {
                             </td>
                           </tr>
 
-                          {/* ─── SECTION 4: CLOSING BALANCE ───────────────────────────────── */}
                           <tr style={{ background: 'rgba(99, 102, 241, 0.08)', borderTop: '2px solid #4f46e5' }}>
                             <td style={{ fontWeight: 800, color: '#4338ca', padding: '12px 12px', fontSize: '0.9rem' }}>
                               Closing Balance (CB)
@@ -1888,7 +1882,7 @@ export default function PeriodicalSummaryReportPage() {
                       </table>
                     </div>
                   </div>
-                )}
+                ) */}
               </>
             )}
           </>
