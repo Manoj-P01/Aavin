@@ -2357,25 +2357,7 @@ export default function StockEntryForm({
               </button>
             </div>
 
-            {/* Modal Tabs */}
-            <div style={{ display: 'flex', gap: 8, marginBottom: 16, background: '#f1f5f9', padding: 4, borderRadius: 8 }}>
-              <button
-                type="button"
-                className={`btn btn-sm ${partitionModalTab === 'DAIRY_BREAKDOWN' ? 'btn-primary' : 'btn-ghost'}`}
-                onClick={() => setPartitionModalTab('DAIRY_BREAKDOWN')}
-                style={{ flex: 1, fontSize: '0.8rem', fontWeight: 600 }}
-              >
-                🏢 Dairy Breakdown (e.g. Madurai-SSM)
-              </button>
-              <button
-                type="button"
-                className={`btn btn-sm ${partitionModalTab === 'RECEIPTS_PARTITION' ? 'btn-primary' : 'btn-ghost'}`}
-                onClick={() => setPartitionModalTab('RECEIPTS_PARTITION')}
-                style={{ flex: 1, fontSize: '0.8rem', fontWeight: 600 }}
-              >
-                🔄 Receipts Internal Partitions
-              </button>
-            </div>
+
 
             <datalist id="preset-dairies-list">
               {presetDairies.map(p => (

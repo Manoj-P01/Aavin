@@ -1,11 +1,13 @@
 'use client';
 
-import { useEffect, useState, useMemo } from 'react';
+import { useEffect, useState, useMemo, useRef } from 'react';
+import XLSX from 'xlsx-js-style';
 import Header from '@/components/layout/Header';
 import Link from 'next/link';
+import StockReport from '@/components/reports/StockReport';
 import { useConfirm } from '@/context/ConfirmContext';
 import { fmtDate } from '@/lib/calculations';
-import type { Entry } from '@/lib/types';
+import type { Entry, StockRow, SeparationDetails } from '@/lib/types';
 
 interface ProductCol {
   key: string;
@@ -30,6 +32,97 @@ const MONTH_NAMES = [
   { val: '11', name: 'November', short: 'Nov' },
   { val: '12', name: 'December', short: 'Dec' },
 ];
+
+interface VirtualizedProductListProps {
+  products: ProductCol[];
+  aggregatedReport?: any;
+  selectedProductKey: string | null;
+  onSelectProduct: (pKey: string) => void;
+  height?: number;
+  itemHeight?: number;
+}
+
+function VirtualizedProductList({
+  products,
+  selectedProductKey,
+  onSelectProduct,
+  height = 640,
+  itemHeight = 50,
+}: VirtualizedProductListProps) {
+  const [scrollTop, setScrollTop] = useState(0);
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  const handleScroll = (e: React.UIEvent<HTMLDivElement>) => {
+    setScrollTop(e.currentTarget.scrollTop);
+  };
+
+  const totalHeight = products.length * itemHeight;
+  const startIndex = Math.max(0, Math.floor(scrollTop / itemHeight) - 2);
+  const endIndex = Math.min(products.length, Math.ceil((scrollTop + height) / itemHeight) + 2);
+  const visibleProducts = products.slice(startIndex, endIndex);
+
+  return (
+    <div
+      ref={containerRef}
+      onScroll={handleScroll}
+      style={{
+        height,
+        overflowY: 'auto',
+        position: 'relative',
+        borderRadius: '0 0 8px 8px',
+        background: '#fafafa',
+      }}
+    >
+      <div style={{ height: totalHeight, width: '100%', position: 'relative' }}>
+        {visibleProducts.map((prod, idx) => {
+          const actualIndex = startIndex + idx;
+          const pKey = prod.key;
+          const isSelected = selectedProductKey === pKey;
+
+          return (
+            <div
+              key={`v_prod_${pKey}_${actualIndex}`}
+              onClick={() => onSelectProduct(pKey)}
+              style={{
+                position: 'absolute',
+                top: actualIndex * itemHeight,
+                left: 0,
+                right: 0,
+                height: itemHeight - 6,
+                margin: '3px 6px',
+                padding: '8px 12px',
+                borderRadius: 8,
+                background: isSelected ? '#f0f9ff' : '#ffffff',
+                border: isSelected ? '2px solid var(--brand-primary)' : '1px solid var(--border)',
+                boxShadow: isSelected ? '0 4px 12px rgba(14, 165, 233, 0.2)' : '0 1px 3px rgba(0,0,0,0.03)',
+                cursor: 'pointer',
+                transition: 'all 0.15s ease',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+              }}
+            >
+              <div style={{ fontWeight: 700, fontSize: '0.88rem', color: isSelected ? 'var(--brand-primary)' : 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: 8 }}>
+                <span>📦 {prod.label}</span>
+                {isSelected && <span style={{ width: 8, height: 8, borderRadius: '50%', background: 'var(--brand-primary)', display: 'inline-block' }} />}
+              </div>
+              <span style={{
+                padding: '2px 8px',
+                borderRadius: 10,
+                fontSize: '0.7rem',
+                fontWeight: 700,
+                background: isSelected ? '#0284c7' : '#e2e8f0',
+                color: isSelected ? '#ffffff' : '#475569',
+              }}>
+                {prod.short_name || prod.key}
+              </span>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
 
 export default function PeriodicalSummaryReportPage() {
   const currentYearNum = new Date().getFullYear();
@@ -116,7 +209,7 @@ export default function PeriodicalSummaryReportPage() {
               if (parsed && Array.isArray(parsed.columns) && parsed.columns.length > 0) {
                 setColumns(parsed.columns);
               }
-            } catch (err) {}
+            } catch (err) { }
           }
         }
       } catch (err) {
@@ -151,17 +244,42 @@ export default function PeriodicalSummaryReportPage() {
     }).sort((a, b) => a.entry_date.localeCompare(b.entry_date));
   }, [allEntries, filterMode, selectedYear, selectedMonths, selectedYears, fromDate, toDate]);
 
-  // Statement Selector Tab State: 'STOCK' | 'STG' | 'TS'
-  const [activeStatementType, setActiveStatementType] = useState<'STOCK' | 'STG' | 'TS'>('STOCK');
+  // Statement Selector Tab State: 'DAILY' | 'STOCK' | 'STG' | 'TS'
+  const [activeStatementType, setActiveStatementType] = useState<'DAILY' | 'STOCK' | 'STG' | 'TS'>('DAILY');
 
   // Date-Wise View Mode State: 'CONSOLIDATED' | 'PRODUCT_WISE'
   const [dateWiseViewMode, setDateWiseViewMode] = useState<'CONSOLIDATED' | 'PRODUCT_WISE'>('PRODUCT_WISE');
-  // Sub-view mode for Product-Wise View: 'SEPARATE' (individual statement tables per product) | 'COMBINED' (particulars breakdown table)
-  const [productSubViewMode, setProductSubViewMode] = useState<'SEPARATE' | 'COMBINED'>('SEPARATE');
+  // Sub-view mode for Product-Wise View: 'VIRTUALIZED' (master-detail list view) | 'SEPARATE' (individual tables) | 'COMBINED' (particulars matrix)
+  const [productSubViewMode, setProductSubViewMode] = useState<'VIRTUALIZED' | 'SEPARATE' | 'COMBINED'>('VIRTUALIZED');
   // Multi-select product keys for Product-Wise View
   const [selectedProductKeys, setSelectedProductKeys] = useState<string[]>([]);
   // Checkbox dropdown popover toggle state
   const [isProductDropdownOpen, setIsProductDropdownOpen] = useState<boolean>(false);
+
+  // Virtualized Product List Master-Detail State
+  const [productSearchQuery, setProductSearchQuery] = useState<string>('');
+  const [selectedProductMasterKey, setSelectedProductMasterKey] = useState<string | null>(null);
+
+  // Product-Wise Date View Pagination state: page number per product key & page size (default 5 items per page)
+  const [productWisePageMap, setProductWisePageMap] = useState<Record<string, number>>({});
+  const [productWisePageSize, setProductWisePageSize] = useState<number>(5);
+
+  // Reset pagination state whenever filteredEntries change
+  useEffect(() => {
+    setProductWisePageMap({});
+  }, [filteredEntries]);
+
+
+
+  const setProductPage = (pKey: string, pageNum: number) => {
+    setProductWisePageMap(prev => {
+      const updated = { ...prev };
+      columns.forEach(c => {
+        updated[c.key] = pageNum;
+      });
+      return updated;
+    });
+  };
 
   // Aggregated Stock Statement Data Calculation
   const aggregatedReport = useMemo(() => {
@@ -186,7 +304,7 @@ export default function PeriodicalSummaryReportPage() {
         } else if (rawPayload && typeof rawPayload === 'object' && Array.isArray((rawPayload as any).rows)) {
           rowsData = (rawPayload as any).rows;
         }
-      } catch (err) {}
+      } catch (err) { }
 
       const safeRows = (Array.isArray(rowsData) ? rowsData : []).map(r => {
         if (!r || typeof r !== 'object') return null;
@@ -278,7 +396,7 @@ export default function PeriodicalSummaryReportPage() {
             const parsed = JSON.parse(summaryStr);
             if (Array.isArray(parsed)) summaryRows = parsed;
           }
-        } catch (err) {}
+        } catch (err) { }
       }
 
       let hasSummaryData = false;
@@ -500,6 +618,252 @@ export default function PeriodicalSummaryReportPage() {
 
   const { showWarning, showError } = useConfirm();
 
+  // Export Periodical Excel with separate product sheets & exact naming conventions
+  const handleExportPeriodicalExcel = async () => {
+    if (!aggregatedReport || !aggregatedReport.startDate || !aggregatedReport.endDate) {
+      await showWarning('Please select a valid period first.', 'Invalid Period');
+      return;
+    }
+
+    const activeKeys = selectedProductKeys.length === 0 ? columns.map(c => c.key) : selectedProductKeys;
+    const showBreakdown = productSubViewMode === 'SEPARATE';
+
+    // 1. Construct Product Part of Filename
+    let prodPart = 'All-Product';
+    if (activeKeys.length === 1) {
+      const col = columns.find(c => c.key === activeKeys[0]);
+      const pName = col?.short_name || col?.label || col?.full_name || activeKeys[0];
+      prodPart = pName.replace(/[^a-zA-Z0-9_-]/g, '-');
+    } else if (activeKeys.length === columns.length) {
+      prodPart = 'All-Product';
+    } else {
+      prodPart = 'Selected-Products';
+    }
+
+    // 2. Construct Period Part of Filename
+    let periodPart = '';
+    if (filterMode === 'MONTH') {
+      const monthNames = selectedMonths.map(m => {
+        const mItem = MONTH_NAMES.find(x => x.val === m);
+        return mItem ? mItem.name : m;
+      });
+      periodPart = `${monthNames.join('-')}-${selectedYear}`;
+    } else if (filterMode === 'YEAR') {
+      const sortedYears = [...selectedYears].sort((a, b) => a - b);
+      periodPart = `${sortedYears.join('-')}`;
+    } else if (filterMode === 'CUSTOM') {
+      const sParts = fromDate.split('-');
+      const eParts = toDate.split('-');
+      const fmtFrom = sParts.length === 3 ? `${sParts[2]}-${sParts[1]}-${sParts[0]}` : fromDate;
+      const fmtTo = eParts.length === 3 ? `${eParts[2]}-${eParts[1]}-${eParts[0]}` : toDate;
+      periodPart = `${fmtFrom}-to-${fmtTo}`;
+    }
+
+    const fileName = `Stock-Statement-${prodPart}-${periodPart}.xlsx`;
+
+    // 3. Create Excel Workbook
+    const wb = XLSX.utils.book_new();
+
+    const makeCell = (v: any, opts?: { isHeader?: boolean; isBold?: boolean; isNum?: boolean; bg?: string; color?: string }) => {
+      let t = 's';
+      if (typeof v === 'number') t = 'n';
+      else if (typeof v === 'boolean') t = 'b';
+
+      const style: any = {
+        font: {
+          name: 'Calibri',
+          sz: 10,
+          bold: opts?.isHeader || opts?.isBold,
+          color: opts?.color ? { rgb: opts.color } : undefined,
+        },
+        alignment: {
+          vertical: 'center',
+          horizontal: opts?.isNum ? 'right' : (opts?.isHeader ? 'center' : 'left'),
+        },
+        border: {
+          top: { style: 'thin', color: { rgb: 'CBD5E1' } },
+          bottom: { style: 'thin', color: { rgb: 'CBD5E1' } },
+          left: { style: 'thin', color: { rgb: 'CBD5E1' } },
+          right: { style: 'thin', color: { rgb: 'CBD5E1' } },
+        }
+      };
+      if (opts?.bg) style.fill = { fgColor: { rgb: opts.bg } };
+      else if (opts?.isHeader) style.fill = { fgColor: { rgb: 'F1F5F9' } };
+
+      return { v: v === null || v === undefined ? '' : v, t, s: style };
+    };
+
+    const recLabels = Object.keys(aggregatedReport.receiptParticularsMap);
+    const dispLabels = Object.keys(aggregatedReport.disposalParticularsMap);
+
+    // 4. Append a worksheet tab for each active product
+    activeKeys.forEach(pKey => {
+      const col = columns.find(c => c.key === pKey);
+      const prodLabel = col?.label || col?.full_name || pKey;
+      const shortName = col?.short_name || pKey;
+      const rawSheetName = (shortName || prodLabel || pKey).replace(/[^a-zA-Z0-9_\-\s]/g, '').slice(0, 31);
+      const sheetName = rawSheetName || pKey;
+
+      const pRecLabels = recLabels.filter(l =>
+        aggregatedReport.dateWiseStatements.some(s => (s.dayRecParticulars?.[pKey]?.[l] || 0) !== 0)
+      );
+      const pDispLabels = dispLabels.filter(l =>
+        aggregatedReport.dateWiseStatements.some(s => (s.dayDispParticulars?.[pKey]?.[l] || 0) !== 0)
+      );
+
+      let pPeriodOb = 0;
+      let pPeriodRec = 0;
+      let pPeriodDisp = 0;
+      let pPeriodCb = 0;
+      const pPeriodRecParticularsTotal: Record<string, number> = {};
+      const pPeriodDispParticularsTotal: Record<string, number> = {};
+      pRecLabels.forEach(l => (pPeriodRecParticularsTotal[l] = 0));
+      pDispLabels.forEach(l => (pPeriodDispParticularsTotal[l] = 0));
+
+      const pRows = aggregatedReport.dateWiseStatements.map((stmt, idx) => {
+        const ob = stmt.dayOb[pKey] || 0;
+        const totalRec = stmt.dayRec[pKey] || 0;
+        const totalDisp = stmt.dayDisp[pKey] || 0;
+        const cb = stmt.dayCb[pKey] !== undefined ? stmt.dayCb[pKey] : (ob + totalRec - totalDisp);
+
+        if (idx === 0) pPeriodOb = ob;
+        pPeriodRec += totalRec;
+        pPeriodDisp += totalDisp;
+        pPeriodCb = cb;
+
+        const recVals: Record<string, number> = {};
+        pRecLabels.forEach(l => {
+          const val = stmt.dayRecParticulars?.[pKey]?.[l] || 0;
+          recVals[l] = val;
+          pPeriodRecParticularsTotal[l] += val;
+        });
+
+        const dispVals: Record<string, number> = {};
+        pDispLabels.forEach(l => {
+          const val = stmt.dayDispParticulars?.[pKey]?.[l] || 0;
+          dispVals[l] = val;
+          pPeriodDispParticularsTotal[l] += val;
+        });
+
+        return { stmt, ob, recVals, totalRec, dispVals, totalDisp, cb };
+      });
+
+      const hasParticulars = showBreakdown && (pRecLabels.length > 0 || pDispLabels.length > 0);
+      const sheetRows: any[][] = [];
+      const merges: XLSX.Range[] = [];
+
+      // Title rows
+      sheetRows.push([
+        makeCell(`STOCK STATEMENT: ${prodLabel.toUpperCase()} (${shortName})`, { isBold: true, bg: 'E0F2FE', color: '0369A1' })
+      ]);
+      sheetRows.push([
+        makeCell(`Period: ${fmtDate(aggregatedReport.startDate)} to ${fmtDate(aggregatedReport.endDate)} (${pRows.length} Statements)`, { isBold: true, bg: 'F8FAFC' })
+      ]);
+
+      // Headers
+      if (hasParticulars) {
+        const h1: any[] = [
+          makeCell('Date', { isHeader: true }),
+          makeCell('Shift', { isHeader: true }),
+          makeCell('Opening (OB)', { isHeader: true, bg: 'E0F2FE', color: '0369A1' }),
+        ];
+
+        h1.push(makeCell(`RECEIPTS (${shortName})`, { isHeader: true, bg: 'D1FAE5', color: '047857' }));
+        for (let i = 1; i < pRecLabels.length + 1; i++) h1.push(makeCell('', { isHeader: true, bg: 'D1FAE5' }));
+        merges.push({ s: { r: 2, c: 3 }, e: { r: 2, c: 3 + pRecLabels.length } });
+
+        const dispStartCol = 4 + pRecLabels.length;
+        h1.push(makeCell(`DISPOSALS (${shortName})`, { isHeader: true, bg: 'FEF3C7', color: 'B45309' }));
+        for (let i = 1; i < pDispLabels.length + 1; i++) h1.push(makeCell('', { isHeader: true, bg: 'FEF3C7' }));
+        merges.push({ s: { r: 2, c: dispStartCol }, e: { r: 2, c: dispStartCol + pDispLabels.length } });
+
+        const cbCol = dispStartCol + pDispLabels.length + 1;
+        h1.push(makeCell('Closing (CB)', { isHeader: true, bg: 'E0E7FF', color: '3730A3' }));
+
+        merges.push({ s: { r: 2, c: 0 }, e: { r: 3, c: 0 } });
+        merges.push({ s: { r: 2, c: 1 }, e: { r: 3, c: 1 } });
+        merges.push({ s: { r: 2, c: 2 }, e: { r: 3, c: 2 } });
+        merges.push({ s: { r: 2, c: cbCol }, e: { r: 3, c: cbCol } });
+
+        sheetRows.push(h1);
+
+        const h2: any[] = [
+          makeCell('', { isHeader: true }),
+          makeCell('', { isHeader: true }),
+          makeCell('', { isHeader: true }),
+        ];
+        pRecLabels.forEach(l => h2.push(makeCell(l, { isHeader: true, bg: 'ECFDF5', color: '065F46' })));
+        h2.push(makeCell('TOTAL RECEIPTS', { isHeader: true, bg: 'A7F3D0', color: '047857' }));
+
+        pDispLabels.forEach(l => h2.push(makeCell(l, { isHeader: true, bg: 'FFFBEB', color: '92400E' })));
+        h2.push(makeCell('TOTAL DISPOSALS', { isHeader: true, bg: 'FDE68A', color: 'B45309' }));
+        h2.push(makeCell('', { isHeader: true }));
+
+        sheetRows.push(h2);
+      } else {
+        sheetRows.push([
+          makeCell('Date', { isHeader: true }),
+          makeCell('Shift', { isHeader: true }),
+          makeCell('Opening (OB)', { isHeader: true, bg: 'E0F2FE', color: '0369A1' }),
+          makeCell('TOTAL RECEIPTS', { isHeader: true, bg: 'D1FAE5', color: '047857' }),
+          makeCell('TOTAL DISPOSALS', { isHeader: true, bg: 'FEF3C7', color: 'B45309' }),
+          makeCell('Closing (CB)', { isHeader: true, bg: 'E0E7FF', color: '3730A3' }),
+        ]);
+      }
+
+      // Body Rows
+      pRows.forEach(({ stmt, ob, recVals, totalRec, dispVals, totalDisp, cb }) => {
+        const rowVal: any[] = [
+          makeCell(fmtDate(stmt.date), { isBold: true }),
+          makeCell(stmt.shift === 'D' ? 'Day' : stmt.shift === 'N' ? 'Night' : 'Full Day'),
+          makeCell(ob, { isNum: true, bg: 'F0F9FF' }),
+        ];
+
+        if (hasParticulars) {
+          pRecLabels.forEach(l => rowVal.push(makeCell(recVals[l] || 0, { isNum: true })));
+        }
+        rowVal.push(makeCell(ob + totalRec, { isBold: true, isNum: true, bg: 'ECFDF5', color: '059669' }));
+
+        if (hasParticulars) {
+          pDispLabels.forEach(l => rowVal.push(makeCell(dispVals[l] || 0, { isNum: true })));
+        }
+        rowVal.push(makeCell(totalDisp, { isBold: true, isNum: true, bg: 'FFFBEB', color: 'B45309' }));
+
+        rowVal.push(makeCell(cb, { isBold: true, isNum: true, bg: 'EEF2FF', color: '4338CA' }));
+
+        sheetRows.push(rowVal);
+      });
+
+      // Footer Row
+      const totalRowVal: any[] = [
+        makeCell(`PERIOD TOTAL (${shortName})`, { isBold: true, bg: 'F8FAFC' }),
+        makeCell('', { bg: 'F8FAFC' }),
+        makeCell(pPeriodOb, { isBold: true, isNum: true, bg: 'E0F2FE', color: '0369A1' }),
+      ];
+
+      if (hasParticulars) {
+        pRecLabels.forEach(l => totalRowVal.push(makeCell(pPeriodRecParticularsTotal[l] || 0, { isBold: true, isNum: true })));
+      }
+      totalRowVal.push(makeCell(pPeriodOb + pPeriodRec, { isBold: true, isNum: true, bg: 'A7F3D0', color: '047857' }));
+
+      if (hasParticulars) {
+        pDispLabels.forEach(l => totalRowVal.push(makeCell(pPeriodDispParticularsTotal[l] || 0, { isBold: true, isNum: true })));
+      }
+      totalRowVal.push(makeCell(pPeriodDisp, { isBold: true, isNum: true, bg: 'FDE68A', color: 'B45309' }));
+
+      totalRowVal.push(makeCell(pPeriodCb, { isBold: true, isNum: true, bg: 'C7D2FE', color: '3730A3' }));
+
+      sheetRows.push(totalRowVal);
+
+      const ws = XLSX.utils.aoa_to_sheet(sheetRows);
+      if (merges.length > 0) ws['!merges'] = merges;
+      XLSX.utils.book_append_sheet(wb, ws, sheetName);
+    });
+
+    // 5. Save Excel File
+    XLSX.writeFile(wb, fileName);
+  };
+
   // Export Multi-Sheet Excel (Each daily statement in its own sheet tab like JULY-26STMT-1.xlsx)
   const handleExportMultiSheetExcel = async () => {
     if (!aggregatedReport || !aggregatedReport.startDate || !aggregatedReport.endDate) {
@@ -642,7 +1006,17 @@ export default function PeriodicalSummaryReportPage() {
         return { stmt, ob, recVals, totalRec, dispVals, totalDisp, cb };
       });
 
-      const hasParticulars = pRecLabels.length > 0 || pDispLabels.length > 0;
+      const showBreakdown = productSubViewMode === 'SEPARATE' || productSubViewMode === 'VIRTUALIZED';
+      const hasParticulars = showBreakdown && (pRecLabels.length > 0 || pDispLabels.length > 0);
+
+      // Pagination calculations for Product-Wise View
+      const totalRows = pRows.length;
+      const currentPage = productWisePageMap[pKey] || 1;
+      const totalPages = Math.max(1, Math.ceil(totalRows / productWisePageSize));
+      const validPage = Math.min(Math.max(1, currentPage), totalPages);
+      const startIndex = (validPage - 1) * productWisePageSize;
+      const endIndex = Math.min(startIndex + productWisePageSize, totalRows);
+      const displayRows = totalRows > 5 ? pRows.slice(startIndex, endIndex) : pRows;
 
       return (
         <div key={`p_card_${pKey}`} className="card" style={{ marginBottom: 20, border: '1px solid var(--border)', overflow: 'hidden' }}>
@@ -656,6 +1030,7 @@ export default function PeriodicalSummaryReportPage() {
             </div>
             <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', fontWeight: 600 }}>
               {pRows.length} Daily Statements ({fmtDate(aggregatedReport.startDate)} - {fmtDate(aggregatedReport.endDate)})
+              {totalRows > 5 && ` • Page ${validPage} of ${totalPages}`}
             </div>
           </div>
 
@@ -667,20 +1042,20 @@ export default function PeriodicalSummaryReportPage() {
                   <th rowSpan={hasParticulars ? 2 : 1} style={{ textAlign: 'center', width: 75, background: '#f1f5f9', verticalAlign: 'middle' }}>Shift</th>
                   <th rowSpan={hasParticulars ? 2 : 1} style={{ textAlign: 'right', width: 130, background: '#e0f2fe', color: '#0369a1', verticalAlign: 'middle' }}>Opening (OB)</th>
 
-                  {pRecLabels.length > 0 ? (
+                  {showBreakdown && pRecLabels.length > 0 ? (
                     <th colSpan={pRecLabels.length + 1} style={{ textAlign: 'center', background: '#d1fae5', color: '#047857', fontWeight: 700, fontSize: '0.8rem' }}>
                       📥 RECEIPTS ({shortName})
                     </th>
                   ) : (
-                    <th rowSpan={hasParticulars ? 2 : 1} style={{ textAlign: 'right', width: 130, background: '#d1fae5', color: '#047857', verticalAlign: 'middle' }}>Total Receipts</th>
+                    <th rowSpan={hasParticulars ? 2 : 1} style={{ textAlign: 'right', width: 150, background: '#d1fae5', color: '#047857', fontWeight: 800, verticalAlign: 'middle' }}>TOTAL RECEIPTS</th>
                   )}
 
-                  {pDispLabels.length > 0 ? (
+                  {showBreakdown && pDispLabels.length > 0 ? (
                     <th colSpan={pDispLabels.length + 1} style={{ textAlign: 'center', background: '#fef3c7', color: '#b45309', fontWeight: 700, fontSize: '0.8rem' }}>
                       📤 DISPOSALS ({shortName})
                     </th>
                   ) : (
-                    <th rowSpan={hasParticulars ? 2 : 1} style={{ textAlign: 'right', width: 130, background: '#fef3c7', color: '#b45309', verticalAlign: 'middle' }}>Total Disposals</th>
+                    <th rowSpan={hasParticulars ? 2 : 1} style={{ textAlign: 'right', width: 150, background: '#fef3c7', color: '#b45309', fontWeight: 800, verticalAlign: 'middle' }}>TOTAL DISPOSALS</th>
                   )}
 
                   <th rowSpan={hasParticulars ? 2 : 1} style={{ textAlign: 'right', width: 130, background: '#e0e7ff', color: '#3730a3', verticalAlign: 'middle' }}>Closing (CB)</th>
@@ -714,7 +1089,7 @@ export default function PeriodicalSummaryReportPage() {
                 )}
               </thead>
               <tbody>
-                {pRows.map(({ stmt, ob, recVals, totalRec, dispVals, totalDisp, cb }) => (
+                {displayRows.map(({ stmt, ob, recVals, totalRec, dispVals, totalDisp, cb }) => (
                   <tr key={`stmt_${pKey}_${stmt.id}_${stmt.date}_${stmt.shift}`}>
                     <td style={{ textAlign: 'center', fontWeight: 700, color: 'var(--text-primary)' }}>
                       {fmtDate(stmt.date)}
@@ -735,16 +1110,16 @@ export default function PeriodicalSummaryReportPage() {
                       {ob === 0 ? '—' : ob.toLocaleString('en-IN', { maximumFractionDigits: 3 })}
                     </td>
 
-                    {pRecLabels.map(l => (
+                    {showBreakdown && pRecLabels.map(l => (
                       <td key={`rec_${pKey}_${l}`} style={{ textAlign: 'right', fontFamily: 'var(--font-numbers)' }}>
                         {(recVals[l] || 0) === 0 ? '—' : recVals[l].toLocaleString('en-IN', { maximumFractionDigits: 3 })}
                       </td>
                     ))}
                     <td style={{ textAlign: 'right', fontFamily: 'var(--font-numbers)', fontWeight: 700, color: '#059669', background: '#ecfdf5' }}>
-                      {totalRec === 0 ? '—' : totalRec.toLocaleString('en-IN', { maximumFractionDigits: 3 })}
+                      {(ob + totalRec) === 0 ? '—' : (ob + totalRec).toLocaleString('en-IN', { maximumFractionDigits: 3 })}
                     </td>
 
-                    {pDispLabels.map(l => (
+                    {showBreakdown && pDispLabels.map(l => (
                       <td key={`disp_${pKey}_${l}`} style={{ textAlign: 'right', fontFamily: 'var(--font-numbers)' }}>
                         {(dispVals[l] || 0) === 0 ? '—' : dispVals[l].toLocaleString('en-IN', { maximumFractionDigits: 3 })}
                       </td>
@@ -777,16 +1152,16 @@ export default function PeriodicalSummaryReportPage() {
                     {pPeriodOb === 0 ? '—' : pPeriodOb.toLocaleString('en-IN', { maximumFractionDigits: 3 })}
                   </td>
 
-                  {pRecLabels.map(l => (
+                  {showBreakdown && pRecLabels.map(l => (
                     <td key={`tot_rec_${pKey}_${l}`} style={{ textAlign: 'right', fontFamily: 'var(--font-numbers)', color: '#047857' }}>
                       {(pPeriodRecParticularsTotal[l] || 0) === 0 ? '—' : pPeriodRecParticularsTotal[l].toLocaleString('en-IN', { maximumFractionDigits: 3 })}
                     </td>
                   ))}
                   <td style={{ textAlign: 'right', fontFamily: 'var(--font-numbers)', color: '#047857', background: '#a7f3d0' }}>
-                    {pPeriodRec === 0 ? '—' : pPeriodRec.toLocaleString('en-IN', { maximumFractionDigits: 3 })}
+                    {(pPeriodOb + pPeriodRec) === 0 ? '—' : (pPeriodOb + pPeriodRec).toLocaleString('en-IN', { maximumFractionDigits: 3 })}
                   </td>
 
-                  {pDispLabels.map(l => (
+                  {showBreakdown && pDispLabels.map(l => (
                     <td key={`tot_disp_${pKey}_${l}`} style={{ textAlign: 'right', fontFamily: 'var(--font-numbers)', color: '#b45309' }}>
                       {(pPeriodDispParticularsTotal[l] || 0) === 0 ? '—' : pPeriodDispParticularsTotal[l].toLocaleString('en-IN', { maximumFractionDigits: 3 })}
                     </td>
@@ -803,321 +1178,205 @@ export default function PeriodicalSummaryReportPage() {
               </tfoot>
             </table>
           </div>
+
+          {totalRows > 5 && (
+            <div
+              style={{
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                padding: '10px 18px',
+                background: '#f8fafc',
+                borderTop: '1px solid var(--border)',
+                fontSize: '0.8rem',
+                flexWrap: 'wrap',
+                gap: 10,
+              }}
+            >
+              <div style={{ color: 'var(--text-secondary)', fontWeight: 600 }}>
+                Showing <strong>{startIndex + 1}</strong>–<strong>{endIndex}</strong> of <strong>{totalRows}</strong> days (Page {validPage} of {totalPages})
+              </div>
+
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                <label style={{ fontSize: '0.75rem', color: 'var(--text-muted)', margin: 0 }}>Show:</label>
+                <select
+                  className="form-select"
+                  value={productWisePageSize}
+                  onChange={e => {
+                    setProductWisePageSize(parseInt(e.target.value, 10));
+                    setProductWisePageMap({});
+                  }}
+                  style={{ width: 85, padding: '2px 6px', fontSize: '0.75rem', height: 28 }}
+                >
+                  <option value={5}>5 days</option>
+                  <option value={10}>10 days</option>
+                  <option value={15}>15 days</option>
+                  <option value={31}>31 days</option>
+                  <option value={1000}>All days</option>
+                </select>
+
+                <div style={{ display: 'flex', gap: 4, marginLeft: 8 }}>
+                  <button
+                    type="button"
+                    className="btn btn-secondary btn-sm"
+                    disabled={validPage <= 1}
+                    onClick={() => setProductPage(pKey, 1)}
+                    style={{ padding: '2px 8px', fontSize: '0.75rem', height: 28 }}
+                    title="First Page"
+                  >
+                    «
+                  </button>
+                  <button
+                    type="button"
+                    className="btn btn-secondary btn-sm"
+                    disabled={validPage <= 1}
+                    onClick={() => setProductPage(pKey, validPage - 1)}
+                    style={{ padding: '2px 10px', fontSize: '0.75rem', height: 28 }}
+                    title="Previous Page"
+                  >
+                    ‹ Prev
+                  </button>
+
+                  {Array.from({ length: totalPages }, (_, i) => i + 1)
+                    .filter(pg => pg === 1 || pg === totalPages || Math.abs(pg - validPage) <= 1)
+                    .map((pg, idx, arr) => {
+                      const prevPg = arr[idx - 1];
+                      const showEllipsis = prevPg && pg - prevPg > 1;
+                      return (
+                        <span key={`pg_wrap_${pKey}_${pg}`} style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                          {showEllipsis && <span style={{ color: '#94a3b8', padding: '0 2px' }}>…</span>}
+                          <button
+                            type="button"
+                            className={`btn btn-sm ${pg === validPage ? 'btn-primary' : 'btn-ghost'}`}
+                            onClick={() => setProductPage(pKey, pg)}
+                            style={{
+                              padding: '2px 8px',
+                              fontSize: '0.75rem',
+                              height: 28,
+                              minWidth: 28,
+                              fontWeight: pg === validPage ? 700 : 500,
+                              borderColor: pg === validPage ? 'var(--brand-primary)' : 'var(--border)',
+                            }}
+                          >
+                            {pg}
+                          </button>
+                        </span>
+                      );
+                    })}
+
+                  <button
+                    type="button"
+                    className="btn btn-secondary btn-sm"
+                    disabled={validPage >= totalPages}
+                    onClick={() => setProductPage(pKey, validPage + 1)}
+                    style={{ padding: '2px 10px', fontSize: '0.75rem', height: 28 }}
+                    title="Next Page"
+                  >
+                    Next ›
+                  </button>
+                  <button
+                    type="button"
+                    className="btn btn-secondary btn-sm"
+                    disabled={validPage >= totalPages}
+                    onClick={() => setProductPage(pKey, totalPages)}
+                    style={{ padding: '2px 8px', fontSize: '0.75rem', height: 28 }}
+                    title="Last Page"
+                  >
+                    »
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       );
     };
 
-    if (productSubViewMode === 'SEPARATE') {
+    if (productSubViewMode === 'VIRTUALIZED') {
+      const filteredProducts = columns.filter(col => {
+        if (!productSearchQuery) return true;
+        const q = productSearchQuery.toLowerCase();
+        const lbl = (col.label || '').toLowerCase();
+        const fname = (col.full_name || '').toLowerCase();
+        const sname = (col.short_name || '').toLowerCase();
+        const key = col.key.toLowerCase();
+        return lbl.includes(q) || fname.includes(q) || sname.includes(q) || key.includes(q);
+      });
+
+      const selectedProd = columns.find(c => c.key === (selectedProductMasterKey || columns[0]?.key)) || filteredProducts[0] || columns[0];
+
       return (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-          {activeKeys.map(k => renderSingleProductStatementCard(k))}
-        </div>
-      );
-    }
-
-    // Period summary accumulator for Combined Particulars Breakdown table
-    let periodTotalOb = 0;
-    let periodTotalRec = 0;
-    let periodTotalDisp = 0;
-    let periodTotalCb = 0;
-    const periodRecParticularsTotal: Record<string, number> = {};
-    const periodDispParticularsTotal: Record<string, number> = {};
-
-    recLabels.forEach(l => (periodRecParticularsTotal[l] = 0));
-    dispLabels.forEach(l => (periodDispParticularsTotal[l] = 0));
-
-    const tableRows = aggregatedReport.dateWiseStatements.map((stmt, idx) => {
-      let ob = 0;
-      let totalRec = 0;
-      let totalDisp = 0;
-
-      activeKeys.forEach(k => {
-        ob += (stmt.dayOb[k] || 0);
-        totalRec += (stmt.dayRec[k] || 0);
-        totalDisp += (stmt.dayDisp[k] || 0);
-      });
-      const cb = ob + totalRec - totalDisp;
-
-      if (idx === 0) periodTotalOb = ob;
-
-      periodTotalRec += totalRec;
-      periodTotalDisp += totalDisp;
-      periodTotalCb = cb;
-
-      const recVals: Record<string, number> = {};
-      recLabels.forEach(l => {
-        let val = 0;
-        activeKeys.forEach(k => {
-          val += (stmt.dayRecParticulars?.[k]?.[l] || 0);
-        });
-        recVals[l] = val;
-        periodRecParticularsTotal[l] += val;
-      });
-
-      const dispVals: Record<string, number> = {};
-      dispLabels.forEach(l => {
-        let val = 0;
-        activeKeys.forEach(k => {
-          val += (stmt.dayDispParticulars?.[k]?.[l] || 0);
-        });
-        dispVals[l] = val;
-        periodDispParticularsTotal[l] += val;
-      });
-
-      return {
-        stmt,
-        ob,
-        recVals,
-        totalRec,
-        dispVals,
-        totalDisp,
-        cb,
-      };
-    });
-
-    // Single Product View: Show Opening (OB), Total Receipts, Total Disposals, Closing (CB)
-    if (isSingleProduct) {
-      return (
-        <div style={{ overflowX: 'auto' }}>
-          <table className="inline-table" style={{ minWidth: 900, width: '100%' }}>
-            <thead>
-              <tr>
-                <th style={{ textAlign: 'center', width: 140, background: '#f1f5f9' }}>Date</th>
-                <th style={{ textAlign: 'center', width: 80, background: '#f1f5f9' }}>Shift</th>
-                <th style={{ textAlign: 'right', width: 140, background: '#e0f2fe', color: '#0369a1' }}>Opening (OB)</th>
-                <th style={{ textAlign: 'right', width: 140, background: '#d1fae5', color: '#047857' }}>Total Receipts</th>
-                <th style={{ textAlign: 'right', width: 140, background: '#fef3c7', color: '#b45309' }}>Total Disposals</th>
-                <th style={{ textAlign: 'right', width: 150, background: '#e0e7ff', color: '#3730a3' }}>Closing (CB)</th>
-                <th style={{ textAlign: 'center', width: 120, background: '#f1f5f9' }}>Action</th>
-              </tr>
-            </thead>
-            <tbody>
-              {tableRows.map(({ stmt, ob, totalRec, totalDisp, cb }) => (
-                <tr key={`p_stmt_${stmt.id}_${stmt.date}_${stmt.shift}`}>
-                  <td style={{ textAlign: 'center', fontWeight: 700, color: 'var(--text-primary)' }}>
-                    {fmtDate(stmt.date)}
-                  </td>
-                  <td style={{ textAlign: 'center' }}>
-                    <span style={{
-                      padding: '2px 8px',
-                      borderRadius: 10,
-                      fontSize: '0.72rem',
-                      fontWeight: 700,
-                      background: stmt.shift === 'D' ? '#fef3c7' : stmt.shift === 'N' ? '#e0e7ff' : '#dcfce7',
-                      color: stmt.shift === 'D' ? '#b45309' : stmt.shift === 'N' ? '#3730a3' : '#15803d',
-                    }}>
-                      {stmt.shift === 'D' ? 'Day' : stmt.shift === 'N' ? 'Night' : 'Full Day'}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: '360px 1fr', gap: 20, alignItems: 'start' }}>
+            {/* LEFT PANEL: Virtualized Product List */}
+            <div style={{ background: '#ffffff', borderRadius: 12, border: '1px solid var(--border)', overflow: 'hidden', boxShadow: '0 2px 8px rgba(0,0,0,0.04)' }}>
+              <div style={{ padding: '12px 14px', background: '#f8fafc', borderBottom: '1px solid var(--border)', display: 'flex', flexDirection: 'column', gap: 10 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <div style={{ fontWeight: 700, fontSize: '0.85rem', color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <span>⚡ Product List</span>
+                    <span style={{ fontSize: '0.72rem', background: '#e0f2fe', color: '#0284c7', padding: '2px 8px', borderRadius: 12, fontWeight: 700 }}>
+                      {filteredProducts.length} Products
                     </span>
-                  </td>
-                  <td style={{ textAlign: 'right', fontFamily: 'var(--font-numbers)', fontWeight: 600, background: '#f0f9ff' }}>
-                    {ob === 0 ? '—' : ob.toLocaleString('en-IN', { maximumFractionDigits: 3 })}
-                  </td>
-                  <td style={{ textAlign: 'right', fontFamily: 'var(--font-numbers)', fontWeight: 700, color: '#059669', background: '#ecfdf5' }}>
-                    {totalRec === 0 ? '—' : totalRec.toLocaleString('en-IN', { maximumFractionDigits: 3 })}
-                  </td>
-                  <td style={{ textAlign: 'right', fontFamily: 'var(--font-numbers)', fontWeight: 700, color: '#b45309', background: '#fffbeb' }}>
-                    {totalDisp === 0 ? '—' : totalDisp.toLocaleString('en-IN', { maximumFractionDigits: 3 })}
-                  </td>
-                  <td style={{ textAlign: 'right', fontFamily: 'var(--font-numbers)', fontWeight: 800, color: '#4338ca', background: '#eef2ff' }}>
-                    {cb === 0 ? '—' : cb.toLocaleString('en-IN', { maximumFractionDigits: 3 })}
-                  </td>
-                  <td style={{ textAlign: 'center' }}>
-                    <Link
-                      href={`/dashboard/stock/${stmt.date}/${stmt.shift}`}
-                      className="btn btn-secondary btn-sm"
-                      style={{ fontSize: '0.75rem', padding: '3px 10px', fontWeight: 600 }}
+                  </div>
+                </div>
+
+                <div style={{ position: 'relative' }}>
+                  <input
+                    type="text"
+                    className="form-input"
+                    placeholder="🔍 Filter product name or code..."
+                    value={productSearchQuery}
+                    onChange={e => setProductSearchQuery(e.target.value)}
+                    style={{ fontSize: '0.8rem', padding: '6px 10px', height: 32, borderRadius: 6 }}
+                  />
+                  {productSearchQuery && (
+                    <button
+                      type="button"
+                      onClick={() => setProductSearchQuery('')}
+                      style={{ position: 'absolute', right: 8, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', fontSize: '0.75rem', color: '#94a3b8', cursor: 'pointer' }}
                     >
-                      👁️ View
-                    </Link>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-            <tfoot>
-              <tr style={{ background: '#f8fafc', borderTop: '2px solid #cbd5e1', fontWeight: 800 }}>
-                <td colSpan={2} style={{ textAlign: 'center', padding: '10px 8px', color: 'var(--text-primary)', fontSize: '0.82rem' }}>
-                  PERIOD TOTAL ({prodTitle})
-                </td>
-                <td style={{ textAlign: 'right', fontFamily: 'var(--font-numbers)', color: '#0369a1', background: '#e0f2fe' }}>
-                  {periodTotalOb === 0 ? '—' : periodTotalOb.toLocaleString('en-IN', { maximumFractionDigits: 3 })}
-                </td>
-                <td style={{ textAlign: 'right', fontFamily: 'var(--font-numbers)', color: '#047857', background: '#a7f3d0' }}>
-                  {periodTotalRec === 0 ? '—' : periodTotalRec.toLocaleString('en-IN', { maximumFractionDigits: 3 })}
-                </td>
-                <td style={{ textAlign: 'right', fontFamily: 'var(--font-numbers)', color: '#b45309', background: '#fde68a' }}>
-                  {periodTotalDisp === 0 ? '—' : periodTotalDisp.toLocaleString('en-IN', { maximumFractionDigits: 3 })}
-                </td>
-                <td style={{ textAlign: 'right', fontFamily: 'var(--font-numbers)', color: '#3730a3', background: '#c7d2fe', fontSize: '0.88rem' }}>
-                  {periodTotalCb === 0 ? '—' : periodTotalCb.toLocaleString('en-IN', { maximumFractionDigits: 3 })}
-                </td>
-                <td />
-              </tr>
-            </tfoot>
-          </table>
+                      ✕
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              {filteredProducts.length === 0 ? (
+                <div style={{ padding: 30, textAlign: 'center', color: 'var(--text-muted)', fontSize: '0.82rem' }}>
+                  No product matching "{productSearchQuery}"
+                </div>
+              ) : (
+                <VirtualizedProductList
+                  products={filteredProducts}
+                  aggregatedReport={aggregatedReport}
+                  selectedProductKey={selectedProductMasterKey || (selectedProd ? selectedProd.key : null)}
+                  onSelectProduct={pKey => setSelectedProductMasterKey(pKey)}
+                  height={640}
+                  itemHeight={50}
+                />
+              )}
+            </div>
+
+            {/* RIGHT PANEL: Selected Product's Stock Statement View */}
+            <div style={{ minWidth: 0 }}>
+              {selectedProd ? (
+                <div>
+                  {renderSingleProductStatementCard(selectedProd.key)}
+                </div>
+              ) : (
+                <div style={{ padding: 40, background: '#ffffff', borderRadius: 12, border: '1px solid var(--border)', textAlign: 'center', color: 'var(--text-muted)' }}>
+                  Select a product from the left list to view its date-wise stock statement
+                </div>
+              )}
+            </div>
+          </div>
         </div>
       );
     }
 
-    // Multi-Product Detailed View with Breakdown sub-columns
     return (
-      <div style={{ overflowX: 'auto' }}>
-        <table className="inline-table" style={{ minWidth: 1200, width: '100%' }}>
-          <thead>
-            <tr>
-              <th rowSpan={2} style={{ textAlign: 'center', width: 120, background: '#f1f5f9', verticalAlign: 'middle' }}>Date</th>
-              <th rowSpan={2} style={{ textAlign: 'center', width: 70, background: '#f1f5f9', verticalAlign: 'middle' }}>Shift</th>
-              <th rowSpan={2} style={{ textAlign: 'right', width: 120, background: '#e0f2fe', color: '#0369a1', verticalAlign: 'middle' }}>Opening (OB)</th>
-              
-              {recLabels.length > 0 ? (
-                <th colSpan={recLabels.length + 1} style={{ textAlign: 'center', background: '#d1fae5', color: '#047857', fontWeight: 700, fontSize: '0.8rem' }}>
-                  📥 RECEIPTS ({prodTitle})
-                </th>
-              ) : (
-                <th style={{ textAlign: 'right', width: 120, background: '#d1fae5', color: '#047857', verticalAlign: 'middle' }}>Total Receipts</th>
-              )}
-
-              {dispLabels.length > 0 ? (
-                <th colSpan={dispLabels.length + 1} style={{ textAlign: 'center', background: '#fef3c7', color: '#b45309', fontWeight: 700, fontSize: '0.8rem' }}>
-                  📤 DISPOSALS ({prodTitle})
-                </th>
-              ) : (
-                <th style={{ textAlign: 'right', width: 120, background: '#fef3c7', color: '#b45309', verticalAlign: 'middle' }}>Total Disposals</th>
-              )}
-
-              <th rowSpan={2} style={{ textAlign: 'right', width: 130, background: '#e0e7ff', color: '#3730a3', verticalAlign: 'middle' }}>Closing (CB)</th>
-              <th rowSpan={2} style={{ textAlign: 'center', width: 110, background: '#f1f5f9', verticalAlign: 'middle' }}>Action</th>
-            </tr>
-
-            {(recLabels.length > 0 || dispLabels.length > 0) && (
-              <tr>
-                {recLabels.map(l => (
-                  <th key={`rec_hdr_${l}`} style={{ textAlign: 'right', minWidth: 100, fontSize: '0.72rem', background: '#ecfdf5', color: '#065f46' }}>
-                    {l}
-                  </th>
-                ))}
-                {recLabels.length > 0 && (
-                  <th style={{ textAlign: 'right', minWidth: 110, fontSize: '0.75rem', background: '#a7f3d0', color: '#047857', fontWeight: 800 }}>
-                    TOTAL RECEIPTS
-                  </th>
-                )}
-
-                {dispLabels.map(l => (
-                  <th key={`disp_hdr_${l}`} style={{ textAlign: 'right', minWidth: 100, fontSize: '0.72rem', background: '#fffbeb', color: '#92400e' }}>
-                    {l}
-                  </th>
-                ))}
-                {dispLabels.length > 0 && (
-                  <th style={{ textAlign: 'right', minWidth: 110, fontSize: '0.75rem', background: '#fde68a', color: '#b45309', fontWeight: 800 }}>
-                    TOTAL DISPOSALS
-                  </th>
-                )}
-              </tr>
-            )}
-          </thead>
-          <tbody>
-            {tableRows.map(({ stmt, ob, recVals, totalRec, dispVals, totalDisp, cb }) => (
-              <tr key={`p_stmt_${stmt.id}_${stmt.date}_${stmt.shift}`}>
-                <td style={{ textAlign: 'center', fontWeight: 700, color: 'var(--text-primary)' }}>
-                  {fmtDate(stmt.date)}
-                </td>
-                <td style={{ textAlign: 'center' }}>
-                  <span style={{
-                    padding: '2px 8px',
-                    borderRadius: 10,
-                    fontSize: '0.72rem',
-                    fontWeight: 700,
-                    background: stmt.shift === 'D' ? '#fef3c7' : stmt.shift === 'N' ? '#e0e7ff' : '#dcfce7',
-                    color: stmt.shift === 'D' ? '#b45309' : stmt.shift === 'N' ? '#3730a3' : '#15803d',
-                  }}>
-                    {stmt.shift === 'D' ? 'Day' : stmt.shift === 'N' ? 'Night' : 'Full Day'}
-                  </span>
-                </td>
-
-                {/* OB */}
-                <td style={{ textAlign: 'right', fontFamily: 'var(--font-numbers)', fontWeight: 600, background: '#f0f9ff' }}>
-                  {ob === 0 ? '—' : ob.toLocaleString('en-IN', { maximumFractionDigits: 3 })}
-                </td>
-
-                {/* Receipt breakdown */}
-                {recLabels.map(l => (
-                  <td key={`rec_val_${l}`} style={{ textAlign: 'right', fontFamily: 'var(--font-numbers)' }}>
-                    {(recVals[l] || 0) === 0 ? '—' : recVals[l].toLocaleString('en-IN', { maximumFractionDigits: 3 })}
-                  </td>
-                ))}
-                <td style={{ textAlign: 'right', fontFamily: 'var(--font-numbers)', fontWeight: 700, color: '#059669', background: '#ecfdf5' }}>
-                  {totalRec === 0 ? '—' : totalRec.toLocaleString('en-IN', { maximumFractionDigits: 3 })}
-                </td>
-
-                {/* Disposal breakdown */}
-                {dispLabels.map(l => (
-                  <td key={`disp_val_${l}`} style={{ textAlign: 'right', fontFamily: 'var(--font-numbers)' }}>
-                    {(dispVals[l] || 0) === 0 ? '—' : dispVals[l].toLocaleString('en-IN', { maximumFractionDigits: 3 })}
-                  </td>
-                ))}
-                <td style={{ textAlign: 'right', fontFamily: 'var(--font-numbers)', fontWeight: 700, color: '#b45309', background: '#fffbeb' }}>
-                  {totalDisp === 0 ? '—' : totalDisp.toLocaleString('en-IN', { maximumFractionDigits: 3 })}
-                </td>
-
-                {/* CB */}
-                <td style={{ textAlign: 'right', fontFamily: 'var(--font-numbers)', fontWeight: 800, color: '#4338ca', background: '#eef2ff' }}>
-                  {cb === 0 ? '—' : cb.toLocaleString('en-IN', { maximumFractionDigits: 3 })}
-                </td>
-
-                {/* Action */}
-                <td style={{ textAlign: 'center' }}>
-                  <Link
-                    href={`/dashboard/stock/${stmt.date}/${stmt.shift}`}
-                    className="btn btn-secondary btn-sm"
-                    style={{ fontSize: '0.75rem', padding: '3px 10px', fontWeight: 600 }}
-                  >
-                    👁️ View
-                  </Link>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-
-          {/* Summary Footer Row */}
-          <tfoot>
-            <tr style={{ background: '#f8fafc', borderTop: '2px solid #cbd5e1', fontWeight: 800 }}>
-              <td colSpan={2} style={{ textAlign: 'center', padding: '10px 8px', color: 'var(--text-primary)', fontSize: '0.82rem' }}>
-                PERIOD TOTAL ({prodTitle})
-              </td>
-
-              {/* Period OB */}
-              <td style={{ textAlign: 'right', fontFamily: 'var(--font-numbers)', color: '#0369a1', background: '#e0f2fe' }}>
-                {periodTotalOb === 0 ? '—' : periodTotalOb.toLocaleString('en-IN', { maximumFractionDigits: 3 })}
-              </td>
-
-              {/* Period Receipt Particulars Totals */}
-              {recLabels.map(l => (
-                <td key={`tot_rec_${l}`} style={{ textAlign: 'right', fontFamily: 'var(--font-numbers)', color: '#047857' }}>
-                  {(periodRecParticularsTotal[l] || 0) === 0 ? '—' : periodRecParticularsTotal[l].toLocaleString('en-IN', { maximumFractionDigits: 3 })}
-                </td>
-              ))}
-              <td style={{ textAlign: 'right', fontFamily: 'var(--font-numbers)', color: '#047857', background: '#a7f3d0' }}>
-                {periodTotalRec === 0 ? '—' : periodTotalRec.toLocaleString('en-IN', { maximumFractionDigits: 3 })}
-              </td>
-
-              {/* Period Disposal Particulars Totals */}
-              {dispLabels.map(l => (
-                <td key={`tot_disp_${l}`} style={{ textAlign: 'right', fontFamily: 'var(--font-numbers)', color: '#b45309' }}>
-                  {(periodDispParticularsTotal[l] || 0) === 0 ? '—' : periodDispParticularsTotal[l].toLocaleString('en-IN', { maximumFractionDigits: 3 })}
-                </td>
-              ))}
-              <td style={{ textAlign: 'right', fontFamily: 'var(--font-numbers)', color: '#b45309', background: '#fde68a' }}>
-                {periodTotalDisp === 0 ? '—' : periodTotalDisp.toLocaleString('en-IN', { maximumFractionDigits: 3 })}
-              </td>
-
-              {/* Period Final CB */}
-              <td style={{ textAlign: 'right', fontFamily: 'var(--font-numbers)', color: '#3730a3', background: '#c7d2fe', fontSize: '0.88rem' }}>
-                {periodTotalCb === 0 ? '—' : periodTotalCb.toLocaleString('en-IN', { maximumFractionDigits: 3 })}
-              </td>
-
-              <td />
-            </tr>
-          </tfoot>
-        </table>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+        {activeKeys.map(k => renderSingleProductStatementCard(k))}
       </div>
     );
   };
@@ -1131,18 +1390,26 @@ export default function PeriodicalSummaryReportPage() {
           <div style={{ display: 'flex', gap: 10 }}>
             {aggregatedReport && (
               <>
-                <button
+                {/* <button
                   type="button"
                   className="btn btn-primary btn-sm"
                   style={{ background: '#16a34a', borderColor: '#16a34a', fontWeight: 600 }}
+                  onClick={handleExportPeriodicalExcel}
+                  title="Download Excel file with separate product sheets and formatted filename"
+                >
+                  📥 Download Excel (Product Sheets)
+                </button> */}
+                {/* <button
+                  type="button"
+                  className="btn btn-secondary btn-sm"
                   onClick={handleExportMultiSheetExcel}
                   title="Extract Excel file with each daily Stock Statement in an individual sheet tab"
                 >
-                  📥 Extract Multi-Sheet Excel (Daily Sheets)
-                </button>
-                <button type="button" className="btn btn-secondary btn-sm" onClick={handleExportCSV}>
+                  📥 Extract Daily Sheets Excel
+                </button> */}
+                {/* <button type="button" className="btn btn-secondary btn-sm" onClick={handleExportCSV}>
                   📥 Export Consolidated CSV
-                </button>
+                </button> */}
                 <button type="button" className="btn btn-secondary btn-sm" onClick={() => window.print()}>
                   🖨️ Print Report
                 </button>
@@ -1369,7 +1636,38 @@ export default function PeriodicalSummaryReportPage() {
         ) : (
           <>
             {/* Statement Selector Cards */}
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: 16, marginBottom: 20 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 16, marginBottom: 20 }}>
+              <div
+                className="card"
+                onClick={() => setActiveStatementType('DAILY')}
+                style={{
+                  padding: 18,
+                  cursor: 'pointer',
+                  background: activeStatementType === 'DAILY' ? 'rgba(14, 165, 233, 0.08)' : '#fff',
+                  borderTop: activeStatementType === 'DAILY' ? '2px solid var(--brand-primary)' : '1px solid var(--border)',
+                  borderRight: activeStatementType === 'DAILY' ? '2px solid var(--brand-primary)' : '1px solid var(--border)',
+                  borderBottom: activeStatementType === 'DAILY' ? '2px solid var(--brand-primary)' : '1px solid var(--border)',
+                  borderLeft: '6px solid var(--brand-primary)',
+                  transition: 'all 0.2s ease',
+                  boxShadow: activeStatementType === 'DAILY' ? '0 4px 12px rgba(14, 165, 233, 0.15)' : 'none',
+                }}
+              >
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <div style={{ fontSize: '0.8rem', color: 'var(--brand-primary)', textTransform: 'uppercase', fontWeight: 700 }}>
+                    📅 Daily Statements
+                  </div>
+                  <span style={{ fontSize: '0.7rem', padding: '2px 8px', borderRadius: 12, background: activeStatementType === 'DAILY' ? '#0284c7' : '#e2e8f0', color: activeStatementType === 'DAILY' ? '#fff' : '#475569', fontWeight: 700 }}>
+                    {activeStatementType === 'DAILY' ? 'ACTIVE' : 'SELECT'}
+                  </span>
+                </div>
+                <div style={{ fontSize: '1.25rem', fontWeight: 700, color: 'var(--text-primary)', marginTop: 6 }}>
+                  Daily Stock Statements
+                </div>
+                <div style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', marginTop: 4 }}>
+                  📥 Extract Daily Sheets Excel ({aggregatedReport.dateWiseStatements.length} Days)
+                </div>
+              </div>
+
               <div
                 className="card"
                 onClick={() => setActiveStatementType('STOCK')}
@@ -1377,7 +1675,9 @@ export default function PeriodicalSummaryReportPage() {
                   padding: 18,
                   cursor: 'pointer',
                   background: activeStatementType === 'STOCK' ? 'rgba(14, 165, 233, 0.08)' : '#fff',
-                  border: activeStatementType === 'STOCK' ? '2px solid var(--brand-primary)' : '1px solid var(--border)',
+                  borderTop: activeStatementType === 'STOCK' ? '2px solid var(--brand-primary)' : '1px solid var(--border)',
+                  borderRight: activeStatementType === 'STOCK' ? '2px solid var(--brand-primary)' : '1px solid var(--border)',
+                  borderBottom: activeStatementType === 'STOCK' ? '2px solid var(--brand-primary)' : '1px solid var(--border)',
                   borderLeft: '6px solid var(--brand-primary)',
                   transition: 'all 0.2s ease',
                   boxShadow: activeStatementType === 'STOCK' ? '0 4px 12px rgba(14, 165, 233, 0.15)' : 'none',
@@ -1387,11 +1687,11 @@ export default function PeriodicalSummaryReportPage() {
                   <div style={{ fontSize: '0.8rem', color: 'var(--brand-primary)', textTransform: 'uppercase', fontWeight: 700 }}>
                     📦 Stock Statement
                   </div>
-                  <span style={{ fontSize: '0.7rem', padding: '2px 8px', borderRadius: 12, background: '#0284c7', color: '#fff', fontWeight: 700 }}>
-                    ACTIVE
+                  <span style={{ fontSize: '0.7rem', padding: '2px 8px', borderRadius: 12, background: activeStatementType === 'STOCK' ? '#0284c7' : '#e2e8f0', color: activeStatementType === 'STOCK' ? '#fff' : '#475569', fontWeight: 700 }}>
+                    {activeStatementType === 'STOCK' ? 'ACTIVE' : 'SELECT'}
                   </span>
                 </div>
-                <div style={{ fontSize: '1.3rem', fontWeight: 700, color: 'var(--text-primary)', marginTop: 6 }}>
+                <div style={{ fontSize: '1.25rem', fontWeight: 700, color: 'var(--text-primary)', marginTop: 6 }}>
                   Date-Wise Stock Statement
                 </div>
                 <div style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', marginTop: 4 }}>
@@ -1406,7 +1706,9 @@ export default function PeriodicalSummaryReportPage() {
                   padding: 18,
                   cursor: 'pointer',
                   background: activeStatementType === 'STG' ? 'rgba(16, 185, 129, 0.08)' : '#fff',
-                  border: activeStatementType === 'STG' ? '2px solid #10b981' : '1px solid var(--border)',
+                  borderTop: activeStatementType === 'STG' ? '2px solid #10b981' : '1px solid var(--border)',
+                  borderRight: activeStatementType === 'STG' ? '2px solid #10b981' : '1px solid var(--border)',
+                  borderBottom: activeStatementType === 'STG' ? '2px solid #10b981' : '1px solid var(--border)',
                   borderLeft: '6px solid #10b981',
                   transition: 'all 0.2s ease',
                   boxShadow: activeStatementType === 'STG' ? '0 4px 12px rgba(16, 185, 129, 0.15)' : 'none',
@@ -1420,7 +1722,7 @@ export default function PeriodicalSummaryReportPage() {
                     FUTURE PLAN
                   </span>
                 </div>
-                <div style={{ fontSize: '1.3rem', fontWeight: 700, color: 'var(--text-primary)', marginTop: 6 }}>
+                <div style={{ fontSize: '1.25rem', fontWeight: 700, color: 'var(--text-primary)', marginTop: 6 }}>
                   STG Solid Balance
                 </div>
                 <div style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', marginTop: 4 }}>
@@ -1435,7 +1737,9 @@ export default function PeriodicalSummaryReportPage() {
                   padding: 18,
                   cursor: 'pointer',
                   background: activeStatementType === 'TS' ? 'rgba(99, 102, 241, 0.08)' : '#fff',
-                  border: activeStatementType === 'TS' ? '2px solid #6366f1' : '1px solid var(--border)',
+                  borderTop: activeStatementType === 'TS' ? '2px solid #6366f1' : '1px solid var(--border)',
+                  borderRight: activeStatementType === 'TS' ? '2px solid #6366f1' : '1px solid var(--border)',
+                  borderBottom: activeStatementType === 'TS' ? '2px solid #6366f1' : '1px solid var(--border)',
                   borderLeft: '6px solid #6366f1',
                   transition: 'all 0.2s ease',
                   boxShadow: activeStatementType === 'TS' ? '0 4px 12px rgba(99, 102, 241, 0.15)' : 'none',
@@ -1449,7 +1753,7 @@ export default function PeriodicalSummaryReportPage() {
                     FUTURE PLAN
                   </span>
                 </div>
-                <div style={{ fontSize: '1.3rem', fontWeight: 700, color: 'var(--text-primary)', marginTop: 6 }}>
+                <div style={{ fontSize: '1.25rem', fontWeight: 700, color: 'var(--text-primary)', marginTop: 6 }}>
                   TS Quality Statement
                 </div>
                 <div style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', marginTop: 4 }}>
@@ -1459,7 +1763,27 @@ export default function PeriodicalSummaryReportPage() {
             </div>
 
             {/* Render selected statement view */}
-            {activeStatementType !== 'STOCK' ? (
+            {activeStatementType === 'DAILY' ? (
+              <div className="card" style={{ padding: '40px 24px', textAlign: 'center', background: '#ffffff', borderRadius: 12, border: '1px solid var(--border)', boxShadow: '0 4px 12px rgba(0,0,0,0.03)' }}>
+                <div style={{ fontSize: '3.5rem', marginBottom: 16 }}>📑</div>
+                <div style={{ fontWeight: 800, fontSize: '1.35rem', color: 'var(--text-primary)', marginBottom: 8 }}>
+                  Daily Stock Statements Excel Extraction
+                </div>
+                <div style={{ color: 'var(--text-secondary)', fontSize: '0.92rem', marginBottom: 24, maxWidth: 620, margin: '0 auto 24px', lineHeight: 1.6 }}>
+                  Download a complete multi-sheet Excel workbook containing individual formatted sheet tabs for all <strong>{aggregatedReport.dateWiseStatements.length}</strong> daily stock statements from <strong>{fmtDate(aggregatedReport.startDate)}</strong> to <strong>{fmtDate(aggregatedReport.endDate)}</strong>.
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'center', gap: 16 }}>
+                  <button
+                    type="button"
+                    className="btn btn-primary"
+                    onClick={handleExportMultiSheetExcel}
+                    style={{ padding: '12px 30px', fontSize: '1.05rem', fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: 10, background: '#0284c7', borderColor: '#0284c7', boxShadow: '0 4px 14px rgba(2, 132, 199, 0.35)', cursor: 'pointer' }}
+                  >
+                    <span>📥</span> Extract Daily Sheets Excel
+                  </button>
+                </div>
+              </div>
+            ) : activeStatementType !== 'STOCK' ? (
               <div className="card" style={{ padding: 40, textAlign: 'center' }}>
                 <div style={{ fontSize: '2.5rem', marginBottom: 12 }}>⏳</div>
                 <div style={{ fontWeight: 700, fontSize: '1.2rem', marginBottom: 6 }}>
@@ -1631,24 +1955,44 @@ export default function PeriodicalSummaryReportPage() {
 
                       {/* Sub-view switcher for Product-Wise View */}
                       {dateWiseViewMode === 'PRODUCT_WISE' && (
-                        <div style={{ display: 'flex', background: '#e2e8f0', padding: 3, borderRadius: 8, gap: 3 }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                          <div style={{ display: 'flex', background: '#e2e8f0', padding: 3, borderRadius: 8, gap: 3 }}>
+                            <button
+                              type="button"
+                              className={`btn btn-sm ${productSubViewMode === 'VIRTUALIZED' ? 'btn-primary' : 'btn-ghost'}`}
+                              onClick={() => setProductSubViewMode('VIRTUALIZED')}
+                              style={{ padding: '4px 10px', fontSize: '0.75rem', fontWeight: 600 }}
+                              title="Virtualized statement list with right-side detail view"
+                            >
+                              ⚡ Virtualized List View
+                            </button>
+                            <button
+                              type="button"
+                              className={`btn btn-sm ${productSubViewMode === 'SEPARATE' ? 'btn-primary' : 'btn-ghost'}`}
+                              onClick={() => setProductSubViewMode('SEPARATE')}
+                              style={{ padding: '4px 10px', fontSize: '0.75rem', fontWeight: 600 }}
+                              title="Render each selected product in a separate statement table"
+                            >
+                              📑 Separate Statements
+                            </button>
+                            <button
+                              type="button"
+                              className={`btn btn-sm ${productSubViewMode === 'COMBINED' ? 'btn-primary' : 'btn-ghost'}`}
+                              onClick={() => setProductSubViewMode('COMBINED')}
+                              style={{ padding: '4px 10px', fontSize: '0.75rem', fontWeight: 600 }}
+                              title="Render combined particulars breakdown table"
+                            >
+                              📊 Particulars Breakdown
+                            </button>
+                          </div>
                           <button
                             type="button"
-                            className={`btn btn-sm ${productSubViewMode === 'SEPARATE' ? 'btn-primary' : 'btn-ghost'}`}
-                            onClick={() => setProductSubViewMode('SEPARATE')}
-                            style={{ padding: '4px 10px', fontSize: '0.75rem', fontWeight: 600 }}
-                            title="Render each selected product in a separate statement table"
+                            className="btn btn-primary btn-sm"
+                            style={{ background: '#16a34a', borderColor: '#16a34a', fontWeight: 700, fontSize: '0.75rem', padding: '4px 12px' }}
+                            onClick={handleExportPeriodicalExcel}
+                            title="Download Excel file with separate product sheets and formatted filename"
                           >
-                            📑 Separate Statements
-                          </button>
-                          <button
-                            type="button"
-                            className={`btn btn-sm ${productSubViewMode === 'COMBINED' ? 'btn-primary' : 'btn-ghost'}`}
-                            onClick={() => setProductSubViewMode('COMBINED')}
-                            style={{ padding: '4px 10px', fontSize: '0.75rem', fontWeight: 600 }}
-                            title="Render combined particulars breakdown table"
-                          >
-                            📊 Particulars Breakdown
+                            📥 Export Excel
                           </button>
                         </div>
                       )}
@@ -1725,164 +2069,6 @@ export default function PeriodicalSummaryReportPage() {
                 </div>
 
                 {/* ─── CONSOLIDATED PERIODICAL STOCK STATEMENT TABLE (Only in Consolidated Date View) ─── */}
-                {/* dateWiseViewMode === 'CONSOLIDATED' && (
-                  <div className="card" style={{ overflow: 'hidden' }}>
-                    <div style={{ padding: '16px 20px', borderBottom: '1px solid var(--border)', background: '#fafafa', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12 }}>
-                      <div style={{ fontWeight: 700, fontSize: '1rem', color: 'var(--text-primary)' }}>
-                        📊 Consolidated Period Stock Statement ({fmtDate(aggregatedReport.startDate)} - {fmtDate(aggregatedReport.endDate)})
-                      </div>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 12 }} className="no-print">
-                        <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
-                          Summed over {aggregatedReport.entriesCount} days
-                        </span>
-                        <button
-                          type="button"
-                          className="btn btn-secondary btn-sm"
-                          style={{ borderColor: '#16a34a', color: '#16a34a', fontWeight: 600 }}
-                          onClick={handleExportMultiSheetExcel}
-                          title="Extract Excel file with each daily statement in an individual sheet tab"
-                        >
-                          📥 Extract Multi-Sheet Excel
-                        </button>
-                      </div>
-                    </div>
-
-                    <div style={{ overflowX: 'auto' }}>
-                      <table className="inline-table" style={{ minWidth: 1200, width: '100%' }}>
-                        <thead>
-                          <tr>
-                            <th style={{ textAlign: 'left', minWidth: 240, background: '#f1f5f9' }}>Particulars</th>
-                            {columns.map(col => (
-                              <th key={col.key} style={{ minWidth: 110, fontSize: '0.68rem', textAlign: 'center', padding: '8px 4px', background: '#f1f5f9' }}>
-                                <div style={{ fontWeight: 700 }}>{col.short_name || col.label}</div>
-                              </th>
-                            ))}
-                            <th style={{ minWidth: 120, fontSize: '0.7rem', textAlign: 'center', padding: '8px 4px', fontWeight: 700, background: '#e2e8f0' }}>
-                              Row Total
-                            </th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          <tr style={{ background: 'rgba(14, 165, 233, 0.06)' }}>
-                            <td style={{ fontWeight: 700, color: 'var(--brand-primary)', padding: '10px 12px' }}>
-                              Opening Balance (OB)
-                            </td>
-                            {columns.map(col => {
-                              const val = aggregatedReport.obValues[col.key] || 0;
-                              return (
-                                <td key={col.key} style={{ textAlign: 'right', fontWeight: 600, fontFamily: 'var(--font-numbers)', padding: '8px' }}>
-                                  {val === 0 ? '—' : val.toLocaleString('en-IN', { maximumFractionDigits: 3 })}
-                                </td>
-                              );
-                            })}
-                            <td style={{ textAlign: 'right', fontWeight: 700, fontFamily: 'var(--font-numbers)', padding: '8px', background: 'rgba(14, 165, 233, 0.12)', color: 'var(--brand-primary)' }}>
-                              {aggregatedReport.grandTotalOB.toLocaleString('en-IN', { maximumFractionDigits: 3 })}
-                            </td>
-                          </tr>
-
-                          <tr style={{ background: '#ecfdf5' }}>
-                            <td colSpan={columns.length + 2} style={{ fontWeight: 700, color: '#047857', padding: '8px 12px', fontSize: '0.85rem' }}>
-                              📥 Receipts (Period Total)
-                            </td>
-                          </tr>
-                          {Object.entries(aggregatedReport.receiptParticularsMap).map(([pName, pValues]) => {
-                            const rowTotal = columns.reduce((sum, c) => sum + (pValues[c.key] || 0), 0);
-                            return (
-                              <tr key={`rec_${pName}`}>
-                                <td style={{ paddingLeft: 24, fontWeight: 500 }}>{pName}</td>
-                                {columns.map(col => {
-                                  const val = pValues[col.key] || 0;
-                                  return (
-                                    <td key={col.key} style={{ textAlign: 'right', fontFamily: 'var(--font-numbers)', padding: '8px' }}>
-                                      {val === 0 ? '—' : val.toLocaleString('en-IN', { maximumFractionDigits: 3 })}
-                                    </td>
-                                  );
-                                })}
-                                <td style={{ textAlign: 'right', fontWeight: 600, fontFamily: 'var(--font-numbers)', padding: '8px', background: '#f0fdf4' }}>
-                                  {rowTotal === 0 ? '—' : rowTotal.toLocaleString('en-IN', { maximumFractionDigits: 3 })}
-                                </td>
-                              </tr>
-                            );
-                          })}
-                          <tr style={{ background: '#d1fae5', borderTop: '1px solid #a7f3d0', borderBottom: '2px solid #059669' }}>
-                            <td style={{ fontWeight: 700, color: '#047857', padding: '10px 12px' }}>
-                              TOTAL RECEIPTS
-                            </td>
-                            {columns.map(col => {
-                              const val = aggregatedReport.totalReceiptsCol[col.key] || 0;
-                              return (
-                                <td key={col.key} style={{ textAlign: 'right', fontWeight: 700, fontFamily: 'var(--font-numbers)', padding: '8px', color: '#047857' }}>
-                                  {val === 0 ? '—' : val.toLocaleString('en-IN', { maximumFractionDigits: 3 })}
-                                </td>
-                              );
-                            })}
-                            <td style={{ textAlign: 'right', fontWeight: 800, fontFamily: 'var(--font-numbers)', padding: '8px', color: '#047857', background: '#a7f3d0' }}>
-                              {aggregatedReport.grandTotalReceipts.toLocaleString('en-IN', { maximumFractionDigits: 3 })}
-                            </td>
-                          </tr>
-
-                          <tr style={{ background: '#fffbeb' }}>
-                            <td colSpan={columns.length + 2} style={{ fontWeight: 700, color: '#b45309', padding: '8px 12px', fontSize: '0.85rem' }}>
-                              📤 Disposals (Period Total)
-                            </td>
-                          </tr>
-                          {Object.entries(aggregatedReport.disposalParticularsMap).map(([pName, pValues]) => {
-                            const rowTotal = columns.reduce((sum, c) => sum + (pValues[c.key] || 0), 0);
-                            return (
-                              <tr key={`disp_${pName}`}>
-                                <td style={{ paddingLeft: 24, fontWeight: 500 }}>{pName}</td>
-                                {columns.map(col => {
-                                  const val = pValues[col.key] || 0;
-                                  return (
-                                    <td key={col.key} style={{ textAlign: 'right', fontFamily: 'var(--font-numbers)', padding: '8px' }}>
-                                      {val === 0 ? '—' : val.toLocaleString('en-IN', { maximumFractionDigits: 3 })}
-                                    </td>
-                                  );
-                                })}
-                                <td style={{ textAlign: 'right', fontWeight: 600, fontFamily: 'var(--font-numbers)', padding: '8px', background: '#fef3c7' }}>
-                                  {rowTotal === 0 ? '—' : rowTotal.toLocaleString('en-IN', { maximumFractionDigits: 3 })}
-                                </td>
-                              </tr>
-                            );
-                          })}
-                          <tr style={{ background: '#fef3c7', borderTop: '1px solid #fde68a', borderBottom: '2px solid #d97706' }}>
-                            <td style={{ fontWeight: 700, color: '#b45309', padding: '10px 12px' }}>
-                              TOTAL DISPOSALS
-                            </td>
-                            {columns.map(col => {
-                              const val = aggregatedReport.totalDisposalsCol[col.key] || 0;
-                              return (
-                                <td key={col.key} style={{ textAlign: 'right', fontWeight: 700, fontFamily: 'var(--font-numbers)', padding: '8px', color: '#b45309' }}>
-                                  {val === 0 ? '—' : val.toLocaleString('en-IN', { maximumFractionDigits: 3 })}
-                                </td>
-                              );
-                            })}
-                            <td style={{ textAlign: 'right', fontWeight: 800, fontFamily: 'var(--font-numbers)', padding: '8px', color: '#b45309', background: '#fde68a' }}>
-                              {aggregatedReport.grandTotalDisposals.toLocaleString('en-IN', { maximumFractionDigits: 3 })}
-                            </td>
-                          </tr>
-
-                          <tr style={{ background: 'rgba(99, 102, 241, 0.08)', borderTop: '2px solid #4f46e5' }}>
-                            <td style={{ fontWeight: 800, color: '#4338ca', padding: '12px 12px', fontSize: '0.9rem' }}>
-                              Closing Balance (CB)
-                            </td>
-                            {columns.map(col => {
-                              const val = aggregatedReport.cbValues[col.key] || 0;
-                              return (
-                                <td key={col.key} style={{ textAlign: 'right', fontWeight: 800, fontFamily: 'var(--font-numbers)', padding: '8px', color: '#4338ca' }}>
-                                  {val === 0 ? '—' : val.toLocaleString('en-IN', { maximumFractionDigits: 3 })}
-                                </td>
-                              );
-                            })}
-                            <td style={{ textAlign: 'right', fontWeight: 900, fontFamily: 'var(--font-numbers)', padding: '8px', color: '#4338ca', background: 'rgba(99, 102, 241, 0.18)', fontSize: '0.95rem' }}>
-                              {aggregatedReport.grandTotalCB.toLocaleString('en-IN', { maximumFractionDigits: 3 })}
-                            </td>
-                          </tr>
-                        </tbody>
-                      </table>
-                    </div>
-                  </div>
-                ) */}
               </>
             )}
           </>
