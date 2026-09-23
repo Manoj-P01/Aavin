@@ -162,21 +162,42 @@ export async function GET(req: NextRequest) {
       console.error('Error fetching templates JSON:', e);
     }
 
-    // 4. Fetch Custom Mappings Rules from prep_chart_configs
+    // 4. Fetch Custom Mappings Rules from dedicated table prep_to_stock_mapping_rules
     try {
-      const { data: mapRes } = await supabase
-        .from('prep_chart_configs')
-        .select('config_json')
-        .eq('config_key', 'mappings')
-        .maybeSingle();
+      const { data: dbRules, error: dbErr } = await supabase
+        .from('prep_to_stock_mapping_rules')
+        .select('*')
+        .order('sort_order', { ascending: true })
+        .order('created_at', { ascending: true });
 
-      if (mapRes && Array.isArray(mapRes.config_json) && mapRes.config_json.length > 0) {
-        mappings = mapRes.config_json;
+      if (!dbErr && Array.isArray(dbRules) && dbRules.length > 0) {
+        mappings = dbRules.map(r => ({
+          id: r.id || r.rule_key,
+          sourceChartKey: r.source_chart_key || '*',
+          sourceVariant: r.source_variant,
+          sourceColKey: r.source_col_key || 'qty_lit',
+          targetRowType: r.target_row_type || 'RECEIPT',
+          targetRowLabel: r.target_row_label || undefined,
+          targetProductKey: r.target_product_key,
+          enabled: r.enabled !== false,
+          description: r.description || '',
+        }));
       } else {
-        mappings = DEFAULT_MAPPING_RULES;
+        // Fallback to prep_chart_configs table
+        const { data: mapRes } = await supabase
+          .from('prep_chart_configs')
+          .select('config_json')
+          .eq('config_key', 'mappings')
+          .maybeSingle();
+
+        if (mapRes && Array.isArray(mapRes.config_json) && mapRes.config_json.length > 0) {
+          mappings = mapRes.config_json;
+        } else {
+          mappings = DEFAULT_MAPPING_RULES;
+        }
       }
     } catch (e) {
-      console.error('Error fetching mappings JSON:', e);
+      console.error('Error fetching prep_to_stock_mapping_rules:', e);
       mappings = DEFAULT_MAPPING_RULES;
     }
 
@@ -275,8 +296,33 @@ export async function POST(req: NextRequest) {
       }, { onConflict: 'config_key' });
     }
 
-    // 4. Save Custom Mapping Rules JSON array
+    // 4. Save Custom Mapping Rules into dedicated prep_to_stock_mapping_rules table
     if (Array.isArray(body.mappings)) {
+      try {
+        // Clear old mapping rules and insert fresh list to support deletes and reordering
+        await supabase.from('prep_to_stock_mapping_rules').delete().neq('id', '00000000-0000-0000-0000-000000000000');
+
+        const dbRows = body.mappings.map((m: any, idx: number) => ({
+          rule_key: m.id || `rule_${idx}`,
+          source_chart_key: m.sourceChartKey || '*',
+          source_variant: m.sourceVariant || '',
+          source_col_key: m.sourceColKey || 'qty_lit',
+          target_row_type: m.targetRowType || 'RECEIPT',
+          target_row_label: m.targetRowLabel || null,
+          target_product_key: m.targetProductKey || '',
+          enabled: m.enabled !== false,
+          description: m.description || '',
+          sort_order: idx + 1,
+          updated_by: actorUsername,
+          updated_at: new Date().toISOString(),
+        }));
+
+        await supabase.from('prep_to_stock_mapping_rules').upsert(dbRows, { onConflict: 'rule_key' });
+      } catch (err) {
+        console.warn('Dedicated prep_to_stock_mapping_rules table save warning:', err);
+      }
+
+      // Also save in prep_chart_configs for backward compatibility
       await supabase.from('prep_chart_configs').upsert({
         config_key: 'mappings',
         config_json: body.mappings,
