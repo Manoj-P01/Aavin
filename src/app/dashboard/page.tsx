@@ -24,18 +24,18 @@ export default function DashboardPage() {
         subtitle="Namakkal District Co-operative Milk Producers' Union Ltd"
         actions={
           <div style={{ display: 'flex', gap: 8 }}>
-            <button
+            {/* <button
               className="btn btn-secondary btn-sm"
               onClick={() => setIsImportOpen(true)}
             >
               📥 Import Excel
-            </button>
-            <Link href="/dashboard/ts/new" className="btn btn-primary btn-sm">
+            </button> */}
+            {/* <Link href="/dashboard/ts/new" className="btn btn-primary btn-sm">
               ➕ New TS Entry
             </Link>
             <Link href="/dashboard/stock/new" className="btn btn-secondary btn-sm">
               ➕ New Stock Statement Entry
-            </Link>
+            </Link> */}
           </div>
         }
       />

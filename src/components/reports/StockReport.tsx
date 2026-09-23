@@ -1,4 +1,4 @@
-﻿import { fmtNum, getRowValueFromStockRow } from '@/lib/calculations';
+import { fmtNum, getRowValueFromStockRow } from '@/lib/calculations';
 import type { StockRow, SeparationDetails } from '@/lib/types';
 import React from 'react';
 
@@ -73,7 +73,7 @@ export default function StockReport({ rows, separation, date, shift, notes, prod
     });
 
     cleanNotes = notesParts
-      .filter(part => !part.includes('__METADATA__:'))
+      .filter(part => !part.includes('__METADATA__:') && !part.includes('__STOCK_SUMMARY__:'))
       .join('\n')
       .trim();
   }
