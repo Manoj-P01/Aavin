@@ -46,6 +46,61 @@ export interface ChartEntryData {
   [extraProperty: string]: any;
 }
 
+export interface PrepToStockMappingRule {
+  id: string;
+  sourceChartKey: string;
+  sourceVariant: string;
+  sourceColKey: string;
+  targetRowType: 'RECEIPT' | 'DISPOSAL';
+  targetRowLabel?: string;
+  targetProductKey: string;
+  enabled: boolean;
+  description?: string;
+}
+
+const DEFAULT_MAPPING_RULES: PrepToStockMappingRule[] = [
+  {
+    id: 'rule_delite',
+    sourceChartKey: '*',
+    sourceVariant: 'DELITE',
+    sourceColKey: 'qty_lit',
+    targetRowType: 'RECEIPT',
+    targetProductKey: 'dlt_milk',
+    enabled: true,
+    description: 'DELITE Preparation Chart Qty(Lit) ➔ DLT.Milk (Receipts)',
+  },
+  {
+    id: 'rule_fcm',
+    sourceChartKey: '*',
+    sourceVariant: 'FCM',
+    sourceColKey: 'qty_lit',
+    targetRowType: 'RECEIPT',
+    targetProductKey: 'fcm',
+    enabled: true,
+    description: 'FCM Preparation Chart Qty(Lit) ➔ FCM (Receipts)',
+  },
+  {
+    id: 'rule_std',
+    sourceChartKey: '*',
+    sourceVariant: 'STD MILK',
+    sourceColKey: 'qty_lit',
+    targetRowType: 'RECEIPT',
+    targetProductKey: 'std_milk',
+    enabled: true,
+    description: 'STD Preparation Chart Qty(Lit) ➔ STD.Milk (Receipts)',
+  },
+  {
+    id: 'rule_skim',
+    sourceChartKey: '*',
+    sourceVariant: 'SKIM MILK',
+    sourceColKey: 'qty_lit',
+    targetRowType: 'RECEIPT',
+    targetProductKey: 'skim_milk',
+    enabled: true,
+    description: 'Skim Milk Preparation Chart Qty(Lit) ➔ SKIM MILK (Receipts)',
+  },
+];
+
 // GET /api/stock/preparation-charts - Fetch masters, columns & entries strictly from Supabase JSON store
 export async function GET(req: NextRequest) {
   try {
@@ -53,6 +108,7 @@ export async function GET(req: NextRequest) {
 
     let columns: ChartColumnDef[] = [];
     let masters: ChartMasterDef[] = [];
+    let mappings: PrepToStockMappingRule[] = [];
 
     // 1. Fetch Columns JSON array from prep_chart_configs
     try {
@@ -106,7 +162,25 @@ export async function GET(req: NextRequest) {
       console.error('Error fetching templates JSON:', e);
     }
 
-    // 4. Fetch Entries JSON for requested date & shift
+    // 4. Fetch Custom Mappings Rules from prep_chart_configs
+    try {
+      const { data: mapRes } = await supabase
+        .from('prep_chart_configs')
+        .select('config_json')
+        .eq('config_key', 'mappings')
+        .maybeSingle();
+
+      if (mapRes && Array.isArray(mapRes.config_json) && mapRes.config_json.length > 0) {
+        mappings = mapRes.config_json;
+      } else {
+        mappings = DEFAULT_MAPPING_RULES;
+      }
+    } catch (e) {
+      console.error('Error fetching mappings JSON:', e);
+      mappings = DEFAULT_MAPPING_RULES;
+    }
+
+    // 5. Fetch Entries JSON for requested date & shift
     const url = new URL(req.url);
     const date = url.searchParams.get('date');
     const shift = url.searchParams.get('shift');
@@ -153,6 +227,7 @@ export async function GET(req: NextRequest) {
       columns,
       masters,
       templates,
+      mappings,
       entries,
     });
   } catch (err: any) {
@@ -195,6 +270,16 @@ export async function POST(req: NextRequest) {
       await supabase.from('prep_chart_configs').upsert({
         config_key: 'templates',
         config_json: body.templates,
+        updated_by: actorUsername,
+        updated_at: new Date().toISOString(),
+      }, { onConflict: 'config_key' });
+    }
+
+    // 4. Save Custom Mapping Rules JSON array
+    if (Array.isArray(body.mappings)) {
+      await supabase.from('prep_chart_configs').upsert({
+        config_key: 'mappings',
+        config_json: body.mappings,
         updated_by: actorUsername,
         updated_at: new Date().toISOString(),
       }, { onConflict: 'config_key' });

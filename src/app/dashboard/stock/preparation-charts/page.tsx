@@ -1199,6 +1199,14 @@ export default function PreparationChartsDashboardPage({
               >
                 ⭐ Master Default Formulations
               </Link>
+              <Link
+                href="/dashboard/stock/preparation-charts/mappings"
+                className="btn btn-secondary btn-sm"
+                style={{ color: '#0369a1', borderColor: '#bae6fd', background: '#f0f9ff', fontWeight: 700, textDecoration: 'none', display: 'inline-flex', alignItems: 'center' }}
+                title="Configure custom stage 1 to stage 2 mapping rules"
+              >
+                🔀 Custom Mapping Rules
+              </Link>
             </div>
 
             {/* Repositioned Chart Master Names and Edit Columns / Formulation Buttons */}

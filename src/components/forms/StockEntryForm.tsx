@@ -2047,6 +2047,108 @@ export default function StockEntryForm({
     }
   };
 
+  const syncFromPreparationCharts = async (): Promise<number> => {
+    try {
+      const s = shift || 'F';
+      const res = await fetch(`/api/stock/preparation-charts?date=${entryDate}&shift=${s}`);
+      if (!res.ok) return 0;
+      const json = await res.json();
+      const entries: Record<string, any> = json.entries || {};
+      const mappingRules: any[] = json.mappings || [];
+      let mappedCount = 0;
+
+      setRows(prevRows => {
+        const nextRows = [...prevRows];
+
+        Object.keys(entries).forEach(chartKey => {
+          const entry = entries[chartKey];
+          const rowsList = entry.rows || [];
+
+          rowsList.forEach((r: any) => {
+            const variant = (r.variant || r.values?.variant || '').trim().toUpperCase();
+
+            // Check if user defined custom mapping rule(s) for this chart / variant
+            const matchingRules = mappingRules.filter(rule => {
+              if (rule.enabled === false) return false;
+              const matchChart = rule.sourceChartKey === '*' || rule.sourceChartKey === chartKey;
+              const matchVar = rule.sourceVariant === '*' || rule.sourceVariant.trim().toUpperCase() === variant;
+              return matchChart && matchVar;
+            });
+
+            if (matchingRules.length > 0) {
+              matchingRules.forEach(rule => {
+                const colKey = rule.sourceColKey || 'qty_lit';
+                const rawVal = r.values?.[colKey] !== undefined ? r.values[colKey] : (r.values?.qty_lit || r.values?.qty_lts || r.values?.liters || 0);
+                const numVal = parseFloat(String(rawVal).replace(/,/g, ''));
+
+                if (!isNaN(numVal) && numVal > 0) {
+                  const targetRowType = rule.targetRowType || 'RECEIPT';
+                  const targetRowIdx = nextRows.findIndex(row => row.row_type === targetRowType);
+
+                  if (targetRowIdx !== -1) {
+                    const targetRow = { ...nextRows[targetRowIdx], values: { ...nextRows[targetRowIdx].values } };
+                    const targetProdKey = rule.targetProductKey;
+
+                    const matchedCol = columns.find(c =>
+                      c.key === targetProdKey ||
+                      (c.label || c.short_name || c.full_name || '').toUpperCase() === targetProdKey.toUpperCase()
+                    );
+
+                    if (matchedCol) {
+                      targetRow.values[matchedCol.key] = String(numVal);
+                      nextRows[targetRowIdx] = targetRow;
+                      mappedCount++;
+                    }
+                  }
+                }
+              });
+            } else {
+              // Smart Fallback matching
+              const rawVal = r.values?.qty_lit || r.values?.qty_lts || r.values?.liters || r.values?.qty_kg || 0;
+              const numVal = parseFloat(String(rawVal).replace(/,/g, ''));
+
+              if (!isNaN(numVal) && numVal > 0) {
+                const receiptIndices = nextRows
+                  .map((row, i) => (row.row_type === 'RECEIPT' ? i : -1))
+                  .filter(i => i !== -1);
+
+                if (receiptIndices.length > 0) {
+                  const targetIdx = receiptIndices[0];
+                  const targetRow = { ...nextRows[targetIdx], values: { ...nextRows[targetIdx].values } };
+
+                  const matchedCol = columns.find(c => {
+                    const colLabel = (c.label || c.short_name || c.full_name || c.key).toUpperCase();
+                    return (
+                      colLabel === variant ||
+                      (variant.includes('DELITE') && (colLabel.includes('DLT') || colLabel.includes('DELITE'))) ||
+                      (variant.includes('FCM') && colLabel.includes('FCM')) ||
+                      (variant.includes('STD') && (colLabel.includes('STD') || colLabel.includes('STANDARD'))) ||
+                      (variant.includes('SKIM') && colLabel.includes('SKIM')) ||
+                      (variant.includes('TONED') && colLabel.includes('TONED'))
+                    );
+                  });
+
+                  if (matchedCol) {
+                    targetRow.values[matchedCol.key] = String(numVal);
+                    nextRows[targetIdx] = targetRow;
+                    mappedCount++;
+                  }
+                }
+              }
+            }
+          });
+        });
+
+        return nextRows;
+      });
+
+      return mappedCount;
+    } catch (err) {
+      console.error('Failed to sync preparation charts:', err);
+      return 0;
+    }
+  };
+
   const handleExportDailyExcel = async () => {
     if (!entryDate) {
       showWarning('Please select a valid date.', 'Date Required');
@@ -2134,6 +2236,22 @@ export default function StockEntryForm({
                 >
                   📋 Preparation Charts
                 </Link>
+                <button
+                  type="button"
+                  className="btn btn-secondary btn-xs"
+                  style={{ borderColor: '#0284c7', color: '#0284c7', backgroundColor: '#f0f9ff', fontSize: '0.75rem', padding: '4px 10px', fontWeight: 600 }}
+                  onClick={async () => {
+                    const count = await syncFromPreparationCharts();
+                    if (count > 0) {
+                      alert(`✅ Synced ${count} preparation formulation batch quantity(ies) into Stock Statement Entry Receipts!`);
+                    } else {
+                      alert(`⚠️ No saved preparation charts data found for ${entryDate}. Please ensure preparation charts are saved for this date.`);
+                    }
+                  }}
+                  title="Auto-fill receipt quantities from saved Preparation Charts"
+                >
+                  ⚡ Sync from Prep Charts
+                </button>
                 <button
                   type="button"
                   className="btn btn-secondary btn-xs"
