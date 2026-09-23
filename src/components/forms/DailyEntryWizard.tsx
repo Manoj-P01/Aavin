@@ -5,6 +5,7 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import StockEntryForm from '@/components/forms/StockEntryForm';
 import STGEntryForm from '@/components/forms/STGEntryForm';
 import TSEntryForm from '@/components/forms/TSEntryForm';
+import PreparationChartsDashboardPage from '@/app/dashboard/stock/preparation-charts/page';
 import type { Shift } from '@/lib/types';
 
 export default function DailyEntryWizard() {
@@ -12,8 +13,11 @@ export default function DailyEntryWizard() {
   const searchParams = useSearchParams();
   const paramDate = searchParams.get('date');
   const paramShift = searchParams.get('shift');
+  const paramStep = searchParams.get('step');
 
-  const [activeStep, setActiveStep] = useState<'stock' | 'stg' | 'ts'>('stock');
+  const [activeStep, setActiveStep] = useState<'prep' | 'stock' | 'stg' | 'ts'>(
+    paramStep === 'prep' ? 'prep' : 'stock'
+  );
   const [entryDate, setEntryDate] = useState<string>(
     paramDate || new Date().toISOString().split('T')[0]
   );
@@ -22,8 +26,8 @@ export default function DailyEntryWizard() {
   );
 
   const handleStepChange = (key: string) => {
-    if (key === 'stock' || key === 'stg' || key === 'ts') {
-      setActiveStep(key);
+    if (key === 'prep' || key === 'stock' || key === 'stg' || key === 'ts') {
+      setActiveStep(key as 'prep' | 'stock' | 'stg' | 'ts');
     } else if (key === 'reports') {
       router.push(`/dashboard/ts/${entryDate}?shift=${shift || 'F'}`);
     }
@@ -31,6 +35,17 @@ export default function DailyEntryWizard() {
 
   return (
     <div className="wizard-content animate-fade-in">
+      {activeStep === 'prep' && (
+        <PreparationChartsDashboardPage
+          stepMode={true}
+          activeStep={activeStep}
+          onStepChange={handleStepChange}
+          onNextStep={() => setActiveStep('stock')}
+          initialDate={entryDate}
+          initialShift={shift || 'F'}
+        />
+      )}
+
       {activeStep === 'stock' && (
         <StockEntryForm
           stepMode={true}

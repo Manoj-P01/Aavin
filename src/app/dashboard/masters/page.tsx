@@ -532,7 +532,7 @@ export default function MasterDeclarationsPage() {
                   <td style={{ padding: '12px 16px', textAlign: 'center' }}>
                     <div style={{ display: 'inline-flex', gap: 6 }}>
                       <button type="button" className="btn btn-secondary btn-xs" onClick={() => setEditingProduct(p)}>✏️ Edit</button>
-                      <button type="button" className="btn btn-secondary btn-xs" style={{ color: '#ef4444', borderColor: '#fca5a5' }} onClick={() => handleDeleteProduct(p.id, p.product_name)}>🗑️ Delete</button>
+                      <button type="button" className="btn btn-secondary btn-xs" style={{ color: '#ef4444', borderColor: '#fca5a5' }} onClick={() => handleDeleteProduct(p.id, p.product_name)}>✕ Delete</button>
                     </div>
                   </td>
                 </tr>
@@ -579,7 +579,7 @@ export default function MasterDeclarationsPage() {
                   <td style={{ padding: '12px 16px', textAlign: 'center' }}>
                     <div style={{ display: 'inline-flex', gap: 6 }}>
                       <button type="button" className="btn btn-secondary btn-xs" onClick={() => setEditingCategory(c)}>✏️ Edit</button>
-                      <button type="button" className="btn btn-secondary btn-xs" style={{ color: '#ef4444', borderColor: '#fca5a5' }} onClick={() => handleDeleteCategory(c.id, c.category_name)}>🗑️ Delete</button>
+                      <button type="button" className="btn btn-secondary btn-xs" style={{ color: '#ef4444', borderColor: '#fca5a5' }} onClick={() => handleDeleteCategory(c.id, c.category_name)}>✕ Delete</button>
                     </div>
                   </td>
                 </tr>
@@ -626,7 +626,7 @@ export default function MasterDeclarationsPage() {
                   <td style={{ padding: '12px 16px', textAlign: 'center' }}>
                     <div style={{ display: 'inline-flex', gap: 6 }}>
                       <button type="button" className="btn btn-secondary btn-xs" onClick={() => setEditingDairy(d)}>✏️ Edit</button>
-                      <button type="button" className="btn btn-secondary btn-xs" style={{ color: '#ef4444', borderColor: '#fca5a5' }} onClick={() => handleDeleteDairy(d.id, d.dairy_name)}>🗑️ Delete</button>
+                      <button type="button" className="btn btn-secondary btn-xs" style={{ color: '#ef4444', borderColor: '#fca5a5' }} onClick={() => handleDeleteDairy(d.id, d.dairy_name)}>✕ Delete</button>
                     </div>
                   </td>
                 </tr>

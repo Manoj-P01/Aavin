@@ -2036,7 +2036,9 @@ export default function StockEntryForm({
       return;
     }
     const s = shift || 'F';
-    if (key === 'stg') {
+    if (key === 'prep') {
+      router.push(`/dashboard/stock/preparation-charts?date=${entryDate}&shift=${s}`);
+    } else if (key === 'stg') {
       router.push(`/dashboard/ts/new-stg?date=${entryDate}&shift=${s}`);
     } else if (key === 'ts') {
       router.push(`/dashboard/ts/new?date=${entryDate}&shift=${s}`);
@@ -2080,6 +2082,14 @@ export default function StockEntryForm({
         subtitle={`Enter daily milk & cream stock data (${reportMode === 'full_day' ? 'Full Day' : (shift === 'D' ? 'Day Shift' : 'Night Shift')})`}
         actions={
           <div style={{ display: 'flex', gap: 8 }} className="no-print">
+            <Link
+              href={`/dashboard/stock/preparation-charts?date=${entryDate}${shift ? `&shift=${shift}` : ''}`}
+              className="btn btn-secondary btn-sm"
+              style={{ borderColor: '#d97706', color: '#b45309', backgroundColor: '#fffbeb', fontWeight: 600 }}
+              title="View Preparation Charts for selected Date & Shift"
+            >
+              📋 Preparation Charts
+            </Link>
             <button
               type="button"
               className="btn btn-secondary btn-sm"
@@ -2116,6 +2126,14 @@ export default function StockEntryForm({
             <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
               <div className="section-title" style={{ margin: 0 }}>Entry Details</div>
               <div style={{ display: 'flex', gap: 6 }} className="no-print">
+                <Link
+                  href={`/dashboard/stock/preparation-charts?date=${entryDate}${shift ? `&shift=${shift}` : ''}`}
+                  className="btn btn-secondary btn-xs"
+                  style={{ borderColor: '#d97706', color: '#b45309', backgroundColor: '#fffbeb', fontSize: '0.75rem', padding: '4px 10px', fontWeight: 600 }}
+                  title="View Preparation Charts for selected Date & Shift"
+                >
+                  📋 Preparation Charts
+                </Link>
                 <button
                   type="button"
                   className="btn btn-secondary btn-xs"

@@ -1617,7 +1617,7 @@ export default function StockProductsPage() {
                                 style={{ color: '#ef4444', borderColor: '#fca5a5' }}
                                 onClick={() => handleDeleteCategoryModal(cat.id, cat.category_name)}
                               >
-                                🗑️ Delete
+                                ✕ Delete
                               </button>
                             </div>
                           )}

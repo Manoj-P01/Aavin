@@ -55,6 +55,19 @@ export default function StockViewPage() {
   };
 
   useEffect(() => {
+    if (!date) return;
+
+    // Handle dynamic route fallback collision for preparation-charts
+    if (date === 'preparation-charts') {
+      router.replace(`/dashboard/stock/preparation-charts/${shift}`);
+      return;
+    }
+
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+      router.replace('/dashboard/stock');
+      return;
+    }
+
     async function load() {
       try {
         // Load report mode configuration & database products master
