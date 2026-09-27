@@ -4,8 +4,11 @@ import { useState, useEffect, useMemo, useCallback } from 'react';
 import Header from '@/components/layout/Header';
 import Link from 'next/link';
 import type { ChartColumnDef, ChartMasterDef, ChartRowData, ChartEntryData } from '@/app/api/stock/preparation-charts/route';
+import { getStandardColumnDecimals } from '@/lib/calculations';
+import { useConfirm } from '@/context/ConfirmContext';
 
 export default function MasterDefaultFormulationsPage() {
+  const { confirm, showWarning } = useConfirm();
   const [columns, setColumns] = useState<ChartColumnDef[]>([]);
   const [masters, setMasters] = useState<ChartMasterDef[]>([]);
   const [templates, setTemplates] = useState<Record<string, {
@@ -45,22 +48,9 @@ export default function MasterDefaultFormulationsPage() {
   const [formColType, setFormColType] = useState<'number' | 'text' | 'calculated'>('number');
   const [formColFormula, setFormColFormula] = useState<string>('');
   const [formColUnit, setFormColUnit] = useState<string>('');
+  const [formColDecimals, setFormColDecimals] = useState<number | undefined>(undefined);
 
-  const [productOptions, setProductOptions] = useState<string[]>([
-    'RAW MILK',
-    'FCM',
-    'DELITE',
-    'STD MILK',
-    'SKIM MILK',
-    'TONED MILK',
-    'DOUBLE TONED MILK',
-    'CREAM',
-    'SMP',
-    'WATER',
-    'R.CON',
-    'BUTTER MILK',
-    'CURD',
-  ]);
+  const [productOptions, setProductOptions] = useState<string[]>([]);
 
   useEffect(() => {
     async function loadProductsMaster() {
@@ -71,7 +61,9 @@ export default function MasterDefaultFormulationsPage() {
           const prods = json.data || json.products || [];
           if (Array.isArray(prods) && prods.length > 0) {
             const names = prods.map((p: any) => p.short_name || p.product_name || p.full_name || p.key).filter(Boolean);
-            setProductOptions(prev => Array.from(new Set([...names, ...prev])));
+            setProductOptions(Array.from(new Set(names)));
+          } else {
+            setProductOptions([]);
           }
         }
       } catch (e) {
@@ -156,6 +148,16 @@ export default function MasterDefaultFormulationsPage() {
       n = Math.floor(n / 26) - 1;
     }
     return name;
+  };
+
+  // Helper to format number according to column decimal precision
+  const formatNumberValue = (num: number, decimals?: number, colKey?: string): string => {
+    if (isNaN(num)) return '-';
+    const dec = getStandardColumnDecimals(colKey || '', decimals);
+    return num.toLocaleString('en-IN', {
+      minimumFractionDigits: dec,
+      maximumFractionDigits: dec,
+    });
   };
 
   // Safe Excel Formula Evaluator
@@ -333,8 +335,8 @@ export default function MasterDefaultFormulationsPage() {
       const rawQtyKg = rowVals ? rowVals.qty_kg : undefined;
       const qtyKg = rawQtyKg !== undefined && rawQtyKg !== '' && rawQtyKg !== null
         ? (typeof rawQtyKg === 'string' && (rawQtyKg.startsWith('=') || rawQtyKg.startsWith('=+'))
-            ? evaluateExcelFormula(rawQtyKg, rowIndex, rowVals, rList)
-            : parseFloat(String(rawQtyKg || 0)))
+          ? evaluateExcelFormula(rawQtyKg, rowIndex, rowVals, rList)
+          : parseFloat(String(rawQtyKg || 0)))
         : (spGr > 0 ? qtyLit * spGr : qtyLit);
 
       const fatPctVal = rowVals ? rowVals.fat_pct : undefined;
@@ -419,7 +421,7 @@ export default function MasterDefaultFormulationsPage() {
     }
 
     const formattedValDisplay = typeof computedVal === 'number'
-      ? (computedVal !== 0 ? computedVal.toLocaleString('en-IN', { maximumFractionDigits: 3 }) : '-')
+      ? (computedVal !== 0 ? formatNumberValue(computedVal, col.decimals, col.key) : '0')
       : (computedVal || '-');
 
     return {
@@ -528,6 +530,7 @@ export default function MasterDefaultFormulationsPage() {
     setFormColType('number');
     setFormColFormula('');
     setFormColUnit('');
+    setFormColDecimals(undefined);
     setIsColModalOpen(true);
   };
 
@@ -539,30 +542,11 @@ export default function MasterDefaultFormulationsPage() {
     setFormColType(col.type);
     setFormColFormula(col.formula || '');
     setFormColUnit(col.unit || '');
+    setFormColDecimals(col.decimals);
     setIsColModalOpen(true);
   };
 
-  const saveColumnsToApi = async (colsToSave: ChartColumnDef[], successMsg: string) => {
-    setSaving(true);
-    try {
-      const res = await fetch('/api/stock/preparation-charts', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ columns: colsToSave }),
-      });
-      if (res.ok) {
-        showToast(`✅ ${successMsg}`);
-      } else {
-        showToast('❌ Failed to save column updates');
-      }
-    } catch (err) {
-      console.error('Error saving columns:', err);
-      showToast('❌ Error connecting to server');
-    }
-    setSaving(false);
-  };
-
-  const handleSaveColumnModal = async (e: React.FormEvent) => {
+  const handleSaveColumnModal = (e: React.FormEvent) => {
     e.preventDefault();
 
     if (!formColName.trim()) {
@@ -578,6 +562,7 @@ export default function MasterDefaultFormulationsPage() {
       type: formColType,
       formula: formColType === 'calculated' ? formColFormula.trim() : undefined,
       unit: formColUnit.trim(),
+      decimals: formColDecimals !== undefined ? formColDecimals : undefined,
       sort_order: colModalEditingKey
         ? (columns.find(c => c.key === colModalEditingKey)?.sort_order || columns.length + 1)
         : (colModalInsertIdx !== null ? colModalInsertIdx + 1 : columns.length + 1),
@@ -600,17 +585,40 @@ export default function MasterDefaultFormulationsPage() {
     const reindexedCols = updatedCols.map((c, i) => ({ ...c, sort_order: i + 1 }));
     setColumns(reindexedCols);
     setIsColModalOpen(false);
+    showToast(colModalEditingKey ? `Updated column "${newCol.name}" locally. Click "⭐ Save Master Default Table" to save to database.` : `Inserted column "${newCol.name}" locally. Click "⭐ Save Master Default Table" to save to database.`);
+  };
 
-    await saveColumnsToApi(reindexedCols, colModalEditingKey ? `Updated column "${newCol.name}"` : `Inserted column "${newCol.name}"`);
+  const chartDecimalMode = useMemo(() => {
+    const numCols = columns.filter(c => c.type !== 'text');
+    if (numCols.length === 0) return '';
+    const firstDec = numCols[0].decimals;
+    if (firstDec === undefined) return '';
+    const allSame = numCols.every(c => c.decimals === firstDec);
+    return allSame ? String(firstDec) : 'custom';
+  }, [columns]);
+
+  const handleApplyGlobalDecimals = (decimalsVal: string) => {
+    const numDec = decimalsVal !== '' && decimalsVal !== 'custom' ? parseInt(decimalsVal, 10) : undefined;
+    const updatedCols = columns.map(c => c.type !== 'text' ? { ...c, decimals: numDec } : c);
+    setColumns(updatedCols);
+    showToast(`Updated column decimal precision locally. Click "⭐ Save Master Default Table" to save to database.`);
   };
 
   const handleDeleteColumnInline = async (key: string, colIdx: number) => {
     if (columns.length <= 1) {
-      alert('Cannot delete the last remaining column.');
+      await showWarning('Cannot delete the last remaining column.', 'Cannot Delete Column');
       return;
     }
 
-    if (!window.confirm(`Are you sure you want to delete column "${columns[colIdx]?.name}"?`)) return;
+    const isConfirmed = await confirm({
+      title: 'Confirm Column Deletion',
+      message: `Are you sure you want to delete column "${columns[colIdx]?.name}"?`,
+      confirmText: 'Delete Column',
+      cancelText: 'Cancel',
+      type: 'danger',
+    });
+
+    if (!isConfirmed) return;
 
     const filteredCols = columns.filter(c => c.key !== key).map((c, i) => ({ ...c, sort_order: i + 1 }));
     setColumns(filteredCols);
@@ -623,10 +631,10 @@ export default function MasterDefaultFormulationsPage() {
       });
     });
 
-    await saveColumnsToApi(filteredCols, `Deleted column "${key}"`);
+    showToast(`Deleted column "${key}" locally. Click "⭐ Save Master Default Table" to save to database.`);
   };
 
-  // Save Master Default Formulation Template
+  // Save Master Default Formulation Template & Columns
   const handleSaveDefaultTemplate = async () => {
     if (!activeChartKey) return;
     setSaving(true);
@@ -644,7 +652,10 @@ export default function MasterDefaultFormulationsPage() {
       const res = await fetch('/api/stock/preparation-charts', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ template: templatePayload }),
+        body: JSON.stringify({
+          columns: columns,
+          template: templatePayload,
+        }),
       });
 
       if (res.ok) {
@@ -652,7 +663,7 @@ export default function MasterDefaultFormulationsPage() {
           ...prev,
           [activeChartKey]: templatePayload,
         }));
-        showToast(`⭐ Saved Master Default formulation table for "${chartMaster?.name || activeChartKey}" in database! All un-entered daily charts will inherit these defaults.`);
+        showToast(`⭐ Saved Master Default formulation table and columns for "${chartMaster?.name || activeChartKey}" in database! All un-entered daily charts will inherit these defaults.`);
       } else {
         showToast('❌ Failed to save default master template');
       }
@@ -790,7 +801,7 @@ export default function MasterDefaultFormulationsPage() {
                   onClick={() => {
                     setRows(prev => [
                       ...prev,
-                      { variant: 'New Ingredient', values: { variant: 'New Ingredient' } }
+                      { variant: '', values: {} }
                     ]);
                   }}
                   style={{ background: '#f0f9ff', border: '1px solid #bae6fd', color: '#0284c7', borderRadius: 6, padding: '5px 12px', fontSize: '0.8rem', fontWeight: 700, cursor: 'pointer' }}
@@ -977,7 +988,38 @@ export default function MasterDefaultFormulationsPage() {
                             </div>
                           )}
                         </div>
-                        <div>{col.name} {col.unit ? `(${col.unit})` : ''}</div>
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: col.type === 'text' ? 'flex-start' : 'space-between', gap: 6 }}>
+                          <span>{col.name} {col.unit ? `(${col.unit})` : ''}</span>
+                          {col.type !== 'text' && (
+                            <select
+                              value={col.decimals !== undefined ? String(col.decimals) : ''}
+                              onChange={(e) => {
+                                const val = e.target.value !== '' ? parseInt(e.target.value, 10) : undefined;
+                                const updated = columns.map(c => c.key === col.key ? { ...c, decimals: val } : c);
+                                setColumns(updated);
+                              }}
+                              style={{
+                                fontSize: '0.68rem',
+                                padding: '1px 4px',
+                                height: 20,
+                                fontWeight: 700,
+                                color: '#0369a1',
+                                background: '#ffffff',
+                                border: '1px solid #bae6fd',
+                                borderRadius: 4,
+                                cursor: 'pointer',
+                              }}
+                              title={`Set required decimal places for column ${col.name}`}
+                            >
+                              <option value="">Auto ({getStandardColumnDecimals(col.key)})</option>
+                              <option value="0">.0 (Whole)</option>
+                              <option value="1">.1 Dec</option>
+                              <option value="2">.2 Decs</option>
+                              <option value="3">.3 Decs</option>
+                              <option value="4">.4 Decs</option>
+                            </select>
+                          )}
+                        </div>
                       </th>
                     ))}
                     {isColEditing && (
@@ -1008,7 +1050,7 @@ export default function MasterDefaultFormulationsPage() {
 
                         if (col.type === 'calculated') {
                           const formattedCalc = typeof computedVal === 'number'
-                            ? (computedVal !== 0 ? computedVal.toLocaleString('en-IN', { maximumFractionDigits: 3 }) : '-')
+                            ? (computedVal !== 0 ? formatNumberValue(computedVal, col.decimals, col.key) : '-')
                             : (computedVal || '-');
 
                           return (
@@ -1034,9 +1076,17 @@ export default function MasterDefaultFormulationsPage() {
 
                         const rawVal = row.values?.[col.key];
                         const isFormula = typeof rawVal === 'string' && (rawVal.startsWith('=') || rawVal.startsWith('=+'));
-                        const displayVal = isFormula && !isCellFocused
-                          ? (typeof computedVal === 'number' ? (computedVal !== 0 ? computedVal.toLocaleString('en-IN', { maximumFractionDigits: 3 }) : '-') : String(computedVal || '-'))
-                          : (rawVal !== undefined ? rawVal : (col.type === 'text' ? row.variant : ''));
+                        let displayVal = rawVal !== undefined ? rawVal : (col.type === 'text' ? row.variant : '');
+                        if (isFormula && !isCellFocused) {
+                          displayVal = typeof computedVal === 'number'
+                            ? (computedVal !== 0 ? formatNumberValue(computedVal, col.decimals, col.key) : '-')
+                            : String(computedVal || '-');
+                        } else if (!isCellFocused && !isFormula && rawVal !== undefined && rawVal !== '' && col.type === 'number') {
+                          const numVal = typeof rawVal === 'number' ? rawVal : parseFloat(String(rawVal));
+                          if (!isNaN(numVal)) {
+                            displayVal = formatNumberValue(numVal, col.decimals, col.key);
+                          }
+                        }
 
                         const isDraggedInFillModal = !!(fillDrag && fillDrag.colKey === col.key &&
                           rIdx >= Math.min(fillDrag.sourceRow, fillDrag.targetRow) &&
@@ -1090,23 +1140,23 @@ export default function MasterDefaultFormulationsPage() {
                                 background: isDraggedInFillModal
                                   ? '#fef3c7'
                                   : isCellSelected
-                                  ? '#fef3c7'
-                                  : isFormula
-                                  ? '#fffbeb'
-                                  : '#ffffff',
+                                    ? '#fef3c7'
+                                    : isFormula
+                                      ? '#fffbeb'
+                                      : '#ffffff',
                                 color: isFormula ? '#b45309' : 'var(--text-primary)',
                                 borderColor: isDraggedInFillModal
                                   ? '#b45309'
                                   : isCellSelected
-                                  ? '#b45309'
-                                  : isFormula
-                                  ? '#fcd34d'
-                                  : 'var(--border)',
+                                    ? '#b45309'
+                                    : isFormula
+                                      ? '#fcd34d'
+                                      : 'var(--border)',
                                 boxShadow: isDraggedInFillModal
                                   ? '0 0 0 2px rgba(180, 83, 9, 0.45)'
                                   : isCellSelected
-                                  ? '0 0 0 2px rgba(180, 83, 9, 0.25)'
-                                  : 'none',
+                                    ? '0 0 0 2px rgba(180, 83, 9, 0.25)'
+                                    : 'none',
                               }}
                             />
 
@@ -1286,7 +1336,7 @@ export default function MasterDefaultFormulationsPage() {
                 />
               </div>
 
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12 }}>
                 <div>
                   <label className="form-label" style={{ fontWeight: 600 }}>Data Type</label>
                   <select
@@ -1297,6 +1347,22 @@ export default function MasterDefaultFormulationsPage() {
                     <option value="number">Number (Input)</option>
                     <option value="text">Text (Variant/Name)</option>
                     <option value="calculated">Calculated (Formula)</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="form-label" style={{ fontWeight: 600 }}>Decimal Places</label>
+                  <select
+                    className="form-select"
+                    value={formColDecimals !== undefined ? String(formColDecimals) : ''}
+                    onChange={e => setFormColDecimals(e.target.value !== '' ? parseInt(e.target.value, 10) : undefined)}
+                  >
+                    <option value="">Auto / Default</option>
+                    <option value="0">0 - Whole Number (102)</option>
+                    <option value="1">1 Decimal Place (1.0)</option>
+                    <option value="2">2 Decimal Places (1.02)</option>
+                    <option value="3">3 Decimal Places (1.023)</option>
+                    <option value="4">4 Decimal Places (1.0234)</option>
                   </select>
                 </div>
 

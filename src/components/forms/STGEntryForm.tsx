@@ -11,12 +11,23 @@ import Link from 'next/link';
 import Header from '@/components/layout/Header';
 import Step, { DAILY_ENTRY_STEP_ITEMS } from '@/components/ui/Step';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { fmtNum, buildStgStatementsFromProducts } from '@/lib/calculations';
+import { fmtNum, fmtPct, buildStgStatementsFromProducts, cleanStatementLabel } from '@/lib/calculations';
 import { useConfirm } from '@/context/ConfirmContext';
 import { CALC_CONFIG } from '@/lib/config';
+import MasterDetailLayout from '@/components/ui/MasterDetailLayout';
 import type { Shift } from '@/lib/types';
 
 type STGProductBlock = string;
+
+export interface STGCustomColumnDef {
+  key: string;
+  name: string;
+  side: 'RECEIPT' | 'DISPOSAL';
+  type: 'number' | 'text' | 'calculated';
+  formula?: string;
+  unit?: string;
+  decimals?: number;
+}
 
 interface STGItemInput {
   item_name: string;
@@ -29,6 +40,7 @@ interface STGItemInput {
   kg_snf: string;
   linked_block?: string;
   manual_calc?: boolean;
+  custom_fields?: Record<string, string>;
 }
 
 interface STGBlockState {
@@ -39,16 +51,7 @@ interface STGBlockState {
   cmpdd_norm?: string;
 }
 
-const DEFAULT_STATEMENTS = [
-  { key: 'WM', label: 'WHOLE MILK - RECEIPT AND DISPOSAL STATEMENT' },
-  { key: 'DLT_MILK', label: 'DOUBLE TONED MILK STATEMENT' },
-  { key: 'FC_MILK', label: 'FULL CREAM MILK STATEMENT' },
-  { key: 'STD_MILK', label: 'STANDARDIZED MILK STATEMENT' },
-  { key: 'SSM', label: 'SKIMMED MILK STATEMENT' },
-  { key: 'CREAM', label: 'CREAM STATEMENT' },
-  { key: 'SMP', label: 'SKIM MILK POWDER STATEMENT' },
-  { key: 'WATER', label: 'WATER STATEMENT' },
-];
+const DEFAULT_STATEMENTS: Array<{ key: string; label: string }> = [];
 
 const DEFAULT_ITEMS_RECEIPT: Record<string, string[]> = {
   WM: [],
@@ -80,13 +83,10 @@ function makeInitialItem(name = '', linked_block = ''): STGItemInput {
 }
 
 function makeInitialBlockState(blockKey: string): STGBlockState {
-  const receipts = (DEFAULT_ITEMS_RECEIPT[blockKey] || []).map(name => makeInitialItem(name));
-  const disposals = (DEFAULT_ITEMS_DISPOSAL[blockKey] || []).map(name => makeInitialItem(name));
-
   return {
     opening_balance: makeInitialItem('OB'),
-    receipts: receipts.length > 0 ? receipts : [makeInitialItem()],
-    disposals: disposals.length > 0 ? disposals : [makeInitialItem()],
+    receipts: [],
+    disposals: [],
     physical_count: makeInitialItem('CB'),
     cmpdd_norm: '0.5',
   };
@@ -130,7 +130,7 @@ export default function STGEntryForm({
 }: STGEntryFormProps) {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const { showSuccess, showWarning, showError } = useConfirm();
+  const { confirm, showSuccess, showWarning, showError } = useConfirm();
   const paramDate = searchParams.get('date');
   const paramShift = searchParams.get('shift');
 
@@ -183,6 +183,109 @@ export default function STGEntryForm({
     densityFactor: 1.0275,
   });
 
+  // Column Decimals Precision State matching Chart Preparation
+  const [colDecimals, setColDecimals] = useState<{
+    qty_lts: number;
+    sp_gr: number;
+    qty_kg: number;
+    fat_pct: number;
+    snf_pct: number;
+    kg_fat: number;
+    kg_snf: number;
+  }>({
+    qty_lts: 0,  // .0 (Whole)
+    sp_gr: 4,    // .4 Decs
+    qty_kg: 2,   // Auto (2)
+    fat_pct: 2,  // Auto (2)
+    snf_pct: 2,  // Auto (2)
+    kg_fat: 3,   // .3 Decs
+    kg_snf: 3,   // .3 Decs
+  });
+
+  // Formula Bar active selected cell state (Same as Chart Preparation)
+  const [selectedCell, setSelectedCell] = useState<{
+    side: 'OB' | 'RECEIPT' | 'DISPOSAL' | 'CB' | 'PHYSICAL' | 'DIFF';
+    rowIdx?: number;
+    itemName?: string;
+    fieldKey: string;
+    fieldLabel: string;
+    excelCell?: string;
+    isCalculated: boolean;
+    formulaDescription: string;
+    value: string;
+  } | null>(null);
+
+  // User-created Dynamic Custom Columns & Column Modal State (Matching Chart Preparation)
+  const [customColumns, setCustomColumns] = useState<STGCustomColumnDef[]>([]);
+  const [isColModalOpen, setIsColModalOpen] = useState<boolean>(false);
+  const [colModalEditingKey, setColModalEditingKey] = useState<string | null>(null);
+  const [formColName, setFormColName] = useState<string>('');
+  const [formColSide, setFormColSide] = useState<'RECEIPT' | 'DISPOSAL'>('RECEIPT');
+  const [formColType, setFormColType] = useState<'number' | 'text' | 'calculated'>('number');
+  const [formColFormula, setFormColFormula] = useState<string>('');
+  const [formColUnit, setFormColUnit] = useState<string>('');
+  const [formColDecimals, setFormColDecimals] = useState<number>(2);
+
+  const handleOpenAddColumn = (side: 'RECEIPT' | 'DISPOSAL') => {
+    setColModalEditingKey(null);
+    setFormColSide(side);
+    setFormColName('');
+    setFormColType('number');
+    setFormColFormula('');
+    setFormColUnit('');
+    setFormColDecimals(2);
+    setIsColModalOpen(true);
+  };
+
+  const handleOpenEditColumn = (col: STGCustomColumnDef) => {
+    setColModalEditingKey(col.key);
+    setFormColSide(col.side);
+    setFormColName(col.name);
+    setFormColType(col.type);
+    setFormColFormula(col.formula || '');
+    setFormColUnit(col.unit || '');
+    setFormColDecimals(col.decimals !== undefined ? col.decimals : 2);
+    setIsColModalOpen(true);
+  };
+
+  const handleSaveColumnModal = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!formColName.trim()) {
+      alert('Please enter a Column Name');
+      return;
+    }
+    const keyToUse = colModalEditingKey || `col_${formColSide.toLowerCase()}_${Date.now()}`;
+    const newCol: STGCustomColumnDef = {
+      key: keyToUse,
+      name: formColName.trim(),
+      side: formColSide,
+      type: formColType,
+      formula: formColType === 'calculated' ? formColFormula.trim() : undefined,
+      unit: formColUnit.trim(),
+      decimals: formColDecimals,
+    };
+
+    if (colModalEditingKey) {
+      setCustomColumns(prev => prev.map(c => c.key === colModalEditingKey ? newCol : c));
+    } else {
+      setCustomColumns(prev => [...prev, newCol]);
+    }
+    setIsColModalOpen(false);
+  };
+
+  const handleDeleteColumn = async (colKey: string) => {
+    const ok = await confirm({
+      title: 'Remove Custom Column',
+      message: 'Are you sure you want to remove this custom column?',
+      confirmText: 'Remove Column',
+      cancelText: 'Cancel',
+      type: 'danger',
+    });
+    if (ok) {
+      setCustomColumns(prev => prev.filter(c => c.key !== colKey));
+    }
+  };
+
   // Load shifts and calc config on mount
   useEffect(() => {
     async function loadShiftConfig() {
@@ -206,7 +309,7 @@ export default function STGEntryForm({
                 { key: 'N', label: 'Night Shift', start: '18:00', end: '06:00' },
               ];
               let parsedMode: 'full_day' | 'shift' = 'full_day';
-              
+
               if (parsed && typeof parsed === 'object') {
                 if (parsed.mode) {
                   parsedMode = parsed.mode;
@@ -219,10 +322,10 @@ export default function STGEntryForm({
                   parsedShifts = parsed;
                 }
               }
-              
+
               setShiftConfigs(parsedShifts);
               setReportMode(parsedMode);
-              
+
               // Set default shift based on reportMode config
               if (parsedMode === 'full_day') {
                 setShift(null);
@@ -256,7 +359,7 @@ export default function STGEntryForm({
                   densityFactor: parseFloat(parsed.densityFactor) || 1.0275,
                 });
               }
-            } catch (e) {}
+            } catch (e) { }
           }
         }
       } catch (err) {
@@ -274,50 +377,24 @@ export default function STGEntryForm({
 
     async function loadData() {
       try {
-        // 1. Fetch the global statements template configuration first
-        const configRes = await fetch('/api/entries?report_type=TS');
+        // 1. Fetch statement master configuration from Database prep_chart_configs table
+        const configRes = await fetch('/api/ts/masters');
         let globalStatements: any[] = [];
         if (configRes.ok) {
           const configJson = await configRes.json();
-          const entries: any[] = configJson.data || [];
-          const configEntry = entries.find((e: any) => {
-            if (!e.notes || e.notes.includes('__METADATA__:')) return false;
-            try {
-              const parsed = JSON.parse(e.notes);
-              return Array.isArray(parsed) && (parsed.length === 0 || parsed[0]?.key !== undefined);
-            } catch { return false; }
-          });
-          if (configEntry && configEntry.notes) {
-            try {
-              const list = JSON.parse(configEntry.notes);
-              if (Array.isArray(list) && list.length > 0) {
-                const stmtMap = new Map<string, { key: string; label: string }>();
-                list.forEach((s: any) => {
-                  if (s && s.key) {
-                    stmtMap.set(s.key, s);
-                  }
-                });
-                globalStatements = Array.from(stmtMap.values());
+          if (Array.isArray(configJson.masters) && configJson.masters.length > 0) {
+            const stmtMap = new Map<string, { key: string; label: string }>();
+            configJson.masters.forEach((s: any) => {
+              if (s && s.key) {
+                stmtMap.set(s.key, { ...s, label: cleanStatementLabel(s.label) });
               }
-            } catch (e) {
-              console.error('Failed to parse global config notes:', e);
-            }
+            });
+            globalStatements = Array.from(stmtMap.values());
           }
         }
 
-        if (globalStatements.length === 0) {
-          try {
-            const stockCfgRes = await fetch('/api/stock/config');
-            if (stockCfgRes.ok) {
-              const stockCfg = await stockCfgRes.json();
-              if (Array.isArray(stockCfg.products) && stockCfg.products.length > 0) {
-                globalStatements = buildStgStatementsFromProducts(stockCfg.products);
-              }
-            }
-          } catch (e) {
-            console.error('Failed fetching DB products for STG statements:', e);
-          }
-        }
+        // Strict statement loading: Only statements explicitly configured & stored in DB prep_chart_configs table (or saved in this entry's notes) are loaded.
+        // Zero auto-fallback entries generated if DB table is unpopulated.
 
         // 2. Query yesterday's CB to check lock status and carry forward
         let prevDateStr = entryDate;
@@ -392,6 +469,9 @@ export default function STGEntryForm({
                   }
                   if (meta.cmpdd_norms) {
                     todayCmpddNorms = meta.cmpdd_norms;
+                  }
+                  if (meta.custom_columns && Array.isArray(meta.custom_columns)) {
+                    setCustomColumns(meta.custom_columns);
                   }
                 } catch (e) {
                   console.error('Failed to parse STG metadata:', e);
@@ -582,7 +662,7 @@ export default function STGEntryForm({
 
           // Fetch Stock Statement Entry for today and apply statement mappings
           const { blocks: mappedBlocks } = await syncFromStockEntry(initialBlocks, entryDate, shift);
-          
+
           const stmtMap = new Map<string, { key: string; label: string }>();
           DEFAULT_STATEMENTS.forEach(s => stmtMap.set(s.key, s));
           globalStatements.forEach((s: { key: string; label: string }) => { if (s && s.key) stmtMap.set(s.key, s); });
@@ -638,7 +718,7 @@ export default function STGEntryForm({
               const meta = JSON.parse(p.split('__METADATA__:')[1]);
               if (meta.custom_values) customVals = meta.custom_values;
               if (meta.dairy_breakdowns) dairyBreakdowns = meta.dairy_breakdowns;
-            } catch {}
+            } catch { }
           }
         });
       }
@@ -652,7 +732,7 @@ export default function STGEntryForm({
           try {
             const list = JSON.parse(mapEntry.notes);
             if (Array.isArray(list) && list.length > 0) mappingRules = list;
-          } catch {}
+          } catch { }
         }
       }
 
@@ -672,7 +752,7 @@ export default function STGEntryForm({
               if (meta.products && Array.isArray(meta.products)) {
                 stockProducts = meta.products;
               }
-            } catch {}
+            } catch { }
           }
         });
       }
@@ -691,7 +771,7 @@ export default function STGEntryForm({
               }));
             }
           }
-        } catch {}
+        } catch { }
       }
 
       const getBlockInfo = (prod: { key: string; label: string; full_name?: string; short_name?: string }) => {
@@ -1077,7 +1157,7 @@ export default function STGEntryForm({
 
     if (targetIdx !== -1) {
       const targetRow = { ...targetList[targetIdx] };
-      
+
       const newLts = parseFloat(row.qty_lts) || 0;
       const newKg = parseFloat(row.qty_kg) || 0;
       const newFatKg = parseFloat(row.kg_fat) || 0;
@@ -1298,7 +1378,7 @@ export default function STGEntryForm({
         const list = section === 'RECEIPT' ? [...blockState.receipts] : [...blockState.disposals];
         const current = { ...list[idx] };
         const oldRow = { ...current }; // Keep copy of old row for delta calculation
-        
+
         if (current.manual_calc) {
           list[idx] = { ...current, [field]: finalVal };
         } else {
@@ -1324,6 +1404,50 @@ export default function STGEntryForm({
     });
   };
 
+  const moveRow = (block: STGProductBlock, side: 'RECEIPT' | 'DISPOSAL', idx: number, direction: 'up' | 'down') => {
+    setBlocks(prev => {
+      const next = { ...prev };
+      const blockState = { ...next[block] };
+      const list = side === 'RECEIPT' ? [...blockState.receipts] : [...blockState.disposals];
+      const targetIdx = direction === 'up' ? idx - 1 : idx + 1;
+      if (targetIdx < 0 || targetIdx >= list.length) return prev;
+
+      const temp = list[idx];
+      list[idx] = list[targetIdx];
+      list[targetIdx] = temp;
+
+      if (side === 'RECEIPT') blockState.receipts = list;
+      else blockState.disposals = list;
+
+      recalculateCB(blockState, block);
+      next[block] = blockState;
+      return next;
+    });
+  };
+
+  const updateCustomField = (
+    block: STGProductBlock,
+    side: 'RECEIPT' | 'DISPOSAL',
+    idx: number,
+    colKey: string,
+    val: string
+  ) => {
+    setBlocks(prev => {
+      const next = { ...prev };
+      const blockState = { ...next[block] };
+      const list = side === 'RECEIPT' ? [...blockState.receipts] : [...blockState.disposals];
+      const current = { ...list[idx] };
+      const custom_fields = { ...(current.custom_fields || {}), [colKey]: val };
+      list[idx] = { ...current, custom_fields };
+
+      if (side === 'RECEIPT') blockState.receipts = list;
+      else blockState.disposals = list;
+
+      next[block] = blockState;
+      return next;
+    });
+  };
+
   const addRowAfter = (block: STGProductBlock, side: 'RECEIPT' | 'DISPOSAL', originalIdx: number) => {
     setBlocks(prev => {
       const next = { ...prev };
@@ -1345,32 +1469,37 @@ export default function STGEntryForm({
     });
   };
 
-  const deleteRow = (block: STGProductBlock, side: 'RECEIPT' | 'DISPOSAL', idx: number) => {
+  const deleteRow = async (block: STGProductBlock, side: 'RECEIPT' | 'DISPOSAL', idx: number) => {
+    const item = blocks[block]?.[side === 'RECEIPT' ? 'receipts' : 'disposals']?.[idx];
+    if (!item) return;
+
+    const hasContent = (
+      item.item_name.trim() !== '' ||
+      item.qty_lts.trim() !== '' ||
+      item.qty_kg.trim() !== '' ||
+      item.fat_pct.trim() !== '' ||
+      item.snf_pct.trim() !== '' ||
+      item.sp_gr.trim() !== '' ||
+      item.kg_fat.trim() !== '' ||
+      item.kg_snf.trim() !== ''
+    );
+
+    if (hasContent) {
+      const ok = await confirm({
+        title: 'Confirm Row Removal',
+        message: 'Are you sure you want to remove this row containing data?',
+        confirmText: 'Remove Row',
+        cancelText: 'Cancel',
+        type: 'warning',
+      });
+      if (!ok) return;
+    }
+
     setBlocks(prev => {
       const next = { ...prev };
       const blockState = { ...next[block] };
       const list = side === 'RECEIPT' ? [...blockState.receipts] : [...blockState.disposals];
-
-      const item = list[idx];
-      if (!item) return prev;
-
-      const hasContent = (
-        item.item_name.trim() !== '' ||
-        item.qty_lts.trim() !== '' ||
-        item.qty_kg.trim() !== '' ||
-        item.fat_pct.trim() !== '' ||
-        item.snf_pct.trim() !== '' ||
-        item.sp_gr.trim() !== '' ||
-        item.kg_fat.trim() !== '' ||
-        item.kg_snf.trim() !== ''
-      );
-
-      if (hasContent) {
-        const ok = window.confirm("Are you sure you want to remove this row containing data?");
-        if (!ok) return prev;
-      }
-
-      const deletedLinkedBlock = item.linked_block;
+      const deletedLinkedBlock = list[idx]?.linked_block;
       list.splice(idx, 1);
 
       if (side === 'RECEIPT') blockState.receipts = list;
@@ -1379,7 +1508,6 @@ export default function STGEntryForm({
       recalculateCB(blockState, block);
       next[block] = blockState;
 
-      // Sync deletion to mirrored row
       if (side === 'RECEIPT' || side === 'DISPOSAL') {
         if (deletedLinkedBlock) {
           syncDeletedRow(next, block, side, deletedLinkedBlock, item);
@@ -1429,7 +1557,7 @@ export default function STGEntryForm({
           targetBlockKey === 'SMP' ||
           (itemName || '').toLowerCase().includes('smp') ||
           (sourceRow.item_name || '').toLowerCase().includes('smp');
-        
+
         let sharedPart = makeInitialItem(itemName, blockKey);
         if (isTargetSMP) {
           sharedPart.qty_lts = '';
@@ -1452,7 +1580,7 @@ export default function STGEntryForm({
 
         if (shareMode === 'aggregate' && targetRowIdx !== undefined && targetList[targetRowIdx]) {
           const existingRow = { ...targetList[targetRowIdx] };
-          
+
           const oldLts = parseFloat(existingRow.qty_lts) || 0;
           const oldKg = parseFloat(existingRow.qty_kg) || 0;
           const oldFatKg = parseFloat(existingRow.kg_fat) || 0;
@@ -1518,28 +1646,37 @@ export default function STGEntryForm({
     setShareModal(null);
   };
 
-  const addStatement = () => {
+  const addStatement = async () => {
     const name = window.prompt("Enter new statement name:");
     if (!name || name.trim() === '') return;
 
     const label = name.trim();
-    const newKey = 'custom_stg_' + Date.now();
+    const newKey = label.toUpperCase().replace(/[^A-Z0-9_]/g, '_');
 
-    setStatements(prev => [...prev, { key: newKey, label }]);
+    const newStmt = { key: newKey, label };
+    const updatedStatements = [...statements, newStmt];
+    setStatements(updatedStatements);
     setBlocks(prev => ({
       ...prev,
       [newKey]: makeInitialBlockState(newKey)
     }));
     setActiveBlock(newKey);
+    setEnabledBlockKeys(prev => Array.from(new Set([...prev, newKey])));
     setObLocked(prev => ({ ...prev, [newKey]: false }));
+
+    // Persist statement master configuration to DB prep_chart_configs table
+    try {
+      await fetch('/api/ts/masters', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ masters: updatedStatements }),
+      });
+    } catch (err) {
+      console.error('Failed to save statement configuration to DB:', err);
+    }
   };
 
-  const removeStatement = (key: string) => {
-    if (['WM', 'SSM', 'CREAM', 'SMP'].includes(key)) {
-      showWarning("Standard statements (WM, SSM, CREAM, SMP) cannot be deleted.", "Delete Restricted");
-      return;
-    }
-
+  const removeStatement = async (key: string) => {
     const blockState = blocks[key];
     const hasData = blockState && (
       parseFloat(blockState.opening_balance.qty_lts) > 0 ||
@@ -1549,14 +1686,20 @@ export default function STGEntryForm({
     );
 
     if (hasData) {
-      const ok = window.confirm("Are you sure you want to remove this statement and all its entered data?");
+      const ok = await confirm({
+        title: 'Remove Statement',
+        message: 'Are you sure you want to remove this statement and all its entered data?',
+        confirmText: 'Remove Statement',
+        cancelText: 'Cancel',
+        type: 'danger',
+      });
       if (!ok) return;
     }
 
     setStatements(prev => {
       const next = prev.filter(s => s.key !== key);
       if (activeBlock === key) {
-        setActiveBlock(next[0]?.key || 'WM');
+        setActiveBlock(next[0]?.key || '');
       }
       return next;
     });
@@ -1656,22 +1799,21 @@ export default function STGEntryForm({
 
       const userNotesText = notes
         ? notes
-            .split('\n')
-            .filter(p => !p.includes('__METADATA__:') && !p.includes('__STOCK_SUMMARY__:'))
-            .join('\n')
-            .trim()
+          .split('\n')
+          .filter(p => !p.includes('__METADATA__:') && !p.includes('__STOCK_SUMMARY__:'))
+          .join('\n')
+          .trim()
         : '';
-      let finalNotes: string | null = null;
-      if (userNotesText) {
-        const metadata = {
-          custom_statements: statements.filter(s => enabledBlockKeys.includes(s.key)),
-          custom_blocks: customBlocks,
-          enabled_blocks: enabledBlockKeys,
-          manual_rows: manualRows,
-          cmpdd_norms: cmpddNorms,
-        };
-        finalNotes = userNotesText + "\n__METADATA__:" + JSON.stringify(metadata);
-      }
+
+      const metadata = {
+        custom_statements: statements.filter(s => enabledBlockKeys.includes(s.key)),
+        custom_blocks: customBlocks,
+        enabled_blocks: enabledBlockKeys,
+        manual_rows: manualRows,
+        cmpdd_norms: cmpddNorms,
+        custom_columns: customColumns,
+      };
+      const finalNotes = (userNotesText ? userNotesText + "\n" : "") + "__METADATA__:" + JSON.stringify(metadata);
 
       const entryRes = await fetch('/api/entries', {
         method: 'POST',
@@ -1928,7 +2070,33 @@ export default function STGEntryForm({
     }
   }, [saving, onRegisterActions]);
 
-  const renderStatementBlock = (s: { key: string; label: string }) => {
+  function evaluateCustomFormula(
+    formula: string,
+    row: STGItemInput,
+    blockSummary: any
+  ): string {
+    if (!formula || typeof formula !== 'string') return '';
+    try {
+      let expr = formula.replace(/^=/, '').trim();
+      expr = expr.replace(/\bQTY_LTS\b/gi, String(parseFloat(row.qty_lts) || 0));
+      expr = expr.replace(/\bQTY_KG\b/gi, String(parseFloat(row.qty_kg) || 0));
+      expr = expr.replace(/\bFAT_PCT\b/gi, String(parseFloat(row.fat_pct) || 0));
+      expr = expr.replace(/\bSNF_PCT\b/gi, String(parseFloat(row.snf_pct) || 0));
+      expr = expr.replace(/\bSP_GR\b/gi, String(parseFloat(row.sp_gr) || 0));
+      expr = expr.replace(/\bKG_FAT\b/gi, String(parseFloat(row.kg_fat) || 0));
+      expr = expr.replace(/\bKG_SNF\b/gi, String(parseFloat(row.kg_snf) || 0));
+
+      // eslint-disable-next-line no-new-func
+      const result = Function(`"use strict"; return (${expr});`)();
+      if (typeof result === 'number' && !isNaN(result) && isFinite(result)) {
+        return result.toString();
+      }
+    } catch (e) { }
+    return '';
+  }
+
+  const renderStatementBlock = (s: { key: string; label: string } | null) => {
+    if (!s) return null;
     const blockKey = s.key;
     const blockState = blocks[blockKey];
     if (!blockState) return null;
@@ -1951,6 +2119,18 @@ export default function STGEntryForm({
       snf: blockSummary.dispSum.snf + closingBalance.snf,
     };
 
+    const lossGain = {
+      lts: disposalsSideGrandTotal.lts - receiptsSideGrandTotal.lts,
+      kg: disposalsSideGrandTotal.kg - receiptsSideGrandTotal.kg,
+      fat: disposalsSideGrandTotal.fat - receiptsSideGrandTotal.fat,
+      snf: disposalsSideGrandTotal.snf - receiptsSideGrandTotal.snf,
+    };
+
+    const lossGainPct = {
+      fat: receiptsSideGrandTotal.fat > 0 ? (lossGain.fat / receiptsSideGrandTotal.fat) * 100 : 0,
+      snf: receiptsSideGrandTotal.snf > 0 ? (lossGain.snf / receiptsSideGrandTotal.snf) * 100 : 0,
+    };
+
     const canAddReceipt = blockState.receipts.length === 0 || blockState.receipts.some(r =>
       r.item_name.trim() !== '' || r.qty_lts.trim() !== '' || r.qty_kg.trim() !== '' || r.fat_pct.trim() !== '' || r.snf_pct.trim() !== ''
     );
@@ -1964,62 +2144,20 @@ export default function STGEntryForm({
         {/* Title, CMPDD Norm & Delete button */}
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20, borderBottom: '1px solid var(--border)', paddingBottom: 16, flexWrap: 'wrap', gap: 12 }}>
           <h3 style={{ margin: 0, color: 'var(--brand-primary)', textTransform: 'uppercase', letterSpacing: '0.02em', fontSize: '0.95rem', fontWeight: 700 }}>
-            {s.label.toUpperCase()} - RECEIPT AND DISPOSAL STATEMENT
+            📊 {cleanStatementLabel(s.label).replace(/\s*-\s*RECEIPT AND DISPOSAL STATEMENT$/i, '')} - RECEIPT AND DISPOSAL STATEMENT
           </h3>
           <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
-            {/* Calculation direction toggles */}
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6, background: '#f0f9ff', padding: '3px 8px', borderRadius: 6, border: '1px solid #bae6fd' }}>
-              <span style={{ fontSize: '0.75rem', fontWeight: 700, color: '#0369a1' }}>🧮 Calc:</span>
-              <button
-                type="button"
-                className={`btn btn-sm ${calcConfig.fatCalcMode === 'FROM_PCT' ? 'btn-primary' : 'btn-secondary'}`}
-                style={{ padding: '2px 6px', fontSize: '0.7rem', height: 'auto', lineHeight: '1.2' }}
-                onClick={() => setCalcConfig(prev => ({ ...prev, fatCalcMode: prev.fatCalcMode === 'FROM_PCT' ? 'FROM_KG' : 'FROM_PCT' }))}
-                title="Toggle Fat calculation direction: Fat% ➔ Kg.Fat vs Kg.Fat ➔ Fat%"
-              >
-                Fat: {calcConfig.fatCalcMode === 'FROM_PCT' ? 'Fat% ➔ Kg' : 'Kg ➔ Fat%'}
-              </button>
-              <button
-                type="button"
-                className={`btn btn-sm ${calcConfig.snfCalcMode === 'FROM_PCT' ? 'btn-primary' : 'btn-secondary'}`}
-                style={{ padding: '2px 6px', fontSize: '0.7rem', height: 'auto', lineHeight: '1.2' }}
-                onClick={() => setCalcConfig(prev => ({ ...prev, snfCalcMode: prev.snfCalcMode === 'FROM_PCT' ? 'FROM_KG' : 'FROM_PCT' }))}
-                title="Toggle SNF calculation direction: SNF% ➔ Kg.SNF vs Kg.SNF ➔ SNF%"
-              >
-                SNF: {calcConfig.snfCalcMode === 'FROM_PCT' ? 'SNF% ➔ Kg' : 'Kg ➔ SNF%'}
-              </button>
-              <Link href="/dashboard/ts/config" style={{ fontSize: '0.7rem', color: '#0284c7', textDecoration: 'none', marginLeft: 2 }} title="Open STG Calculation Settings">
-                ⚙️
-              </Link>
-            </div>
-
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: '0.825rem', background: '#f1f5f9', padding: '4px 10px', borderRadius: 6, border: '1px solid var(--border)' }}>
-              <label style={{ fontWeight: 600, color: 'var(--text-secondary)' }}>CMPDD Norms %:</label>
-              <input
-                type="number"
-                step="0.01"
-                min="0"
-                className="form-input"
-                style={{ width: 70, padding: '2px 6px', fontSize: '0.825rem', textAlign: 'right', fontWeight: 600 }}
-                value={blockState.cmpdd_norm ?? '0.5'}
-                onChange={e => {
-                  const val = e.target.value;
-                  setBlocks(prev => ({
-                    ...prev,
-                    [blockKey]: {
-                      ...prev[blockKey],
-                      cmpdd_norm: val
-                    }
-                  }));
-                }}
-              />
-              <span style={{ fontWeight: 600, color: 'var(--text-muted)' }}>%</span>
-            </div>
             <button
               type="button"
               className="btn btn-danger btn-sm no-print"
-              onClick={() => {
-                const ok = window.confirm(`Are you sure you want to remove "${s.label}" from this shift? All current values for this shift will be cleared.`);
+              onClick={async () => {
+                const ok = await confirm({
+                  title: 'Remove Statement Block',
+                  message: `Are you sure you want to remove "${s.label}" from this shift? All current values for this shift will be cleared.`,
+                  confirmText: 'Remove Block',
+                  cancelText: 'Cancel',
+                  type: 'danger',
+                });
                 if (ok) {
                   setEnabledBlockKeys(prev => prev.filter(k => k !== blockKey));
                 }
@@ -2031,787 +2169,21 @@ export default function STGEntryForm({
           </div>
         </div>
 
-        {/* Opening Balance inputs */}
-        <div style={{ background: '#f8fafc', padding: 16, borderRadius: 8, marginBottom: 20, border: '1px solid var(--border)' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-            <div style={{ fontWeight: 600, fontSize: '0.875rem' }}>☀️ Opening Balance (OB)</div>
-            {!blocksLocked[blockKey] && (
-              <div style={{ display: 'flex', gap: 8 }}>
-                {obLocked[blockKey] ? (
-                  <button
-                    type="button"
-                    className="btn btn-secondary"
-                    style={{ padding: '2px 8px', fontSize: '0.75rem', height: 'auto', display: 'flex', alignItems: 'center', gap: 4 }}
-                    onClick={() => setObLocked(prev => ({ ...prev, [blockKey]: false }))}
-                  >
-                    ✏️ Edit OB
-                  </button>
-                ) : (
-                  <button
-                    type="button"
-                    className="btn btn-primary"
-                    style={{ padding: '2px 8px', fontSize: '0.75rem', height: 'auto', display: 'flex', alignItems: 'center', gap: 4 }}
-                    onClick={async () => {
-                      setObLocked(prev => ({ ...prev, [blockKey]: true }));
-                      await triggerBackgroundSave();
-                    }}
-                  >
-                    💾 Save OB
-                  </button>
-                )}
-              </div>
-            )}
+
+
+
+
+        {/* Table removed - ready to build from scratch with user commands */}
+        <div style={{ padding: '32px 20px', textAlign: 'center', background: '#f8fafc', borderRadius: 8, border: '1px dashed #cbd5e1', color: 'var(--text-secondary)', marginTop: 20 }}>
+          <div style={{ fontSize: '1.5rem', marginBottom: 8 }}>📝</div>
+          <div style={{ fontWeight: 700, fontSize: '0.95rem', color: 'var(--brand-primary)', marginBottom: 4 }}>
+            RECEIPT AND DISPOSAL STATEMENT Table Removed
           </div>
-          <div className="form-row" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))' }}>
-            <div className="form-group" style={{ margin: 0 }}>
-              <label className="form-label">Qty (Lts)</label>
-              <input
-                type="number" className="form-input" value={blockState.opening_balance.qty_lts}
-                onChange={e => updateVal(blockKey, 'OB', 0, 'qty_lts', e.target.value)}
-                disabled={obLocked[blockKey] || blocksLocked[blockKey]}
-                style={(obLocked[blockKey] || blocksLocked[blockKey]) ? { background: '#f1f5f9', cursor: 'not-allowed' } : undefined}
-              />
-            </div>
-            <div className="form-group" style={{ margin: 0 }}>
-              <label className="form-label">Qty (Kg)</label>
-              <input
-                type="number" className="form-input" value={blockState.opening_balance.qty_kg}
-                onChange={e => updateVal(blockKey, 'OB', 0, 'qty_kg', e.target.value)}
-                disabled={obLocked[blockKey] || blocksLocked[blockKey]}
-                style={(obLocked[blockKey] || blocksLocked[blockKey]) ? { background: '#f1f5f9', cursor: 'not-allowed' } : undefined}
-              />
-            </div>
-            <div className="form-group" style={{ margin: 0 }}>
-              <label className="form-label">Fat %</label>
-              <input
-                type="number" className="form-input" value={blockState.opening_balance.fat_pct}
-                onChange={e => updateVal(blockKey, 'OB', 0, 'fat_pct', e.target.value)}
-                disabled={obLocked[blockKey] || blocksLocked[blockKey]}
-                style={(obLocked[blockKey] || blocksLocked[blockKey]) ? { background: '#f1f5f9', cursor: 'not-allowed' } : undefined}
-              />
-            </div>
-            <div className="form-group" style={{ margin: 0 }}>
-              <label className="form-label">SNF %</label>
-              <input
-                type="number" className="form-input" value={blockState.opening_balance.snf_pct}
-                onChange={e => updateVal(blockKey, 'OB', 0, 'snf_pct', e.target.value)}
-                disabled={obLocked[blockKey] || blocksLocked[blockKey]}
-                style={(obLocked[blockKey] || blocksLocked[blockKey]) ? { background: '#f1f5f9', cursor: 'not-allowed' } : undefined}
-              />
-            </div>
-            <div className="form-group" style={{ margin: 0 }}>
-              <label className="form-label">Sp. Gr</label>
-              <input
-                type="number" className="form-input" value={blockState.opening_balance.sp_gr}
-                onChange={e => updateVal(blockKey, 'OB', 0, 'sp_gr', e.target.value)}
-                disabled={obLocked[blockKey] || blocksLocked[blockKey]}
-                style={(obLocked[blockKey] || blocksLocked[blockKey]) ? { background: '#f1f5f9', cursor: 'not-allowed' } : undefined}
-              />
-            </div>
-            <div className="form-group" style={{ margin: 0 }}>
-              <label className="form-label">Kg Fat</label>
-              <input
-                type="number" className="form-input" value={blockState.opening_balance.kg_fat}
-                onChange={e => updateVal(blockKey, 'OB', 0, 'kg_fat', e.target.value)}
-                disabled={obLocked[blockKey] || blocksLocked[blockKey]}
-                style={(obLocked[blockKey] || blocksLocked[blockKey]) ? { background: '#f1f5f9', cursor: 'not-allowed' } : undefined}
-              />
-            </div>
-            <div className="form-group" style={{ margin: 0 }}>
-              <label className="form-label">Kg SNF</label>
-              <input
-                type="number" className="form-input" value={blockState.opening_balance.kg_snf}
-                onChange={e => updateVal(blockKey, 'OB', 0, 'kg_snf', e.target.value)}
-                disabled={obLocked[blockKey] || blocksLocked[blockKey]}
-                style={(obLocked[blockKey] || blocksLocked[blockKey]) ? { background: '#f1f5f9', cursor: 'not-allowed' } : undefined}
-              />
-            </div>
+          <div style={{ fontSize: '0.82rem', color: 'var(--text-muted)' }}>
+            Ready to build from scratch based on your next instructions.
           </div>
         </div>
 
-        {/* Receipts Section */}
-        <div style={{ marginTop: 24 }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
-            <div style={{ fontWeight: 700, fontSize: '0.85rem', color: '#10b981', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-              Receipts
-            </div>
-          </div>
-          <div style={{ overflowX: 'auto' }}>
-            <table className="inline-table" style={{ width: '100%', minWidth: 900 }}>
-              <thead>
-                <tr>
-                  <th style={{ width: '5%', textAlign: 'center' }}>S.No</th>
-                  <th style={{ width: '22%' }}>Receipt</th>
-                  <th className="no-print" style={{ width: '8%', textAlign: 'center' }}>Calc</th>
-                  <th className="num">Qty (Lts)</th>
-                  <th className="num" title="Formula: Qty (Lts) × Sp. Gr" style={{ backgroundColor: '#e0f2fe', color: '#0369a1' }}>Qty (Kg)</th>
-                  <th className="num">Fat %</th>
-                  <th className="num">SNF %</th>
-                  <th className="num" title="=ROUND(1+(SNF %-(Fat %*0.2+0.36))/250,4)" style={{ backgroundColor: '#e0f2fe', color: '#0369a1' }}>Sp. Gr</th>
-                  <th className="num" title="=ROUND(Sp. Gr*Fat %*Qty (Lts)/100,3)" style={{ backgroundColor: '#e0f2fe', color: '#0369a1' }}>Kg.Fat</th>
-                  <th className="num" title="=ROUND(Sp. Gr*SNF %*Qty (Lts)/100,3)" style={{ backgroundColor: '#e0f2fe', color: '#0369a1' }}>Kg.SNF</th>
-                  <th className="no-print" style={{ width: 100, textAlign: 'center' }}>Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {blockState.receipts.map((r, idx) => {
-                  const isSMPRow = blockKey === 'SMP' || r.item_name.toLowerCase().includes('smp');
-                  const isQtyKgCalculated = !isSMPRow && !r.manual_calc;
-                  const isSpGrCalculated = !isSMPRow && !r.manual_calc;
-                  const isKgFatCalculated = !r.manual_calc;
-                  const isKgSnfCalculated = !r.manual_calc;
-
-                  return (
-                    <tr key={idx}>
-                      <td style={{ textAlign: 'center', fontWeight: 600 }}>{idx + 1}</td>
-                      <td>
-                        <input
-                          type="text" placeholder="e.g. BMC Name" value={r.item_name}
-                          onChange={e => updateVal(blockKey, 'RECEIPT', idx, 'item_name', e.target.value)}
-                          disabled={blocksLocked[blockKey]}
-                          style={blocksLocked[blockKey] ? { background: '#f1f5f9', cursor: 'not-allowed' } : undefined}
-                        />
-                      </td>
-                      <td className="no-print" style={{ textAlign: 'center' }}>
-                        <button
-                          type="button"
-                          className={`btn ${r.manual_calc ? 'btn-secondary' : 'btn-primary'}`}
-                          style={{
-                            padding: '2px 6px',
-                            fontSize: '0.7rem',
-                            height: 'auto',
-                            lineHeight: '1.2',
-                            minWidth: '55px',
-                            borderRadius: '4px',
-                            fontWeight: 600,
-                            textTransform: 'uppercase',
-                            letterSpacing: '0.03em',
-                            cursor: blocksLocked[blockKey] ? 'not-allowed' : 'pointer'
-                          }}
-                          disabled={blocksLocked[blockKey]}
-                          onClick={() => {
-                            setBlocks(prev => {
-                              const next = { ...prev };
-                              const blockState = { ...next[blockKey] };
-                              const list = [...blockState.receipts];
-                              const current = { ...list[idx] };
-                              
-                              current.manual_calc = !current.manual_calc;
-                              
-                              if (!current.manual_calc) {
-                                const isSMP = blockKey === 'SMP' || (current.item_name || '').toLowerCase().includes('smp');
-                                if (isSMP) {
-                                  list[idx] = calculateSTGRowValues(current, 'qty_kg', current.qty_kg, true);
-                                } else {
-                                  const temp = calculateSTGRowValues(current, 'fat_pct', current.fat_pct, false);
-                                  list[idx] = calculateSTGRowValues(temp, 'qty_lts', current.qty_lts, false);
-                                }
-                              } else {
-                                list[idx] = current;
-                              }
-                              
-                              blockState.receipts = list;
-                              recalculateCB(blockState, blockKey);
-                              next[blockKey] = blockState;
-                              return next;
-                            });
-                          }}
-                          title={r.manual_calc ? "Switch to Auto-Calculation mode" : "Switch to Manual entry mode"}
-                        >
-                          {r.manual_calc ? '✏️ Man' : '🤖 Auto'}
-                        </button>
-                      </td>
-                      <td>
-                        <input
-                          type="number" placeholder="0" value={isSMPRow ? "" : r.qty_lts}
-                          onChange={e => updateVal(blockKey, 'RECEIPT', idx, 'qty_lts', e.target.value)}
-                          disabled={blocksLocked[blockKey] || isSMPRow}
-                          style={(blocksLocked[blockKey] || isSMPRow) ? { background: '#f1f5f9', cursor: 'not-allowed' } : undefined}
-                        />
-                      </td>
-                      <td>
-                        <input
-                          type="number" placeholder="0" value={r.qty_kg}
-                          onChange={e => updateVal(blockKey, 'RECEIPT', idx, 'qty_kg', e.target.value)}
-                          title={isSMPRow ? "Manual Input (Kg)" : "Formula: Qty (Lts) × Sp. Gr"}
-                          disabled={blocksLocked[blockKey]}
-                          style={
-                            blocksLocked[blockKey]
-                              ? { background: '#f1f5f9', cursor: 'not-allowed' }
-                              : (isQtyKgCalculated
-                                ? { backgroundColor: '#f0f9ff', borderColor: '#bae6fd', color: '#0369a1' }
-                                : undefined)
-                          }
-                        />
-                      </td>
-                      <td>
-                        <input
-                          type="number" placeholder="0" value={r.fat_pct}
-                          onChange={e => updateVal(blockKey, 'RECEIPT', idx, 'fat_pct', e.target.value)}
-                          title={calcConfig.fatCalcMode === 'FROM_KG' ? `Formula: (Kg.Fat / Qty (Lts) / ${calcConfig.densityFactor}) × 100` : "Manual Input (Fat %)"}
-                          disabled={blocksLocked[blockKey]}
-                          style={
-                            blocksLocked[blockKey]
-                              ? { background: '#f1f5f9', cursor: 'not-allowed' }
-                              : (calcConfig.fatCalcMode === 'FROM_KG'
-                                ? { backgroundColor: '#f0f9ff', borderColor: '#bae6fd', color: '#0369a1', fontWeight: 600 }
-                                : undefined)
-                          }
-                        />
-                      </td>
-                      <td>
-                        <input
-                          type="number" placeholder="0" value={r.snf_pct}
-                          onChange={e => updateVal(blockKey, 'RECEIPT', idx, 'snf_pct', e.target.value)}
-                          title={calcConfig.snfCalcMode === 'FROM_KG' ? `Formula: (Kg.SNF / Qty (Lts) / ${calcConfig.densityFactor}) × 100` : "Manual Input (SNF %)"}
-                          disabled={blocksLocked[blockKey]}
-                          style={
-                            blocksLocked[blockKey]
-                              ? { background: '#f1f5f9', cursor: 'not-allowed' }
-                              : (calcConfig.snfCalcMode === 'FROM_KG'
-                                ? { backgroundColor: '#f0f9ff', borderColor: '#bae6fd', color: '#0369a1', fontWeight: 600 }
-                                : undefined)
-                          }
-                        />
-                      </td>
-                      <td>
-                        <input
-                          type="number" placeholder="0" value={r.sp_gr}
-                          onChange={e => updateVal(blockKey, 'RECEIPT', idx, 'sp_gr', e.target.value)}
-                          title="=ROUND(1+(SNF %-(Fat %*0.2+0.36))/250,4)"
-                          disabled={blocksLocked[blockKey]}
-                          style={
-                            blocksLocked[blockKey]
-                              ? { background: '#f1f5f9', cursor: 'not-allowed' }
-                              : (isSpGrCalculated
-                                ? { backgroundColor: '#f0f9ff', borderColor: '#bae6fd', color: '#0369a1' }
-                                : undefined)
-                          }
-                        />
-                      </td>
-                      <td>
-                        <input
-                          type="number" placeholder="0" value={r.kg_fat}
-                          onChange={e => updateVal(blockKey, 'RECEIPT', idx, 'kg_fat', e.target.value)}
-                          title={calcConfig.fatCalcMode === 'FROM_KG' ? "Manual Input (Kg.Fat)" : (isSMPRow ? "=ROUND(Qty (Kg)*Fat %/100,3)" : "=ROUND(Sp. Gr*Fat %*Qty (Lts)/100,3)")}
-                          disabled={blocksLocked[blockKey]}
-                          style={
-                            blocksLocked[blockKey]
-                              ? { background: '#f1f5f9', cursor: 'not-allowed' }
-                              : (isKgFatCalculated && calcConfig.fatCalcMode === 'FROM_PCT'
-                                ? { backgroundColor: '#f0f9ff', borderColor: '#bae6fd', color: '#0369a1' }
-                                : undefined)
-                          }
-                        />
-                      </td>
-                      <td>
-                        <input
-                          type="number" placeholder="0" value={r.kg_snf}
-                          onChange={e => updateVal(blockKey, 'RECEIPT', idx, 'kg_snf', e.target.value)}
-                          title={calcConfig.snfCalcMode === 'FROM_KG' ? "Manual Input (Kg.SNF)" : (isSMPRow ? "=ROUND(Qty (Kg)*SNF %/100,3)" : "=ROUND(Sp. Gr*SNF %*Qty (Lts)/100,3)")}
-                          disabled={blocksLocked[blockKey]}
-                          style={
-                            blocksLocked[blockKey]
-                              ? { background: '#f1f5f9', cursor: 'not-allowed' }
-                              : (isKgSnfCalculated && calcConfig.snfCalcMode === 'FROM_PCT'
-                                ? { backgroundColor: '#f0f9ff', borderColor: '#bae6fd', color: '#0369a1' }
-                                : undefined)
-                          }
-                        />
-                      </td>
-                      <td className="no-print">
-                        {blocksLocked[blockKey] ? (
-                          <div style={{ textAlign: 'center', color: 'var(--text-muted)' }}>—</div>
-                        ) : (
-                          <div style={{ display: 'flex', gap: 10, alignItems: 'center', justifyContent: 'center' }}>
-                            <button
-                               type="button"
-                               style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '1rem', padding: 0 }}
-                               title="Add row below"
-                               onClick={() => addRowAfter(blockKey, 'RECEIPT', idx)}
-                             >
-                               ➕
-                             </button>
-                             <button
-                               type="button"
-                               style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '1rem', padding: 0 }}
-                               title="Delete row"
-                               onClick={() => deleteRow(blockKey, 'RECEIPT', idx)}
-                             >
-                               ❌
-                             </button>
-                             <button
-                               type="button"
-                               style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '1.05rem', padding: 0, opacity: r.linked_block ? 1 : 0.6 }}
-                               title={r.linked_block ? `Shared to ${statements.find(s => s.key === r.linked_block)?.label || r.linked_block}` : "Share to statement"}
-                               onClick={() => {
-                                 const targetBlockKey = r.linked_block || '';
-                                 const targetList = blocks[targetBlockKey]?.disposals || [];
-                                 const tRowIdx = targetList.findIndex(x => x.linked_block === blockKey);
-                                 setShareModal({
-                                   blockKey,
-                                   side: 'RECEIPT',
-                                   idx,
-                                   itemName: r.item_name,
-                                   targetBlockKey,
-                                   qtyLts: r.qty_lts,
-                                   qtyKg: r.qty_kg,
-                                   fatPct: r.fat_pct,
-                                   snfPct: r.snf_pct,
-                                   shareMode: tRowIdx !== -1 ? 'aggregate' : 'new',
-                                   targetRowIdx: tRowIdx !== -1 ? tRowIdx : undefined,
-                                 });
-                               }}
-                             >
-                               {r.linked_block ? '🔗' : '📤'}
-                             </button>
-                          </div>
-                        )}
-                      </td>
-                    </tr>
-                  );
-                })}
-                {!blocksLocked[blockKey] && (
-                  <tr
-                    className="no-print"
-                    style={{
-                      cursor: canAddReceipt ? 'pointer' : 'not-allowed',
-                      background: '#f8fafc',
-                      opacity: canAddReceipt ? 1 : 0.5
-                    }}
-                    onClick={() => {
-                      if (canAddReceipt) addRowAfter(blockKey, 'RECEIPT', blockState.receipts.length - 1);
-                    }}
-                  >
-                    <td colSpan={11} style={{ textAlign: 'center', color: 'var(--brand-primary)', fontWeight: 600, padding: 8 }}>
-                      ➕ Add Row
-                    </td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
-          </div>
-        </div>
-
-        {/* Disposals Section */}
-        <div style={{ marginTop: 32 }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
-            <div style={{ fontWeight: 700, fontSize: '0.85rem', color: '#f59e0b', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-              Disposals
-            </div>
-          </div>
-          <div style={{ overflowX: 'auto' }}>
-            <table className="inline-table" style={{ width: '100%', minWidth: 900 }}>
-              <thead>
-                <tr>
-                  <th style={{ width: '5%', textAlign: 'center' }}>S.No</th>
-                  <th style={{ width: '22%' }}>Disposal</th>
-                  <th className="no-print" style={{ width: '8%', textAlign: 'center' }}>Calc</th>
-                  <th className="num">Qty (Lts)</th>
-                  <th className="num" title="Formula: Qty (Lts) × Sp. Gr" style={{ backgroundColor: '#e0f2fe', color: '#0369a1' }}>Qty (Kg)</th>
-                  <th className="num">Fat %</th>
-                  <th className="num">SNF %</th>
-                  <th className="num" title="=ROUND(1+(SNF %-(Fat %*0.2+0.36))/250,4)" style={{ backgroundColor: '#e0f2fe', color: '#0369a1' }}>Sp. Gr</th>
-                  <th className="num" title="=ROUND(Sp. Gr*Fat %*Qty (Lts)/100,3)" style={{ backgroundColor: '#e0f2fe', color: '#0369a1' }}>Kg.Fat</th>
-                  <th className="num" title="=ROUND(Sp. Gr*SNF %*Qty (Lts)/100,3)" style={{ backgroundColor: '#e0f2fe', color: '#0369a1' }}>Kg.SNF</th>
-                  <th className="no-print" style={{ width: 100, textAlign: 'center' }}>Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {blockState.disposals.map((d, idx) => {
-                  const isSMPRow = blockKey === 'SMP' || d.item_name.toLowerCase().includes('smp');
-                  const isQtyKgCalculated = !isSMPRow && !d.manual_calc;
-                  const isSpGrCalculated = !isSMPRow && !d.manual_calc;
-                  const isKgFatCalculated = !d.manual_calc;
-                  const isKgSnfCalculated = !d.manual_calc;
-
-                  return (
-                    <tr key={idx}>
-                      <td style={{ textAlign: 'center', fontWeight: 600 }}>{idx + 1}</td>
-                      <td>
-                        <input
-                          type="text" placeholder="e.g. Sachet Name" value={d.item_name}
-                          onChange={e => updateVal(blockKey, 'DISPOSAL', idx, 'item_name', e.target.value)}
-                          disabled={blocksLocked[blockKey]}
-                          style={blocksLocked[blockKey] ? { background: '#f1f5f9', cursor: 'not-allowed' } : undefined}
-                        />
-                      </td>
-                      <td className="no-print" style={{ textAlign: 'center' }}>
-                        <button
-                          type="button"
-                          className={`btn ${d.manual_calc ? 'btn-secondary' : 'btn-primary'}`}
-                          style={{
-                            padding: '2px 6px',
-                            fontSize: '0.7rem',
-                            height: 'auto',
-                            lineHeight: '1.2',
-                            minWidth: '55px',
-                            borderRadius: '4px',
-                            fontWeight: 600,
-                            textTransform: 'uppercase',
-                            letterSpacing: '0.03em',
-                            cursor: blocksLocked[blockKey] ? 'not-allowed' : 'pointer'
-                          }}
-                          disabled={blocksLocked[blockKey]}
-                          onClick={() => {
-                            setBlocks(prev => {
-                              const next = { ...prev };
-                              const blockState = { ...next[blockKey] };
-                              const list = [...blockState.disposals];
-                              const current = { ...list[idx] };
-                              
-                              current.manual_calc = !current.manual_calc;
-                              
-                              if (!current.manual_calc) {
-                                const isSMP = blockKey === 'SMP' || (current.item_name || '').toLowerCase().includes('smp');
-                                if (isSMP) {
-                                  list[idx] = calculateSTGRowValues(current, 'qty_kg', current.qty_kg, true);
-                                } else {
-                                  const temp = calculateSTGRowValues(current, 'fat_pct', current.fat_pct, false);
-                                  list[idx] = calculateSTGRowValues(temp, 'qty_lts', current.qty_lts, false);
-                                }
-                              } else {
-                                list[idx] = current;
-                              }
-                              
-                              blockState.disposals = list;
-                              recalculateCB(blockState, blockKey);
-                              next[blockKey] = blockState;
-                              return next;
-                            });
-                          }}
-                          title={d.manual_calc ? "Switch to Auto-Calculation mode" : "Switch to Manual entry mode"}
-                        >
-                          {d.manual_calc ? '✏️ Man' : '🤖 Auto'}
-                        </button>
-                      </td>
-                      <td>
-                        <input
-                          type="number" placeholder="0" value={isSMPRow ? "" : d.qty_lts}
-                          onChange={e => updateVal(blockKey, 'DISPOSAL', idx, 'qty_lts', e.target.value)}
-                          disabled={blocksLocked[blockKey] || isSMPRow}
-                          style={(blocksLocked[blockKey] || isSMPRow) ? { background: '#f1f5f9', cursor: 'not-allowed' } : undefined}
-                        />
-                      </td>
-                      <td>
-                        <input
-                          type="number" placeholder="0" value={d.qty_kg}
-                          onChange={e => updateVal(blockKey, 'DISPOSAL', idx, 'qty_kg', e.target.value)}
-                          title={isSMPRow ? "Manual Input (Kg)" : "Formula: Qty (Lts) × Sp. Gr"}
-                          disabled={blocksLocked[blockKey]}
-                          style={
-                            blocksLocked[blockKey]
-                              ? { background: '#f1f5f9', cursor: 'not-allowed' }
-                              : (isQtyKgCalculated
-                                ? { backgroundColor: '#f0f9ff', borderColor: '#bae6fd', color: '#0369a1' }
-                                : undefined)
-                          }
-                        />
-                      </td>
-                      <td>
-                        <input
-                          type="number" placeholder="0" value={d.fat_pct}
-                          onChange={e => updateVal(blockKey, 'DISPOSAL', idx, 'fat_pct', e.target.value)}
-                          title={calcConfig.fatCalcMode === 'FROM_KG' ? `Formula: (Kg.Fat / Qty (Lts) / ${calcConfig.densityFactor}) × 100` : "Manual Input (Fat %)"}
-                          disabled={blocksLocked[blockKey]}
-                          style={
-                            blocksLocked[blockKey]
-                              ? { background: '#f1f5f9', cursor: 'not-allowed' }
-                              : (calcConfig.fatCalcMode === 'FROM_KG'
-                                ? { backgroundColor: '#f0f9ff', borderColor: '#bae6fd', color: '#0369a1', fontWeight: 600 }
-                                : undefined)
-                          }
-                        />
-                      </td>
-                      <td>
-                        <input
-                          type="number" placeholder="0" value={d.snf_pct}
-                          onChange={e => updateVal(blockKey, 'DISPOSAL', idx, 'snf_pct', e.target.value)}
-                          title={calcConfig.snfCalcMode === 'FROM_KG' ? `Formula: (Kg.SNF / Qty (Lts) / ${calcConfig.densityFactor}) × 100` : "Manual Input (SNF %)"}
-                          disabled={blocksLocked[blockKey]}
-                          style={
-                            blocksLocked[blockKey]
-                              ? { background: '#f1f5f9', cursor: 'not-allowed' }
-                              : (calcConfig.snfCalcMode === 'FROM_KG'
-                                ? { backgroundColor: '#f0f9ff', borderColor: '#bae6fd', color: '#0369a1', fontWeight: 600 }
-                                : undefined)
-                          }
-                        />
-                      </td>
-                      <td>
-                        <input
-                          type="number" placeholder="0" value={d.sp_gr}
-                          onChange={e => updateVal(blockKey, 'DISPOSAL', idx, 'sp_gr', e.target.value)}
-                          title="=ROUND(1+(SNF %-(Fat %*0.2+0.36))/250,4)"
-                          disabled={blocksLocked[blockKey]}
-                          style={
-                            blocksLocked[blockKey]
-                              ? { background: '#f1f5f9', cursor: 'not-allowed' }
-                              : (isSpGrCalculated
-                                ? { backgroundColor: '#f0f9ff', borderColor: '#bae6fd', color: '#0369a1' }
-                                : undefined)
-                          }
-                        />
-                      </td>
-                      <td>
-                        <input
-                          type="number" placeholder="0" value={d.kg_fat}
-                          onChange={e => updateVal(blockKey, 'DISPOSAL', idx, 'kg_fat', e.target.value)}
-                          title={calcConfig.fatCalcMode === 'FROM_KG' ? "Manual Input (Kg.Fat)" : (isSMPRow ? "=ROUND(Qty (Kg)*Fat %/100,3)" : "=ROUND(Sp. Gr*Fat %*Qty (Lts)/100,3)")}
-                          disabled={blocksLocked[blockKey]}
-                          style={
-                            blocksLocked[blockKey]
-                              ? { background: '#f1f5f9', cursor: 'not-allowed' }
-                              : (isKgFatCalculated && calcConfig.fatCalcMode === 'FROM_PCT'
-                                ? { backgroundColor: '#f0f9ff', borderColor: '#bae6fd', color: '#0369a1' }
-                                : undefined)
-                          }
-                        />
-                      </td>
-                      <td>
-                        <input
-                          type="number" placeholder="0" value={d.kg_snf}
-                          onChange={e => updateVal(blockKey, 'DISPOSAL', idx, 'kg_snf', e.target.value)}
-                          title={calcConfig.snfCalcMode === 'FROM_KG' ? "Manual Input (Kg.SNF)" : (isSMPRow ? "=ROUND(Qty (Kg)*SNF %/100,3)" : "=ROUND(Sp. Gr*SNF %*Qty (Lts)/100,3)")}
-                          disabled={blocksLocked[blockKey]}
-                          style={
-                            blocksLocked[blockKey]
-                              ? { background: '#f1f5f9', cursor: 'not-allowed' }
-                              : (isKgSnfCalculated && calcConfig.snfCalcMode === 'FROM_PCT'
-                                ? { backgroundColor: '#f0f9ff', borderColor: '#bae6fd', color: '#0369a1' }
-                                : undefined)
-                          }
-                        />
-                      </td>
-                      <td className="no-print">
-                        {blocksLocked[blockKey] ? (
-                          <div style={{ textAlign: 'center', color: 'var(--text-muted)' }}>—</div>
-                        ) : (
-                          <div style={{ display: 'flex', gap: 10, alignItems: 'center', justifyContent: 'center' }}>
-                            <button
-                               type="button"
-                               style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '1rem', padding: 0 }}
-                               title="Add row below"
-                               onClick={() => addRowAfter(blockKey, 'DISPOSAL', idx)}
-                             >
-                               ➕
-                             </button>
-                             <button
-                               type="button"
-                               style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '1rem', padding: 0 }}
-                               title="Delete row"
-                               onClick={() => deleteRow(blockKey, 'DISPOSAL', idx)}
-                             >
-                               ❌
-                             </button>
-                             <button
-                               type="button"
-                               style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '1.05rem', padding: 0, opacity: d.linked_block ? 1 : 0.6 }}
-                               title={d.linked_block ? `Shared to ${statements.find(s => s.key === d.linked_block)?.label || d.linked_block}` : "Share to statement"}
-                               onClick={() => {
-                                 const targetBlockKey = d.linked_block || '';
-                                 const targetList = blocks[targetBlockKey]?.receipts || [];
-                                 const tRowIdx = targetList.findIndex(x => x.linked_block === blockKey);
-                                 setShareModal({
-                                   blockKey,
-                                   side: 'DISPOSAL',
-                                   idx,
-                                   itemName: d.item_name,
-                                   targetBlockKey,
-                                   qtyLts: d.qty_lts,
-                                   qtyKg: d.qty_kg,
-                                   fatPct: d.fat_pct,
-                                   snfPct: d.snf_pct,
-                                   shareMode: tRowIdx !== -1 ? 'aggregate' : 'new',
-                                   targetRowIdx: tRowIdx !== -1 ? tRowIdx : undefined,
-                                 });
-                               }}
-                             >
-                               {d.linked_block ? '🔗' : '📤'}
-                             </button>
-                          </div>
-                        )}
-                      </td>
-                    </tr>
-                  );
-                })}
-                {!blocksLocked[blockKey] && (
-                  <tr
-                    className="no-print"
-                    style={{
-                      cursor: canAddDisposal ? 'pointer' : 'not-allowed',
-                      background: '#f8fafc',
-                      opacity: canAddDisposal ? 1 : 0.5
-                    }}
-                    onClick={() => {
-                      if (canAddDisposal) addRowAfter(blockKey, 'DISPOSAL', blockState.disposals.length - 1);
-                    }}
-                  >
-                    <td colSpan={11} style={{ textAlign: 'center', color: 'var(--brand-primary)', fontWeight: 600, padding: 8 }}>
-                      ➕ Add Row
-                    </td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
-          </div>
-        </div>
-
-
-
-        {/* Calculations summary balance block */}
-        <div style={{ marginTop: 28, padding: '18px 22px', background: 'rgba(2, 132, 199, 0.02)', borderTop: '3px solid var(--brand-primary)', borderRadius: 8 }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-            <h4 style={{ margin: 0, color: 'var(--brand-primary)', fontSize: '0.85rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-              📊 Summary & Balance Calculations
-            </h4>
-            <button
-              type="button"
-              className="btn btn-secondary btn-sm no-print"
-              style={{ padding: '4px 10px', fontSize: '0.75rem', height: 'auto', display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer' }}
-              onClick={() => {
-                setBlocks(prev => {
-                  const next = { ...prev };
-                  Object.keys(next).forEach(k => {
-                    recalculateCB(next[k], k);
-                  });
-                  return next;
-                });
-              }}
-              title="Recalculate summary and grand totals manually"
-            >
-              🔄 Refresh Calculations
-            </button>
-          </div>
-          <div className="table-wrapper" style={{ overflowX: 'auto', border: '1px solid var(--border)' }}>
-            <table className="data-table" style={{ width: '100%', fontSize: '0.8125rem', minWidth: 900 }}>
-              <thead>
-                <tr style={{ background: '#f8fafc' }}>
-                  <th colSpan={5} style={{ textAlign: 'center', borderRight: '2px solid var(--border)', fontSize: '0.75rem', fontWeight: 700, color: 'var(--brand-primary)' }}>RECEIPTS SIDE</th>
-                  <th colSpan={5} style={{ textAlign: 'center', fontSize: '0.75rem', fontWeight: 700, color: 'var(--brand-accent)' }}>DISPOSALS SIDE</th>
-                </tr>
-                <tr style={{ background: '#f1f5f9' }}>
-                  <th>Category</th>
-                  <th className="num">Qty (Lts)</th>
-                  <th className="num">Qty (Kg)</th>
-                  <th className="num">Kg Fat</th>
-                  <th className="num" style={{ borderRight: '2px solid var(--border)' }}>Kg SNF</th>
-
-                  <th>Category</th>
-                  <th className="num">Qty (Lts)</th>
-                  <th className="num">Qty (Kg)</th>
-                  <th className="num">Kg Fat</th>
-                  <th className="num">Kg SNF</th>
-                </tr>
-              </thead>
-              <tbody>
-                {/* Total Receipts / Total Disposals */}
-                <tr style={{ cursor: 'help' }}>
-                  <td style={{ fontWeight: 600 }} title="Total Receipts = Sum of all receipt rows">Total Receipts</td>
-                  <td className="num" title="Total Receipts = Sum of all receipt rows">{fmtNum(blockSummary.recSum.lts)}</td>
-                  <td className="num" title="Total Receipts = Sum of all receipt rows">{fmtNum(blockSummary.recSum.kg)}</td>
-                  <td className="num" title="Total Receipts = Sum of all receipt rows">{fmtNum(blockSummary.recSum.fat, 3)}</td>
-                  <td className="num" style={{ borderRight: '2px solid var(--border)' }} title="Total Receipts = Sum of all receipt rows">{fmtNum(blockSummary.recSum.snf, 3)}</td>
-
-                  <td style={{ fontWeight: 600 }} title="Total Disposals = Sum of all disposal rows">Total Disposals</td>
-                  <td className="num" title="Total Disposals = Sum of all disposal rows">{fmtNum(blockSummary.dispSum.lts)}</td>
-                  <td className="num" title="Total Disposals = Sum of all disposal rows">{fmtNum(blockSummary.dispSum.kg)}</td>
-                  <td className="num" title="Total Disposals = Sum of all disposal rows">{fmtNum(blockSummary.dispSum.fat, 3)}</td>
-                  <td className="num" title="Total Disposals = Sum of all disposal rows">{fmtNum(blockSummary.dispSum.snf, 3)}</td>
-                </tr>
-
-                {/* Opening Balance (OB) / Closing Balance (CB Physical) */}
-                <tr style={{ background: 'rgba(2,132,199,0.02)', cursor: 'help' }}>
-                  <td style={{ fontWeight: 600 }} title="Opening Balance (OB) = Opening Balance from input field">Opening Balance (OB)</td>
-                  <td className="num" title="Opening Balance (OB) = Opening Balance from input field">{fmtNum(blockSummary.ob.lts)}</td>
-                  <td className="num" title="Opening Balance (OB) = Opening Balance from input field">{fmtNum(blockSummary.ob.kg)}</td>
-                  <td className="num" title="Opening Balance (OB) = Opening Balance from input field">{fmtNum(blockSummary.ob.fat, 3)}</td>
-                  <td className="num" style={{ borderRight: '2px solid var(--border)' }} title="Opening Balance (OB) = Opening Balance from input field">{fmtNum(blockSummary.ob.snf, 3)}</td>
-
-                  <td style={{ fontWeight: 600 }} title="Closing Balance (CB) = Editable CB value from the balance section">Closing Balance (CB)</td>
-                  <td className="num" title="Closing Balance (CB) = Editable CB value from the balance section">{fmtNum(closingBalance.lts)}</td>
-                  <td className="num" title="Closing Balance (CB) = Editable CB value from the balance section">{fmtNum(closingBalance.kg)}</td>
-                  <td className="num" title="Closing Balance (CB) = Editable CB value from the balance section">{fmtNum(closingBalance.fat, 3)}</td>
-                  <td className="num" title="Closing Balance (CB) = Editable CB value from the balance section">{fmtNum(closingBalance.snf, 3)}</td>
-                </tr>
-
-                {/* Grand Total Receipts / Grand Total Disposals */}
-                <tr style={{ fontWeight: 700, background: 'rgba(16,185,129,0.06)', cursor: 'help' }}>
-                  <td title="Grand Total (RECEIPTS SIDE) = Opening Balance + Total Receipts">Grand Total (Receipts)</td>
-                  <td className="num" title="Grand Total (RECEIPTS SIDE) = Opening Balance + Total Receipts">{fmtNum(receiptsSideGrandTotal.lts)}</td>
-                  <td className="num" title="Grand Total (RECEIPTS SIDE) = Opening Balance + Total Receipts">{fmtNum(receiptsSideGrandTotal.kg)}</td>
-                  <td className="num" title="Grand Total (RECEIPTS SIDE) = Opening Balance + Total Receipts">{fmtNum(receiptsSideGrandTotal.fat, 3)}</td>
-                  <td className="num" style={{ borderRight: '2px solid var(--border)' }} title="Grand Total (RECEIPTS SIDE) = Opening Balance + Total Receipts">{fmtNum(receiptsSideGrandTotal.snf, 3)}</td>
-
-                  <td title="Grand Total (DISPOSALS SIDE) = Total Disposals + Closing Balance (CB)">Grand Total (Disposals)</td>
-                  <td className="num" title="Grand Total (DISPOSALS SIDE) = Total Disposals + Closing Balance (CB)">{fmtNum(disposalsSideGrandTotal.lts)}</td>
-                  <td className="num" title="Grand Total (DISPOSALS SIDE) = Total Disposals + Closing Balance (CB)">{fmtNum(disposalsSideGrandTotal.kg)}</td>
-                  <td className="num" title="Grand Total (DISPOSALS SIDE) = Total Disposals + Closing Balance (CB)">{fmtNum(disposalsSideGrandTotal.fat, 3)}</td>
-                  <td className="num" title="Grand Total (DISPOSALS SIDE) = Total Disposals + Closing Balance (CB)">{fmtNum(disposalsSideGrandTotal.snf, 3)}</td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
-        </div>
-
-        {/* Per-statement Save / Cancel */}
-        <div className="no-print" style={{ display: 'flex', gap: 12, justifyContent: 'flex-end', alignItems: 'center', marginTop: 20, paddingTop: 16, borderTop: '1px dashed var(--border)' }}>
-          {savedBlock === blockKey && (
-            <span style={{ fontSize: '0.82rem', color: 'var(--brand-success)', fontWeight: 600 }}>✅ Saved!</span>
-          )}
-          {blocksLocked[blockKey] ? (
-            <button
-              type="button"
-              className="btn btn-secondary btn-sm"
-              onClick={() => {
-                setBlocksLocked(prev => ({ ...prev, [blockKey]: false }));
-              }}
-              style={{ display: 'flex', alignItems: 'center', gap: 6 }}
-            >
-              ✏️ Edit {s.label}
-            </button>
-          ) : (
-            <>
-              <button
-                type="button"
-                className="btn btn-secondary btn-sm"
-                onClick={() => {
-                  // Re-lock the block on cancel if there is data
-                  const hasData = blockState.receipts.some(r => r.item_name) || blockState.disposals.some(d => d.item_name);
-                  if (hasData) {
-                    setBlocksLocked(prev => ({ ...prev, [blockKey]: true }));
-                  } else {
-                    router.back();
-                  }
-                }}
-                disabled={savingBlock === blockKey}
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                className="btn btn-primary btn-sm"
-                disabled={savingBlock === blockKey}
-                onClick={async () => {
-                  setSavingBlock(blockKey);
-                  setSavedBlock(null);
-                  await triggerBackgroundSave();
-                  setSavingBlock(null);
-                  setSavedBlock(blockKey);
-                  setBlocksLocked(prev => ({ ...prev, [blockKey]: true }));
-                  setTimeout(() => setSavedBlock(null), 2500);
-                }}
-                style={{ display: 'flex', alignItems: 'center', gap: 6 }}
-              >
-                {savingBlock === blockKey ? (
-                  <><span style={{ animation: 'spin 1s linear infinite', display: 'inline-block' }}>⏳</span> Saving...</>
-                ) : (
-                  <>💾 Save {s.label}</>
-                )}
-              </button>
-            </>
-          )}
-        </div>
       </div>
     );
   };
@@ -2839,7 +2211,12 @@ export default function STGEntryForm({
         title="Solid Balance Details (STG)"
         subtitle={`Auto-compiled Receipts & Disposals (${reportMode === 'full_day' ? 'Full Day' : (shift === 'D' ? 'Day Shift' : 'Night Shift')})`}
         actions={
-          <Link href="/dashboard/ts" className="btn btn-secondary btn-sm">← Back to Register</Link>
+          <div style={{ display: 'flex', gap: 10 }}>
+            <Link href="/dashboard/ts/manage-statements" className="btn btn-secondary btn-sm" style={{ color: '#0369a1', borderColor: '#bae6fd', background: '#f0f9ff', fontWeight: 700 }} title="Manage Receipt & Disposal Statement Master Names">
+              📊 Statement Master Names
+            </Link>
+            <Link href="/dashboard/ts" className="btn btn-secondary btn-sm">← Back to Register</Link>
+          </div>
         }
       >
         <Step
@@ -2851,486 +2228,695 @@ export default function STGEntryForm({
         />
       </Header>
       <div className="form-container">
-      {/* Top action buttons */}
-      <div ref={saveButtonRef} className="no-print" style={{ display: 'flex', gap: 12, justifyContent: 'flex-end', alignItems: 'center', marginBottom: 20 }}>
-        {error && <span style={{ fontSize: '0.82rem', color: 'var(--brand-danger)', fontWeight: 600 }}>⚠️ {error}</span>}
-        <button className="btn btn-secondary" onClick={() => router.back()} disabled={saving}>
-          Cancel
-        </button>
-        <button
-          className="btn btn-primary"
-          onClick={handleSave}
-          disabled={saving}
-          style={{ padding: '10px 28px', fontSize: '0.95rem', fontWeight: 700, display: 'flex', alignItems: 'center', gap: 8 }}
-        >
-          {saving
-            ? <><span style={{ animation: 'spin 1s linear infinite', display: 'inline-block' }}>⏳</span> Compiling Registry Statements...</>
-            : '💾 Save & Compile STG Statement'
-          }
-        </button>
-      </div>
 
-      {/* Date & Details */}
-      <div className="card" style={{ marginBottom: 20 }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16, flexWrap: 'wrap', gap: 10 }}>
-          <div className="section-title" style={{ margin: 0 }}>Register Date & Details</div>
-          <button
-            type="button"
-            className="btn btn-secondary btn-sm"
-            style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: '0.8rem', fontWeight: 600, color: 'var(--brand-primary)', border: '1px solid var(--brand-primary)' }}
-            onClick={async () => {
-              const { blocks: mapped, count } = await syncFromStockEntry(blocks, entryDate, shift);
-              setBlocks(mapped);
-              if (count > 0) {
-                showSuccess(`Successfully synced ${count} mapped field(s) from Stock Statement Entry for ${entryDate}!`, 'Sync Successful');
-              } else {
-                showWarning(`No matching Stock Statement Entry data found for ${entryDate}. Please ensure a Stock Statement Entry exists for this date.`, 'Data Not Found');
-              }
-            }}
-          >
-            ⚡ Sync from Stock Statement Entry
-          </button>
-        </div>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 16 }}>
-          <div className="form-group">
-            <label className="form-label">Date *</label>
-            <input
-              type="date"
-              className="form-input"
-              value={entryDate}
-              onChange={e => setEntryDate(e.target.value)}
-              max={new Date().toISOString().split('T')[0]}
-            />
+        {/* Date & Details */}
+        <div className="card" style={{ marginBottom: 20 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16, flexWrap: 'wrap', gap: 10 }}>
+            <div className="section-title" style={{ margin: 0 }}>Register Date & Details</div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+              <button
+                type="button"
+                className="btn btn-secondary btn-sm"
+                style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: '0.8rem', fontWeight: 600, color: 'var(--brand-primary)', border: '1px solid var(--brand-primary)' }}
+                onClick={async () => {
+                  const { blocks: mapped, count } = await syncFromStockEntry(blocks, entryDate, shift);
+                  setBlocks(mapped);
+                  if (count > 0) {
+                    showSuccess(`Successfully synced ${count} mapped field(s) from Stock Statement Entry for ${entryDate}!`, 'Sync Successful');
+                  } else {
+                    showWarning(`No matching Stock Statement Entry data found for ${entryDate}. Please ensure a Stock Statement Entry exists for this date.`, 'Data Not Found');
+                  }
+                }}
+              >
+                ⚡ Sync from Stock Statement Entry
+              </button>
+              <button
+                type="button"
+                className="btn btn-secondary btn-sm"
+                onClick={() => router.back()}
+                disabled={saving}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="btn btn-primary btn-sm"
+                onClick={handleSave}
+                disabled={saving}
+                style={{ fontWeight: 700, display: 'flex', alignItems: 'center', gap: 6 }}
+              >
+                {saving
+                  ? <><span style={{ animation: 'spin 1s linear infinite', display: 'inline-block' }}>⏳</span> Compiling...</>
+                  : '💾 Save & Compile STG Statement'
+                }
+              </button>
+            </div>
           </div>
-          {reportMode === 'shift' && (
-            <>
-              <div className="form-group">
-                <label className="form-label">Reporting Type *</label>
-                <div style={{ display: 'flex', gap: 8, marginTop: 6 }}>
-                  <button
-                    type="button"
-                    className={`btn ${shift === 'F' || !shift ? 'btn-primary' : 'btn-secondary'}`}
-                    onClick={() => setShift('F')}
-                    style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '10px 16px' }}
-                  >
-                    <span style={{ fontWeight: 600, fontSize: '0.875rem' }}>🗓️ Full Day (F)</span>
-                  </button>
-                  <button
-                    type="button"
-                    className={`btn ${shift === 'D' || shift === 'N' ? 'btn-primary' : 'btn-secondary'}`}
-                    onClick={() => setShift('D')}
-                    style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '10px 16px' }}
-                  >
-                    <span style={{ fontWeight: 600, fontSize: '0.875rem' }}>⏱️ Shift-wise</span>
-                  </button>
-                </div>
-              </div>
-              {shift && (
-                <div className="form-group animate-fade-in">
-                  <label className="form-label">Shift *</label>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 16 }}>
+            <div className="form-group">
+              <label className="form-label">Date *</label>
+              <input
+                type="date"
+                className="form-input"
+                value={entryDate}
+                onChange={e => setEntryDate(e.target.value)}
+                max={new Date().toISOString().split('T')[0]}
+              />
+            </div>
+            {reportMode === 'shift' && (
+              <>
+                <div className="form-group">
+                  <label className="form-label">Reporting Type *</label>
                   <div style={{ display: 'flex', gap: 8, marginTop: 6 }}>
-                    {(['D', 'N'] as Shift[]).map(s => {
-                      const cfg = shiftConfigs.find(c => c.key === s) || {
-                        label: s === 'D' ? 'Day Shift' : 'Night Shift',
-                        start: s === 'D' ? '06:00' : '18:00',
-                        end: s === 'D' ? '18:00' : '06:00'
-                      };
-                      return (
-                        <button
-                          key={s}
-                          id={`shift-${s}`}
-                          type="button"
-                          className={`btn ${shift === s ? 'btn-primary' : 'btn-secondary'}`}
-                          onClick={() => setShift(s)}
-                          style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '10px 16px' }}
-                        >
-                          <span style={{ fontWeight: 600, fontSize: '0.875rem' }}>
-                            {s === 'D' ? '☀️' : '🌙'} {cfg.label}
-                          </span>
-                        </button>
-                      );
-                    })}
+                    <button
+                      type="button"
+                      className={`btn ${shift === 'F' || !shift ? 'btn-primary' : 'btn-secondary'}`}
+                      onClick={() => setShift('F')}
+                      style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '10px 16px' }}
+                    >
+                      <span style={{ fontWeight: 600, fontSize: '0.875rem' }}>🗓️ Full Day (F)</span>
+                    </button>
+                    <button
+                      type="button"
+                      className={`btn ${shift === 'D' || shift === 'N' ? 'btn-primary' : 'btn-secondary'}`}
+                      onClick={() => setShift('D')}
+                      style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '10px 16px' }}
+                    >
+                      <span style={{ fontWeight: 600, fontSize: '0.875rem' }}>⏱️ Shift-wise</span>
+                    </button>
                   </div>
                 </div>
-              )}
-            </>
-          )}
-          <div className="form-group">
-            <label className="form-label">Notes (optional)</label>
-            <input
-              type="text"
-              className="form-input"
-              value={notes}
-              onChange={e => setNotes(e.target.value)}
-              placeholder="Enter remarks or details..."
-            />
-          </div>
-        </div>
-      </div>
-
-      {error && <div className="alert alert-error">⚠️ {error}</div>}
-
-      {/* Excluded Statements Display */}
-      {statements.some(s => !enabledBlockKeys.includes(s.key)) && (
-        <div className="card-glass" style={{ padding: '16px 20px', marginTop: 20, marginBottom: 20, display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', background: 'rgba(255,255,255,0.4)', backdropFilter: 'blur(8px)', border: '1px dashed var(--border)', borderRadius: 8 }}>
-          <span style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-secondary)' }}>💡 Excluded statements for this shift:</span>
-          {statements.filter(s => !enabledBlockKeys.includes(s.key)).map(s => (
-            <button
-              key={s.key}
-              type="button"
-              className="btn btn-secondary btn-sm"
-              onClick={() => setEnabledBlockKeys(prev => [...prev, s.key])}
-              style={{ fontSize: '0.8rem', padding: '4px 10px', display: 'flex', alignItems: 'center', gap: 4 }}
-            >
-              ➕ Add {s.label}
-            </button>
-          ))}
-        </div>
-      )}
-
-      {/* Enabled Statements Rendered Sequentially */}
-      <div style={{ marginTop: 20, display: 'flex', flexDirection: 'column', gap: 32 }}>
-        {statements.filter(s => enabledBlockKeys.includes(s.key)).map(s => (
-          <React.Fragment key={s.key}>{renderStatementBlock(s)}</React.Fragment>
-        ))}
-
-        {enabledBlockKeys.length === 0 && (
-          <div className="card" style={{ padding: 40, textAlign: 'center', color: 'var(--text-muted)' }}>
-            ⚠️ All statements have been excluded for this shift. Please add at least one statement block above.
-          </div>
-        )}
-
-        {stepMode && (
-          <div
-            className="no-print"
-            style={{
-              display: 'flex',
-              justifyContent: 'space-between',
-              alignItems: 'center',
-              padding: '16px 20px',
-              background: 'var(--surface)',
-              borderRadius: 12,
-              border: '1px solid var(--border)',
-              marginTop: 20,
-              boxShadow: '0 4px 12px rgba(0, 0, 0, 0.03)',
-            }}
-          >
-            <button
-              type="button"
-              className="btn btn-secondary"
-              onClick={onPrevStep}
-              style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}
-            >
-              ← Back to Stock Entry
-            </button>
-            <button
-              type="button"
-              className="btn btn-primary"
-              onClick={async () => {
-                if (onNextStep) onNextStep();
-              }}
-              style={{
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: 6,
-                background: 'linear-gradient(135deg, #0ea5e9 0%, #10b981 100%)',
-                borderColor: '#0ea5e9',
-                fontWeight: 700,
-                boxShadow: '0 4px 12px rgba(14, 165, 233, 0.25)',
-              }}
-            >
-              Next: Review TS Statement ➔
-            </button>
-          </div>
-        )}
-      </div>
-      {mounted && shareModal && createPortal(
-        <div style={{
-          position: 'fixed',
-          inset: 0,
-          background: 'rgba(15, 23, 42, 0.6)',
-          backdropFilter: 'blur(4px)',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          zIndex: 9999,
-        }}>
-          {(() => {
-            const targetSide = shareModal.side === 'RECEIPT' ? 'DISPOSAL' : 'RECEIPT';
-            const targetBlockState = blocks[shareModal.targetBlockKey];
-            const targetRows = targetBlockState
-              ? (targetSide === 'RECEIPT' ? targetBlockState.receipts : targetBlockState.disposals).filter(r => r.item_name.trim() !== '')
-              : [];
-
-            return (
-              <div className="card animate-fade-in" style={{
-                width: '100%',
-                maxWidth: 500,
-                background: 'var(--bg-surface)',
-                boxShadow: 'var(--shadow-lg)',
-                border: '1px solid var(--border)',
-                padding: 24,
-                borderRadius: 12,
-                maxHeight: '90vh',
-                overflowY: 'auto',
-              }}>
-                <h3 style={{ margin: 0, marginBottom: 12, color: 'var(--brand-primary)', fontSize: '1.2rem', display: 'flex', alignItems: 'center', gap: 8 }}>
-                  <span>📤</span> Share Statement Row
-                </h3>
-                <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', marginBottom: 20 }}>
-                  Share <strong>{shareModal.itemName || 'Unnamed Item'}</strong> as a {targetSide} to another statement.
-                </p>
-
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-                  <div className="form-group" style={{ margin: 0 }}>
-                    <label className="form-label" style={{ fontSize: '0.75rem', fontWeight: 600 }}>Target Statement *</label>
-                    <select
-                      className="form-input"
-                      value={shareModal.targetBlockKey}
-                      onChange={e => {
-                        const targetKey = e.target.value;
-                        const oppositeSide = shareModal.side === 'RECEIPT' ? 'DISPOSAL' : 'RECEIPT';
-                        const tList = blocks[targetKey]?.[oppositeSide === 'RECEIPT' ? 'receipts' : 'disposals'] || [];
-                        const hasExisting = tList.some(r => r.item_name.trim() !== '');
-                        setShareModal(prev => prev ? {
-                          ...prev,
-                          targetBlockKey: targetKey,
-                          shareMode: hasExisting ? 'aggregate' : 'new',
-                          targetRowIdx: undefined,
-                        } : null);
-                      }}
-                      style={{ display: 'block', width: '100%', padding: '8px 12px', fontSize: '0.9rem' }}
-                    >
-                      <option value="">No Share (Unlink)</option>
-                      {statements.filter(s => s.key !== shareModal.blockKey).map(s => (
-                        <option key={s.key} value={s.key}>{s.label}</option>
-                      ))}
-                    </select>
+                {shift && (
+                  <div className="form-group animate-fade-in">
+                    <label className="form-label">Shift *</label>
+                    <div style={{ display: 'flex', gap: 8, marginTop: 6 }}>
+                      {(['D', 'N'] as Shift[]).map(s => {
+                        const cfg = shiftConfigs.find(c => c.key === s) || {
+                          label: s === 'D' ? 'Day Shift' : 'Night Shift',
+                          start: s === 'D' ? '06:00' : '18:00',
+                          end: s === 'D' ? '18:00' : '06:00'
+                        };
+                        return (
+                          <button
+                            key={s}
+                            id={`shift-${s}`}
+                            type="button"
+                            className={`btn ${shift === s ? 'btn-primary' : 'btn-secondary'}`}
+                            onClick={() => setShift(s)}
+                            style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '10px 16px' }}
+                          >
+                            <span style={{ fontWeight: 600, fontSize: '0.875rem' }}>
+                              {s === 'D' ? '☀️' : '🌙'} {cfg.label}
+                            </span>
+                          </button>
+                        );
+                      })}
+                    </div>
                   </div>
+                )}
+              </>
+            )}
+            <div className="form-group">
+              <label className="form-label">Notes (optional)</label>
+              <input
+                type="text"
+                className="form-input"
+                value={notes}
+                onChange={e => setNotes(e.target.value)}
+                placeholder="Enter remarks or details..."
+              />
+            </div>
+          </div>
+        </div>
 
-                  {shareModal.targetBlockKey && targetRows.length > 0 && (
-                    <div style={{ padding: 12, background: 'rgba(2, 132, 199, 0.03)', borderRadius: 8, border: '1px solid var(--border)' }}>
-                      <div style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--brand-primary)', marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.02em' }}>
-                        📋 Existing {targetSide}s in Target block:
+        {error && <div className="alert alert-error">⚠️ {error}</div>}
+
+        {/* Excluded Statements Display */}
+        {statements.some(s => !enabledBlockKeys.includes(s.key)) && (
+          <div className="card-glass" style={{ padding: '16px 20px', marginTop: 20, marginBottom: 20, display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', background: 'rgba(255,255,255,0.4)', backdropFilter: 'blur(8px)', border: '1px dashed var(--border)', borderRadius: 8 }}>
+            <span style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-secondary)' }}>💡 Excluded statements for this shift:</span>
+            {statements.filter(s => !enabledBlockKeys.includes(s.key)).map(s => (
+              <button
+                key={s.key}
+                type="button"
+                className="btn btn-secondary btn-sm"
+                onClick={() => setEnabledBlockKeys(prev => [...prev, s.key])}
+                style={{ fontSize: '0.8rem', padding: '4px 10px', display: 'flex', alignItems: 'center', gap: 4 }}
+              >
+                ➕ Add {s.label}
+              </button>
+            ))}
+          </div>
+        )}
+
+        {/* Statements Rendered in MasterDetailLayout (Matching Chart Preparation UI Design) */}
+        <div style={{ marginTop: 20 }}>
+          {statements.length === 0 ? (
+            <div className="card" style={{ padding: 40, textAlign: 'center', background: '#fff8f6', border: '1px solid #ffedd5' }}>
+              <div style={{ fontSize: '2.5rem', marginBottom: 12 }}>⚠️</div>
+              <div style={{ fontWeight: 700, fontSize: '1.15rem', color: '#9a3412', marginBottom: 8 }}>
+                No Statement Master Names Stored in Database
+              </div>
+              <div style={{ fontSize: '0.88rem', color: 'var(--text-secondary)', marginBottom: 20, maxWidth: 600, margin: '0 auto 20px' }}>
+                No statement master names have been configured in database table (<code>prep_chart_configs</code>). Solid Balance Details (STG) statements are strictly created only from Master Names stored in the database.
+              </div>
+              <Link href="/dashboard/ts/manage-statements" className="btn btn-primary btn-sm" style={{ fontWeight: 700 }}>
+                📊 Go to Statement Master Names (Receipt & Disposal)
+              </Link>
+            </div>
+          ) : statements.filter(s => enabledBlockKeys.includes(s.key)).length === 0 ? (
+            <div className="card" style={{ padding: 40, textAlign: 'center', color: 'var(--text-muted)' }}>
+              ⚠️ All statements have been excluded for this shift. Please click "➕ Add" above to include a statement block.
+            </div>
+          ) : (
+            <MasterDetailLayout<{ key: string; label: string }>
+              items={statements.filter(s => enabledBlockKeys.includes(s.key))}
+              getItemKey={s => s.key}
+              selectedKey={activeBlock || (statements.filter(s => enabledBlockKeys.includes(s.key))[0]?.key || null)}
+              onSelectKey={key => setActiveBlock(key)}
+              leftPanelTitle="📋 Statement Master Names"
+              leftPanelWidth={330}
+              searchPlaceholder="🔍 Search statement name..."
+              filterPredicate={(s, q) =>
+                s.label.toLowerCase().includes(q) ||
+                s.key.toLowerCase().includes(q)
+              }
+              emptyListMessage="No statements matching search"
+              emptyDetailMessage="Select a Statement Master Name from the left panel to display Receipt & Disposal Statement details"
+              headerExtra={
+                <Link
+                  href="/dashboard/ts/manage-statements"
+                  style={{ fontSize: '0.72rem', color: 'var(--brand-primary)', fontWeight: 700, textDecoration: 'none' }}
+                  title="Manage or add dynamic Statement Master Names in database"
+                >
+                  ⚙️ Manage
+                </Link>
+              }
+              renderListItem={(s, isSelected) => {
+                const cleanTitle = cleanStatementLabel(s.label).replace(/\s*-\s*RECEIPT AND DISPOSAL STATEMENT$/i, '');
+                const blockSummary = getSummary(s.key);
+                const hasData = (blockSummary.recSum.lts > 0 || blockSummary.dispSum.lts > 0 || blockSummary.ob.lts > 0 || blockSummary.physical.lts > 0);
+
+                return (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <div style={{ fontWeight: 800, fontSize: '0.85rem', color: isSelected ? 'var(--brand-primary)' : 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: 6 }}>
+                        <span>📊 {cleanTitle}</span>
+                        {isSelected && <span style={{ width: 8, height: 8, borderRadius: '50%', background: 'var(--brand-primary)', display: 'inline-block' }} />}
                       </div>
-                      <table style={{ width: '100%', fontSize: '0.8rem', borderCollapse: 'collapse' }}>
-                        <thead>
-                          <tr style={{ borderBottom: '1px solid var(--border)', textAlign: 'left', color: 'var(--text-muted)' }}>
-                            <th style={{ padding: '4px 0' }}>Product</th>
-                            <th style={{ padding: '4px 0', textAlign: 'right' }}>Qty Lts</th>
-                            <th style={{ padding: '4px 0', textAlign: 'right' }}>Qty Kg</th>
-                            <th style={{ padding: '4px 0', textAlign: 'right' }}>Fat %</th>
-                            <th style={{ padding: '4px 0', textAlign: 'right' }}>SNF %</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {targetRows.map((tr, trIdx) => (
-                            <tr key={trIdx} style={{ borderBottom: trIdx === targetRows.length - 1 ? 'none' : '1px dashed var(--border)' }}>
-                              <td style={{ padding: '6px 0', fontWeight: 600 }}>{tr.item_name}</td>
-                              <td style={{ padding: '6px 0', textAlign: 'right' }}>{tr.qty_lts || '—'}</td>
-                              <td style={{ padding: '6px 0', textAlign: 'right' }}>{tr.qty_kg || '—'}</td>
-                              <td style={{ padding: '6px 0', textAlign: 'right' }}>{tr.fat_pct || '—'}</td>
-                              <td style={{ padding: '6px 0', textAlign: 'right' }}>{tr.snf_pct || '—'}</td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
+                      <span
+                        style={{
+                          padding: '2px 7px',
+                          borderRadius: 10,
+                          fontSize: '0.68rem',
+                          fontWeight: 700,
+                          background: isSelected ? '#0284c7' : '#e2e8f0',
+                          color: isSelected ? '#ffffff' : '#475569',
+                        }}
+                      >
+                        {s.key}
+                      </span>
                     </div>
-                  )}
-
-                  {shareModal.targetBlockKey && targetRows.length > 0 && (
-                    <div className="form-group" style={{ margin: 0 }}>
-                      <label className="form-label" style={{ fontSize: '0.75rem', fontWeight: 600 }}>Share Option</label>
-                      <div style={{ display: 'flex', gap: 16, marginTop: 4 }}>
-                        <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: '0.85rem', cursor: 'pointer' }}>
-                          <input
-                            type="radio"
-                            name="shareMode"
-                            checked={shareModal.shareMode === 'aggregate'}
-                            onChange={() => setShareModal(prev => prev ? { ...prev, shareMode: 'aggregate', targetRowIdx: undefined } : null)}
-                          />
-                          Add values to existing row
-                        </label>
-                        <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: '0.85rem', cursor: 'pointer' }}>
-                          <input
-                            type="radio"
-                            name="shareMode"
-                            checked={shareModal.shareMode === 'new'}
-                            onChange={() => setShareModal(prev => prev ? { ...prev, shareMode: 'new', targetRowIdx: undefined } : null)}
-                          />
-                          Create new separate row
-                        </label>
-                      </div>
+                    <div style={{ fontSize: '0.72rem', color: 'var(--text-secondary)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 2 }}>
+                      <span>RECEIPT & DISPOSAL</span>
+                      {hasData ? (
+                        <span style={{ color: '#16a34a', fontWeight: 800, fontSize: '0.68rem', background: '#dcfce7', padding: '1px 6px', borderRadius: 8 }}>
+                          ✓ Data Entered
+                        </span>
+                      ) : (
+                        <span style={{ color: '#94a3b8', fontSize: '0.68rem' }}>
+                          Empty
+                        </span>
+                      )}
                     </div>
-                  )}
+                  </div>
+                );
+              }}
+              renderDetail={selectedStatement => renderStatementBlock(selectedStatement)}
+            />
+          )}
 
-                  {shareModal.targetBlockKey && (shareModal.shareMode === 'new' || targetRows.length === 0) && (
-                    <div className="form-group" style={{ margin: 0 }}>
-                      <label className="form-label" style={{ fontSize: '0.75rem', fontWeight: 600 }}>Target Product Name *</label>
-                      <input
-                        type="text"
-                        className="form-input"
-                        value={shareModal.itemName}
-                        onChange={e => setShareModal(prev => prev ? { ...prev, itemName: e.target.value.toUpperCase() } : null)}
-                        placeholder="e.g. FCM"
-                        style={{ padding: '8px 12px', fontSize: '0.9rem' }}
-                      />
-                    </div>
-                  )}
+          {stepMode && (
+            <div
+              className="no-print"
+              style={{
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                padding: '16px 20px',
+                background: 'var(--surface)',
+                borderRadius: 12,
+                border: '1px solid var(--border)',
+                marginTop: 20,
+                boxShadow: '0 4px 12px rgba(0, 0, 0, 0.03)',
+              }}
+            >
+              <button
+                type="button"
+                className="btn btn-secondary"
+                onClick={onPrevStep}
+                style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}
+              >
+                ← Back to Stock Entry
+              </button>
+              <button
+                type="button"
+                className="btn btn-primary"
+                onClick={async () => {
+                  if (onNextStep) onNextStep();
+                }}
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 6,
+                  background: 'linear-gradient(135deg, #0ea5e9 0%, #10b981 100%)',
+                  borderColor: '#0ea5e9',
+                  fontWeight: 700,
+                  boxShadow: '0 4px 12px rgba(14, 165, 233, 0.25)',
+                }}
+              >
+                Next: Review TS Statement ➔
+              </button>
+            </div>
+          )}
+        </div>
+        {mounted && shareModal && createPortal(
+          <div style={{
+            position: 'fixed',
+            inset: 0,
+            background: 'rgba(15, 23, 42, 0.6)',
+            backdropFilter: 'blur(4px)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 9999,
+          }}>
+            {(() => {
+              const targetSide = shareModal.side === 'RECEIPT' ? 'DISPOSAL' : 'RECEIPT';
+              const targetBlockState = blocks[shareModal.targetBlockKey];
+              const targetRows = targetBlockState
+                ? (targetSide === 'RECEIPT' ? targetBlockState.receipts : targetBlockState.disposals).filter(r => r.item_name.trim() !== '')
+                : [];
 
-                  {shareModal.targetBlockKey && shareModal.shareMode === 'aggregate' && targetRows.length > 0 && (
+              return (
+                <div className="card animate-fade-in" style={{
+                  width: '100%',
+                  maxWidth: 500,
+                  background: 'var(--bg-surface)',
+                  boxShadow: 'var(--shadow-lg)',
+                  border: '1px solid var(--border)',
+                  padding: 24,
+                  borderRadius: 12,
+                  maxHeight: '90vh',
+                  overflowY: 'auto',
+                }}>
+                  <h3 style={{ margin: 0, marginBottom: 12, color: 'var(--brand-primary)', fontSize: '1.2rem', display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <span>📤</span> Share Statement Row
+                  </h3>
+                  <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', marginBottom: 20 }}>
+                    Share <strong>{shareModal.itemName || 'Unnamed Item'}</strong> as a {targetSide} to another statement.
+                  </p>
+
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
                     <div className="form-group" style={{ margin: 0 }}>
-                      <label className="form-label" style={{ fontSize: '0.75rem', fontWeight: 600 }}>Select Target Row to Merge *</label>
+                      <label className="form-label" style={{ fontSize: '0.75rem', fontWeight: 600 }}>Target Statement *</label>
                       <select
                         className="form-input"
-                        value={shareModal.targetRowIdx ?? ''}
+                        value={shareModal.targetBlockKey}
                         onChange={e => {
-                          const idxVal = e.target.value === '' ? undefined : parseInt(e.target.value);
-                          setShareModal(prev => prev ? { ...prev, targetRowIdx: idxVal } : null);
+                          const targetKey = e.target.value;
+                          const oppositeSide = shareModal.side === 'RECEIPT' ? 'DISPOSAL' : 'RECEIPT';
+                          const tList = blocks[targetKey]?.[oppositeSide === 'RECEIPT' ? 'receipts' : 'disposals'] || [];
+                          const hasExisting = tList.some(r => r.item_name.trim() !== '');
+                          setShareModal(prev => prev ? {
+                            ...prev,
+                            targetBlockKey: targetKey,
+                            shareMode: hasExisting ? 'aggregate' : 'new',
+                            targetRowIdx: undefined,
+                          } : null);
                         }}
                         style={{ display: 'block', width: '100%', padding: '8px 12px', fontSize: '0.9rem' }}
                       >
-                        <option value="">-- Select Row --</option>
-                        {targetRows.map((tr, trIdx) => (
-                          <option key={trIdx} value={trIdx}>{tr.item_name} (Lts: {tr.qty_lts || '0'}, Kg: {tr.qty_kg || '0'})</option>
+                        <option value="">No Share (Unlink)</option>
+                        {statements.filter(s => s.key !== shareModal.blockKey).map(s => (
+                          <option key={s.key} value={s.key}>{s.label}</option>
                         ))}
                       </select>
                     </div>
-                  )}
 
-                  {shareModal.targetBlockKey && shareModal.shareMode === 'aggregate' && shareModal.targetRowIdx !== undefined && targetRows[shareModal.targetRowIdx] && (() => {
-                    const tr = targetRows[shareModal.targetRowIdx];
-                    const isTargetSMP =
-                      shareModal.blockKey === 'SMP' ||
-                      shareModal.targetBlockKey === 'SMP' ||
-                      (shareModal.itemName || '').toLowerCase().includes('smp');
-
-                    const oldLts = parseFloat(tr.qty_lts) || 0;
-                    const oldKg = parseFloat(tr.qty_kg) || 0;
-                    const oldFatKg = parseFloat(tr.kg_fat) || 0;
-                    const oldSnfKg = parseFloat(tr.kg_snf) || 0;
-
-                    const shareLts = parseFloat(shareModal.qtyLts) || 0;
-                    const shareKg = parseFloat(shareModal.qtyKg) || 0;
-                    const shareFat = parseFloat(shareModal.fatPct) || 0;
-                    const shareSnf = parseFloat(shareModal.snfPct) || 0;
-
-                    let shareFatKg = 0;
-                    let shareSnfKg = 0;
-                    if (isTargetSMP) {
-                      shareFatKg = (shareKg * shareFat) / 100;
-                      shareSnfKg = (shareKg * shareSnf) / 100;
-                    } else {
-                      const spg = parseFloat(tr.sp_gr) || 1.03;
-                      shareFatKg = (spg * shareFat * shareLts) / 100;
-                      shareSnfKg = (spg * shareSnf * shareLts) / 100;
-                    }
-
-                    const newLts = oldLts + shareLts;
-                    const newKg = oldKg + shareKg;
-                    const newFatKg = oldFatKg + shareFatKg;
-                    const newSnfKg = oldSnfKg + shareSnfKg;
-
-                    const newFatPct = newKg > 0 ? ((newFatKg * 100) / newKg).toFixed(2) : '0';
-                    const newSnfPct = newKg > 0 ? ((newSnfKg * 100) / newKg).toFixed(2) : '0';
-
-                    return (
-                      <div style={{ padding: '10px 14px', background: 'rgba(16, 185, 129, 0.05)', borderRadius: 8, border: '1px solid rgba(16, 185, 129, 0.2)' }}>
-                        <div style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--brand-success)', marginBottom: 4, textTransform: 'uppercase' }}>
-                          📈 Recalculated Merge Preview:
+                    {shareModal.targetBlockKey && targetRows.length > 0 && (
+                      <div style={{ padding: 12, background: 'rgba(2, 132, 199, 0.03)', borderRadius: 8, border: '1px solid var(--border)' }}>
+                        <div style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--brand-primary)', marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.02em' }}>
+                          📋 Existing {targetSide}s in Target block:
                         </div>
-                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px 16px', fontSize: '0.8rem' }}>
-                          <div>Qty (Lts): <strong style={{ color: 'var(--text-primary)' }}>{isTargetSMP ? '—' : `${oldLts} ➔ ${newLts}`}</strong></div>
-                          <div>Qty (Kg): <strong style={{ color: 'var(--text-primary)' }}>{oldKg.toFixed(2)} ➔ {newKg.toFixed(2)}</strong></div>
-                          <div>Fat %: <strong style={{ color: 'var(--text-primary)' }}>{tr.fat_pct || '0'}% ➔ {newFatPct}%</strong></div>
-                          <div>SNF %: <strong style={{ color: 'var(--text-primary)' }}>{tr.snf_pct || '0'}% ➔ {newSnfPct}%</strong></div>
+                        <table style={{ width: '100%', fontSize: '0.8rem', borderCollapse: 'collapse' }}>
+                          <thead>
+                            <tr style={{ borderBottom: '1px solid var(--border)', textAlign: 'left', color: 'var(--text-muted)' }}>
+                              <th style={{ padding: '4px 0' }}>Product</th>
+                              <th style={{ padding: '4px 0', textAlign: 'right' }}>Qty Lts</th>
+                              <th style={{ padding: '4px 0', textAlign: 'right' }}>Qty Kg</th>
+                              <th style={{ padding: '4px 0', textAlign: 'right' }}>Fat %</th>
+                              <th style={{ padding: '4px 0', textAlign: 'right' }}>SNF %</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {targetRows.map((tr, trIdx) => (
+                              <tr key={trIdx} style={{ borderBottom: trIdx === targetRows.length - 1 ? 'none' : '1px dashed var(--border)' }}>
+                                <td style={{ padding: '6px 0', fontWeight: 600 }}>{tr.item_name}</td>
+                                <td style={{ padding: '6px 0', textAlign: 'right' }}>{tr.qty_lts || '—'}</td>
+                                <td style={{ padding: '6px 0', textAlign: 'right' }}>{tr.qty_kg || '—'}</td>
+                                <td style={{ padding: '6px 0', textAlign: 'right' }}>{tr.fat_pct || '—'}</td>
+                                <td style={{ padding: '6px 0', textAlign: 'right' }}>{tr.snf_pct || '—'}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
+
+                    {shareModal.targetBlockKey && targetRows.length > 0 && (
+                      <div className="form-group" style={{ margin: 0 }}>
+                        <label className="form-label" style={{ fontSize: '0.75rem', fontWeight: 600 }}>Share Option</label>
+                        <div style={{ display: 'flex', gap: 16, marginTop: 4 }}>
+                          <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: '0.85rem', cursor: 'pointer' }}>
+                            <input
+                              type="radio"
+                              name="shareMode"
+                              checked={shareModal.shareMode === 'aggregate'}
+                              onChange={() => setShareModal(prev => prev ? { ...prev, shareMode: 'aggregate', targetRowIdx: undefined } : null)}
+                            />
+                            Add values to existing row
+                          </label>
+                          <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: '0.85rem', cursor: 'pointer' }}>
+                            <input
+                              type="radio"
+                              name="shareMode"
+                              checked={shareModal.shareMode === 'new'}
+                              onChange={() => setShareModal(prev => prev ? { ...prev, shareMode: 'new', targetRowIdx: undefined } : null)}
+                            />
+                            Create new separate row
+                          </label>
                         </div>
                       </div>
-                    );
-                  })()}
+                    )}
 
-                  {shareModal.targetBlockKey && (
-                    <div className="form-row form-row-3" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12 }}>
+                    {shareModal.targetBlockKey && (shareModal.shareMode === 'new' || targetRows.length === 0) && (
                       <div className="form-group" style={{ margin: 0 }}>
-                        {shareModal.blockKey === 'SMP' ||
+                        <label className="form-label" style={{ fontSize: '0.75rem', fontWeight: 600 }}>Target Product Name *</label>
+                        <input
+                          type="text"
+                          className="form-input"
+                          value={shareModal.itemName}
+                          onChange={e => setShareModal(prev => prev ? { ...prev, itemName: e.target.value.toUpperCase() } : null)}
+                          placeholder="e.g. FCM"
+                          style={{ padding: '8px 12px', fontSize: '0.9rem' }}
+                        />
+                      </div>
+                    )}
+
+                    {shareModal.targetBlockKey && shareModal.shareMode === 'aggregate' && targetRows.length > 0 && (
+                      <div className="form-group" style={{ margin: 0 }}>
+                        <label className="form-label" style={{ fontSize: '0.75rem', fontWeight: 600 }}>Select Target Row to Merge *</label>
+                        <select
+                          className="form-input"
+                          value={shareModal.targetRowIdx ?? ''}
+                          onChange={e => {
+                            const idxVal = e.target.value === '' ? undefined : parseInt(e.target.value);
+                            setShareModal(prev => prev ? { ...prev, targetRowIdx: idxVal } : null);
+                          }}
+                          style={{ display: 'block', width: '100%', padding: '8px 12px', fontSize: '0.9rem' }}
+                        >
+                          <option value="">-- Select Row --</option>
+                          {targetRows.map((tr, trIdx) => (
+                            <option key={trIdx} value={trIdx}>{tr.item_name} (Lts: {tr.qty_lts || '0'}, Kg: {tr.qty_kg || '0'})</option>
+                          ))}
+                        </select>
+                      </div>
+                    )}
+
+                    {shareModal.targetBlockKey && shareModal.shareMode === 'aggregate' && shareModal.targetRowIdx !== undefined && targetRows[shareModal.targetRowIdx] && (() => {
+                      const tr = targetRows[shareModal.targetRowIdx];
+                      const isTargetSMP =
+                        shareModal.blockKey === 'SMP' ||
                         shareModal.targetBlockKey === 'SMP' ||
-                        (shareModal.itemName || '').toLowerCase().includes('smp') ? (
-                          <>
-                            <label className="form-label" style={{ fontSize: '0.75rem', fontWeight: 600 }}>Qty (Kg)</label>
-                            <input
-                              type="number"
-                              className="form-input"
-                              value={shareModal.qtyKg}
-                              onChange={e => setShareModal(prev => prev ? { ...prev, qtyKg: e.target.value } : null)}
-                              placeholder="0"
-                              style={{ padding: '8px 12px', fontSize: '0.9rem' }}
-                            />
-                          </>
-                        ) : (
-                          <>
-                            <label className="form-label" style={{ fontSize: '0.75rem', fontWeight: 600 }}>Qty (Lts)</label>
-                            <input
-                              type="number"
-                              className="form-input"
-                              value={shareModal.qtyLts}
-                              onChange={e => setShareModal(prev => prev ? { ...prev, qtyLts: e.target.value } : null)}
-                              placeholder="0"
-                              style={{ padding: '8px 12px', fontSize: '0.9rem' }}
-                            />
-                          </>
-                        )}
+                        (shareModal.itemName || '').toLowerCase().includes('smp');
+
+                      const oldLts = parseFloat(tr.qty_lts) || 0;
+                      const oldKg = parseFloat(tr.qty_kg) || 0;
+                      const oldFatKg = parseFloat(tr.kg_fat) || 0;
+                      const oldSnfKg = parseFloat(tr.kg_snf) || 0;
+
+                      const shareLts = parseFloat(shareModal.qtyLts) || 0;
+                      const shareKg = parseFloat(shareModal.qtyKg) || 0;
+                      const shareFat = parseFloat(shareModal.fatPct) || 0;
+                      const shareSnf = parseFloat(shareModal.snfPct) || 0;
+
+                      let shareFatKg = 0;
+                      let shareSnfKg = 0;
+                      if (isTargetSMP) {
+                        shareFatKg = (shareKg * shareFat) / 100;
+                        shareSnfKg = (shareKg * shareSnf) / 100;
+                      } else {
+                        const spg = parseFloat(tr.sp_gr) || 1.03;
+                        shareFatKg = (spg * shareFat * shareLts) / 100;
+                        shareSnfKg = (spg * shareSnf * shareLts) / 100;
+                      }
+
+                      const newLts = oldLts + shareLts;
+                      const newKg = oldKg + shareKg;
+                      const newFatKg = oldFatKg + shareFatKg;
+                      const newSnfKg = oldSnfKg + shareSnfKg;
+
+                      const newFatPct = newKg > 0 ? ((newFatKg * 100) / newKg).toFixed(2) : '0';
+                      const newSnfPct = newKg > 0 ? ((newSnfKg * 100) / newKg).toFixed(2) : '0';
+
+                      return (
+                        <div style={{ padding: '10px 14px', background: 'rgba(16, 185, 129, 0.05)', borderRadius: 8, border: '1px solid rgba(16, 185, 129, 0.2)' }}>
+                          <div style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--brand-success)', marginBottom: 4, textTransform: 'uppercase' }}>
+                            📈 Recalculated Merge Preview:
+                          </div>
+                          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px 16px', fontSize: '0.8rem' }}>
+                            <div>Qty (Lts): <strong style={{ color: 'var(--text-primary)' }}>{isTargetSMP ? '—' : `${oldLts} ➔ ${newLts}`}</strong></div>
+                            <div>Qty (Kg): <strong style={{ color: 'var(--text-primary)' }}>{oldKg.toFixed(2)} ➔ {newKg.toFixed(2)}</strong></div>
+                            <div>Fat %: <strong style={{ color: 'var(--text-primary)' }}>{tr.fat_pct || '0'}% ➔ {newFatPct}%</strong></div>
+                            <div>SNF %: <strong style={{ color: 'var(--text-primary)' }}>{tr.snf_pct || '0'}% ➔ {newSnfPct}%</strong></div>
+                          </div>
+                        </div>
+                      );
+                    })()}
+
+                    {shareModal.targetBlockKey && (
+                      <div className="form-row form-row-3" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12 }}>
+                        <div className="form-group" style={{ margin: 0 }}>
+                          {shareModal.blockKey === 'SMP' ||
+                            shareModal.targetBlockKey === 'SMP' ||
+                            (shareModal.itemName || '').toLowerCase().includes('smp') ? (
+                            <>
+                              <label className="form-label" style={{ fontSize: '0.75rem', fontWeight: 600 }}>Qty (Kg)</label>
+                              <input
+                                type="number"
+                                className="form-input"
+                                value={shareModal.qtyKg}
+                                onChange={e => setShareModal(prev => prev ? { ...prev, qtyKg: e.target.value } : null)}
+                                placeholder="0"
+                                style={{ padding: '8px 12px', fontSize: '0.9rem' }}
+                              />
+                            </>
+                          ) : (
+                            <>
+                              <label className="form-label" style={{ fontSize: '0.75rem', fontWeight: 600 }}>Qty (Lts)</label>
+                              <input
+                                type="number"
+                                className="form-input"
+                                value={shareModal.qtyLts}
+                                onChange={e => setShareModal(prev => prev ? { ...prev, qtyLts: e.target.value } : null)}
+                                placeholder="0"
+                                style={{ padding: '8px 12px', fontSize: '0.9rem' }}
+                              />
+                            </>
+                          )}
+                        </div>
+                        <div className="form-group" style={{ margin: 0 }}>
+                          <label className="form-label" style={{ fontSize: '0.75rem', fontWeight: 600 }}>Fat %</label>
+                          <input
+                            type="number"
+                            className="form-input"
+                            value={shareModal.fatPct}
+                            onChange={e => setShareModal(prev => prev ? { ...prev, fatPct: e.target.value } : null)}
+                            placeholder="0"
+                            style={{ padding: '8px 12px', fontSize: '0.9rem' }}
+                          />
+                        </div>
+                        <div className="form-group" style={{ margin: 0 }}>
+                          <label className="form-label" style={{ fontSize: '0.75rem', fontWeight: 600 }}>SNF %</label>
+                          <input
+                            type="number"
+                            className="form-input"
+                            value={shareModal.snfPct}
+                            onChange={e => setShareModal(prev => prev ? { ...prev, snfPct: e.target.value } : null)}
+                            placeholder="0"
+                            style={{ padding: '8px 12px', fontSize: '0.9rem' }}
+                          />
+                        </div>
                       </div>
-                      <div className="form-group" style={{ margin: 0 }}>
-                        <label className="form-label" style={{ fontSize: '0.75rem', fontWeight: 600 }}>Fat %</label>
-                        <input
-                          type="number"
-                          className="form-input"
-                          value={shareModal.fatPct}
-                          onChange={e => setShareModal(prev => prev ? { ...prev, fatPct: e.target.value } : null)}
-                          placeholder="0"
-                          style={{ padding: '8px 12px', fontSize: '0.9rem' }}
-                        />
-                      </div>
-                      <div className="form-group" style={{ margin: 0 }}>
-                        <label className="form-label" style={{ fontSize: '0.75rem', fontWeight: 600 }}>SNF %</label>
-                        <input
-                          type="number"
-                          className="form-input"
-                          value={shareModal.snfPct}
-                          onChange={e => setShareModal(prev => prev ? { ...prev, snfPct: e.target.value } : null)}
-                          placeholder="0"
-                          style={{ padding: '8px 12px', fontSize: '0.9rem' }}
-                        />
+                    )}
+                  </div>
+
+                  <div style={{ display: 'flex', gap: 12, justifyContent: 'flex-end', marginTop: 24, borderTop: '1px solid var(--border)', paddingTop: 16 }}>
+                    <button
+                      type="button"
+                      className="btn btn-secondary"
+                      onClick={() => setShareModal(null)}
+                      style={{ padding: '8px 16px', fontSize: '0.85rem' }}
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="button"
+                      className="btn btn-primary"
+                      onClick={handleShareSubmit}
+                      style={{ padding: '8px 18px', fontSize: '0.85rem', fontWeight: 600 }}
+                    >
+                      💾 Apply Share
+                    </button>
+                  </div>
+                </div>
+              );
+            })()}
+          </div>,
+          document.body
+        )}
+        {mounted && isColModalOpen && createPortal(
+          <div style={{
+            position: 'fixed',
+            inset: 0,
+            background: 'rgba(15, 23, 42, 0.6)',
+            backdropFilter: 'blur(4px)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 9999,
+          }}>
+            <div className="card animate-fade-in" style={{
+              width: '100%',
+              maxWidth: 480,
+              background: 'var(--bg-surface)',
+              boxShadow: 'var(--shadow-lg)',
+              border: '1px solid var(--border)',
+              padding: 24,
+              borderRadius: 12,
+            }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+                <h3 style={{ margin: 0, fontSize: '1.05rem', fontWeight: 800, color: 'var(--brand-primary)' }}>
+                  {colModalEditingKey ? '✏️ Edit Custom Column' : '➕ Add Custom Column'} ({formColSide})
+                </h3>
+                <button
+                  type="button"
+                  onClick={() => setIsColModalOpen(false)}
+                  style={{ background: 'none', border: 'none', fontSize: '1.2rem', cursor: 'pointer', color: 'var(--text-muted)' }}
+                >
+                  ✕
+                </button>
+              </div>
+
+              <form onSubmit={handleSaveColumnModal}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+                  <div>
+                    <label className="form-label" style={{ fontWeight: 700, fontSize: '0.8rem' }}>Column Header Name *</label>
+                    <input
+                      type="text"
+                      required
+                      className="form-input"
+                      placeholder="e.g. Temp / Water % / Brix"
+                      value={formColName}
+                      onChange={e => setFormColName(e.target.value)}
+                    />
+                  </div>
+
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                    <div>
+                      <label className="form-label" style={{ fontWeight: 700, fontSize: '0.8rem' }}>Target Side</label>
+                      <select
+                        className="form-input"
+                        value={formColSide}
+                        onChange={e => setFormColSide(e.target.value as any)}
+                      >
+                        <option value="RECEIPT">📥 Receipt Side</option>
+                        <option value="DISPOSAL">📤 Disposal Side</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="form-label" style={{ fontWeight: 700, fontSize: '0.8rem' }}>Data Type</label>
+                      <select
+                        className="form-input"
+                        value={formColType}
+                        onChange={e => setFormColType(e.target.value as any)}
+                      >
+                        <option value="number">🔢 Number (Input)</option>
+                        <option value="text">📝 Text / String</option>
+                        <option value="calculated">🧮 Calculated (Formula)</option>
+                      </select>
+                    </div>
+                  </div>
+
+                  {formColType === 'calculated' && (
+                    <div>
+                      <label className="form-label" style={{ fontWeight: 700, fontSize: '0.8rem' }}>Formula Expression</label>
+                      <input
+                        type="text"
+                        className="form-input"
+                        placeholder="e.g. =QTY_KG * 0.1 or =QTY_LTS * SP_GR"
+                        value={formColFormula}
+                        onChange={e => setFormColFormula(e.target.value)}
+                      />
+                      <div style={{ fontSize: '0.725rem', color: 'var(--text-muted)', marginTop: 4 }}>
+                        Supported fields: QTY_LTS, QTY_KG, FAT_PCT, SNF_PCT, SP_GR, KG_FAT, KG_SNF
                       </div>
                     </div>
                   )}
+
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                    <div>
+                      <label className="form-label" style={{ fontWeight: 700, fontSize: '0.8rem' }}>Unit (Optional)</label>
+                      <input
+                        type="text"
+                        className="form-input"
+                        placeholder="e.g. LIT, KG, %"
+                        value={formColUnit}
+                        onChange={e => setFormColUnit(e.target.value)}
+                      />
+                    </div>
+                    <div>
+                      <label className="form-label" style={{ fontWeight: 700, fontSize: '0.8rem' }}>Decimals Precision</label>
+                      <select
+                        className="form-input"
+                        value={formColDecimals}
+                        onChange={e => setFormColDecimals(Number(e.target.value))}
+                      >
+                        <option value={0}>.0 (Whole)</option>
+                        <option value={1}>.1 Dec</option>
+                        <option value={2}>Auto (.2)</option>
+                        <option value={3}>.3 Decs</option>
+                        <option value={4}>.4 Decs</option>
+                      </select>
+                    </div>
+                  </div>
                 </div>
 
-                <div style={{ display: 'flex', gap: 12, justifyContent: 'flex-end', marginTop: 24, borderTop: '1px solid var(--border)', paddingTop: 16 }}>
-                  <button
-                    type="button"
-                    className="btn btn-secondary"
-                    onClick={() => setShareModal(null)}
-                    style={{ padding: '8px 16px', fontSize: '0.85rem' }}
-                  >
+                <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', marginTop: 20, paddingTop: 14, borderTop: '1px solid var(--border)' }}>
+                  <button type="button" className="btn btn-secondary btn-sm" onClick={() => setIsColModalOpen(false)}>
                     Cancel
                   </button>
-                  <button
-                    type="button"
-                    className="btn btn-primary"
-                    onClick={handleShareSubmit}
-                    style={{ padding: '8px 18px', fontSize: '0.85rem', fontWeight: 600 }}
-                  >
-                    💾 Apply Share
+                  <button type="submit" className="btn btn-primary btn-sm" style={{ fontWeight: 700 }}>
+                    💾 Save Column
                   </button>
                 </div>
-              </div>
-            );
-          })()}
-        </div>,
-        document.body
-      )}
-    </div>
+              </form>
+            </div>
+          </div>,
+          document.body
+        )}
+      </div>
     </>
   );
 }

@@ -21,6 +21,20 @@ export function safeDivide(numerator: number, denominator: number): number {
   return numerator / denominator;
 }
 
+/** Standard required decimal places per column key in Preparation Charts & Stock statements */
+export function getStandardColumnDecimals(key: string, explicitDecimals?: number): number {
+  if (explicitDecimals !== undefined && explicitDecimals !== null && explicitDecimals >= 0) {
+    return explicitDecimals;
+  }
+  const cleanKey = (key || '').toLowerCase();
+  if (cleanKey.includes('sp_gr')) return 3; // e.g. 1.029
+  if (cleanKey.includes('fat_pct') || cleanKey.includes('snf_pct')) return 2; // e.g. 4.50%, 8.50%
+  if (cleanKey.includes('kg_fat') || cleanKey.includes('kg_snf')) return 3; // e.g. 45.305
+  if (cleanKey.includes('qty_kg')) return 2; // e.g. 1029.00
+  if (cleanKey.includes('qty_lit') || cleanKey.includes('qty')) return 1; // e.g. 1000.0
+  return 2; // Default 2 decimal places for any other numeric column
+}
+
 // ─── Per-row calculations ─────────────────────────────────────────────────────
 
 /** Calculate Kg Fat and Kg SNF from Qty(Kg), Fat%, SNF% */
@@ -64,7 +78,7 @@ export function generateDynamicBalanceRows(
           if (meta.custom_statements) {
             customStatements = meta.custom_statements;
           }
-        } catch {}
+        } catch { }
       }
     }
   }
@@ -75,7 +89,7 @@ export function generateDynamicBalanceRows(
   } else {
     globalStatements.forEach(s => stmtMap.set(s.key, s));
   }
-  
+
   if (stmtMap.size === 0) {
     stmtMap.set('WM', { key: 'WM', label: 'WHOLE MILK STATEMENT' });
     stmtMap.set('SSM', { key: 'SSM', label: 'SKIMMED MILK' });
@@ -131,33 +145,33 @@ export function calcTSTotals(rows: TSMilkRow[], config = CALC_CONFIG): TSTotals 
       .filter(r => sections.includes(r.section))
       .reduce((acc, r) => acc + (Number(r[field]) || 0), 0);
 
-  const arrival_lts   = sum(ARRIVAL_SECTIONS, 'qty_lts');
-  const arrival_kg    = sum(ARRIVAL_SECTIONS, 'qty_kg');
-  const arrival_fat   = sum(ARRIVAL_SECTIONS, 'kg_fat');
-  const arrival_snf   = sum(ARRIVAL_SECTIONS, 'kg_snf');
+  const arrival_lts = sum(ARRIVAL_SECTIONS, 'qty_lts');
+  const arrival_kg = sum(ARRIVAL_SECTIONS, 'qty_kg');
+  const arrival_fat = sum(ARRIVAL_SECTIONS, 'kg_fat');
+  const arrival_snf = sum(ARRIVAL_SECTIONS, 'kg_snf');
 
-  const disposal_lts  = sum(DISPOSAL_SECTIONS, 'qty_lts');
-  const disposal_kg   = sum(DISPOSAL_SECTIONS, 'qty_kg');
-  const disposal_fat  = sum(DISPOSAL_SECTIONS, 'kg_fat');
-  const disposal_snf  = sum(DISPOSAL_SECTIONS, 'kg_snf');
+  const disposal_lts = sum(DISPOSAL_SECTIONS, 'qty_lts');
+  const disposal_kg = sum(DISPOSAL_SECTIONS, 'qty_kg');
+  const disposal_fat = sum(DISPOSAL_SECTIONS, 'kg_fat');
+  const disposal_snf = sum(DISPOSAL_SECTIONS, 'kg_snf');
 
-  const loss_fat  = round(arrival_fat - disposal_fat, config.KG_FAT.TS_DECIMALS);
-  const loss_snf  = round(arrival_snf - disposal_snf, config.KG_SNF.TS_DECIMALS);
+  const loss_fat = round(arrival_fat - disposal_fat, config.KG_FAT.TS_DECIMALS);
+  const loss_snf = round(arrival_snf - disposal_snf, config.KG_SNF.TS_DECIMALS);
 
   return {
-    grand_total_arrival_lts:     round(arrival_lts, config.TS_REPORT.QTY_LTS_DECIMALS),
-    grand_total_arrival_kg:      round(arrival_kg, config.TS_REPORT.QTY_KG_DECIMALS),
-    grand_total_arrival_kg_fat:  round(arrival_fat, config.KG_FAT.TS_DECIMALS),
-    grand_total_arrival_kg_snf:  round(arrival_snf, config.KG_SNF.TS_DECIMALS),
-    grand_total_disposal_lts:    round(disposal_lts, config.TS_REPORT.QTY_LTS_DECIMALS),
-    grand_total_disposal_kg:     round(disposal_kg, config.TS_REPORT.QTY_KG_DECIMALS),
+    grand_total_arrival_lts: round(arrival_lts, config.TS_REPORT.QTY_LTS_DECIMALS),
+    grand_total_arrival_kg: round(arrival_kg, config.TS_REPORT.QTY_KG_DECIMALS),
+    grand_total_arrival_kg_fat: round(arrival_fat, config.KG_FAT.TS_DECIMALS),
+    grand_total_arrival_kg_snf: round(arrival_snf, config.KG_SNF.TS_DECIMALS),
+    grand_total_disposal_lts: round(disposal_lts, config.TS_REPORT.QTY_LTS_DECIMALS),
+    grand_total_disposal_kg: round(disposal_kg, config.TS_REPORT.QTY_KG_DECIMALS),
     grand_total_disposal_kg_fat: round(disposal_fat, config.KG_FAT.TS_DECIMALS),
     grand_total_disposal_kg_snf: round(disposal_snf, config.KG_SNF.TS_DECIMALS),
-    loss_kg_fat:                 loss_fat,
-    loss_kg_snf:                 loss_snf,
-    loss_pct_fat:                round(safeDivide(loss_fat, arrival_fat) * 100, config.TS_REPORT.LOSS_PERCENTAGE_DECIMALS),
-    loss_pct_snf:                round(safeDivide(loss_snf, arrival_snf) * 100, config.TS_REPORT.LOSS_PERCENTAGE_DECIMALS),
-    cmpdd_norm_pct:              config.TS_REPORT.CMPDD_NORM_PCT,
+    loss_kg_fat: loss_fat,
+    loss_kg_snf: loss_snf,
+    loss_pct_fat: round(safeDivide(loss_fat, arrival_fat) * 100, config.TS_REPORT.LOSS_PERCENTAGE_DECIMALS),
+    loss_pct_snf: round(safeDivide(loss_snf, arrival_snf) * 100, config.TS_REPORT.LOSS_PERCENTAGE_DECIMALS),
+    cmpdd_norm_pct: config.TS_REPORT.CMPDD_NORM_PCT,
   };
 }
 
@@ -169,8 +183,8 @@ export function calcSTGProductTotals(
   config = CALC_CONFIG
 ): STGProductTotals {
   const productRows = rows.filter(r => r.product_block === product);
-  const receipts    = productRows.filter(r => r.side === 'RECEIPT');
-  const disposals   = productRows.filter(r => r.side === 'DISPOSAL');
+  const receipts = productRows.filter(r => r.side === 'RECEIPT');
+  const disposals = productRows.filter(r => r.side === 'DISPOSAL');
 
   const sum = (arr: STGRow[], field: keyof STGRow) =>
     arr.reduce((acc, r) => acc + (Number(r[field]) || 0), 0);
@@ -192,14 +206,14 @@ export function calcSTGProductTotals(
 
   return {
     product,
-    receipt_kg_fat:    round(r_fat, config.KG_FAT.TS_DECIMALS),
-    receipt_kg_snf:    round(r_snf, config.KG_SNF.TS_DECIMALS),
-    disposal_kg_fat:   round(d_fat, config.KG_FAT.TS_DECIMALS),
-    disposal_kg_snf:   round(d_snf, config.KG_SNF.TS_DECIMALS),
-    ob_kg_fat:         round(ob_fat, config.KG_FAT.TS_DECIMALS),
-    ob_kg_snf:         round(ob_snf, config.KG_SNF.TS_DECIMALS),
-    loss_gain_kg_fat:  lg_fat,
-    loss_gain_kg_snf:  lg_snf,
+    receipt_kg_fat: round(r_fat, config.KG_FAT.TS_DECIMALS),
+    receipt_kg_snf: round(r_snf, config.KG_SNF.TS_DECIMALS),
+    disposal_kg_fat: round(d_fat, config.KG_FAT.TS_DECIMALS),
+    disposal_kg_snf: round(d_snf, config.KG_SNF.TS_DECIMALS),
+    ob_kg_fat: round(ob_fat, config.KG_FAT.TS_DECIMALS),
+    ob_kg_snf: round(ob_snf, config.KG_SNF.TS_DECIMALS),
+    loss_gain_kg_fat: lg_fat,
+    loss_gain_kg_snf: lg_snf,
     loss_gain_pct_fat: round(safeDivide(lg_fat, grand_arrival_fat) * 100, config.TS_REPORT.LOSS_PERCENTAGE_DECIMALS),
     loss_gain_pct_snf: round(safeDivide(lg_snf, grand_arrival_snf) * 100, config.TS_REPORT.LOSS_PERCENTAGE_DECIMALS),
   };
@@ -256,8 +270,8 @@ export function getRowValueFromStockRow(r: any, colKey: string): number {
 }
 
 export function calcStockSummary(rows: StockRow[]): StockSummary {
-  const obRows       = rows.filter(r => r.row_type === 'OB');
-  const receiptRows  = rows.filter(r => r.row_type === 'RECEIPT');
+  const obRows = rows.filter(r => r.row_type === 'OB');
+  const receiptRows = rows.filter(r => r.row_type === 'RECEIPT');
   const disposalRows = rows.filter(r => r.row_type === 'DISPOSAL');
 
   const standardCols = ['wh_milk', 'dlt_milk', 'fc_milk', 'std_milk', 'toned_curd', 'dtm', 'skim_milk', 'cream', 'butter_milk', 'r_con', 'smp', 'water'];
@@ -274,8 +288,8 @@ export function calcStockSummary(rows: StockRow[]): StockSummary {
     return res;
   };
 
-  const ob        = sumRowsForCols(obRows);
-  const receipts  = sumRowsForCols(receiptRows);
+  const ob = sumRowsForCols(obRows);
+  const receipts = sumRowsForCols(receiptRows);
   const disposals = sumRowsForCols(disposalRows);
 
   // Closing Balance = OB + Total Receipts - Total Disposals
@@ -283,7 +297,7 @@ export function calcStockSummary(rows: StockRow[]): StockSummary {
 
   return {
     opening_balance: ob,
-    total_receipts:  receipts,
+    total_receipts: receipts,
     total_disposals: disposals,
     closing_balance: closing,
   };
@@ -294,7 +308,7 @@ export function calcStockSummary(rows: StockRow[]): StockSummary {
 export function combineShiftSummaries(day: StockSummary, night: StockSummary): StockSummary {
   return {
     opening_balance: day.opening_balance,  // Day shift OB is start of day
-    total_receipts:  addColumns(day.total_receipts, night.total_receipts),
+    total_receipts: addColumns(day.total_receipts, night.total_receipts),
     total_disposals: addColumns(day.total_disposals, night.total_disposals),
     closing_balance: night.closing_balance, // Night shift CB is end of day
   };
@@ -328,44 +342,30 @@ export function fmtDate(dateStr: string): string {
   return d.toLocaleDateString('en-IN', { day: '2-digit', month: '2-digit', year: 'numeric' });
 }
 
-export function buildStgStatementsFromProducts(dbProducts: Array<{ key?: string; product_key?: string; full_name?: string; product_name?: string; short_name?: string }>) {
-  const BLOCK_MAP: Record<string, { key: string; label: string }> = {
-    wh_milk: { key: 'WM', label: 'WHOLE MILK - RECEIPT AND DISPOSAL STATEMENT' },
-    wm: { key: 'WM', label: 'WHOLE MILK - RECEIPT AND DISPOSAL STATEMENT' },
-    dlt_milk: { key: 'DLT_MILK', label: 'DOUBLE TONED MILK STATEMENT' },
-    dlt: { key: 'DLT_MILK', label: 'DOUBLE TONED MILK STATEMENT' },
-    fc_milk: { key: 'FC_MILK', label: 'FULL CREAM MILK STATEMENT' },
-    fc: { key: 'FC_MILK', label: 'FULL CREAM MILK STATEMENT' },
-    std_milk: { key: 'STD_MILK', label: 'STANDARDIZED MILK STATEMENT' },
-    std: { key: 'STD_MILK', label: 'STANDARDIZED MILK STATEMENT' },
-    skim_milk: { key: 'SSM', label: 'SKIMMED MILK STATEMENT' },
-    ssm: { key: 'SSM', label: 'SKIMMED MILK STATEMENT' },
-    cream: { key: 'CREAM', label: 'CREAM STATEMENT' },
-    crm: { key: 'CREAM', label: 'CREAM STATEMENT' },
-    smp: { key: 'SMP', label: 'SKIM MILK POWDER STATEMENT' },
-    water: { key: 'WATER', label: 'WATER STATEMENT' },
-    wtr: { key: 'WATER', label: 'WATER STATEMENT' },
-  };
+export function cleanStatementLabel(label: string): string {
+  let str = String(label || '').trim();
+  if (!str) return '';
+  str = str.replace(/(?:\s*-\s*RECEIPT AND DISPOSAL STATEMENT)+/gi, ' - RECEIPT AND DISPOSAL STATEMENT');
+  str = str.replace(/(?:\s*STATEMENT)+/gi, ' STATEMENT');
+  return str;
+}
 
+export function buildStgStatementsFromProducts(dbProducts: Array<{ key?: string; product_key?: string; full_name?: string; product_name?: string; short_name?: string }>) {
   const list: Array<{ key: string; label: string }> = [];
   const seenKeys = new Set<string>();
 
   (dbProducts || []).forEach(p => {
-    const rawKey = ((p.key || p.product_key || '') as string).toLowerCase();
-    const mapped = BLOCK_MAP[rawKey];
-    if (mapped) {
-      if (!seenKeys.has(mapped.key)) {
-        seenKeys.add(mapped.key);
-        list.push(mapped);
-      }
-    } else {
-      const bKey = ((p.short_name || p.key || p.product_key || '') as string).toUpperCase().replace(/[^A-Z0-9_]/g, '_');
-      if (bKey && !seenKeys.has(bKey)) {
-        seenKeys.add(bKey);
-        const name = ((p.full_name || p.product_name || p.key || bKey) as string).toUpperCase();
-        list.push({ key: bKey, label: name.endsWith('STATEMENT') ? name : `${name} STATEMENT` });
-      }
-    }
+    const rawKey = ((p.short_name || p.product_name || p.full_name || p.key || p.product_key || '') as string).trim();
+    if (!rawKey) return;
+
+    const key = (p.short_name || p.key || p.product_key || rawKey).toUpperCase().replace(/[^A-Z0-9_]/g, '_');
+    if (seenKeys.has(key)) return;
+
+    seenKeys.add(key);
+    const fullName = (p.full_name || p.product_name || p.short_name || p.key || key).toUpperCase().trim();
+    const label = fullName.endsWith('STATEMENT') ? fullName : `${fullName} STATEMENT`;
+
+    list.push({ key, label });
   });
 
   return list;

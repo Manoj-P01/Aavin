@@ -7,6 +7,7 @@ import Header from '@/components/layout/Header';
 import Step, { DAILY_ENTRY_STEP_ITEMS } from '@/components/ui/Step';
 import { calcKgFatSnf, calcQtyKg, generateDynamicBalanceRows } from '@/lib/calculations';
 import type { TSSection, Shift } from '@/lib/types';
+import { useConfirm } from '@/context/ConfirmContext';
 
 interface RowState {
   section: TSSection;
@@ -99,6 +100,7 @@ export default function TSEntryForm({
   initialShift,
 }: TSEntryFormProps = {}) {
   const router = useRouter();
+  const { confirm } = useConfirm();
   const searchParams = useSearchParams();
   const paramDate = searchParams.get('date');
   const paramShift = searchParams.get('shift');
@@ -330,28 +332,34 @@ export default function TSEntryForm({
     });
   };
 
-  const deleteRow = (originalIdx: number) => {
+  const deleteRow = async (originalIdx: number) => {
+    const item = rows[originalIdx];
+    if (!item) return;
+
+    const hasContent = (
+      item.product.trim() !== '' ||
+      item.qty_lts.trim() !== '' ||
+      item.qty_kg.trim() !== '' ||
+      item.fat_pct.trim() !== '' ||
+      item.snf_pct.trim() !== '' ||
+      item.sp_gr.trim() !== '' ||
+      item.kg_fat.trim() !== '' ||
+      item.kg_snf.trim() !== '' ||
+      (item.remarks || '').trim() !== ''
+    );
+
+    if (hasContent) {
+      const ok = await confirm({
+        title: 'Confirm Row Removal',
+        message: 'Are you sure you want to remove this row containing data?',
+        confirmText: 'Remove Row',
+        cancelText: 'Cancel',
+        type: 'warning',
+      });
+      if (!ok) return;
+    }
+
     setRows(prev => {
-      const item = prev[originalIdx];
-      if (!item) return prev;
-
-      const hasContent = (
-        item.product.trim() !== '' ||
-        item.qty_lts.trim() !== '' ||
-        item.qty_kg.trim() !== '' ||
-        item.fat_pct.trim() !== '' ||
-        item.snf_pct.trim() !== '' ||
-        item.sp_gr.trim() !== '' ||
-        item.kg_fat.trim() !== '' ||
-        item.kg_snf.trim() !== '' ||
-        (item.remarks || '').trim() !== ''
-      );
-
-      if (hasContent) {
-        const ok = window.confirm("Are you sure you want to remove this row containing data?");
-        if (!ok) return prev;
-      }
-
       const next = [...prev];
       next.splice(originalIdx, 1);
       return next;

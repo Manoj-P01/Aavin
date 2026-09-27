@@ -85,36 +85,14 @@ export default function STGStatementMappingPage() {
           }
         }
 
-        // 2. Load STG statements config from DB
-        let hasCustomStgConfig = false;
-        const stgConfigRes = await fetch('/api/entries?report_type=TS');
+        // 2. Load STG statement masters strictly from DB prep_chart_configs table
+        const stgConfigRes = await fetch('/api/ts/masters');
         if (stgConfigRes.ok) {
           const json = await stgConfigRes.json();
-          const entries: any[] = json.data || [];
-          const entry = entries.find((e: any) => {
-            if (!e.notes || e.notes.includes('__METADATA__:')) return false;
-            try {
-              const parsed = JSON.parse(e.notes);
-              return Array.isArray(parsed) && (parsed.length === 0 || parsed[0]?.key !== undefined);
-            } catch { return false; }
-          });
-          if (entry && entry.notes) {
-            try {
-              const list = JSON.parse(entry.notes);
-              if (Array.isArray(list) && list.length > 0) {
-                if (active) setStgStatements(list);
-                hasCustomStgConfig = true;
-              }
-            } catch (e) {
-              console.error('Failed parsing STG statements config:', e);
-            }
-          }
-        }
-
-        if (!hasCustomStgConfig && loadedProductsFromDb.length > 0) {
-          const dynamicStgList = buildStgStatementsFromProducts(loadedProductsFromDb);
-          if (dynamicStgList.length > 0 && active) {
-            setStgStatements(dynamicStgList);
+          if (Array.isArray(json.masters) && json.masters.length > 0) {
+            if (active) setStgStatements(json.masters);
+          } else if (active) {
+            setStgStatements([]);
           }
         }
 
@@ -428,8 +406,8 @@ export default function STGStatementMappingPage() {
   return (
     <>
       <Header
-        title="Stock Statement ⇄ STG Entry Mappings"
-        subtitle="Configure auto-sync mapping rules between Stock Statement Entries and Solid Balance / STG Reports"
+        title="Stage 1 ➔ Stage 3 & Stage 2 ➔ Stage 3 Mappings"
+        subtitle="Configure auto-sync mapping rules for Stage 1 (Preparation Charts) ➔ Stage 3 (Solid Balance STG) and Stage 2 (Stock Statement Entry) ➔ Stage 3 (Solid Balance STG)"
         actions={
           <div style={{ display: 'flex', gap: 8 }}>
             <button
@@ -437,16 +415,16 @@ export default function STGStatementMappingPage() {
               className="btn btn-success btn-sm"
               onClick={() => saveStgToApi(mappings, true)}
               disabled={loading || saving}
-              title="Save all STG mapping configurations directly to Database"
+              title="Save all mapping rules directly to Database"
               style={{ display: 'flex', alignItems: 'center', gap: 6, fontWeight: 700 }}
             >
-              💾 Save STG Mappings to DB
+              💾 Save Stage Mappings to DB
             </button>
-            <Link href="/dashboard/stock/mappings" className="btn btn-secondary btn-sm" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-              🔄 Disposals ➔ Receipts Mappings
+            <Link href="/dashboard/stock/preparation-charts/mappings" className="btn btn-secondary btn-sm" style={{ display: 'flex', alignItems: 'center', gap: 6, color: '#0369a1', borderColor: '#bae6fd', background: '#f0f9ff', fontWeight: 700 }}>
+              🔀 Stage 1 ➔ Stage 2 Rules
             </Link>
             <Link href="/dashboard/ts/new-stg" className="btn btn-primary btn-sm">
-              ⚖️ New STG Entry
+              ⚖️ Solid Balance Details (STG)
             </Link>
           </div>
         }
@@ -456,7 +434,7 @@ export default function STGStatementMappingPage() {
         {error && <div className="alert alert-error">⚠️ {error}</div>}
         {success && <div className="alert alert-success">✅ {success}</div>}
 
-        {/* Explanation Card */}
+        {/* Stage 1 -> Stage 3 and Stage 2 -> Stage 3 Explanation Card */}
         <div
           className="card"
           style={{
@@ -466,17 +444,17 @@ export default function STGStatementMappingPage() {
           }}
         >
           <div style={{ fontWeight: 700, fontSize: '1.05rem', color: 'var(--brand-primary)', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 8 }}>
-            <span>🔗 Stock Statement Entry ⇄ Solid Balance (STG) Entry Mapping Rules</span>
+            <span>🔗 Stage 1 ➔ Stage 3 & Stage 2 ➔ Stage 3 Mapping Engine</span>
           </div>
           <div style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', lineHeight: 1.6 }}>
             <div>
-              • <strong>Stock Statement Entry</strong>: Products are represented as columns (e.g. <code>WH.Milk</code>, <code>Skim Milk</code>, <code>Cream</code>), with sections for <code>Opening Balance</code>, <code>Receipts</code>, and <code>Disposals</code>.
+              • <strong>Stage 1 ➔ Stage 3 (Preparation Charts ➔ Solid Balance STG)</strong>: Maps formulation batch quantities, fat%, snf%, and sp_gr directly from Preparation Charts (Stage 1) into Solid Balance Details STG (Stage 3).
             </div>
             <div>
-              • <strong>Solid Balance (STG) Entry</strong>: Products are individual statement blocks (e.g. <code>WHOLE MILK STATEMENT</code>), with row particulars for <code>OB</code>, <code>Receipts</code>, <code>Disposals</code>, and <code>CB</code>.
+              • <strong>Stage 2 ➔ Stage 3 (Stock Statement Entry ➔ Solid Balance STG)</strong>: Maps daily stock statement row entries (e.g. <code>WH.Milk</code>, <code>Skim Milk</code>, <code>BMC's</code>, <code>Separation</code>, <code>Sachet Filling</code>) into Solid Balance Details STG (Stage 3).
             </div>
             <div style={{ marginTop: 6, fontWeight: 600, color: 'var(--brand-primary)' }}>
-              Configure how row entries in Stock Statements correspond to fields in STG Reports.
+              Configure automatic flow rules for Stage 1 ➔ Stage 3 and Stage 2 ➔ Stage 3 auto-population.
             </div>
           </div>
         </div>

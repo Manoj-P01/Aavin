@@ -20,11 +20,17 @@ export async function GET(req: NextRequest) {
       .select('*')
       .order('sort_order', { ascending: true });
 
-    if (error || !Array.isArray(categories) || categories.length === 0) {
+    if (error) {
+      console.error('Error fetching product_categories_master:', error);
       return NextResponse.json({ data: DEFAULT_CATEGORIES });
     }
 
-    return NextResponse.json({ data: categories });
+    // If table exists and query succeeded, return categories list
+    if (Array.isArray(categories)) {
+      return NextResponse.json({ data: categories });
+    }
+
+    return NextResponse.json({ data: DEFAULT_CATEGORIES });
   } catch (err: unknown) {
     return NextResponse.json({ data: DEFAULT_CATEGORIES });
   }
@@ -129,12 +135,16 @@ export async function PUT(req: NextRequest) {
     if (is_active !== undefined) updatePayload.is_active = is_active;
     if (sort_order !== undefined) updatePayload.sort_order = Number(sort_order);
 
-    const { data, error } = await supabase
-      .from('product_categories_master')
-      .update(updatePayload)
-      .eq('id', id)
-      .select('*')
-      .single();
+    const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id);
+    let updateQuery = supabase.from('product_categories_master').update(updatePayload);
+
+    if (isUuid) {
+      updateQuery = updateQuery.eq('id', id);
+    } else {
+      updateQuery = updateQuery.or(`id.eq.${id},category_name.eq.${id},code.eq.${id}`);
+    }
+
+    const { data, error } = await updateQuery.select('*').single();
 
     if (error) throw error;
     return NextResponse.json({ data });
@@ -144,7 +154,7 @@ export async function PUT(req: NextRequest) {
   }
 }
 
-// DELETE /api/master/categories - Soft delete / delete category from product_categories_master
+// DELETE /api/master/categories - Delete category from product_categories_master
 export async function DELETE(req: NextRequest) {
   try {
     const authUser = await getAuthUserFromRequest(req);
@@ -164,22 +174,66 @@ export async function DELETE(req: NextRequest) {
 
     const supabase = getSupabaseServiceClient();
 
-    // Try SP soft delete first
-    const { error: rpcErr } = await supabase.rpc('fn_soft_delete_product_category', {
-      p_id: id,
-      p_actor: actorUsername,
-    });
+    // 1. If product_categories_master is empty, seed defaults first so deleting a default category works correctly
+    const { data: existing } = await supabase
+      .from('product_categories_master')
+      .select('id, category_name, code');
 
-    if (rpcErr) {
-      await supabase
-        .from('product_categories_master')
-        .update({ is_active: false, updated_by: actorUsername, updated_at: new Date().toISOString() })
-        .eq('id', id);
+    if (!existing || existing.length === 0) {
+      for (const defCat of DEFAULT_CATEGORIES) {
+        await supabase
+          .from('product_categories_master')
+          .upsert({
+            category_name: defCat.category_name,
+            code: defCat.code,
+            sort_order: defCat.sort_order,
+            is_active: defCat.is_active,
+            created_by: actorUsername,
+            updated_by: actorUsername,
+          }, { onConflict: 'category_name' });
+      }
     }
 
-    return NextResponse.json({ success: true, message: 'Category soft-deleted successfully' });
+    // 2. Try SP soft delete first if available
+    try {
+      await supabase.rpc('fn_soft_delete_product_category', {
+        p_id: id,
+        p_actor: actorUsername,
+      });
+    } catch {
+      // ignore RPC error if procedure does not exist
+    }
+
+    // 3. Perform actual hard DELETE from product_categories_master table by ID, category_name, or code
+    const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id);
+    let deleteQuery = supabase.from('product_categories_master').delete();
+
+    if (isUuid) {
+      deleteQuery = deleteQuery.eq('id', id);
+    } else {
+      deleteQuery = deleteQuery.or(`id.eq.${id},category_name.eq.${id},code.eq.${id}`);
+    }
+
+    const { error: delErr } = await deleteQuery;
+
+    if (delErr) {
+      // If hard delete fails (e.g., due to FK constraint), update is_active = false
+      let updateQuery = supabase
+        .from('product_categories_master')
+        .update({ is_active: false, updated_by: actorUsername, updated_at: new Date().toISOString() });
+
+      if (isUuid) {
+        updateQuery = updateQuery.eq('id', id);
+      } else {
+        updateQuery = updateQuery.or(`id.eq.${id},category_name.eq.${id},code.eq.${id}`);
+      }
+      await updateQuery;
+    }
+
+    return NextResponse.json({ success: true, message: 'Category deleted successfully' });
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : 'Failed to delete category';
     return NextResponse.json({ error: msg }, { status: 500 });
   }
 }
+

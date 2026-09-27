@@ -23,8 +23,6 @@ const NAV_SECTIONS = [
       { href: '/dashboard/stock/preparation-charts/defaults', icon: '⭐', label: 'Master Default Formulations' },
       { href: '/dashboard/stock/preparation-charts/columns', icon: '⚙️', label: 'Chart Columns Config' },
       { href: '/dashboard/stock/products', icon: '⚙️', label: 'Products List' },
-      { href: '/dashboard/stock/mappings', icon: '🔄', label: 'Disposals ➔ Receipts Mappings' },
-      { href: '/dashboard/stock/partitions', icon: '🔀', label: 'Receipts Internal Partitions' },
     ],
   },
   {
@@ -33,6 +31,15 @@ const NAV_SECTIONS = [
       { href: '/dashboard/ts/new-stg', icon: '⚖️', label: 'New STG Entry' },
       { href: '/dashboard/ts/new', icon: '🧪', label: 'New TS Entry' },
       { href: '/dashboard/ts', icon: '🧪', label: 'Total Solids (TS)' },
+      { href: '/dashboard/ts/manage-statements', icon: '📊', label: 'Statement Master Names' },
+    ],
+  },
+  {
+    label: 'Rule Mapping',
+    items: [
+      { href: '/dashboard/stock/preparation-charts/mappings', icon: '🔀', label: 'Prep ➔ Stock Mapping Rules' },
+      { href: '/dashboard/stock/mappings', icon: '🔄', label: 'Disposals ➔ Receipts Mappings' },
+      { href: '/dashboard/stock/partitions', icon: '🔀', label: 'Receipts Internal Partitions' },
       { href: '/dashboard/ts/mappings', icon: '🔗', label: 'Stock ⇄ STG Mappings' },
     ],
   },

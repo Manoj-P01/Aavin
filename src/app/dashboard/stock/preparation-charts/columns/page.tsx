@@ -5,6 +5,7 @@ import Header from '@/components/layout/Header';
 import Link from 'next/link';
 import { useConfirm } from '@/context/ConfirmContext';
 import type { ChartColumnDef } from '@/app/api/stock/preparation-charts/route';
+import { getStandardColumnDecimals } from '@/lib/calculations';
 
 export default function ChartColumnsConfigPage() {
   const [columns, setColumns] = useState<ChartColumnDef[]>([]);
@@ -21,6 +22,7 @@ export default function ChartColumnsConfigPage() {
   const [formType, setFormType] = useState<'number' | 'text' | 'calculated'>('number');
   const [formFormula, setFormFormula] = useState<string>('');
   const [formUnit, setFormUnit] = useState<string>('');
+  const [formDecimals, setFormDecimals] = useState<number | undefined>(undefined);
 
   const { confirm } = useConfirm();
 
@@ -56,6 +58,7 @@ export default function ChartColumnsConfigPage() {
     setFormType('number');
     setFormFormula('');
     setFormUnit('');
+    setFormDecimals(undefined);
     setIsModalOpen(true);
   };
 
@@ -66,6 +69,7 @@ export default function ChartColumnsConfigPage() {
     setFormType(col.type);
     setFormFormula(col.formula || '');
     setFormUnit(col.unit || '');
+    setFormDecimals(col.decimals);
     setIsModalOpen(true);
   };
 
@@ -127,6 +131,7 @@ export default function ChartColumnsConfigPage() {
       type: formType,
       formula: formType === 'calculated' ? formFormula.trim() : undefined,
       unit: formUnit.trim(),
+      decimals: formDecimals !== undefined ? formDecimals : undefined,
       sort_order: editingKey ? (columns.find(c => c.key === editingKey)?.sort_order || columns.length + 1) : columns.length + 1,
       is_active: true,
     };
@@ -248,6 +253,7 @@ export default function ChartColumnsConfigPage() {
                     <th>Data Type</th>
                     <th>Formula / Rule</th>
                     <th>Unit</th>
+                    <th>Decimal Places</th>
                     <th style={{ width: 140, textAlign: 'center' }}>Actions</th>
                   </tr>
                 </thead>
@@ -284,6 +290,19 @@ export default function ChartColumnsConfigPage() {
                       </td>
                       <td style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
                         {col.unit || '—'}
+                      </td>
+                      <td style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
+                        {col.decimals !== undefined ? (
+                          <span style={{ padding: '2px 8px', borderRadius: 6, background: '#f0fdf4', color: '#166534', border: '1px solid #bbf7d0', fontWeight: 700, fontSize: '0.72rem' }}>
+                            {col.decimals === 0 ? '0 (Whole Number)' : `${col.decimals} Decimals`}
+                          </span>
+                        ) : col.type !== 'text' ? (
+                          <span style={{ padding: '2px 8px', borderRadius: 6, background: '#f0f9ff', color: '#0369a1', border: '1px solid #bae6fd', fontWeight: 700, fontSize: '0.72rem' }}>
+                            Auto ({getStandardColumnDecimals(col.key)} Decs)
+                          </span>
+                        ) : (
+                          <span style={{ fontSize: '0.75rem', color: '#94a3b8' }}>—</span>
+                        )}
                       </td>
                       <td style={{ textAlign: 'center' }}>
                         <div style={{ display: 'flex', gap: 4, justifyContent: 'center' }}>
@@ -408,7 +427,7 @@ export default function ChartColumnsConfigPage() {
                 </span>
               </div>
 
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12 }}>
                 <div>
                   <label className="form-label" style={{ fontWeight: 600 }}>Data Type</label>
                   <select
@@ -419,6 +438,22 @@ export default function ChartColumnsConfigPage() {
                     <option value="number">Number (Input)</option>
                     <option value="text">Text (Variant/Name)</option>
                     <option value="calculated">Calculated (Formula)</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="form-label" style={{ fontWeight: 600 }}>Decimal Places</label>
+                  <select
+                    className="form-select"
+                    value={formDecimals !== undefined ? String(formDecimals) : ''}
+                    onChange={e => setFormDecimals(e.target.value !== '' ? parseInt(e.target.value, 10) : undefined)}
+                  >
+                    <option value="">Auto / Default</option>
+                    <option value="0">0 - Whole Number (102)</option>
+                    <option value="1">1 Decimal Place (1.0)</option>
+                    <option value="2">2 Decimal Places (1.02)</option>
+                    <option value="3">3 Decimal Places (1.023)</option>
+                    <option value="4">4 Decimal Places (1.0234)</option>
                   </select>
                 </div>
 

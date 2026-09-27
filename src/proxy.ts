@@ -3,7 +3,7 @@ import { verifyAccessToken, ACCESS_TOKEN_COOKIE } from '@/lib/jwt';
 
 const PUBLIC_PATHS = ['/login', '/api/auth/login', '/api/auth/refresh'];
 
-export async function middleware(req: NextRequest) {
+export async function proxy(req: NextRequest) {
   try {
     const { pathname } = req.nextUrl;
 
@@ -57,10 +57,12 @@ export async function middleware(req: NextRequest) {
     response.headers.set('x-user-role', payload.role);
     return response;
   } catch (err) {
-    console.error('Middleware execution error:', err);
+    console.error('Proxy execution error:', err);
     return NextResponse.next();
   }
 }
+
+export default proxy;
 
 export const config = {
   matcher: ['/((?!_next/static|_next/image|favicon.ico).*)'],
