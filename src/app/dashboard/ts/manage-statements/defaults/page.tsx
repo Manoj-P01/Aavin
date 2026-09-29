@@ -1,0 +1,1381 @@
+'use client';
+
+import { useState, useEffect, useMemo, useCallback } from 'react';
+import Header from '@/components/layout/Header';
+import Link from 'next/link';
+import { getStandardColumnDecimals } from '@/lib/calculations';
+import { useConfirm } from '@/context/ConfirmContext';
+
+export interface STGColumnDef {
+  key: string;
+  name: string;
+  type: 'number' | 'text' | 'calculated';
+  formula?: string;
+  unit?: string;
+  decimals?: number;
+  sort_order?: number;
+  is_active?: boolean;
+}
+
+export interface STGMasterDef {
+  key: string;
+  label: string;
+  variant?: string;
+  description?: string;
+  is_split?: boolean;
+  default_rows?: any[];
+  rows?: any[];
+}
+
+export interface STGRowData {
+  variant: string;
+  values: Record<string, any>;
+}
+
+export default function STGDefaultFormulationsPage() {
+  const { confirm, showWarning } = useConfirm();
+  const [columns, setColumns] = useState<STGColumnDef[]>([]);
+  const [masters, setMasters] = useState<STGMasterDef[]>([]);
+  const [templates, setTemplates] = useState<Record<string, STGRowData[]>>({});
+
+  const [activeMasterKey, setActiveMasterKey] = useState<string | null>(null);
+  const [rows, setRows] = useState<STGRowData[]>([]);
+
+  const [loading, setLoading] = useState<boolean>(true);
+  const [saving, setSaving] = useState<boolean>(false);
+  const [toastMessage, setToastMessage] = useState<string | null>(null);
+
+  const [selectedCell, setSelectedCell] = useState<{ rowIndex: number; colKey: string } | null>(null);
+  const [focusedCell, setFocusedCell] = useState<{ rowIndex: number; colKey: string } | null>(null);
+  const [isColEditing, setIsColEditing] = useState<boolean>(false);
+
+  // Modal State for Adding / Editing Columns
+  const [isColModalOpen, setIsColModalOpen] = useState<boolean>(false);
+  const [colModalInsertIdx, setColModalInsertIdx] = useState<number | null>(null);
+  const [colModalEditingKey, setColModalEditingKey] = useState<string | null>(null);
+
+  const [formColKey, setFormColKey] = useState<string>('');
+  const [formColName, setFormColName] = useState<string>('');
+  const [formColType, setFormColType] = useState<'number' | 'text' | 'calculated'>('number');
+  const [formColFormula, setFormColFormula] = useState<string>('');
+  const [formColUnit, setFormColUnit] = useState<string>('');
+  const [formColDecimals, setFormColDecimals] = useState<number | undefined>(undefined);
+
+  const [productOptions, setProductOptions] = useState<string[]>([]);
+
+  useEffect(() => {
+    async function loadProductsMaster() {
+      try {
+        const res = await fetch('/api/master/products');
+        if (res.ok) {
+          const json = await res.json();
+          const prods = json.data || json.products || [];
+          if (Array.isArray(prods) && prods.length > 0) {
+            const names = prods.map((p: any) => p.short_name || p.product_name || p.full_name || p.key).filter(Boolean);
+            setProductOptions(Array.from(new Set(names)));
+          }
+        }
+      } catch (e) {
+        console.error('Error fetching products master:', e);
+      }
+    }
+    loadProductsMaster();
+  }, []);
+
+  // Fetch Configs & Templates from DB
+  const loadData = useCallback(async () => {
+    setLoading(true);
+    try {
+      const [colRes, masterRes] = await Promise.all([
+        fetch('/api/ts/columns'),
+        fetch('/api/ts/masters'),
+      ]);
+
+      if (colRes.ok) {
+        const json = await colRes.json();
+        setColumns(json.columns || []);
+      }
+
+      if (masterRes.ok) {
+        const json = await masterRes.json();
+        const loadedMasters: STGMasterDef[] = json.masters || [];
+        setMasters(loadedMasters);
+
+        const tmplMap: Record<string, STGRowData[]> = {};
+        loadedMasters.forEach(m => {
+          if (Array.isArray(m.default_rows) && m.default_rows.length > 0) {
+            tmplMap[m.key] = m.default_rows;
+          } else if (Array.isArray(m.rows) && m.rows.length > 0) {
+            tmplMap[m.key] = m.rows.map(r => ({ variant: r.short_name || r.full_name || r.variant || '', values: r.values || {} }));
+          }
+        });
+        setTemplates(tmplMap);
+
+        if (loadedMasters.length > 0) {
+          const initialKey = activeMasterKey && loadedMasters.some(m => m.key === activeMasterKey)
+            ? activeMasterKey
+            : loadedMasters[0].key;
+          setActiveMasterKey(initialKey);
+          loadMasterDefaults(initialKey, loadedMasters, tmplMap);
+        }
+      }
+    } catch (err) {
+      console.error('Failed to load STG defaults:', err);
+    }
+    setLoading(false);
+  }, [activeMasterKey]);
+
+  useEffect(() => {
+    loadData();
+  }, []);
+
+  const loadMasterDefaults = (
+    masterKey: string,
+    mastersList: STGMasterDef[],
+    tmplMap: Record<string, STGRowData[]>
+  ) => {
+    const master = mastersList.find(m => m.key === masterKey);
+    const existingTmpl = tmplMap[masterKey];
+
+    if (existingTmpl && Array.isArray(existingTmpl) && existingTmpl.length > 0) {
+      setRows(JSON.parse(JSON.stringify(existingTmpl)));
+    } else {
+      setRows([{ variant: master?.variant || master?.label || 'Particular Variant', values: { variant: master?.variant || master?.label || 'Particular Variant' } }]);
+    }
+    setSelectedCell(null);
+    setFocusedCell(null);
+  };
+
+  const handleSwitchMaster = (newKey: string) => {
+    setActiveMasterKey(newKey);
+    loadMasterDefaults(newKey, masters, templates);
+  };
+
+  const showToast = (msg: string) => {
+    setToastMessage(msg);
+    setTimeout(() => setToastMessage(null), 3500);
+  };
+
+  const getExcelColName = (idx: number) => {
+    let name = '';
+    let n = idx;
+    while (n >= 0) {
+      name = String.fromCharCode((n % 26) + 65) + name;
+      n = Math.floor(n / 26) - 1;
+    }
+    return name;
+  };
+
+  const formatNumberValue = (num: number, decimals?: number, colKey?: string): string => {
+    if (isNaN(num)) return '-';
+    const dec = getStandardColumnDecimals(colKey || '', decimals);
+    return num.toLocaleString('en-IN', {
+      minimumFractionDigits: dec,
+      maximumFractionDigits: dec,
+    });
+  };
+
+  // Safe Excel Formula Evaluator
+  const evaluateExcelFormula = (
+    formulaInput: string,
+    rowIndex: number,
+    rowVals: Record<string, any>,
+    rowsContext?: STGRowData[],
+    depth: number = 0
+  ): number => {
+    if (!formulaInput || typeof formulaInput !== 'string' || depth > 10) return 0;
+    let expr = formulaInput.trim();
+    if (expr.startsWith('=')) expr = expr.substring(1).trim();
+    if (expr.startsWith('+')) expr = expr.substring(1).trim();
+
+    if (!expr) return 0;
+
+    const rowList = rowsContext || rows || [];
+
+    // Expand Excel Cell Range syntax like D2:D7 or SUM(D2:D7)
+    expr = expr.replace(/(SUM|AVERAGE|AVG|MIN|MAX|COUNT)?\s*\(?\s*([A-Z]+)([0-9]+)\s*:\s*([A-Z]+)([0-9]+)\s*\)?/gi, (match, fnName, c1, r1, c2, r2) => {
+      let col1Idx = 0, col2Idx = 0;
+      const u1 = c1.toUpperCase();
+      for (let i = 0; i < u1.length; i++) col1Idx = col1Idx * 26 + (u1.charCodeAt(i) - 64);
+      col1Idx -= 1;
+
+      const u2 = c2.toUpperCase();
+      for (let i = 0; i < u2.length; i++) col2Idx = col2Idx * 26 + (u2.charCodeAt(i) - 64);
+      col2Idx -= 1;
+
+      const r1Num = parseInt(r1, 10);
+      const r2Num = parseInt(r2, 10);
+
+      const minCol = Math.min(col1Idx, col2Idx);
+      const maxCol = Math.max(col1Idx, col2Idx);
+      const minRow = Math.min(r1Num, r2Num);
+      const maxRow = Math.max(r1Num, r2Num);
+
+      const cells: string[] = [];
+      for (let c = minCol; c <= maxCol; c++) {
+        const colLetter = getExcelColName(c);
+        for (let r = minRow; r <= maxRow; r++) {
+          cells.push(`${colLetter}${r}`);
+        }
+      }
+      const joined = cells.join(', ');
+      const func = fnName ? fnName.toUpperCase() : 'SUM';
+      return `${func}(${joined})`;
+    });
+
+    // Replace Excel Cell References like A1, B1, C2, D1 with numeric values
+    expr = expr.replace(/([A-Z]+)([0-9]+)/gi, (match, colLetters, rowNumStr) => {
+      let colIdx = 0;
+      const upperLetters = colLetters.toUpperCase();
+      for (let i = 0; i < upperLetters.length; i++) {
+        colIdx = colIdx * 26 + (upperLetters.charCodeAt(i) - 64);
+      }
+      colIdx = colIdx - 1;
+
+      const targetRowIdx = parseInt(rowNumStr, 10) - 1;
+      const targetCol = columns[colIdx];
+      if (!targetCol) return '0';
+
+      let rawVal: any = 0;
+      let targetVals = rowVals;
+      if (targetRowIdx === rowIndex) {
+        rawVal = rowVals[targetCol.key];
+      } else {
+        const targetRow = rowList[targetRowIdx];
+        rawVal = targetRow?.values?.[targetCol.key];
+        targetVals = targetRow?.values || {};
+      }
+
+      if (rawVal === undefined || rawVal === null || rawVal === '') {
+        return '0';
+      }
+
+      if (typeof rawVal === 'string' && (rawVal.startsWith('=') || rawVal.startsWith('=+'))) {
+        const evaluatedTarget = evaluateExcelFormula(rawVal, targetRowIdx, targetVals, rowList, depth + 1);
+        return String(evaluatedTarget);
+      }
+
+      if (targetCol.type === 'calculated') {
+        const computedTarget = computeCell(targetCol, targetVals, targetRowIdx, rowList);
+        const numVal = typeof computedTarget === 'number' ? computedTarget : parseFloat(String(computedTarget || 0));
+        return isNaN(numVal) ? '0' : String(numVal);
+      }
+
+      const numVal = typeof rawVal === 'number' ? rawVal : parseFloat(String(rawVal));
+      return isNaN(numVal) ? '0' : String(numVal);
+    });
+
+    // Replace column key identifiers
+    columns.forEach(col => {
+      if (expr.includes(col.key)) {
+        const rawVal = rowVals[col.key];
+        const numVal = typeof rawVal === 'number' ? rawVal : parseFloat(String(rawVal || 0));
+        expr = expr.replaceAll(col.key, String(isNaN(numVal) ? 0 : numVal));
+      }
+    });
+
+    try {
+      let cleanExpr = expr.replace(/[^0-9.\-+\/*%() ,a-zA-Z]/g, '').trim();
+      cleanExpr = cleanExpr.replace(/[\-+\/*%,]+$/g, '').trim();
+      if (!cleanExpr) return 0;
+
+      let openCount = 0;
+      for (let i = 0; i < cleanExpr.length; i++) {
+        if (cleanExpr[i] === '(') openCount++;
+        else if (cleanExpr[i] === ')') openCount--;
+      }
+      if (openCount > 0) {
+        cleanExpr += ')'.repeat(openCount);
+      }
+
+      const evaluator = Function(
+        'SUM', 'AVERAGE', 'AVG', 'MIN', 'MAX', 'COUNT', 'ROUND', 'ABS',
+        `"use strict"; return (${cleanExpr});`
+      );
+
+      const sumFn = (...args: any[]) => args.flat().reduce((a, b) => Number(a || 0) + Number(b || 0), 0);
+      const avgFn = (...args: any[]) => {
+        const arr = args.flat();
+        return arr.length ? sumFn(...arr) / arr.length : 0;
+      };
+      const minFn = (...args: any[]) => Math.min(...args.flat().map(Number));
+      const maxFn = (...args: any[]) => Math.max(...args.flat().map(Number));
+      const countFn = (...args: any[]) => args.flat().length;
+      const roundFn = (val: number, dec: number = 0) => {
+        const p = Math.pow(10, dec);
+        return Math.round(Number(val || 0) * p) / p;
+      };
+      const absFn = (val: number) => Math.abs(Number(val || 0));
+
+      const evalResult = evaluator(sumFn, avgFn, avgFn, minFn, maxFn, countFn, roundFn, absFn);
+      return typeof evalResult === 'number' && !isNaN(evalResult) ? evalResult : 0;
+    } catch {
+      return 0;
+    }
+  };
+
+  const computeCell = (col: STGColumnDef, rowVals: Record<string, any>, rowIndex: number = 0, rowsContext?: STGRowData[]) => {
+    const rList = rowsContext || rows || [];
+    const cellVal = rowVals ? rowVals[col.key] : undefined;
+
+    if (cellVal !== undefined && cellVal !== '' && cellVal !== null) {
+      if (typeof cellVal === 'string' && (cellVal.startsWith('=') || cellVal.startsWith('=+'))) {
+        return evaluateExcelFormula(cellVal, rowIndex, rowVals, rList);
+      }
+      if (typeof cellVal === 'number') return cellVal;
+      const numVal = parseFloat(String(cellVal));
+      if (!isNaN(numVal)) return numVal;
+      return cellVal;
+    }
+
+    if (col.type === 'calculated') {
+      if (col.formula) {
+        return evaluateExcelFormula(`= ${col.formula}`, rowIndex, rowVals, rList);
+      }
+      const qtyLitVal = rowVals ? rowVals.qty_lts : undefined;
+      const spGrVal = rowVals ? rowVals.sp_gr : undefined;
+
+      const qtyLit = typeof qtyLitVal === 'string' && (qtyLitVal.startsWith('=') || qtyLitVal.startsWith('=+'))
+        ? evaluateExcelFormula(qtyLitVal, rowIndex, rowVals, rList)
+        : parseFloat(String(qtyLitVal || 0));
+
+      const spGr = typeof spGrVal === 'string' && (spGrVal.startsWith('=') || spGrVal.startsWith('=+'))
+        ? evaluateExcelFormula(spGrVal, rowIndex, rowVals, rList)
+        : parseFloat(String(spGrVal || 0));
+
+      const rawQtyKg = rowVals ? rowVals.qty_kg : undefined;
+      const qtyKg = rawQtyKg !== undefined && rawQtyKg !== '' && rawQtyKg !== null
+        ? (typeof rawQtyKg === 'string' && (rawQtyKg.startsWith('=') || rawQtyKg.startsWith('=+'))
+          ? evaluateExcelFormula(rawQtyKg, rowIndex, rowVals, rList)
+          : parseFloat(String(rawQtyKg || 0)))
+        : (spGr > 0 ? qtyLit * spGr : qtyLit);
+
+      const fatPctVal = rowVals ? rowVals.fat_pct : undefined;
+      const fatPct = typeof fatPctVal === 'string' && (fatPctVal.startsWith('=') || fatPctVal.startsWith('=+'))
+        ? evaluateExcelFormula(fatPctVal, rowIndex, rowVals, rList)
+        : parseFloat(String(fatPctVal || 0));
+
+      const snfPctVal = rowVals ? rowVals.snf_pct : undefined;
+      const snfPct = typeof snfPctVal === 'string' && (snfPctVal.startsWith('=') || snfPctVal.startsWith('=+'))
+        ? evaluateExcelFormula(snfPctVal, rowIndex, rowVals, rList)
+        : parseFloat(String(snfPctVal || 0));
+
+      if (col.key === 'qty_kg') return qtyKg;
+      if (col.key === 'kg_fat') return (qtyKg * fatPct) / 100;
+      if (col.key === 'kg_snf') return (qtyKg * snfPct) / 100;
+
+      return 0;
+    }
+    return cellVal !== undefined ? cellVal : '';
+  };
+
+  const adjustFormulaRowOffset = (formula: string, sourceRowIdx: number, targetRowIdx: number): string => {
+    if (!formula || typeof formula !== 'string') return formula;
+    if (!formula.startsWith('=') && !formula.startsWith('+')) return formula;
+
+    const rowOffset = targetRowIdx - sourceRowIdx;
+    if (rowOffset === 0) return formula;
+
+    return formula.replace(/([A-Z]+)([0-9]+)/gi, (match, colLetters, rowNumStr) => {
+      const originalRowNum = parseInt(rowNumStr, 10);
+      const newRowNum = Math.max(1, originalRowNum + rowOffset);
+      return `${colLetters}${newRowNum}`;
+    });
+  };
+
+  const activeCellDetails = useMemo(() => {
+    if (!selectedCell || !columns.length) {
+      return { address: 'A1', colName: '', isCalculated: false, formulaText: '', value: '-' };
+    }
+    const colIdx = columns.findIndex(c => c.key === selectedCell.colKey);
+    if (colIdx === -1) {
+      return { address: 'A1', colName: '', isCalculated: false, formulaText: '', value: '-' };
+    }
+
+    const col = columns[colIdx];
+    const excelColLetter = getExcelColName(colIdx);
+    const excelRowNum = selectedCell.rowIndex + 1;
+    const address = `${excelColLetter}${excelRowNum}`;
+
+    const currentRow = rows[selectedCell.rowIndex] || { values: {} };
+    const rowVals = currentRow.values || {};
+
+    let formulaText = '';
+    const computedVal = computeCell(col, rowVals, selectedCell.rowIndex, rows);
+
+    const storedVal = rowVals[col.key];
+    if (typeof storedVal === 'string' && (storedVal.startsWith('=') || storedVal.startsWith('=+'))) {
+      formulaText = storedVal;
+    } else if (col.type === 'calculated') {
+      if (col.formula) {
+        formulaText = `= ${col.formula}`;
+      } else {
+        formulaText = `= CALCULATED`;
+      }
+    } else {
+      const rawVal = storedVal !== undefined ? storedVal : (col.type === 'text' ? (currentRow.variant || '') : '');
+      formulaText = rawVal !== '' ? (String(rawVal).startsWith('=') ? String(rawVal) : `= ${rawVal}`) : '';
+    }
+
+    const formattedValDisplay = typeof computedVal === 'number'
+      ? (computedVal !== 0 ? formatNumberValue(computedVal, col.decimals, col.key) : '0')
+      : (computedVal || '-');
+
+    return {
+      address,
+      colName: col.name,
+      isCalculated: col.type === 'calculated',
+      formulaText,
+      value: formattedValDisplay
+    };
+  }, [selectedCell, columns, rows]);
+
+  const handleCellChange = (rowIndex: number, colKey: string, rawVal: any) => {
+    setRows(prev => {
+      const next = [...prev];
+      const targetRow = { ...next[rowIndex] };
+      const targetVals = { ...targetRow.values, [colKey]: rawVal };
+      targetRow.values = targetVals;
+      const col = columns.find(c => c.key === colKey);
+      if (col?.type === 'text') {
+        targetRow.variant = rawVal;
+      }
+      next[rowIndex] = targetRow;
+      return next;
+    });
+  };
+
+  // Excel Drag-to-Fill state & mouse listeners
+  const [fillDrag, setFillDrag] = useState<{
+    sourceRow: number;
+    targetRow: number;
+    colKey: string;
+  } | null>(null);
+
+  const handleFillDragStart = (e: React.MouseEvent, rowIndex: number, colKey: string) => {
+    e.stopPropagation();
+    e.preventDefault();
+    setFillDrag({
+      sourceRow: rowIndex,
+      targetRow: rowIndex,
+      colKey,
+    });
+  };
+
+  useEffect(() => {
+    if (!fillDrag) return;
+
+    const handleMouseMove = (e: MouseEvent) => {
+      const elem = document.elementFromPoint(e.clientX, e.clientY);
+      const rowElem = elem?.closest('[data-row-index]');
+      if (rowElem) {
+        const rawIdx = rowElem.getAttribute('data-row-index');
+        if (rawIdx !== null) {
+          const rIdx = parseInt(rawIdx, 10);
+          if (!isNaN(rIdx)) {
+            setFillDrag(prev => prev ? { ...prev, targetRow: rIdx } : null);
+          }
+        }
+      }
+    };
+
+    const handleMouseUp = () => {
+      if (fillDrag) {
+        const { sourceRow, targetRow, colKey } = fillDrag;
+        if (sourceRow !== targetRow) {
+          const minRow = Math.min(sourceRow, targetRow);
+          const maxRow = Math.max(sourceRow, targetRow);
+
+          setRows(prev => {
+            const next = [...prev];
+            const sourceVal = prev[sourceRow]?.values?.[colKey];
+            for (let r = minRow; r <= maxRow; r++) {
+              if (r === sourceRow) continue;
+              const rData = { ...next[r] };
+              const vals = { ...rData.values };
+              let valToSet: any = sourceVal;
+              if (typeof sourceVal === 'string' && (sourceVal.startsWith('=') || sourceVal.startsWith('+'))) {
+                valToSet = adjustFormulaRowOffset(sourceVal, sourceRow, r);
+              }
+              vals[colKey] = valToSet;
+              rData.values = vals;
+              const col = columns.find(c => c.key === colKey);
+              if (col?.type === 'text') rData.variant = valToSet;
+              next[r] = rData;
+            }
+            return next;
+          });
+        }
+      }
+      setFillDrag(null);
+    };
+
+    window.addEventListener('mousemove', handleMouseMove);
+    window.addEventListener('mouseup', handleMouseUp);
+    return () => {
+      window.removeEventListener('mousemove', handleMouseMove);
+      window.removeEventListener('mouseup', handleMouseUp);
+    };
+  }, [fillDrag, columns]);
+
+  // Column Actions
+  const handleOpenAddColumn = (insertIdx?: number) => {
+    setColModalEditingKey(null);
+    setColModalInsertIdx(insertIdx !== undefined ? insertIdx : columns.length);
+    setFormColKey('');
+    setFormColName('');
+    setFormColType('number');
+    setFormColFormula('');
+    setFormColUnit('');
+    setFormColDecimals(undefined);
+    setIsColModalOpen(true);
+  };
+
+  const handleOpenEditColumn = (col: STGColumnDef) => {
+    setColModalInsertIdx(null);
+    setColModalEditingKey(col.key);
+    setFormColKey(col.key);
+    setFormColName(col.name);
+    setFormColType(col.type);
+    setFormColFormula(col.formula || '');
+    setFormColUnit(col.unit || '');
+    setFormColDecimals(col.decimals);
+    setIsColModalOpen(true);
+  };
+
+  const handleSaveColumnModal = (e: React.FormEvent) => {
+    e.preventDefault();
+
+    if (!formColName.trim()) {
+      alert('Please enter a Column Name');
+      return;
+    }
+
+    const keyToUse = colModalEditingKey || formColKey.trim().toLowerCase().replace(/[^a-z0-9_]/g, '_') || formColName.trim().toLowerCase().replace(/[^a-z0-9_]/g, '_');
+
+    const newCol: STGColumnDef = {
+      key: keyToUse,
+      name: formColName.trim(),
+      type: formColType,
+      formula: formColType === 'calculated' ? formColFormula.trim() : undefined,
+      unit: formColUnit.trim(),
+      decimals: formColDecimals !== undefined ? formColDecimals : undefined,
+      sort_order: colModalEditingKey
+        ? (columns.find(c => c.key === colModalEditingKey)?.sort_order || columns.length + 1)
+        : (colModalInsertIdx !== null ? colModalInsertIdx + 1 : columns.length + 1),
+      is_active: true,
+    };
+
+    let updatedCols: STGColumnDef[];
+    if (colModalEditingKey) {
+      updatedCols = columns.map(c => (c.key === colModalEditingKey ? newCol : c));
+    } else {
+      if (columns.some(c => c.key === newCol.key)) {
+        alert(`Column key "${newCol.key}" already exists! Please use a unique column name.`);
+        return;
+      }
+      updatedCols = [...columns];
+      const insertIdx = colModalInsertIdx !== null ? colModalInsertIdx : columns.length;
+      updatedCols.splice(insertIdx, 0, newCol);
+    }
+
+    const reindexedCols = updatedCols.map((c, i) => ({ ...c, sort_order: i + 1 }));
+    setColumns(reindexedCols);
+    setIsColModalOpen(false);
+    showToast(colModalEditingKey ? `Updated column "${newCol.name}" locally. Click "⭐ Save Master Default Table" to save to database.` : `Inserted column "${newCol.name}" locally. Click "⭐ Save Master Default Table" to save to database.`);
+  };
+
+  const handleDeleteColumnInline = async (key: string, colIdx: number) => {
+    if (columns.length <= 1) {
+      await showWarning('Cannot delete the last remaining column.', 'Cannot Delete Column');
+      return;
+    }
+
+    const isConfirmed = await confirm({
+      title: 'Confirm Column Deletion',
+      message: `Are you sure you want to delete column "${columns[colIdx]?.name}"?`,
+      confirmText: 'Delete Column',
+      cancelText: 'Cancel',
+      type: 'danger',
+    });
+
+    if (!isConfirmed) return;
+
+    const filteredCols = columns.filter(c => c.key !== key).map((c, i) => ({ ...c, sort_order: i + 1 }));
+    setColumns(filteredCols);
+
+    setRows(prev => {
+      return prev.map(row => {
+        const updatedVals = { ...row.values };
+        delete updatedVals[key];
+        return { ...row, values: updatedVals };
+      });
+    });
+
+    showToast(`Deleted column "${key}" locally. Click "⭐ Save Master Default Table" to save to database.`);
+  };
+
+  // Save Master Default Formulation Template & Columns
+  const handleSaveDefaultTemplate = async () => {
+    if (!activeMasterKey) return;
+    setSaving(true);
+    const masterDef = masters.find(m => m.key === activeMasterKey);
+
+    try {
+      const updatedMasters = masters.map(m => {
+        if (m.key === activeMasterKey) {
+          return {
+            ...m,
+            default_rows: rows,
+            rows: rows.map(r => ({ variant: r.variant || r.values.variant || '', values: r.values })),
+          };
+        }
+        return m;
+      });
+
+      const [colRes, masterRes] = await Promise.all([
+        fetch('/api/ts/columns', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ columns }),
+        }),
+        fetch('/api/ts/masters', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ masters: updatedMasters }),
+        }),
+      ]);
+
+      if (colRes.ok && masterRes.ok) {
+        setMasters(updatedMasters);
+        setTemplates(prev => ({
+          ...prev,
+          [activeMasterKey]: rows,
+        }));
+        showToast(`⭐ Saved Master Default formulation table and columns for "${masterDef?.label || activeMasterKey}" in database! All un-entered daily STG entries will inherit these defaults.`);
+      } else {
+        showToast('❌ Failed to save default master template');
+      }
+    } catch (err) {
+      console.error('Save master template error:', err);
+      showToast('❌ Server error saving master template');
+    }
+    setSaving(false);
+  };
+
+  const activeMaster = useMemo(() => {
+    if (!activeMasterKey) return null;
+    return masters.find(m => m.key === activeMasterKey) || null;
+  }, [masters, activeMasterKey]);
+
+  return (
+    <>
+      <Header
+        title="Master Default Formulation Tables"
+        subtitle="Manage default batch formulation templates & pre-defined formulas inherited by daily STG entries"
+        actions={
+          <div style={{ display: 'flex', gap: 10 }}>
+            <Link href="/dashboard/ts/manage-statements/columns" className="btn btn-secondary btn-sm" style={{ color: '#0369a1', borderColor: '#bae6fd', background: '#f0f9ff', fontWeight: 700 }}>
+              ⚙️ STG Column Configuration
+            </Link>
+            <Link href="/dashboard/ts/manage-statements" className="btn btn-secondary btn-sm">
+              ← Statement Master Names
+            </Link>
+          </div>
+        }
+      />
+
+      <div className="page-body animate-fade-in" style={{ display: 'flex', flexDirection: 'column', height: 'calc(100vh - 120px)', overflow: 'hidden' }}>
+        <datalist id="variant-products-list">
+          {productOptions.map(p => (
+            <option key={p} value={p} />
+          ))}
+        </datalist>
+
+        {toastMessage && (
+          <div
+            style={{
+              padding: '12px 18px',
+              borderRadius: 8,
+              background: toastMessage.includes('❌') ? '#fef2f2' : '#f0fdf4',
+              border: toastMessage.includes('❌') ? '1px solid #fca5a5' : '1px solid #86efac',
+              color: toastMessage.includes('❌') ? '#991b1b' : '#166534',
+              fontWeight: 700,
+              fontSize: '0.85rem',
+              marginBottom: 12,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              flexShrink: 0,
+            }}
+          >
+            <span>{toastMessage}</span>
+            <button type="button" onClick={() => setToastMessage(null)} style={{ background: 'none', border: 'none', cursor: 'pointer' }}>✕</button>
+          </div>
+        )}
+
+        {/* Master Selector Tabs Bar */}
+        <div className="card" style={{ marginBottom: 12, padding: '12px 18px', flexShrink: 0 }}>
+          <div style={{ fontWeight: 700, fontSize: '0.85rem', color: 'var(--text-secondary)', marginBottom: 8 }}>
+            Select Statement Master Name:
+          </div>
+          {loading ? (
+            <div style={{ color: 'var(--text-muted)', fontSize: '0.8rem' }}><span className="spinner" /> Loading statement masters...</div>
+          ) : masters.length === 0 ? (
+            <div style={{ color: 'var(--text-muted)', fontSize: '0.8rem' }}>
+              No statement masters found. <Link href="/dashboard/ts/manage-statements" style={{ color: 'var(--brand-primary)' }}>Create statement masters first.</Link>
+            </div>
+          ) : (
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+              {masters.map(m => {
+                const isSelected = m.key === activeMasterKey;
+                return (
+                  <button
+                    key={`default_tab_${m.key}`}
+                    type="button"
+                    onClick={() => handleSwitchMaster(m.key)}
+                    style={{
+                      padding: '8px 16px',
+                      borderRadius: 8,
+                      fontSize: '0.85rem',
+                      fontWeight: 700,
+                      background: isSelected ? '#b45309' : '#f1f5f9',
+                      color: isSelected ? '#ffffff' : '#475569',
+                      border: isSelected ? '1px solid #b45309' : '1px solid #cbd5e1',
+                      cursor: 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 6,
+                    }}
+                  >
+                    <span>📋 {m.label.replace(/\s*-\s*RECEIPT AND DISPOSAL STATEMENT$/i, '')}</span>
+                    {m.variant && <span style={{ fontSize: '0.72rem', opacity: 0.85 }}>({m.variant})</span>}
+                  </button>
+                );
+              })}
+            </div>
+          )}
+        </div>
+
+        {/* Main formulation Table Card */}
+        {activeMasterKey && activeMaster && (
+          <div className="card" style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', minHeight: 0 }}>
+            {/* Table Header Bar */}
+            <div style={{ padding: '12px 18px', background: '#fffbeb', borderBottom: '1px solid #fde68a', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexShrink: 0 }}>
+              <div>
+                <div style={{ fontWeight: 800, fontSize: '1.05rem', color: '#b45309', display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <span>⭐ Default Master Template for {activeMaster?.label}</span>
+                </div>
+                <div style={{ fontSize: '0.78rem', color: '#78350f', marginTop: 2 }}>
+                  Formulas and values saved here will automatically populate on all un-entered daily STG entries.
+                </div>
+              </div>
+
+              <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                <button
+                  type="button"
+                  onClick={() => setIsColEditing(prev => !prev)}
+                  style={{
+                    background: isColEditing ? '#e0f2fe' : '#ffffff',
+                    border: isColEditing ? '1px solid #0284c7' : '1px solid #cbd5e1',
+                    color: isColEditing ? '#0369a1' : '#475569',
+                    borderRadius: 6,
+                    padding: '5px 12px',
+                    fontSize: '0.8rem',
+                    fontWeight: 700,
+                    cursor: 'pointer',
+                  }}
+                >
+                  {isColEditing ? '⚙️ Done Editing Columns' : '✏️ Edit Table Columns'}
+                </button>
+
+                {isColEditing && (
+                  <button
+                    type="button"
+                    onClick={() => handleOpenAddColumn()}
+                    style={{ background: '#f0f9ff', border: '1px dashed #0284c7', color: '#0284c7', borderRadius: 6, padding: '5px 12px', fontSize: '0.8rem', fontWeight: 700, cursor: 'pointer' }}
+                  >
+                    ➕ Add Column
+                  </button>
+                )}
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setRows(prev => [
+                      ...prev,
+                      { variant: '', values: {} }
+                    ]);
+                  }}
+                  style={{ background: '#f0f9ff', border: '1px solid #bae6fd', color: '#0284c7', borderRadius: 6, padding: '5px 12px', fontSize: '0.8rem', fontWeight: 700, cursor: 'pointer' }}
+                >
+                  ➕ Add Particular Row
+                </button>
+              </div>
+            </div>
+
+            {/* Excel Formula Bar */}
+            <div
+              style={{
+                padding: '8px 16px',
+                background: '#fffbeb',
+                borderBottom: '1px solid #fde68a',
+                display: 'flex',
+                alignItems: 'center',
+                gap: 12,
+                flexShrink: 0,
+              }}
+            >
+              {/* Active Cell Address Box */}
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 6,
+                  background: '#ffffff',
+                  padding: '3px 10px',
+                  borderRadius: 6,
+                  border: '1px solid #fcd34d',
+                  fontWeight: 800,
+                  fontSize: '0.85rem',
+                  color: '#b45309',
+                  fontFamily: 'monospace',
+                  minWidth: 65,
+                  justifyContent: 'center',
+                }}
+              >
+                <span>{activeCellDetails.address}</span>
+              </div>
+
+              <div
+                style={{
+                  fontWeight: 900,
+                  fontSize: '1.05rem',
+                  color: '#b45309',
+                  fontStyle: 'italic',
+                  fontFamily: 'serif',
+                  userSelect: 'none',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 4,
+                }}
+                title="Excel Formula Indicator"
+              >
+                <span>ƒx</span>
+              </div>
+
+              <div style={{ height: 20, width: 1, background: '#fcd34d' }} />
+
+              {/* Active Column Name & Formula Input */}
+              <div style={{ flex: 1, display: 'flex', alignItems: 'center', gap: 10, minWidth: 260 }}>
+                {activeCellDetails.colName && (
+                  <span
+                    style={{
+                      fontSize: '0.75rem',
+                      fontWeight: 700,
+                      background: '#fef3c7',
+                      color: '#b45309',
+                      padding: '2px 8px',
+                      borderRadius: 4,
+                      whiteSpace: 'nowrap',
+                    }}
+                  >
+                    {activeCellDetails.colName}
+                  </span>
+                )}
+                <input
+                  type="text"
+                  className="form-input"
+                  disabled={!selectedCell}
+                  value={activeCellDetails.formulaText}
+                  onKeyDown={e => {
+                    if (e.key === 'Enter') {
+                      (e.target as HTMLInputElement).blur();
+                    }
+                  }}
+                  onChange={e => {
+                    if (!selectedCell) return;
+                    handleCellChange(selectedCell.rowIndex, selectedCell.colKey, e.target.value);
+                  }}
+                  placeholder={selectedCell ? "Enter default value or formula e.g. =+B1*A1" : "Click any cell in the table below to inspect or enter default formula"}
+                  style={{
+                    fontFamily: 'monospace',
+                    fontWeight: 700,
+                    fontSize: '0.85rem',
+                    background: '#ffffff',
+                    color: activeCellDetails.formulaText.startsWith('=') ? '#b45309' : 'var(--text-primary)',
+                    borderColor: selectedCell ? '#b45309' : 'var(--border)',
+                    height: 30,
+                  }}
+                />
+              </div>
+
+              {/* Computed Value Result Badge */}
+              {selectedCell && (
+                <div
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 6,
+                    padding: '3px 10px',
+                    borderRadius: 6,
+                    background: '#ffffff',
+                    border: '1px solid #fde68a',
+                    color: '#b45309',
+                    fontSize: '0.78rem',
+                    fontWeight: 700,
+                  }}
+                >
+                  <span style={{ color: '#78350f' }}>Value:</span>
+                  <span style={{ fontFamily: 'var(--font-numbers)', fontWeight: 800 }}>{activeCellDetails.value}</span>
+                </div>
+              )}
+            </div>
+
+            {/* Scrollable Table Viewport */}
+            <div style={{ overflow: 'auto', flex: 1, minHeight: 0 }}>
+              <table className="inline-table" style={{ width: '100%', minWidth: 700 }}>
+                <thead>
+                  <tr style={{ background: '#f1f5f9' }}>
+                    <th style={{ width: 40, textAlign: 'center' }}>#</th>
+                    {columns.map((col, cIdx) => (
+                      <th
+                        key={`m_col_${col.key}`}
+                        style={{
+                          textAlign: col.type === 'text' ? 'left' : 'right',
+                          background: col.type === 'calculated' ? '#e0f2fe' : '#f1f5f9',
+                          color: col.type === 'calculated' ? '#0369a1' : 'var(--text-primary)',
+                          padding: '8px 10px',
+                          fontSize: '0.82rem',
+                          minWidth: 110,
+                        }}
+                      >
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 3, gap: 4 }}>
+                          <span style={{ fontSize: '0.65rem', color: '#0284c7', fontWeight: 800, fontFamily: 'monospace' }}>
+                            {getExcelColName(cIdx)}
+                          </span>
+                          {isColEditing && (
+                            <div style={{ display: 'flex', gap: 2, alignItems: 'center' }}>
+                              <button
+                                type="button"
+                                onClick={() => handleOpenAddColumn(cIdx)}
+                                style={{ background: '#ffffff', border: '1px solid #bae6fd', color: '#0369a1', borderRadius: 3, padding: '1px 4px', fontSize: '0.65rem', fontWeight: 700, cursor: 'pointer' }}
+                                title="Insert Column to Left"
+                              >
+                                +L
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handleOpenAddColumn(cIdx + 1)}
+                                style={{ background: '#ffffff', border: '1px solid #bae6fd', color: '#0369a1', borderRadius: 3, padding: '1px 4px', fontSize: '0.65rem', fontWeight: 700, cursor: 'pointer' }}
+                                title="Insert Column to Right"
+                              >
+                                +R
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handleOpenEditColumn(col)}
+                                style={{ background: '#ffffff', border: '1px solid #cbd5e1', color: '#475569', borderRadius: 3, padding: '1px 4px', fontSize: '0.65rem', fontWeight: 700, cursor: 'pointer' }}
+                                title="Edit Column Details / Rename"
+                              >
+                                ✏️
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handleDeleteColumnInline(col.key, cIdx)}
+                                style={{ background: '#fef2f2', border: '1px solid #fca5a5', color: '#dc2626', borderRadius: 3, padding: '1px 4px', fontSize: '0.65rem', fontWeight: 700, cursor: 'pointer' }}
+                                title="Delete Column"
+                              >
+                                ✕
+                              </button>
+                            </div>
+                          )}
+                        </div>
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: col.type === 'text' ? 'flex-start' : 'space-between', gap: 6 }}>
+                          <span>{col.name} {col.unit ? `(${col.unit})` : ''}</span>
+                          {col.type !== 'text' && (
+                            <select
+                              value={col.decimals !== undefined ? String(col.decimals) : ''}
+                              onChange={(e) => {
+                                const val = e.target.value !== '' ? parseInt(e.target.value, 10) : undefined;
+                                const updated = columns.map(c => c.key === col.key ? { ...c, decimals: val } : c);
+                                setColumns(updated);
+                              }}
+                              style={{
+                                fontSize: '0.68rem',
+                                padding: '1px 4px',
+                                height: 20,
+                                fontWeight: 700,
+                                color: '#0369a1',
+                                background: '#ffffff',
+                                border: '1px solid #bae6fd',
+                                borderRadius: 4,
+                                cursor: 'pointer',
+                              }}
+                              title={`Set required decimal places for column ${col.name}`}
+                            >
+                              <option value="">Auto ({getStandardColumnDecimals(col.key)})</option>
+                              <option value="0">.0 (Whole)</option>
+                              <option value="1">.1 Dec</option>
+                              <option value="2">.2 Decs</option>
+                              <option value="3">.3 Decs</option>
+                              <option value="4">.4 Decs</option>
+                            </select>
+                          )}
+                        </div>
+                      </th>
+                    ))}
+                    {isColEditing && (
+                      <th style={{ width: 120, textAlign: 'center' }}>
+                        <button
+                          type="button"
+                          onClick={() => handleOpenAddColumn()}
+                          style={{ background: '#f0f9ff', border: '1px dashed #0284c7', color: '#0284c7', borderRadius: 4, padding: '2px 8px', fontSize: '0.72rem', fontWeight: 700, cursor: 'pointer' }}
+                          title="Add New Column at End"
+                        >
+                          ➕ Column
+                        </button>
+                      </th>
+                    )}
+                    <th style={{ width: 110, textAlign: 'center' }}>Row Action</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {rows.map((row, rIdx) => (
+                    <tr key={`modal_row_${rIdx}`}>
+                      <td style={{ textAlign: 'center', fontWeight: 700, color: '#94a3b8', fontSize: '0.75rem' }}>
+                        {rIdx + 1}
+                      </td>
+                      {columns.map((col, cIdx) => {
+                        const isCellSelected = selectedCell?.rowIndex === rIdx && selectedCell?.colKey === col.key;
+                        const isCellFocused = focusedCell?.rowIndex === rIdx && focusedCell?.colKey === col.key;
+                        const computedVal = computeCell(col, row.values || {}, rIdx, rows);
+
+                        if (col.type === 'calculated') {
+                          const formattedCalc = typeof computedVal === 'number'
+                            ? (computedVal !== 0 ? formatNumberValue(computedVal, col.decimals, col.key) : '-')
+                            : (computedVal || '-');
+
+                          return (
+                            <td
+                              key={`m_cell_${rIdx}_${col.key}`}
+                              onClick={() => setSelectedCell({ rowIndex: rIdx, colKey: col.key })}
+                              style={{
+                                textAlign: 'right',
+                                fontWeight: 700,
+                                color: '#0369a1',
+                                background: isCellSelected ? '#bae6fd' : '#f0f9ff',
+                                fontFamily: 'var(--font-numbers)',
+                                outline: isCellSelected ? '2px solid #0284c7' : 'none',
+                                outlineOffset: -2,
+                                cursor: 'pointer',
+                              }}
+                              title={`Cell ${getExcelColName(cIdx)}${rIdx + 1} (${col.name}): Click to view formula`}
+                            >
+                              {formattedCalc}
+                            </td>
+                          );
+                        }
+
+                        const rawVal = row.values?.[col.key];
+                        const isFormula = typeof rawVal === 'string' && (rawVal.startsWith('=') || rawVal.startsWith('=+'));
+                        let displayVal = rawVal !== undefined ? rawVal : (col.type === 'text' ? row.variant : '');
+                        if (isFormula && !isCellFocused) {
+                          displayVal = typeof computedVal === 'number'
+                            ? (computedVal !== 0 ? formatNumberValue(computedVal, col.decimals, col.key) : '-')
+                            : String(computedVal || '-');
+                        } else if (!isCellFocused && !isFormula && rawVal !== undefined && rawVal !== '' && col.type === 'number') {
+                          const numVal = typeof rawVal === 'number' ? rawVal : parseFloat(String(rawVal));
+                          if (!isNaN(numVal)) {
+                            displayVal = formatNumberValue(numVal, col.decimals, col.key);
+                          }
+                        }
+
+                        const isDraggedInFillModal = !!(fillDrag && fillDrag.colKey === col.key &&
+                          rIdx >= Math.min(fillDrag.sourceRow, fillDrag.targetRow) &&
+                          rIdx <= Math.max(fillDrag.sourceRow, fillDrag.targetRow));
+
+                        return (
+                          <td key={`m_cell_${rIdx}_${col.key}`} data-row-index={rIdx} style={{ position: 'relative' }}>
+                            {isFormula && (
+                              <div
+                                style={{
+                                  position: 'absolute',
+                                  top: 2,
+                                  left: 2,
+                                  width: 0,
+                                  height: 0,
+                                  borderStyle: 'solid',
+                                  borderWidth: '7px 7px 0 0',
+                                  borderColor: '#b45309 transparent transparent transparent',
+                                  pointerEvents: 'none',
+                                  zIndex: 5,
+                                }}
+                                title={`Default Formula Present: ${rawVal}`}
+                              />
+                            )}
+                            <input
+                              type="text"
+                              list={col.type === 'text' ? 'variant-products-list' : undefined}
+                              className="form-input"
+                              value={displayVal}
+                              placeholder="-"
+                              title={isFormula ? `Default Formula: ${rawVal}` : undefined}
+                              onFocus={() => {
+                                setSelectedCell({ rowIndex: rIdx, colKey: col.key });
+                                setFocusedCell({ rowIndex: rIdx, colKey: col.key });
+                              }}
+                              onBlur={() => setFocusedCell(null)}
+                              onClick={() => setSelectedCell({ rowIndex: rIdx, colKey: col.key })}
+                              onKeyDown={e => {
+                                if (e.key === 'Enter') {
+                                  (e.target as HTMLInputElement).blur();
+                                }
+                              }}
+                              onChange={e => handleCellChange(rIdx, col.key, e.target.value)}
+                              style={{
+                                padding: isFormula ? '3px 6px 3px 10px' : '3px 6px',
+                                fontSize: '0.8rem',
+                                height: 28,
+                                textAlign: col.type === 'text' ? 'left' : 'right',
+                                fontFamily: col.type === 'text' ? 'inherit' : 'var(--font-numbers)',
+                                fontWeight: isFormula ? 800 : 700,
+                                background: isDraggedInFillModal
+                                  ? '#fef3c7'
+                                  : isCellSelected
+                                    ? '#fef3c7'
+                                    : isFormula
+                                      ? '#fffbeb'
+                                      : '#ffffff',
+                                color: isFormula ? '#b45309' : 'var(--text-primary)',
+                                borderColor: isDraggedInFillModal
+                                  ? '#b45309'
+                                  : isCellSelected
+                                    ? '#b45309'
+                                    : isFormula
+                                      ? '#fcd34d'
+                                      : 'var(--border)',
+                                boxShadow: isDraggedInFillModal
+                                  ? '0 0 0 2px rgba(180, 83, 9, 0.45)'
+                                  : isCellSelected
+                                    ? '0 0 0 2px rgba(180, 83, 9, 0.25)'
+                                    : 'none',
+                              }}
+                            />
+
+                            {/* Excel Fill Handle Square */}
+                            {isCellSelected && (
+                              <div
+                                onMouseDown={e => handleFillDragStart(e, rIdx, col.key)}
+                                style={{
+                                  position: 'absolute',
+                                  bottom: 2,
+                                  right: 2,
+                                  width: 8,
+                                  height: 8,
+                                  background: '#b45309',
+                                  border: '1px solid #ffffff',
+                                  cursor: 'ns-resize',
+                                  zIndex: 10,
+                                  borderRadius: 1,
+                                }}
+                                title="Excel Fill Handle: Drag up or down to auto-fill default formula/values to adjacent cells with relative row adjustment"
+                              />
+                            )}
+                          </td>
+                        );
+                      })}
+                      {isColEditing && (
+                        <td style={{ textAlign: 'center', color: '#94a3b8', fontSize: '0.72rem' }}>
+                          —
+                        </td>
+                      )}
+                      <td style={{ textAlign: 'center' }}>
+                        <div style={{ display: 'flex', gap: 4, justifyContent: 'center' }}>
+                          <button
+                            type="button"
+                            disabled={rIdx === 0}
+                            onClick={() => {
+                              if (rIdx === 0) return;
+                              setRows(prev => {
+                                const copy = [...prev];
+                                const temp = copy[rIdx];
+                                copy[rIdx] = copy[rIdx - 1];
+                                copy[rIdx - 1] = temp;
+                                return copy;
+                              });
+                            }}
+                            style={{
+                              border: '1px solid var(--border)',
+                              background: '#ffffff',
+                              borderRadius: 4,
+                              padding: '2px 6px',
+                              fontSize: '0.72rem',
+                              cursor: rIdx === 0 ? 'not-allowed' : 'pointer',
+                              opacity: rIdx === 0 ? 0.4 : 1,
+                            }}
+                            title="Move Row Up"
+                          >
+                            ▲
+                          </button>
+                          <button
+                            type="button"
+                            disabled={rIdx === rows.length - 1}
+                            onClick={() => {
+                              if (rIdx === rows.length - 1) return;
+                              setRows(prev => {
+                                const copy = [...prev];
+                                const temp = copy[rIdx];
+                                copy[rIdx] = copy[rIdx + 1];
+                                copy[rIdx + 1] = temp;
+                                return copy;
+                              });
+                            }}
+                            style={{
+                              border: '1px solid var(--border)',
+                              background: '#ffffff',
+                              borderRadius: 4,
+                              padding: '2px 6px',
+                              fontSize: '0.72rem',
+                              cursor: rIdx === rows.length - 1 ? 'not-allowed' : 'pointer',
+                              opacity: rIdx === rows.length - 1 ? 0.4 : 1,
+                            }}
+                            title="Move Row Down"
+                          >
+                            ▼
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              if (rows.length <= 1) return;
+                              setRows(prev => prev.filter((_, idx) => idx !== rIdx));
+                            }}
+                            style={{
+                              border: '1px solid #fca5a5',
+                              background: '#fef2f2',
+                              color: '#dc2626',
+                              borderRadius: 4,
+                              padding: '2px 6px',
+                              fontSize: '0.72rem',
+                              cursor: 'pointer',
+                            }}
+                            title="Delete Row"
+                          >
+                            ✕
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            {/* Bottom Footer Bar */}
+            <div style={{ padding: '12px 18px', background: '#f8fafc', borderTop: '1px solid var(--border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexShrink: 0 }}>
+              <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
+                ⭐ Changes saved here will be stored in database as the Master Default template.
+              </div>
+
+              <div style={{ display: 'flex', gap: 10 }}>
+                <Link href="/dashboard/ts/manage-statements" className="btn btn-secondary btn-sm">
+                  Cancel
+                </Link>
+                <button
+                  type="button"
+                  onClick={handleSaveDefaultTemplate}
+                  disabled={saving}
+                  style={{
+                    background: '#b45309',
+                    color: '#ffffff',
+                    border: 'none',
+                    borderRadius: 6,
+                    padding: '6px 18px',
+                    fontSize: '0.82rem',
+                    fontWeight: 700,
+                    cursor: saving ? 'not-allowed' : 'pointer',
+                    boxShadow: '0 2px 4px rgba(180,83,9,0.2)',
+                  }}
+                >
+                  {saving ? '💾 Saving Template...' : '⭐ Save Master Default Table'}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {!activeMasterKey && !loading && (
+          <div className="card" style={{ padding: 60, textAlign: 'center', color: 'var(--text-muted)' }}>
+            <div style={{ fontSize: '2rem', marginBottom: 12 }}>📊</div>
+            <div style={{ fontWeight: 700, fontSize: '1rem', marginBottom: 8 }}>No Statement Masters Found</div>
+            <div style={{ fontSize: '0.85rem' }}>
+              <Link href="/dashboard/ts/manage-statements" style={{ color: 'var(--brand-primary)' }}>Go to Statement Masters</Link> and create at least one master to get started.
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Column Modal */}
+      {isColModalOpen && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,0.55)', backdropFilter: 'blur(4px)', zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
+          <div style={{ background: '#fff', borderRadius: 12, border: '1px solid var(--border)', boxShadow: '0 20px 25px -5px rgba(0,0,0,0.1)', width: '100%', maxWidth: 520, overflow: 'hidden' }}>
+            <div style={{ padding: '16px 20px', background: '#f8fafc', borderBottom: '1px solid var(--border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div style={{ fontWeight: 700, fontSize: '1.05rem' }}>{colModalEditingKey ? '✏️ Edit STG Column' : '➕ Add STG Column'}</div>
+              <button type="button" onClick={() => setIsColModalOpen(false)} style={{ background: 'none', border: 'none', fontSize: '1.1rem', cursor: 'pointer' }}>✕</button>
+            </div>
+            <form onSubmit={handleSaveColumnModal} style={{ padding: 20, display: 'flex', flexDirection: 'column', gap: 16 }}>
+              <div>
+                <label className="form-label" style={{ fontWeight: 600 }}>Column Name <span style={{ color: '#dc2626' }}>*</span></label>
+                <input type="text" className="form-input" placeholder="e.g. QTY (LTS), SP.GR, FAT (%)" value={formColName}
+                  onChange={e => { setFormColName(e.target.value); if (!colModalEditingKey) setFormColKey(e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, '_')); }} required />
+              </div>
+              <div>
+                <label className="form-label" style={{ fontWeight: 600 }}>Field Key</label>
+                <input type="text" className="form-input" placeholder="e.g. qty_lts, sp_gr, fat_pct" value={formColKey}
+                  onChange={e => setFormColKey(e.target.value)} disabled={!!colModalEditingKey} style={{ background: colModalEditingKey ? '#f1f5f9' : '#fff' }} />
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12 }}>
+                <div>
+                  <label className="form-label" style={{ fontWeight: 600 }}>Data Type</label>
+                  <select className="form-select" value={formColType} onChange={e => setFormColType(e.target.value as any)}>
+                    <option value="number">Number (Input)</option>
+                    <option value="text">Text (Label)</option>
+                    <option value="calculated">Calculated (Formula)</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="form-label" style={{ fontWeight: 600 }}>Decimal Places</label>
+                  <select className="form-select" value={formColDecimals !== undefined ? String(formColDecimals) : ''}
+                    onChange={e => setFormColDecimals(e.target.value !== '' ? parseInt(e.target.value, 10) : undefined)}>
+                    <option value="">Auto / Default</option>
+                    <option value="0">0 – Whole Number</option>
+                    <option value="1">1 Decimal</option>
+                    <option value="2">2 Decimals</option>
+                    <option value="3">3 Decimals</option>
+                    <option value="4">4 Decimals</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="form-label" style={{ fontWeight: 600 }}>Unit (Optional)</label>
+                  <input type="text" className="form-input" placeholder="e.g. Lts, Kg, %" value={formColUnit} onChange={e => setFormColUnit(e.target.value)} />
+                </div>
+              </div>
+              {formColType === 'calculated' && (
+                <div>
+                  <label className="form-label" style={{ fontWeight: 600 }}>Formula Expression</label>
+                  <input type="text" className="form-input" placeholder="e.g. qty_lts * sp_gr" value={formColFormula}
+                    onChange={e => setFormColFormula(e.target.value)} style={{ fontFamily: 'monospace' }} />
+                  <div style={{ fontSize: '0.72rem', color: '#0369a1', marginTop: 4 }}>Use field keys: <code>qty_lts * sp_gr</code> or <code>qty_kg * fat_pct / 100</code></div>
+                </div>
+              )}
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, paddingTop: 10, borderTop: '1px solid var(--border)' }}>
+                <button type="button" className="btn btn-secondary btn-sm" onClick={() => setIsColModalOpen(false)}>Cancel</button>
+                <button type="submit" className="btn btn-primary btn-sm">{colModalEditingKey ? '💾 Update Column' : '➕ Save Column'}</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+    </>
+  );
+}

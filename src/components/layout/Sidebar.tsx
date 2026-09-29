@@ -32,6 +32,8 @@ const NAV_SECTIONS = [
       { href: '/dashboard/ts/new', icon: '🧪', label: 'New TS Entry' },
       { href: '/dashboard/ts', icon: '🧪', label: 'Total Solids (TS)' },
       { href: '/dashboard/ts/manage-statements', icon: '📊', label: 'Statement Master Names' },
+      { href: '/dashboard/ts/manage-statements/defaults', icon: '⭐', label: 'Master Default Statements' },
+      { href: '/dashboard/ts/manage-statements/columns', icon: '⚙️', label: 'Statement Columns Config' },
     ],
   },
   {
@@ -40,7 +42,7 @@ const NAV_SECTIONS = [
       { href: '/dashboard/stock/preparation-charts/mappings', icon: '🔀', label: 'Prep ➔ Stock Mapping Rules' },
       { href: '/dashboard/stock/mappings', icon: '🔄', label: 'Disposals ➔ Receipts Mappings' },
       { href: '/dashboard/stock/partitions', icon: '🔀', label: 'Receipts Internal Partitions' },
-      { href: '/dashboard/ts/mappings', icon: '🔗', label: 'Stock ⇄ STG Mappings' },
+      { href: '/dashboard/ts/mappings', icon: '🔗', label: 'Solid Balance STG Mapping' },
     ],
   },
   {
@@ -126,7 +128,7 @@ export default function Sidebar() {
                   if (href === '/dashboard/ts') {
                     return pathSegments[1] === 'dashboard' && 
                            pathSegments[2] === 'ts' && 
-                           !['new', 'new-stg', 'config', 'mappings'].includes(pathSegments[3]);
+                           !['new', 'new-stg', 'config', 'mappings', 'manage-statements'].includes(pathSegments[3]);
                   }
                   if (href === '/dashboard/stock') {
                     return pathSegments[1] === 'dashboard' && 
@@ -137,6 +139,10 @@ export default function Sidebar() {
                            pathSegments[3] !== 'partitions' &&
                            pathSegments[3] !== 'preparation-charts' &&
                            pathSegments[3] !== 'periodical';
+                  }
+
+                  if (href === '/dashboard/ts/manage-statements') {
+                    return pathname === '/dashboard/ts/manage-statements';
                   }
                   
                   return hrefSegments.every((seg: string, idx: number) => pathSegments[idx] === seg);
