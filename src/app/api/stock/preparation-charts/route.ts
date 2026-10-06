@@ -9,6 +9,7 @@ export interface ChartColumnDef {
   type: 'number' | 'text' | 'calculated';
   formula?: string;
   unit?: string;
+  decimals?: number; // 0 for Whole Number (102), 1 for 1.0, 2 for 1.02, 3 for 1.023, etc.
   sort_order: number;
   is_active?: boolean;
   [extraProperty: string]: any; // Allow arbitrary dynamic properties in JSON
@@ -35,11 +36,21 @@ export interface ChartRowData {
   [extraProperty: string]: any;
 }
 
+export interface ChartBatchData {
+  batch_number: number;
+  batch_name?: string;
+  target_batch_liters?: number;
+  target_fat?: number;
+  target_snf?: number;
+  rows: ChartRowData[];
+}
+
 export interface ChartEntryData {
   chart_key: string;
   entry_date: string;
   shift: string;
-  rows: ChartRowData[];
+  batches?: ChartBatchData[];
+  rows?: ChartRowData[];
   target_batch_liters?: number;
   target_fat?: number;
   target_snf?: number;
@@ -57,49 +68,6 @@ export interface PrepToStockMappingRule {
   enabled: boolean;
   description?: string;
 }
-
-const DEFAULT_MAPPING_RULES: PrepToStockMappingRule[] = [
-  {
-    id: 'rule_delite',
-    sourceChartKey: '*',
-    sourceVariant: 'DELITE',
-    sourceColKey: 'qty_lit',
-    targetRowType: 'RECEIPT',
-    targetProductKey: 'dlt_milk',
-    enabled: true,
-    description: 'DELITE Preparation Chart Qty(Lit) ➔ DLT.Milk (Receipts)',
-  },
-  {
-    id: 'rule_fcm',
-    sourceChartKey: '*',
-    sourceVariant: 'FCM',
-    sourceColKey: 'qty_lit',
-    targetRowType: 'RECEIPT',
-    targetProductKey: 'fcm',
-    enabled: true,
-    description: 'FCM Preparation Chart Qty(Lit) ➔ FCM (Receipts)',
-  },
-  {
-    id: 'rule_std',
-    sourceChartKey: '*',
-    sourceVariant: 'STD MILK',
-    sourceColKey: 'qty_lit',
-    targetRowType: 'RECEIPT',
-    targetProductKey: 'std_milk',
-    enabled: true,
-    description: 'STD Preparation Chart Qty(Lit) ➔ STD.Milk (Receipts)',
-  },
-  {
-    id: 'rule_skim',
-    sourceChartKey: '*',
-    sourceVariant: 'SKIM MILK',
-    sourceColKey: 'qty_lit',
-    targetRowType: 'RECEIPT',
-    targetProductKey: 'skim_milk',
-    enabled: true,
-    description: 'Skim Milk Preparation Chart Qty(Lit) ➔ SKIM MILK (Receipts)',
-  },
-];
 
 // GET /api/stock/preparation-charts - Fetch masters, columns & entries strictly from Supabase JSON store
 export async function GET(req: NextRequest) {
@@ -162,7 +130,7 @@ export async function GET(req: NextRequest) {
       console.error('Error fetching templates JSON:', e);
     }
 
-    // 4. Fetch Custom Mappings Rules from dedicated table prep_to_stock_mapping_rules
+    // 4. Fetch Custom Mappings Rules strictly from dedicated table prep_to_stock_mapping_rules
     try {
       const { data: dbRules, error: dbErr } = await supabase
         .from('prep_to_stock_mapping_rules')
@@ -170,7 +138,7 @@ export async function GET(req: NextRequest) {
         .order('sort_order', { ascending: true })
         .order('created_at', { ascending: true });
 
-      if (!dbErr && Array.isArray(dbRules) && dbRules.length > 0) {
+      if (!dbErr && dbRules) {
         mappings = dbRules.map(r => ({
           id: r.id || r.rule_key,
           sourceChartKey: r.source_chart_key || '*',
@@ -183,22 +151,11 @@ export async function GET(req: NextRequest) {
           description: r.description || '',
         }));
       } else {
-        // Fallback to prep_chart_configs table
-        const { data: mapRes } = await supabase
-          .from('prep_chart_configs')
-          .select('config_json')
-          .eq('config_key', 'mappings')
-          .maybeSingle();
-
-        if (mapRes && Array.isArray(mapRes.config_json) && mapRes.config_json.length > 0) {
-          mappings = mapRes.config_json;
-        } else {
-          mappings = DEFAULT_MAPPING_RULES;
-        }
+        mappings = [];
       }
     } catch (e) {
       console.error('Error fetching prep_to_stock_mapping_rules:', e);
-      mappings = DEFAULT_MAPPING_RULES;
+      mappings = [];
     }
 
     // 5. Fetch Entries JSON for requested date & shift
@@ -208,17 +165,19 @@ export async function GET(req: NextRequest) {
 
     let entries: Record<string, ChartEntryData> = {};
 
-    if (date && shift) {
+    if (date) {
       try {
         let query = supabase
           .from('prep_chart_entries')
           .select('*')
           .eq('entry_date', date);
 
-        if (shift === 'F') {
-          query = query.in('shift', ['F', 'D']);
-        } else {
-          query = query.eq('shift', shift);
+        if (shift) {
+          if (shift === 'F') {
+            query = query.in('shift', ['F', 'D', 'N']);
+          } else {
+            query = query.in('shift', [shift, 'F', 'D', 'N']);
+          }
         }
 
         const { data: entriesRes } = await query;
@@ -226,11 +185,28 @@ export async function GET(req: NextRequest) {
         if (Array.isArray(entriesRes) && entriesRes.length > 0) {
           entriesRes.forEach((e: any) => {
             const entryData = typeof e.entry_json === 'string' ? JSON.parse(e.entry_json) : (e.entry_json || {});
+            
+            let batchesList: ChartBatchData[] = Array.isArray(entryData.batches) && entryData.batches.length > 0
+              ? entryData.batches
+              : [];
+
+            if (batchesList.length === 0 && Array.isArray(entryData.rows) && entryData.rows.length > 0) {
+              batchesList = [{
+                batch_number: 1,
+                batch_name: 'Batch #1',
+                target_batch_liters: entryData.target_batch_liters,
+                target_fat: entryData.target_fat,
+                target_snf: entryData.target_snf,
+                rows: entryData.rows,
+              }];
+            }
+
             entries[e.chart_key] = {
               chart_key: e.chart_key,
               entry_date: e.entry_date,
               shift: e.shift,
-              rows: entryData.rows || [],
+              batches: batchesList,
+              rows: entryData.rows || (batchesList[0]?.rows || []),
               target_batch_liters: entryData.target_batch_liters,
               target_fat: entryData.target_fat,
               target_snf: entryData.target_snf,
@@ -322,13 +298,12 @@ export async function POST(req: NextRequest) {
         console.warn('Dedicated prep_to_stock_mapping_rules table save warning:', err);
       }
 
-      // Also save in prep_chart_configs for backward compatibility
-      await supabase.from('prep_chart_configs').upsert({
-        config_key: 'mappings',
-        config_json: body.mappings,
-        updated_by: actorUsername,
-        updated_at: new Date().toISOString(),
-      }, { onConflict: 'config_key' });
+      // Clean up legacy prep_chart_configs mappings key if present
+      try {
+        await supabase.from('prep_chart_configs').delete().eq('config_key', 'mappings');
+      } catch (e) {
+        // ignore error
+      }
     } else if (body.template && body.template.chart_key) {
       const { data: tmplRes } = await supabase
         .from('prep_chart_configs')

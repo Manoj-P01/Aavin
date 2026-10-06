@@ -1,291 +1,456 @@
-// ─────────────────────────────────────────────────────────────────────────────
-// Aavin Dashboard – Manage Statements Configuration Page
-// Allows adding, renaming, and deleting custom solid balance (STG) statements
-// ─────────────────────────────────────────────────────────────────────────────
-
 'use client';
 
 import { useState, useEffect } from 'react';
-import { useRouter } from 'next/navigation';
 import Header from '@/components/layout/Header';
 import Link from 'next/link';
 import { useConfirm } from '@/context/ConfirmContext';
-import { buildStgStatementsFromProducts } from '@/lib/calculations';
+import { cleanStatementLabel } from '@/lib/calculations';
 
-interface StatementConfig {
+export interface StatementMasterDef {
   key: string;
   label: string;
+  name?: string;
+  variant?: string;
+  product_variant?: string;
+  description?: string;
+  sort_order?: number;
+  is_active?: boolean;
+  is_split?: boolean;
+  receipt_rows?: any[];
+  disposal_rows?: any[];
+  custom_columns?: any[];
+  default_rows?: any[];
+  rows?: any[];
 }
 
-export default function ManageStatementsPage() {
-  const router = useRouter();
-  const { confirm, showSuccess } = useConfirm();
-  const [statements, setStatements] = useState<StatementConfig[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState('');
-  const [success, setSuccess] = useState('');
+export default function StatementMastersConfigPage() {
+  const [masters, setMasters] = useState<StatementMasterDef[]>([]);
+  const [loading, setLoading] = useState<boolean>(true);
+  const [saving, setSaving] = useState<boolean>(false);
+  const [toastMessage, setToastMessage] = useState<string | null>(null);
 
-  // Load global statements list template from DB
+  // Modal / Form state for new / edit statement master
+  const [isModalOpen, setIsModalOpen] = useState<boolean>(false);
+  const [editingKey, setEditingKey] = useState<string | null>(null);
+
+  const [formKey, setFormKey] = useState<string>('');
+  const [formName, setFormName] = useState<string>('');
+  const [formProductVariant, setFormProductVariant] = useState<string>('');
+  const [formDescription, setFormDescription] = useState<string>('');
+
+  const { confirm } = useConfirm();
+
+  // Load Statement Masters Config strictly from DB
   useEffect(() => {
-    async function loadConfig() {
+    async function loadData() {
+      setLoading(true);
       try {
-        const res = await fetch('/api/entries?report_type=TS');
-        if (!res.ok) {
-          setLoading(false);
-          return;
-        }
-        let hasSavedConfig = false;
-        const json = await res.json();
-        const entries: any[] = json.data || [];
-        const configEntry = entries.find((e: any) => {
-          if (!e.notes || e.notes.includes('__METADATA__:')) return false;
-          try {
-            const parsed = JSON.parse(e.notes);
-            return Array.isArray(parsed) && (parsed.length === 0 || parsed[0]?.key !== undefined);
-          } catch { return false; }
-        });
-        if (configEntry && configEntry.notes) {
-          try {
-            const list = JSON.parse(configEntry.notes);
-            if (Array.isArray(list) && list.length > 0) {
-              setStatements(list);
-              hasSavedConfig = true;
-            }
-          } catch (e) {
-            console.error('Failed to parse global config notes:', e);
-          }
-        }
-
-        if (!hasSavedConfig) {
-          const stockCfgRes = await fetch('/api/stock/config');
-          if (stockCfgRes.ok) {
-            const stockCfg = await stockCfgRes.json();
-            if (Array.isArray(stockCfg.products) && stockCfg.products.length > 0) {
-              setStatements(buildStgStatementsFromProducts(stockCfg.products));
-            }
+        const res = await fetch('/api/ts/masters');
+        if (res.ok) {
+          const json = await res.json();
+          if (Array.isArray(json.masters)) {
+            const normalized = json.masters.map((s: any, idx: number) => {
+              const displayLabel = cleanStatementLabel(s.label || s.name || s.key);
+              return {
+                ...s,
+                key: s.key,
+                label: displayLabel,
+                name: displayLabel,
+                variant: s.variant || s.product_variant || displayLabel.split(' ')[0],
+                product_variant: s.variant || s.product_variant || displayLabel.split(' ')[0],
+                description: s.description || '',
+                sort_order: typeof s.sort_order === 'number' ? s.sort_order : idx + 1,
+                is_active: s.is_active !== false,
+                rows: Array.isArray(s.rows) ? s.rows : [],
+              };
+            });
+            setMasters(normalized);
           }
         }
       } catch (err) {
-        console.error('Error loading statement config:', err);
-      } finally {
-        setLoading(false);
+        console.error('Failed to load statement masters:', err);
       }
+      setLoading(false);
     }
-    loadConfig();
+    loadData();
   }, []);
 
-  const handleSave = async () => {
-    // Validate empty labels
-    const hasEmptyLabel = statements.some(s => s.label.trim() === '');
-    if (hasEmptyLabel) {
-      setError('Please fill in names for all statements before saving.');
-      return;
-    }
+  const showToast = (msg: string) => {
+    setToastMessage(msg);
+    setTimeout(() => setToastMessage(null), 3500);
+  };
 
-    // Validate empty keys
-    const hasEmptyKey = statements.some(s => s.key.trim() === '');
-    if (hasEmptyKey) {
-      setError('Please fill in shortkeys/keys for all statements before saving.');
-      return;
-    }
+  const handleOpenAdd = () => {
+    setEditingKey(null);
+    setFormKey('');
+    setFormName('');
+    setFormProductVariant('');
+    setFormDescription('');
+    setIsModalOpen(true);
+  };
 
-    // Validate duplicate keys
-    const keys = statements.map(s => s.key.trim().toUpperCase());
-    const uniqueKeys = new Set(keys);
-    if (uniqueKeys.size !== keys.length) {
-      setError('Duplicate shortkeys are not allowed.');
-      return;
-    }
+  const handleOpenEdit = (statement: StatementMasterDef) => {
+    setEditingKey(statement.key);
+    setFormKey(statement.key);
+    setFormName(statement.label || statement.name || statement.key);
+    setFormProductVariant(statement.variant || statement.product_variant || '');
+    setFormDescription(statement.description || '');
+    setIsModalOpen(true);
+  };
 
-    setSaving(true);
-    setError('');
-    setSuccess('');
+  const handleDelete = async (key: string, name: string) => {
+    const isConfirmed = await confirm({
+      title: 'Delete Statement Master',
+      message: `Are you sure you want to delete "${name}"? Users will no longer see this statement master on the daily TS dashboard.`,
+      confirmText: 'Delete Statement Master',
+      cancelText: 'Cancel',
+      type: 'warning',
+    });
+
+    if (!isConfirmed) return;
+
     try {
-      const res = await fetch('/api/entries', {
+      const res = await fetch(`/api/ts/masters?key=${encodeURIComponent(key)}`, {
+        method: 'DELETE',
+      });
+      if (res.ok) {
+        setMasters(prev => prev.filter(m => m.key !== key));
+        showToast(`✅ Deleted statement master "${name}" from database`);
+      } else {
+        showToast('❌ Failed to delete statement master from database');
+      }
+    } catch (err) {
+      console.error('Delete master error:', err);
+      showToast('❌ Error connecting to database');
+    }
+  };
+
+  const handleMove = async (index: number, direction: 'up' | 'down') => {
+    const targetIndex = direction === 'up' ? index - 1 : index + 1;
+    if (targetIndex < 0 || targetIndex >= masters.length) return;
+
+    const copy = [...masters];
+    const temp = copy[index];
+    copy[index] = copy[targetIndex];
+    copy[targetIndex] = temp;
+
+    const reindexed = copy.map((m, i) => ({ ...m, sort_order: i + 1 }));
+    setMasters(reindexed);
+    await saveMastersToApi(reindexed, 'Reordered statement master names');
+  };
+
+  const handleSaveModal = async (e: React.FormEvent) => {
+    e.preventDefault();
+
+    if (!formName.trim()) {
+      alert('Please enter a Statement Master Name');
+      return;
+    }
+
+    const cleanLabel = cleanStatementLabel(formName.trim());
+    const keyToUse = editingKey || formKey.trim().toLowerCase().replace(/[^a-z0-9_]/g, '_') || cleanLabel.toLowerCase().replace(/[^a-z0-9_]/g, '_');
+    const existing = masters.find(m => m.key === (editingKey || keyToUse));
+
+    const newMaster: StatementMasterDef = {
+      ...existing,
+      key: keyToUse,
+      label: cleanLabel,
+      name: cleanLabel,
+      variant: formProductVariant.trim().toUpperCase() || cleanLabel.split(' ')[0],
+      product_variant: formProductVariant.trim().toUpperCase() || cleanLabel.split(' ')[0],
+      description: formDescription.trim(),
+      sort_order: editingKey ? (existing?.sort_order || masters.length + 1) : masters.length + 1,
+      is_active: true,
+      rows: existing?.rows || [],
+    };
+
+    let updated: StatementMasterDef[];
+    if (editingKey) {
+      updated = masters.map(m => (m.key === editingKey ? newMaster : m));
+    } else {
+      if (masters.some(m => m.key === newMaster.key)) {
+        alert(`Statement key "${newMaster.key}" already exists! Please use a unique Statement Master Name.`);
+        return;
+      }
+      updated = [...masters, newMaster];
+    }
+
+    setMasters(updated);
+    setIsModalOpen(false);
+    await saveMastersToApi(updated, editingKey ? `Updated "${newMaster.label}"` : `Created "${newMaster.label}"`);
+  };
+
+  const saveMastersToApi = async (mastersToSave: StatementMasterDef[], successMsg: string) => {
+    setSaving(true);
+    try {
+      const res = await fetch('/api/ts/masters', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          report_type: 'TS',
-          notes: JSON.stringify(statements),
-        }),
+        body: JSON.stringify({ masters: mastersToSave }),
       });
-      if (!res.ok) {
-        const data = await res.json();
-        throw new Error(data.error || 'Failed to save configuration.');
+      if (res.ok) {
+        showToast(`✅ ${successMsg}`);
+      } else {
+        showToast('❌ Failed to save statement masters');
       }
-      setSuccess('Statement configurations saved successfully!');
-      await showSuccess('Statement configurations saved successfully!', 'Saved');
-      setTimeout(() => setSuccess(''), 4000);
-    } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : 'Save failed');
-    } finally {
-      setSaving(false);
+    } catch (err) {
+      console.error('Error saving masters:', err);
+      showToast('❌ Error connecting to server');
     }
-  };
-
-  const addStatement = () => {
-    setStatements(prev => [...prev, { key: '', label: '' }]);
-  };
-
-  const addStatementAfter = (index: number) => {
-    setStatements(prev => {
-      const next = [...prev];
-      next.splice(index + 1, 0, { key: '', label: '' });
-      return next;
-    });
-  };
-
-  const deleteStatement = async (key: string, label: string) => {
-    const ok = await confirm({
-      title: 'Delete Statement',
-      message: `Are you sure you want to delete "${label || 'Unnamed Statement'}" from the template?`,
-      confirmText: 'Delete Statement',
-      cancelText: 'Cancel',
-      type: 'danger',
-    });
-    if (!ok) return;
-
-    setStatements(prev => prev.filter(s => s.key !== key));
+    setSaving(false);
   };
 
   return (
     <>
       <Header
-        title="Manage Statements"
-        subtitle="Configure the templates and product blocks for the Solid Balance (STG) reports"
+        title="Statement Master Names & Particulars"
+        subtitle="Create, edit & delete Statement Master Names & Particulars for RECEIPT AND DISPOSAL STATEMENT"
         actions={
-          <Link href="/dashboard/ts" className="btn btn-secondary btn-sm">
-            ← Back to TS Dashboard
-          </Link>
+          <div style={{ display: 'flex', gap: 10 }}>
+            <Link href="/dashboard/ts/manage-statements/defaults" className="btn btn-secondary btn-sm" style={{ color: '#b45309', borderColor: '#fde68a', background: '#fffbeb', fontWeight: 700 }}>
+              ⭐ Master Default Formulation Tables
+            </Link>
+            <Link href="/dashboard/ts/manage-statements/columns" className="btn btn-secondary btn-sm" style={{ color: '#0369a1', borderColor: '#bae6fd', background: '#f0f9ff', fontWeight: 700 }}>
+              ⚙️ Column Configuration
+            </Link>
+            <Link href="/dashboard/ts/new-stg" className="btn btn-secondary btn-sm">
+              🧪 STG Entry
+            </Link>
+          </div>
         }
       />
 
-      <div className="page-body animate-fade-in" style={{ maxWidth: 800 }}>
-        {error && <div className="alert alert-error">⚠️ {error}</div>}
-        {success && <div className="alert alert-success">✅ {success}</div>}
+      <div className="page-body animate-fade-in">
+        {toastMessage && (
+          <div
+            style={{
+              padding: '12px 18px',
+              borderRadius: 8,
+              background: toastMessage.includes('❌') ? '#fef2f2' : '#f0fdf4',
+              border: toastMessage.includes('❌') ? '1px solid #fca5a5' : '1px solid #86efac',
+              color: toastMessage.includes('❌') ? '#991b1b' : '#166534',
+              fontWeight: 700,
+              fontSize: '0.85rem',
+              marginBottom: 16,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+            }}
+          >
+            <span>{toastMessage}</span>
+            <button type="button" onClick={() => setToastMessage(null)} style={{ background: 'none', border: 'none', cursor: 'pointer' }}>✕</button>
+          </div>
+        )}
 
+        {/* Info Card */}
+        <div className="card" style={{ marginBottom: 20, padding: 16, borderLeft: '4px solid #0284c7' }}>
+          <div style={{ fontWeight: 700, fontSize: '0.9rem', color: '#0284c7', marginBottom: 4 }}>
+            📋 Statement Master Templates
+          </div>
+          <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', lineHeight: 1.5 }}>
+            Each Statement Master Name created here generates a receipt & disposal formulation table on the <strong>Master Default Formulation Tables</strong> page and daily <strong>STG Entry</strong> reports.
+          </div>
+        </div>
+
+        {/* Masters Table */}
         <div className="card">
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
-            <h3 style={{ margin: 0, color: 'var(--brand-primary)' }}>STG Statements Template</h3>
-            <button type="button" className="btn btn-secondary btn-sm" onClick={addStatement}>
-              ➕ Add Statement
-            </button>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '14px 18px', borderBottom: '1px solid var(--border)' }}>
+            <div style={{ fontWeight: 700, fontSize: '0.95rem', color: 'var(--text-primary)' }}>
+              📊 Statement Master Names ({masters.length})
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+              {saving && <span style={{ fontSize: '0.75rem', color: 'var(--brand-primary)', fontWeight: 600 }}>💾 Saving to server...</span>}
+              <button type="button" className="btn btn-primary btn-sm" onClick={handleOpenAdd}>
+                ➕ Add Statement Master Name
+              </button>
+            </div>
           </div>
 
           {loading ? (
-            <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: 24 }}>
-              <span className="spinner" /> Loading statement list...
+            <div style={{ padding: 40, textAlign: 'center', color: 'var(--text-muted)' }}>
+              <span className="spinner" /> Loading statement master names...
+            </div>
+          ) : masters.length === 0 ? (
+            <div style={{ padding: 40, textAlign: 'center', color: 'var(--text-muted)' }}>
+              No statement master names defined yet. Click "Add Statement Master Name" above to create one.
             </div>
           ) : (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-              {statements.map((s, index) => {
-                let duplicateStatement: StatementConfig | undefined;
-                if (s.key.trim() !== '') {
-                  duplicateStatement = statements.find((other, otherIdx) =>
-                    otherIdx !== index && other.key.trim().toUpperCase() === s.key.trim().toUpperCase()
-                  );
-                }
-
-                return (
-                  <div
-                    key={index}
-                    style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'space-between',
-                      padding: '12px 18px',
-                      background: '#f8fafc',
-                      border: '1px solid var(--border)',
-                      borderRadius: 8,
-                    }}
-                  >
-                    <div style={{ flexGrow: 1, marginRight: 16, display: 'flex', gap: 16, alignItems: 'flex-end', flexWrap: 'wrap' }}>
-                      <div style={{ minWidth: 200, flex: 2 }}>
-                        <label className="form-label" style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginBottom: 4, display: 'block' }}>
-                          Statement Name
-                        </label>
-                        <input
-                          type="text"
-                          className="form-input"
-                          style={{ fontSize: '0.9rem', fontWeight: 600, padding: '6px 12px', width: '100%' }}
-                          value={s.label}
-                          onChange={(e) => {
-                            const val = e.target.value;
-                            setStatements(prev => {
-                              const list = [...prev];
-                              list[index] = { ...list[index], label: val };
-                              return list;
-                            });
-                          }}
-                          placeholder="Enter statement name (e.g. Whole Milk)..."
-                          autoFocus={s.label === ''}
-                        />
-                      </div>
-                      <div style={{ minWidth: 100, flex: 1 }}>
-                        <label className="form-label" style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginBottom: 4, display: 'block' }}>
-                          Shortkey / Key
-                        </label>
-                        <input
-                          type="text"
-                          className="form-input"
-                          style={{ fontSize: '0.9rem', fontWeight: 600, padding: '6px 12px', width: '100%', textTransform: 'uppercase', borderColor: duplicateStatement ? '#ef4444' : undefined }}
-                          value={s.key}
-                          onChange={(e) => {
-                            const val = e.target.value.toUpperCase().replace(/[^A-Z0-9_]/g, '');
-                            setStatements(prev => {
-                              const list = [...prev];
-                              list[index] = { ...list[index], key: val };
-                              return list;
-                            });
-                          }}
-                          placeholder="e.g. WM"
-                        />
-                        {duplicateStatement && (
-                          <div style={{ fontSize: '0.7rem', color: '#ef4444', marginTop: 4 }}>
-                            ⚠️ Already used for "{duplicateStatement.label || 'Unnamed'}"
-                          </div>
-                        )}
-                      </div>
-                    </div>
-
-                    <div style={{ alignSelf: 'flex-end', paddingBottom: 2, display: 'flex', gap: 8 }}>
-                      <button
-                        type="button"
-                        className="btn btn-ghost btn-sm"
-                        style={{ padding: '6px 12px', fontSize: '0.75rem', color: 'var(--brand-primary)', border: '1px solid var(--border)' }}
-                        onClick={() => addStatementAfter(index)}
-                      >
-                        ➕ Insert Below
-                      </button>
-                      <button
-                        type="button"
-                        className="btn btn-ghost btn-sm"
-                        style={{ padding: '6px 12px', fontSize: '0.75rem', color: '#ef4444', border: '1px solid #fca5a5' }}
-                        onClick={() => deleteStatement(s.key, s.label)}
-                      >
-                        ❌ Delete
-                      </button>
-                    </div>
-                  </div>
-                );
-              })}
+            <div style={{ overflowX: 'auto' }}>
+              <table className="inline-table" style={{ width: '100%' }}>
+                <thead>
+                  <tr style={{ background: '#f8fafc' }}>
+                    <th style={{ width: 60, textAlign: 'center' }}>Order</th>
+                    <th>Statement Master Name</th>
+                    <th>Product Variant</th>
+                    <th>Description</th>
+                    <th style={{ width: 140, textAlign: 'center' }}>Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {masters.map((m, idx) => (
+                    <tr key={m.key}>
+                      <td style={{ textAlign: 'center', fontWeight: 700, color: '#64748b' }}>
+                        {idx + 1}
+                      </td>
+                      <td style={{ fontWeight: 800, color: 'var(--brand-primary)' }}>
+                        📊 {m.label || m.name}
+                      </td>
+                      <td>
+                        <span style={{ padding: '2px 8px', borderRadius: 10, fontSize: '0.72rem', fontWeight: 700, background: '#e0f2fe', color: '#0369a1' }}>
+                          {m.variant || m.product_variant || 'DEFAULT'}
+                        </span>
+                      </td>
+                      <td style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
+                        {m.description || '—'}
+                      </td>
+                      <td style={{ textAlign: 'center' }}>
+                        <div style={{ display: 'flex', gap: 4, justifyContent: 'center' }}>
+                          <button
+                            type="button"
+                            className="btn btn-secondary btn-sm"
+                            disabled={idx === 0}
+                            onClick={() => handleMove(idx, 'up')}
+                            style={{ padding: '2px 6px', fontSize: '0.75rem' }}
+                            title="Move Up"
+                          >
+                            ▲
+                          </button>
+                          <button
+                            type="button"
+                            className="btn btn-secondary btn-sm"
+                            disabled={idx === masters.length - 1}
+                            onClick={() => handleMove(idx, 'down')}
+                            style={{ padding: '2px 6px', fontSize: '0.75rem' }}
+                            title="Move Down"
+                          >
+                            ▼
+                          </button>
+                          <button
+                            type="button"
+                            className="btn btn-secondary btn-sm"
+                            onClick={() => handleOpenEdit(m)}
+                            style={{ padding: '2px 8px', fontSize: '0.75rem' }}
+                            title="Edit Statement Master"
+                          >
+                            ✏️ Edit
+                          </button>
+                          <button
+                            type="button"
+                            className="btn btn-danger btn-sm"
+                            onClick={() => handleDelete(m.key, m.label || m.name || m.key)}
+                            style={{ padding: '2px 8px', fontSize: '0.75rem', background: '#fef2f2', color: '#dc2626', borderColor: '#fca5a5' }}
+                            title="Delete Statement Master"
+                          >
+                            ✕
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             </div>
           )}
-
-          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 12, marginTop: 24, borderTop: '1px solid var(--border)', paddingTop: 16 }}>
-            <button
-              type="button"
-              className="btn btn-primary"
-              onClick={handleSave}
-              disabled={saving || loading}
-              style={{ padding: '10px 24px' }}
-            >
-              {saving ? 'Saving changes...' : '💾 Save Configurations'}
-            </button>
-          </div>
         </div>
       </div>
+
+      {/* Modal for Creating / Editing Statement Master Name */}
+      {isModalOpen && (
+        <div style={{
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          background: 'rgba(15, 23, 42, 0.55)',
+          backdropFilter: 'blur(4px)',
+          zIndex: 9999,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          padding: 16,
+        }}>
+          <div style={{
+            background: '#ffffff',
+            borderRadius: 12,
+            border: '1px solid var(--border)',
+            boxShadow: '0 20px 25px -5px rgba(0,0,0,0.1), 0 8px 10px -6px rgba(0,0,0,0.1)',
+            width: '100%',
+            maxWidth: 540,
+            overflow: 'hidden',
+          }}>
+            <div style={{ padding: '16px 20px', background: '#f8fafc', borderBottom: '1px solid var(--border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div style={{ fontWeight: 700, fontSize: '1.05rem', color: 'var(--text-primary)' }}>
+                {editingKey ? '✏️ Edit Statement Master Name' : '➕ Create New Statement Master Name'}
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsModalOpen(false)}
+                style={{ background: 'none', border: 'none', fontSize: '1.1rem', color: '#64748b', cursor: 'pointer' }}
+              >
+                ✕
+              </button>
+            </div>
+
+            <form onSubmit={handleSaveModal} style={{ padding: 20, display: 'flex', flexDirection: 'column', gap: 16 }}>
+              <div>
+                <label className="form-label" style={{ fontWeight: 600 }}>Statement Master Name <span style={{ color: '#dc2626' }}>*</span></label>
+                <input
+                  type="text"
+                  className="form-input"
+                  placeholder="e.g. CREAM RECEIPT AND DISPOSAL STATEMENT"
+                  value={formName}
+                  onChange={e => {
+                    setFormName(e.target.value);
+                    if (!editingKey) {
+                      setFormKey(e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, '_'));
+                    }
+                  }}
+                  required
+                />
+              </div>
+
+              <div>
+                <label className="form-label" style={{ fontWeight: 600 }}>Product Variant</label>
+                <input
+                  type="text"
+                  className="form-input"
+                  placeholder="e.g. CREAM"
+                  value={formProductVariant}
+                  onChange={e => setFormProductVariant(e.target.value)}
+                />
+              </div>
+
+              <div>
+                <label className="form-label" style={{ fontWeight: 600 }}>Description / Notes</label>
+                <input
+                  type="text"
+                  className="form-input"
+                  placeholder="e.g. Daily cream receipt and disposal formulation statement"
+                  value={formDescription}
+                  onChange={e => setFormDescription(e.target.value)}
+                />
+              </div>
+
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, paddingTop: 10, borderTop: '1px solid var(--border)' }}>
+                <button
+                  type="button"
+                  className="btn btn-secondary btn-sm"
+                  onClick={() => setIsModalOpen(false)}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="btn btn-primary btn-sm"
+                >
+                  {editingKey ? '💾 Update Statement Master Name' : '➕ Add Statement Master Name'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </>
   );
 }

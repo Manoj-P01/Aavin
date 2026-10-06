@@ -61,7 +61,7 @@ export default function StockEntryForm({
 }: StockEntryFormProps = {}) {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const { showWarning, showError } = useConfirm();
+  const { confirm, showWarning, showError } = useConfirm();
   const paramDate = searchParams.get('date');
   const paramShift = searchParams.get('shift');
 
@@ -713,6 +713,7 @@ export default function StockEntryForm({
                 defaultRows[0].values = initialObValues;
                 setRows(defaultRows);
                 setNotes('');
+                await syncFromPreparationCharts();
               }
             };
 
@@ -931,6 +932,7 @@ export default function StockEntryForm({
           }
 
           setRows(loadedRows);
+          await syncFromPreparationCharts();
         }
       } catch (err) {
         console.error('Error loading existing stock data:', err);
@@ -977,15 +979,21 @@ export default function StockEntryForm({
     });
   };
 
-  const deleteRow = (idx: number) => {
+  const deleteRow = async (idx: number) => {
+    const item = rows[idx];
+    if (!item) return;
+    const hasData = Object.values(item.values).some(v => v && parseFloat(v) !== 0);
+    if (hasData || item.row_label.trim() !== '') {
+      const ok = await confirm({
+        title: 'Confirm Row Removal',
+        message: 'Are you sure you want to remove this row containing data?',
+        confirmText: 'Remove Row',
+        cancelText: 'Cancel',
+        type: 'warning',
+      });
+      if (!ok) return;
+    }
     setRows(prev => {
-      const item = prev[idx];
-      if (!item) return prev;
-      const hasData = Object.values(item.values).some(v => v && parseFloat(v) !== 0);
-      if (hasData || item.row_label.trim() !== '') {
-        const ok = window.confirm("Are you sure you want to remove this row containing data?");
-        if (!ok) return prev;
-      }
       const next = [...prev];
       next.splice(idx, 1);
       return next;
@@ -1009,10 +1017,16 @@ export default function StockEntryForm({
     });
   };
 
-  const deleteColumn = (colKey: string) => {
+  const deleteColumn = async (colKey: string) => {
     const hasData = rows.some(r => r.values[colKey] && parseFloat(r.values[colKey]) !== 0);
     if (hasData) {
-      const ok = window.confirm("Are you sure you want to remove this column and all its data?");
+      const ok = await confirm({
+        title: 'Confirm Column Removal',
+        message: 'Are you sure you want to remove this column and all its data?',
+        confirmText: 'Remove Column',
+        cancelText: 'Cancel',
+        type: 'warning',
+      });
       if (!ok) return;
     }
 
@@ -2055,47 +2069,162 @@ export default function StockEntryForm({
       const json = await res.json();
       const entries: Record<string, any> = json.entries || {};
       const mappingRules: any[] = json.mappings || [];
+      const masters: any[] = json.masters || [];
       let mappedCount = 0;
+
+      const norm = (str: any) => String(str || '').toLowerCase().replace(/[^a-z0-9]/g, '');
 
       setRows(prevRows => {
         const nextRows = [...prevRows];
 
         Object.keys(entries).forEach(chartKey => {
           const entry = entries[chartKey];
-          const rowsList = entry.rows || [];
+          const masterDef = masters.find((m: any) => m.key === chartKey);
+          const chartVariantNorm = norm(masterDef?.product_variant || chartKey);
 
-          rowsList.forEach((r: any) => {
-            const variant = (r.variant || r.values?.variant || '').trim().toUpperCase();
+          // Get list of batches if present, or fallback to single entry object as batch 1
+          const batchesList: any[] = Array.isArray(entry.batches) && entry.batches.length > 0
+            ? entry.batches
+            : [{
+                rows: Array.isArray(entry.rows) ? entry.rows : [],
+                target_batch_liters: entry.target_batch_liters,
+                target_fat: entry.target_fat,
+                target_snf: entry.target_snf,
+              }];
 
-            // Check if user defined custom mapping rule(s) for this chart / variant
+          batchesList.forEach((batch: any) => {
+            // Find active mapping rules for this chart / variant
             const matchingRules = mappingRules.filter(rule => {
               if (rule.enabled === false) return false;
-              const matchChart = rule.sourceChartKey === '*' || rule.sourceChartKey === chartKey;
-              const matchVar = rule.sourceVariant === '*' || rule.sourceVariant.trim().toUpperCase() === variant;
-              return matchChart && matchVar;
+              const ruleChartNorm = norm(rule.sourceChartKey || '*');
+              const ruleVarNorm = norm(rule.sourceVariant || '*');
+
+              const matchChart = ruleChartNorm === '*' || ruleChartNorm === norm(chartKey) || (masterDef && ruleChartNorm === norm(masterDef.name));
+
+              const matchVar =
+                ruleVarNorm === '*' ||
+                ruleVarNorm === chartVariantNorm ||
+                (chartVariantNorm !== '' && chartVariantNorm.includes(ruleVarNorm)) ||
+                (chartVariantNorm !== '' && ruleVarNorm.includes(chartVariantNorm));
+
+              if (matchChart && matchVar) return true;
+
+              // Also check if any row in batch matches ruleVarNorm
+              const bRows: any[] = Array.isArray(batch.rows) && batch.rows.length > 0 ? batch.rows : [];
+              const rowMatch = bRows.some((r: any) => {
+                const rVar = norm(r.variant || r.values?.variant || r.ingredient || r.name || r.item || '');
+                return rVar !== '' && (rVar === ruleVarNorm || rVar.includes(ruleVarNorm) || ruleVarNorm.includes(rVar));
+              });
+
+              return matchChart && rowMatch;
             });
 
             if (matchingRules.length > 0) {
               matchingRules.forEach(rule => {
-                const colKey = rule.sourceColKey || 'qty_lit';
-                const rawVal = r.values?.[colKey] !== undefined ? r.values[colKey] : (r.values?.qty_lit || r.values?.qty_lts || r.values?.liters || 0);
-                const numVal = parseFloat(String(rawVal).replace(/,/g, ''));
+                const preferredKey = rule.sourceColKey || 'qty_lit';
+                const normPref = norm(preferredKey);
 
-                if (!isNaN(numVal) && numVal > 0) {
+                let batchQty = 0;
+                const targetBatchVol = Number(batch.target_batch_liters || entry.target_batch_liters || masterDef?.target_batch_liters || 0);
+                const ruleVarNorm = norm(rule.sourceVariant || '*');
+                const isChartLevelVariant = ruleVarNorm === '*' || ruleVarNorm === '' || ruleVarNorm === chartVariantNorm || (chartVariantNorm !== '' && (chartVariantNorm.includes(ruleVarNorm) || ruleVarNorm.includes(chartVariantNorm)));
+
+                // 1. If rule is for overall chart or volume column, use overall target batch volume
+                if (targetBatchVol > 0 && (isChartLevelVariant || normPref.includes('qty') || normPref.includes('lit') || normPref.includes('vol') || normPref.includes('batch'))) {
+                  batchQty = targetBatchVol;
+                }
+
+                // 2. Otherwise search batch rows for specific ingredient row value
+                if (batchQty === 0) {
+                  const bRows: any[] = Array.isArray(batch.rows) && batch.rows.length > 0 ? batch.rows : (Array.isArray(entry.rows) ? entry.rows : []);
+
+                  for (const r of bRows) {
+                    const rVar = norm(r.variant || r.values?.variant || r.ingredient || r.name || r.item || '');
+                    const rowMatches = isChartLevelVariant || (rVar !== '' && (rVar === ruleVarNorm || rVar.includes(ruleVarNorm) || ruleVarNorm.includes(rVar)));
+
+                    if (rowMatches) {
+                      const vals = r?.values || r || {};
+                      for (const [k, v] of Object.entries(vals)) {
+                        if (norm(k) === normPref && v !== undefined && v !== null && v !== '') {
+                          const num = parseFloat(String(v).replace(/,/g, ''));
+                          if (!isNaN(num) && num > 0) {
+                            batchQty = num;
+                            break;
+                          }
+                        }
+                      }
+                      if (batchQty > 0) break;
+                    }
+                  }
+                }
+
+                // 3. Fallback: targetBatchVol
+                if (batchQty === 0) {
+                  batchQty = targetBatchVol;
+                }
+
+                if (batchQty > 0) {
                   const targetRowType = rule.targetRowType || 'RECEIPT';
-                  const targetRowIdx = nextRows.findIndex(row => row.row_type === targetRowType);
+                  let targetRowIdx = -1;
+
+                  if (rule.targetRowLabel && rule.targetRowLabel.trim() !== '') {
+                    const normRuleLabel = norm(rule.targetRowLabel);
+                    targetRowIdx = nextRows.findIndex(row =>
+                      row.row_type === targetRowType &&
+                      (
+                        norm(row.row_label) === normRuleLabel ||
+                        norm(row.row_label).includes(normRuleLabel) ||
+                        normRuleLabel.includes(norm(row.row_label))
+                      )
+                    );
+
+                    if (targetRowIdx === -1) {
+                      const newRow: StockRowState = {
+                        row_type: targetRowType,
+                        row_label: rule.targetRowLabel.trim(),
+                        values: {},
+                      };
+                      const lastSectionIdx = nextRows.map((x, i) => x.row_type === targetRowType ? i : -1).filter(i => i !== -1).pop();
+                      if (lastSectionIdx !== undefined && lastSectionIdx >= 0) {
+                        nextRows.splice(lastSectionIdx + 1, 0, newRow);
+                        targetRowIdx = lastSectionIdx + 1;
+                      } else {
+                        nextRows.push(newRow);
+                        targetRowIdx = nextRows.length - 1;
+                      }
+                    }
+                  } else {
+                    targetRowIdx = nextRows.findIndex(row => row.row_type === targetRowType);
+                  }
 
                   if (targetRowIdx !== -1) {
                     const targetRow = { ...nextRows[targetRowIdx], values: { ...nextRows[targetRowIdx].values } };
-                    const targetProdKey = rule.targetProductKey;
+                    const targetProdKey = rule.targetProductKey || '';
+                    const normTargetProd = norm(targetProdKey);
 
-                    const matchedCol = columns.find(c =>
-                      c.key === targetProdKey ||
-                      (c.label || c.short_name || c.full_name || '').toUpperCase() === targetProdKey.toUpperCase()
-                    );
+                    const matchedCol = columns.find(c => {
+                      const normColKey = norm(c.key);
+                      const normColLabel = norm(c.label || c.short_name || c.full_name || '');
+                      return (
+                        c.key === targetProdKey ||
+                        normColKey === normTargetProd ||
+                        normColLabel === normTargetProd ||
+                        (normTargetProd.includes('wh') && normColKey.includes('wh')) ||
+                        (normTargetProd.includes('wm') && (normColKey.includes('wm') || normColKey.includes('wh'))) ||
+                        (normTargetProd.includes('dlt') && normColKey.includes('dlt')) ||
+                        (normTargetProd.includes('std') && normColKey.includes('std')) ||
+                        (normTargetProd.includes('fcm') && normColKey.includes('fcm')) ||
+                        (normTargetProd.includes('skim') && normColKey.includes('skim'))
+                      );
+                    });
 
                     if (matchedCol) {
-                      targetRow.values[matchedCol.key] = String(numVal);
+                      const existingValStr = targetRow.values[matchedCol.key];
+                      const existingVal = existingValStr !== undefined && existingValStr !== '' && !isNaN(parseFloat(existingValStr))
+                        ? parseFloat(existingValStr)
+                        : 0;
+                      const totalVal = existingVal + batchQty;
+                      targetRow.values[matchedCol.key] = String(totalVal);
                       nextRows[targetRowIdx] = targetRow;
                       mappedCount++;
                     }
@@ -2103,11 +2232,10 @@ export default function StockEntryForm({
                 }
               });
             } else {
-              // Smart Fallback matching
-              const rawVal = r.values?.qty_lit || r.values?.qty_lts || r.values?.liters || r.values?.qty_kg || 0;
-              const numVal = parseFloat(String(rawVal).replace(/,/g, ''));
+              // Smart Fallback matching per batch
+              let batchQty = Number(batch.target_batch_liters || entry.target_batch_liters || 0);
 
-              if (!isNaN(numVal) && numVal > 0) {
+              if (batchQty > 0) {
                 const receiptIndices = nextRows
                   .map((row, i) => (row.row_type === 'RECEIPT' ? i : -1))
                   .filter(i => i !== -1);
@@ -2115,21 +2243,27 @@ export default function StockEntryForm({
                 if (receiptIndices.length > 0) {
                   const targetIdx = receiptIndices[0];
                   const targetRow = { ...nextRows[targetIdx], values: { ...nextRows[targetIdx].values } };
+                  const varUpper = (chartVariantNorm || '').toUpperCase();
 
                   const matchedCol = columns.find(c => {
                     const colLabel = (c.label || c.short_name || c.full_name || c.key).toUpperCase();
                     return (
-                      colLabel === variant ||
-                      (variant.includes('DELITE') && (colLabel.includes('DLT') || colLabel.includes('DELITE'))) ||
-                      (variant.includes('FCM') && colLabel.includes('FCM')) ||
-                      (variant.includes('STD') && (colLabel.includes('STD') || colLabel.includes('STANDARD'))) ||
-                      (variant.includes('SKIM') && colLabel.includes('SKIM')) ||
-                      (variant.includes('TONED') && colLabel.includes('TONED'))
+                      colLabel === varUpper ||
+                      (varUpper.includes('DELITE') && (colLabel.includes('DLT') || colLabel.includes('DELITE'))) ||
+                      (varUpper.includes('FCM') && colLabel.includes('FCM')) ||
+                      (varUpper.includes('STD') && (colLabel.includes('STD') || colLabel.includes('STANDARD'))) ||
+                      (varUpper.includes('SKIM') && colLabel.includes('SKIM')) ||
+                      (varUpper.includes('TONED') && colLabel.includes('TONED'))
                     );
                   });
 
                   if (matchedCol) {
-                    targetRow.values[matchedCol.key] = String(numVal);
+                    const existingValStr = targetRow.values[matchedCol.key];
+                    const existingVal = existingValStr !== undefined && existingValStr !== '' && !isNaN(parseFloat(existingValStr))
+                      ? parseFloat(existingValStr)
+                      : 0;
+                    const totalVal = existingVal + batchQty;
+                    targetRow.values[matchedCol.key] = String(totalVal);
                     nextRows[targetIdx] = targetRow;
                     mappedCount++;
                   }

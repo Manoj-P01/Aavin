@@ -16,7 +16,9 @@ export default function DailyEntryWizard() {
   const paramStep = searchParams.get('step');
 
   const [activeStep, setActiveStep] = useState<'prep' | 'stock' | 'stg' | 'ts'>(
-    paramStep === 'prep' ? 'prep' : 'stock'
+    paramStep === 'stock' || paramStep === 'stg' || paramStep === 'ts' || paramStep === 'prep'
+      ? (paramStep as 'prep' | 'stock' | 'stg' | 'ts')
+      : 'prep'
   );
   const [entryDate, setEntryDate] = useState<string>(
     paramDate || new Date().toISOString().split('T')[0]

@@ -6,7 +6,9 @@ import Step, { DAILY_ENTRY_STEP_ITEMS } from '@/components/ui/Step';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import MasterDetailLayout from '@/components/ui/MasterDetailLayout';
-import type { ChartColumnDef, ChartMasterDef, ChartRowData, ChartEntryData } from '@/app/api/stock/preparation-charts/route';
+import type { ChartColumnDef, ChartMasterDef, ChartRowData, ChartEntryData, ChartBatchData } from '@/app/api/stock/preparation-charts/route';
+import { getStandardColumnDecimals } from '@/lib/calculations';
+import { useConfirm } from '@/context/ConfirmContext';
 
 export interface PreparationChartsProps {
   stepMode?: boolean;
@@ -26,6 +28,7 @@ export default function PreparationChartsDashboardPage({
   initialShift,
 }: PreparationChartsProps = {}) {
   const router = useRouter();
+  const { confirm, showWarning } = useConfirm();
 
   const [date, setDate] = useState<string>(() => initialDate || new Date().toISOString().split('T')[0]);
   const [shift, setShift] = useState<'D' | 'N' | 'F'>(() => {
@@ -42,24 +45,11 @@ export default function PreparationChartsDashboardPage({
   const [isTableEditing, setIsTableEditing] = useState<boolean>(false);
   const [isColumnEditing, setIsColumnEditing] = useState<boolean>(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
+  const [isDirty, setIsDirty] = useState<boolean>(false);
 
   const [hasSavedEntryMap, setHasSavedEntryMap] = useState<Record<string, boolean>>({});
 
-  const [productOptions, setProductOptions] = useState<string[]>([
-    'RAW MILK',
-    'FCM',
-    'DELITE',
-    'STD MILK',
-    'SKIM MILK',
-    'TONED MILK',
-    'DOUBLE TONED MILK',
-    'CREAM',
-    'SMP',
-    'WATER',
-    'R.CON',
-    'BUTTER MILK',
-    'CURD',
-  ]);
+  const [productOptions, setProductOptions] = useState<string[]>([]);
 
   useEffect(() => {
     async function loadProductsMaster() {
@@ -70,7 +60,9 @@ export default function PreparationChartsDashboardPage({
           const prods = json.data || json.products || [];
           if (Array.isArray(prods) && prods.length > 0) {
             const names = prods.map((p: any) => p.short_name || p.product_name || p.full_name || p.key).filter(Boolean);
-            setProductOptions(prev => Array.from(new Set([...names, ...prev])));
+            setProductOptions(Array.from(new Set(names)));
+          } else {
+            setProductOptions([]);
           }
         }
       } catch (e) {
@@ -101,11 +93,14 @@ export default function PreparationChartsDashboardPage({
   }>>({});
 
   const [chartEntriesData, setChartEntriesData] = useState<Record<string, {
+    batches: ChartBatchData[];
     rows: ChartRowData[];
     target_batch_liters?: number;
     target_fat?: number;
     target_snf?: number;
   }>>({});
+
+  const [activeBatchIndexMap, setActiveBatchIndexMap] = useState<Record<string, number>>({});
 
   // Fetch Shift Configuration from System Settings
   useEffect(() => {
@@ -176,43 +171,65 @@ export default function PreparationChartsDashboardPage({
           setActiveChartKey(null);
         }
 
-        // Build local state per master chart strictly from DB JSON (No hardcoded values)
-        const stateMap: Record<string, { rows: ChartRowData[]; target_batch_liters?: number; target_fat?: number; target_snf?: number }> = {};
+        // Build local state per master chart strictly from DB JSON (Supporting multiple batches)
+        const stateMap: Record<string, { batches: ChartBatchData[]; rows: ChartRowData[]; target_batch_liters?: number; target_fat?: number; target_snf?: number }> = {};
         const entryExistsMap: Record<string, boolean> = {};
 
         loadedMasters.forEach(m => {
           const savedEntry = loadedEntries[m.key];
           const masterTemplate = loadedTemplates[m.key];
-          entryExistsMap[m.key] = !!(savedEntry && Array.isArray(savedEntry.rows) && savedEntry.rows.length > 0);
+          entryExistsMap[m.key] = !!(savedEntry && (
+            (Array.isArray(savedEntry.batches) && savedEntry.batches.length > 0) ||
+            (Array.isArray(savedEntry.rows) && savedEntry.rows.length > 0)
+          ));
 
-          if (savedEntry && Array.isArray(savedEntry.rows) && savedEntry.rows.length > 0) {
-            stateMap[m.key] = {
-              rows: savedEntry.rows,
+          let loadedBatches: ChartBatchData[] = [];
+
+          if (savedEntry && Array.isArray(savedEntry.batches) && savedEntry.batches.length > 0) {
+            loadedBatches = savedEntry.batches;
+          } else if (savedEntry && Array.isArray(savedEntry.rows) && savedEntry.rows.length > 0) {
+            loadedBatches = [{
+              batch_number: 1,
+              batch_name: 'Batch #1',
               target_batch_liters: savedEntry.target_batch_liters !== undefined ? savedEntry.target_batch_liters : m.target_batch_liters,
               target_fat: savedEntry.target_fat !== undefined ? savedEntry.target_fat : m.target_fat,
               target_snf: savedEntry.target_snf !== undefined ? savedEntry.target_snf : m.target_snf,
-            };
+              rows: savedEntry.rows,
+            }];
           } else if (masterTemplate && Array.isArray(masterTemplate.rows) && masterTemplate.rows.length > 0) {
-            stateMap[m.key] = {
-              rows: masterTemplate.rows,
+            loadedBatches = [{
+              batch_number: 1,
+              batch_name: 'Batch #1',
               target_batch_liters: masterTemplate.target_batch_liters !== undefined ? masterTemplate.target_batch_liters : m.target_batch_liters,
               target_fat: masterTemplate.target_fat !== undefined ? masterTemplate.target_fat : m.target_fat,
               target_snf: masterTemplate.target_snf !== undefined ? masterTemplate.target_snf : m.target_snf,
-            };
+              rows: masterTemplate.rows,
+            }];
           } else {
-            stateMap[m.key] = {
-              rows: [
-                { variant: m.product_variant || 'Milk Variant', values: { variant: m.product_variant || 'Milk Variant' } }
-              ],
+            loadedBatches = [{
+              batch_number: 1,
+              batch_name: 'Batch #1',
               target_batch_liters: m.target_batch_liters,
               target_fat: m.target_fat,
               target_snf: m.target_snf,
-            };
+              rows: [
+                { variant: m.product_variant || 'Milk Variant', values: { variant: m.product_variant || 'Milk Variant' } }
+              ],
+            }];
           }
+
+          stateMap[m.key] = {
+            batches: loadedBatches,
+            rows: loadedBatches[0].rows,
+            target_batch_liters: loadedBatches[0].target_batch_liters,
+            target_fat: loadedBatches[0].target_fat,
+            target_snf: loadedBatches[0].target_snf,
+          };
         });
 
         setHasSavedEntryMap(entryExistsMap);
         setChartEntriesData(stateMap);
+        setIsDirty(false);
       }
     } catch (err) {
       console.error('Failed to load preparation charts data:', err);
@@ -225,6 +242,19 @@ export default function PreparationChartsDashboardPage({
     setIsTableEditing(false);
     setIsColumnEditing(false);
   }, [date, shift, loadData]);
+
+  // Browser navigation / tab closing warning when unsaved changes exist
+  useEffect(() => {
+    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+      if (isDirty) {
+        e.preventDefault();
+        e.returnValue = 'You have unsaved changes in Preparation Charts.';
+        return e.returnValue;
+      }
+    };
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+  }, [isDirty]);
 
   // Auto-redirect to Master Defaults page if requested via URL search query
   useEffect(() => {
@@ -246,49 +276,193 @@ export default function PreparationChartsDashboardPage({
     return masters.find(m => m.key === activeChartKey) || null;
   }, [masters, activeChartKey]);
 
-  const activeState = useMemo(() => {
-    if (!activeMaster) return { rows: [], target_batch_liters: 0, target_fat: 0, target_snf: 0 };
-    return chartEntriesData[activeMaster.key] || { rows: [], target_batch_liters: 0, target_fat: 0, target_snf: 0 };
+  // Active list of batches for the active master chart
+  const activeBatches = useMemo((): ChartBatchData[] => {
+    if (!activeMaster) return [];
+    const chartData = chartEntriesData[activeMaster.key];
+    if (chartData && Array.isArray(chartData.batches) && chartData.batches.length > 0) {
+      return chartData.batches;
+    }
+    if (chartData && Array.isArray(chartData.rows) && chartData.rows.length > 0) {
+      return [{
+        batch_number: 1,
+        batch_name: 'Batch #1',
+        target_batch_liters: chartData.target_batch_liters !== undefined ? chartData.target_batch_liters : activeMaster.target_batch_liters,
+        target_fat: chartData.target_fat !== undefined ? chartData.target_fat : activeMaster.target_fat,
+        target_snf: chartData.target_snf !== undefined ? chartData.target_snf : activeMaster.target_snf,
+        rows: chartData.rows,
+      }];
+    }
+    return [{
+      batch_number: 1,
+      batch_name: 'Batch #1',
+      target_batch_liters: activeMaster.target_batch_liters,
+      target_fat: activeMaster.target_fat,
+      target_snf: activeMaster.target_snf,
+      rows: [{ variant: activeMaster.product_variant || 'Milk Variant', values: { variant: activeMaster.product_variant || 'Milk Variant' } }],
+    }];
   }, [chartEntriesData, activeMaster]);
 
-  // Update a single cell in active chart row
+  // Current selected batch index (0, 1, 2...) for active master
+  const activeBatchIdx = useMemo(() => {
+    if (!activeMaster) return 0;
+    const idx = activeBatchIndexMap[activeMaster.key] || 0;
+    return idx >= 0 && idx < activeBatches.length ? idx : 0;
+  }, [activeBatchIndexMap, activeMaster, activeBatches]);
+
+  // Active batch object being edited
+  const activeBatch = useMemo((): ChartBatchData => {
+    return activeBatches[activeBatchIdx] || activeBatches[0] || {
+      batch_number: 1,
+      batch_name: 'Batch #1',
+      rows: [],
+    };
+  }, [activeBatches, activeBatchIdx]);
+
+  // Formulation rows & targets for currently selected batch
+  const activeState = useMemo(() => {
+    return {
+      rows: activeBatch.rows || [],
+      target_batch_liters: activeBatch.target_batch_liters,
+      target_fat: activeBatch.target_fat,
+      target_snf: activeBatch.target_snf,
+    };
+  }, [activeBatch]);
+
+  // Add a new Batch (Batch #2, Batch #3...) to active chart master
+  const handleAddBatch = () => {
+    if (!activeMaster) return;
+    setIsDirty(true);
+
+    const newBatchNumber = activeBatches.length + 1;
+    const masterTemplate = templates[activeMaster.key];
+    const templateRows = masterTemplate && Array.isArray(masterTemplate.rows) && masterTemplate.rows.length > 0
+      ? JSON.parse(JSON.stringify(masterTemplate.rows))
+      : [{ variant: activeMaster.product_variant || 'Milk Variant', values: { variant: activeMaster.product_variant || 'Milk Variant' } }];
+
+    const newBatch: ChartBatchData = {
+      batch_number: newBatchNumber,
+      batch_name: `Batch #${newBatchNumber}`,
+      target_batch_liters: masterTemplate?.target_batch_liters || activeMaster.target_batch_liters,
+      target_fat: masterTemplate?.target_fat || activeMaster.target_fat,
+      target_snf: masterTemplate?.target_snf || activeMaster.target_snf,
+      rows: templateRows,
+    };
+
+    const updatedBatches = [...activeBatches, newBatch];
+
+    setChartEntriesData(prev => ({
+      ...prev,
+      [activeMaster.key]: {
+        ...(prev[activeMaster.key] || {}),
+        batches: updatedBatches,
+        rows: updatedBatches[0].rows,
+        target_batch_liters: updatedBatches[0].target_batch_liters,
+      },
+    }));
+
+    setActiveBatchIndexMap(prev => ({ ...prev, [activeMaster.key]: updatedBatches.length - 1 }));
+    showToast(`➕ Added Batch #${newBatchNumber} for ${activeMaster.name}`);
+  };
+
+  // Delete a Batch from active chart master
+  const handleDeleteBatch = async (batchIdxToDelete: number) => {
+    if (!activeMaster || activeBatches.length <= 1) {
+      await showWarning('At least one batch formulation must remain in the preparation chart.', 'Cannot Delete Batch');
+      return;
+    }
+
+    const batchToDelete = activeBatches[batchIdxToDelete];
+    const nameToDelete = batchToDelete?.batch_name || `Batch #${batchIdxToDelete + 1}`;
+
+    const isConfirmed = await confirm({
+      title: 'Confirm Batch Deletion',
+      message: `Are you sure you want to delete ${nameToDelete}?`,
+      confirmText: 'Delete Batch',
+      cancelText: 'Cancel',
+      type: 'danger',
+    });
+
+    if (!isConfirmed) return;
+
+    const updatedBatches = activeBatches.filter((_, idx) => idx !== batchIdxToDelete).map((b, i) => ({
+      ...b,
+      batch_number: i + 1,
+      batch_name: `Batch #${i + 1}`,
+    }));
+
+    setChartEntriesData(prev => ({
+      ...prev,
+      [activeMaster.key]: {
+        ...(prev[activeMaster.key] || {}),
+        batches: updatedBatches,
+        rows: updatedBatches[0].rows,
+        target_batch_liters: updatedBatches[0].target_batch_liters,
+      },
+    }));
+
+    const newIdx = Math.max(0, batchIdxToDelete - 1);
+    setActiveBatchIndexMap(prev => ({ ...prev, [activeMaster.key]: newIdx }));
+    setIsDirty(true);
+    showToast(`🗑️ Deleted ${nameToDelete}`);
+  };
+
+  // Update a single cell in active batch row
   const handleCellChange = (rowIndex: number, colKey: string, rawVal: any) => {
     if (!activeMaster) return;
+    setIsDirty(true);
 
     setChartEntriesData(prev => {
-      const chartData = prev[activeMaster.key] || { rows: [] };
-      const newRows = [...chartData.rows];
+      const chartData = prev[activeMaster.key] || {};
+      const currentBatches = [...activeBatches];
+      const targetBatch = { ...currentBatches[activeBatchIdx] };
+      const newRows = [...targetBatch.rows];
       const targetRow = { ...newRows[rowIndex] };
       const newVals = { ...targetRow.values, [colKey]: rawVal };
       targetRow.values = newVals;
       newRows[rowIndex] = targetRow;
+      targetBatch.rows = newRows;
+      currentBatches[activeBatchIdx] = targetBatch;
 
       return {
         ...prev,
         [activeMaster.key]: {
           ...chartData,
-          rows: newRows,
+          batches: currentBatches,
+          rows: currentBatches[0].rows,
+          target_batch_liters: currentBatches[0].target_batch_liters,
         },
       };
     });
   };
 
-  // Update target batch liters for active chart
+  // Update target batch liters for active batch
   const handleTargetBatchChange = (val: string) => {
     if (!activeMaster) return;
+    setIsDirty(true);
     const numVal = val !== '' ? parseFloat(val) : undefined;
-    setChartEntriesData(prev => ({
-      ...prev,
-      [activeMaster.key]: {
-        ...(prev[activeMaster.key] || { rows: [] }),
-        target_batch_liters: numVal,
-      },
-    }));
+    setChartEntriesData(prev => {
+      const chartData = prev[activeMaster.key] || {};
+      const currentBatches = [...activeBatches];
+      const targetBatch = { ...currentBatches[activeBatchIdx], target_batch_liters: numVal };
+      currentBatches[activeBatchIdx] = targetBatch;
+
+      return {
+        ...prev,
+        [activeMaster.key]: {
+          ...chartData,
+          batches: currentBatches,
+          rows: currentBatches[0].rows,
+          target_batch_liters: currentBatches[0].target_batch_liters,
+        },
+      };
+    });
   };
 
-  // Add or insert row in active chart
+  // Add or insert row in active batch
   const handleAddRow = (insertIndex?: number) => {
     if (!activeMaster) return;
+    setIsDirty(true);
 
     if (!isTableEditing) {
       setIsTableEditing(true);
@@ -296,63 +470,82 @@ export default function PreparationChartsDashboardPage({
     }
 
     setChartEntriesData(prev => {
-      const chartData = prev[activeMaster.key] || { rows: [] };
+      const chartData = prev[activeMaster.key] || {};
+      const currentBatches = [...activeBatches];
+      const targetBatch = { ...currentBatches[activeBatchIdx] };
       const newRow: ChartRowData = {
         variant: 'New Ingredient',
         values: { variant: 'New Ingredient' },
       };
-      const newRows = [...chartData.rows];
+      const newRows = [...targetBatch.rows];
       if (typeof insertIndex === 'number' && insertIndex >= 0 && insertIndex <= newRows.length) {
         newRows.splice(insertIndex, 0, newRow);
       } else {
         newRows.push(newRow);
       }
+      targetBatch.rows = newRows;
+      currentBatches[activeBatchIdx] = targetBatch;
+
       return {
         ...prev,
         [activeMaster.key]: {
           ...chartData,
-          rows: newRows,
+          batches: currentBatches,
+          rows: currentBatches[0].rows,
         },
       };
     });
   };
 
-  // Move row up or down in active chart
+  // Move row up or down in active batch
   const handleMoveRow = (rowIndex: number, direction: 'up' | 'down') => {
     if (!activeMaster) return;
+    setIsDirty(true);
 
     setChartEntriesData(prev => {
-      const chartData = prev[activeMaster.key] || { rows: [] };
+      const chartData = prev[activeMaster.key] || {};
+      const currentBatches = [...activeBatches];
+      const targetBatch = { ...currentBatches[activeBatchIdx] };
       const targetIndex = direction === 'up' ? rowIndex - 1 : rowIndex + 1;
-      if (targetIndex < 0 || targetIndex >= chartData.rows.length) return prev;
+      if (targetIndex < 0 || targetIndex >= targetBatch.rows.length) return prev;
 
-      const newRows = [...chartData.rows];
+      const newRows = [...targetBatch.rows];
       const temp = newRows[rowIndex];
       newRows[rowIndex] = newRows[targetIndex];
       newRows[targetIndex] = temp;
+      targetBatch.rows = newRows;
+      currentBatches[activeBatchIdx] = targetBatch;
 
       return {
         ...prev,
         [activeMaster.key]: {
           ...chartData,
-          rows: newRows,
+          batches: currentBatches,
+          rows: currentBatches[0].rows,
         },
       };
     });
   };
 
-  // Delete row from active chart
+  // Delete row from active batch
   const handleDeleteRow = (rowIndex: number) => {
     if (!activeMaster) return;
+    setIsDirty(true);
 
     setChartEntriesData(prev => {
-      const chartData = prev[activeMaster.key] || { rows: [] };
-      const newRows = chartData.rows.filter((_, i) => i !== rowIndex);
+      const chartData = prev[activeMaster.key] || {};
+      const currentBatches = [...activeBatches];
+      const targetBatch = { ...currentBatches[activeBatchIdx] };
+      const newRows = targetBatch.rows.filter((_, i) => i !== rowIndex);
+      targetBatch.rows = newRows;
+      currentBatches[activeBatchIdx] = targetBatch;
+
       return {
         ...prev,
         [activeMaster.key]: {
           ...chartData,
-          rows: newRows,
+          batches: currentBatches,
+          rows: currentBatches[0].rows,
         },
       };
     });
@@ -371,6 +564,16 @@ export default function PreparationChartsDashboardPage({
       n = Math.floor(n / 26) - 1;
     }
     return name;
+  };
+
+  // Helper to format number according to column decimal precision
+  const formatNumberValue = (num: number, decimals?: number, colKey?: string): string => {
+    if (isNaN(num)) return '-';
+    const dec = getStandardColumnDecimals(colKey || '', decimals);
+    return num.toLocaleString('en-IN', {
+      minimumFractionDigits: dec,
+      maximumFractionDigits: dec,
+    });
   };
 
   // Shifts cell references in formulas (e.g., A1, B1, C2) when columns are inserted or deleted
@@ -517,6 +720,7 @@ export default function PreparationChartsDashboardPage({
   const [formColType, setFormColType] = useState<'number' | 'text' | 'calculated'>('number');
   const [formColFormula, setFormColFormula] = useState<string>('');
   const [formColUnit, setFormColUnit] = useState<string>('');
+  const [formColDecimals, setFormColDecimals] = useState<number | undefined>(undefined);
 
   const handleOpenAddColumn = (insertIdx?: number) => {
     setColModalEditingKey(null);
@@ -526,6 +730,7 @@ export default function PreparationChartsDashboardPage({
     setFormColType('number');
     setFormColFormula('');
     setFormColUnit('');
+    setFormColDecimals(undefined);
     setIsColModalOpen(true);
   };
 
@@ -537,6 +742,7 @@ export default function PreparationChartsDashboardPage({
     setFormColType(col.type);
     setFormColFormula(col.formula || '');
     setFormColUnit(col.unit || '');
+    setFormColDecimals(col.decimals);
     setIsColModalOpen(true);
   };
 
@@ -576,6 +782,7 @@ export default function PreparationChartsDashboardPage({
       type: formColType,
       formula: formColType === 'calculated' ? formColFormula.trim() : undefined,
       unit: formColUnit.trim(),
+      decimals: formColDecimals !== undefined ? formColDecimals : undefined,
       sort_order: colModalEditingKey
         ? (columns.find(c => c.key === colModalEditingKey)?.sort_order || columns.length + 1)
         : (colModalInsertIdx !== null ? colModalInsertIdx + 1 : columns.length + 1),
@@ -635,13 +842,41 @@ export default function PreparationChartsDashboardPage({
     await saveColumnsToApi(reindexedCols, colModalEditingKey ? `Updated column "${newCol.name}"` : `Inserted column "${newCol.name}"`);
   };
 
+  const chartDecimalMode = useMemo(() => {
+    const numCols = columns.filter(c => c.type !== 'text');
+    if (numCols.length === 0) return '';
+    const firstDec = numCols[0].decimals;
+    if (firstDec === undefined) return '';
+    const allSame = numCols.every(c => c.decimals === firstDec);
+    return allSame ? String(firstDec) : 'custom';
+  }, [columns]);
+
+  const handleApplyGlobalDecimals = async (decimalsVal: string) => {
+    const numDec = decimalsVal !== '' && decimalsVal !== 'custom' ? parseInt(decimalsVal, 10) : undefined;
+    const updatedCols = columns.map(c => c.type !== 'text' ? { ...c, decimals: numDec } : c);
+    setColumns(updatedCols);
+    await saveColumnsToApi(
+      updatedCols,
+      `Updated chart decimal precision to ${decimalsVal === '' ? 'Auto' : decimalsVal === '0' ? '0 (Whole Number)' : `${decimalsVal} Decimals`}`
+    );
+  };
+
   const handleDeleteColumnInline = async (key: string, colIdx: number) => {
     if (columns.length <= 1) {
-      alert('Cannot delete the last remaining column.');
+      await showWarning('Cannot delete the last remaining column.', 'Cannot Delete Column');
       return;
     }
 
-    if (!window.confirm(`Are you sure you want to delete column "${columns[colIdx]?.name}"?`)) return;
+    const isConfirmed = await confirm({
+      title: 'Confirm Column Deletion',
+      message: `Are you sure you want to delete column "${columns[colIdx]?.name}"?`,
+      confirmText: 'Delete Column',
+      cancelText: 'Cancel',
+      type: 'danger',
+    });
+
+    if (!isConfirmed) return;
+    setIsDirty(true);
 
     const filteredCols = columns.filter(c => c.key !== key).map((c, i) => ({ ...c, sort_order: i + 1 }));
     setColumns(filteredCols);
@@ -853,8 +1088,8 @@ export default function PreparationChartsDashboardPage({
       const rawQtyKg = rowVals ? rowVals.qty_kg : undefined;
       const qtyKg = rawQtyKg !== undefined && rawQtyKg !== '' && rawQtyKg !== null
         ? (typeof rawQtyKg === 'string' && (rawQtyKg.startsWith('=') || rawQtyKg.startsWith('=+'))
-            ? evaluateExcelFormula(rawQtyKg, rowIndex, rowVals, rList)
-            : parseFloat(String(rawQtyKg || 0)))
+          ? evaluateExcelFormula(rawQtyKg, rowIndex, rowVals, rList)
+          : parseFloat(String(rawQtyKg || 0)))
         : (spGr > 0 ? qtyLit * spGr : qtyLit);
 
       const fatPctVal = rowVals ? rowVals.fat_pct : undefined;
@@ -924,7 +1159,7 @@ export default function PreparationChartsDashboardPage({
     }
 
     const formattedValDisplay = typeof computedVal === 'number'
-      ? (computedVal !== 0 ? computedVal.toLocaleString('en-IN', { maximumFractionDigits: 3 }) : '-')
+      ? (computedVal !== 0 ? formatNumberValue(computedVal, col.decimals) : '0')
       : (computedVal || '-');
 
     return {
@@ -1000,23 +1235,108 @@ export default function PreparationChartsDashboardPage({
       diffKgFat,
       diffKgSnf,
     };
-  }, [activeState, activeMaster]);
+  }, [activeState, activeMaster, columns]);
 
-  // Save active chart entry
-  const handleSaveChart = async () => {
-    if (!activeMaster) return;
+  // Combined daily totals across ALL batches of the active master chart
+  const dailyChartSummary = useMemo(() => {
+    let combinedQtyLit = 0;
+    let combinedQtyKg = 0;
+    let combinedKgFat = 0;
+    let combinedKgSnf = 0;
+
+    const qtyLitCol = columns.find(c => c.key === 'qty_lit') || { key: 'qty_lit', name: 'Qty (Lit)', type: 'number', sort_order: 1 };
+    const qtyKgCol = columns.find(c => c.key === 'qty_kg') || { key: 'qty_kg', name: 'Qty (Kg)', type: 'calculated', sort_order: 3 };
+    const kgFatCol = columns.find(c => c.key === 'kg_fat') || { key: 'kg_fat', name: 'Kg Fat', type: 'calculated', sort_order: 6 };
+    const kgSnfCol = columns.find(c => c.key === 'kg_snf') || { key: 'kg_snf', name: 'Kg SNF', type: 'calculated', sort_order: 7 };
+
+    activeBatches.forEach(b => {
+      (b.rows || []).forEach((r, rIdx) => {
+        const vals = r.values || {};
+        const qLit = parseFloat(String(computeCell(qtyLitCol, vals, rIdx, b.rows) || 0));
+        const qKg = parseFloat(String(computeCell(qtyKgCol, vals, rIdx, b.rows) || 0));
+        const kFat = parseFloat(String(computeCell(kgFatCol, vals, rIdx, b.rows) || 0));
+        const kSnf = parseFloat(String(computeCell(kgSnfCol, vals, rIdx, b.rows) || 0));
+
+        combinedQtyLit += isNaN(qLit) ? 0 : qLit;
+        combinedQtyKg += isNaN(qKg) ? 0 : qKg;
+        combinedKgFat += isNaN(kFat) ? 0 : kFat;
+        combinedKgSnf += isNaN(kSnf) ? 0 : kSnf;
+      });
+    });
+
+    const weightedFatPct = combinedQtyKg > 0 ? (combinedKgFat / combinedQtyKg) * 100 : 0;
+    const weightedSnfPct = combinedQtyKg > 0 ? (combinedKgSnf / combinedQtyKg) * 100 : 0;
+
+    return {
+      batchCount: activeBatches.length,
+      combinedQtyLit,
+      combinedQtyKg,
+      combinedKgFat,
+      combinedKgSnf,
+      weightedFatPct,
+      weightedSnfPct,
+    };
+  }, [activeBatches, columns]);
+
+  // Save active chart entry strictly when Save button is clicked
+  const handleSaveChart = async (): Promise<boolean> => {
+    if (!activeMaster) return false;
     setSaving(true);
 
     try {
       const activeShift = shiftConfig.mode === 'full_day' ? 'F' : shift;
+
+      // Evaluate all cell formulas to pure numeric values prior to DB persistence across all batches
+      const evaluatedBatches = activeBatches.map(b => {
+        const evaluatedRows = (b.rows || []).map((r, rIdx) => {
+          const cleanVals: Record<string, any> = { ...(r.values || {}) };
+
+          columns.forEach(col => {
+            const computed = computeCell(col, r.values || {}, rIdx, b.rows);
+            if (computed !== undefined && computed !== null && computed !== '') {
+              if (typeof computed === 'number' && !isNaN(computed)) {
+                cleanVals[col.key] = col.decimals !== undefined && col.decimals >= 0
+                  ? parseFloat(computed.toFixed(col.decimals))
+                  : (Number.isInteger(computed) ? computed : parseFloat(computed.toFixed(3)));
+              } else if (typeof computed === 'string' && (computed.startsWith('=') || computed.startsWith('=+'))) {
+                const evalNum = evaluateExcelFormula(computed, rIdx, r.values || {}, b.rows);
+                cleanVals[col.key] = isNaN(evalNum) ? 0 : (col.decimals !== undefined && col.decimals >= 0 ? parseFloat(evalNum.toFixed(col.decimals)) : (Number.isInteger(evalNum) ? evalNum : parseFloat(evalNum.toFixed(3))));
+              } else {
+                cleanVals[col.key] = computed;
+              }
+            }
+          });
+
+          Object.keys(cleanVals).forEach(vk => {
+            const v = cleanVals[vk];
+            if (typeof v === 'string' && (v.startsWith('=') || v.startsWith('=+'))) {
+              const evalNum = evaluateExcelFormula(v, rIdx, r.values || {}, b.rows);
+              cleanVals[vk] = isNaN(evalNum) ? 0 : (Number.isInteger(evalNum) ? evalNum : parseFloat(evalNum.toFixed(3)));
+            }
+          });
+
+          return {
+            ...r,
+            variant: cleanVals.variant || r.variant,
+            values: cleanVals,
+          };
+        });
+
+        return {
+          ...b,
+          rows: evaluatedRows,
+        };
+      });
+
       const entryPayload = {
         chart_key: activeMaster.key,
         entry_date: date,
         shift: activeShift,
-        rows: activeState.rows,
-        target_batch_liters: activeState.target_batch_liters,
-        target_fat: activeState.target_fat,
-        target_snf: activeState.target_snf,
+        batches: evaluatedBatches,
+        rows: evaluatedBatches[0]?.rows || [],
+        target_batch_liters: evaluatedBatches[0]?.target_batch_liters,
+        target_fat: evaluatedBatches[0]?.target_fat,
+        target_snf: evaluatedBatches[0]?.target_snf,
       };
 
       const res = await fetch('/api/stock/preparation-charts', {
@@ -1026,15 +1346,43 @@ export default function PreparationChartsDashboardPage({
       });
 
       if (res.ok) {
-        showToast(`✅ Saved ${activeMaster.name} for ${date} (${activeShift === 'F' ? 'Full Day' : activeShift === 'D' ? 'Day' : 'Night'})`);
+        setIsDirty(false);
+        setHasSavedEntryMap(prev => ({ ...prev, [activeMaster.key]: true }));
+        showToast(`✅ Saved ${activeMaster.name} (${evaluatedBatches.length} ${evaluatedBatches.length === 1 ? 'Batch' : 'Batches'}) to Database for ${date}`);
+        setSaving(false);
+        return true;
       } else {
         showToast('❌ Failed to save chart entry');
+        setSaving(false);
+        return false;
       }
     } catch (err) {
       console.error('Save chart error:', err);
       showToast('❌ Server error saving chart');
+      setSaving(false);
+      return false;
     }
-    setSaving(false);
+  };
+
+  // Guard helper for unsaved changes before performing an action
+  const confirmUnsavedChangesGuard = async (actionDesc: string = 'leaving'): Promise<boolean> => {
+    if (!isDirty) return true;
+
+    const shouldSave = await confirm({
+      title: 'Unsaved Changes Warning ⚠️',
+      message: `You have unsaved formulation edits in "${activeMaster?.name || 'Preparation Chart'}".\n\nWould you like to save your changes to the database before ${actionDesc}?`,
+      confirmText: '💾 Save Edits to DB',
+      cancelText: 'Discard Changes',
+      type: 'warning',
+    });
+
+    if (shouldSave) {
+      const savedOk = await handleSaveChart();
+      return savedOk;
+    }
+
+    setIsDirty(false);
+    return true;
   };
 
   // Save active chart as Master Default Template in DB
@@ -1074,15 +1422,44 @@ export default function PreparationChartsDashboardPage({
   };
 
   const handleProceedToStockEntry = async () => {
-    if (isTableEditing) {
-      await handleSaveChart();
+    if (isDirty) {
+      const savedOk = await handleSaveChart();
+      if (!savedOk) return;
     }
     if (stepMode && onNextStep) {
       onNextStep();
     } else if (stepMode && onStepChange) {
       onStepChange('stock');
     } else {
-      router.push(`/dashboard/stock/new?date=${date}&shift=${shift}`);
+      router.push(`/dashboard/stock/new?date=${date}&shift=${shift}&step=stock`);
+    }
+  };
+
+  const handleStepClick = async (stepKey: string) => {
+    if (stepKey === activeStep) return;
+    const canProceed = await confirmUnsavedChangesGuard(`navigating to ${stepKey}`);
+    if (!canProceed) return;
+
+    if (onStepChange) {
+      onStepChange(stepKey);
+    } else if (stepKey === 'stock') {
+      router.push(`/dashboard/stock/new?date=${date}&shift=${shift}&step=stock`);
+    } else if (stepKey === 'stg') {
+      router.push(`/dashboard/ts/new-stg?date=${date}&shift=${shift}`);
+    } else if (stepKey === 'ts') {
+      router.push(`/dashboard/ts/new?date=${date}&shift=${shift}`);
+    } else if (stepKey === 'reports') {
+      router.push(`/dashboard/ts/${date}?shift=${shift}`);
+    }
+  };
+
+  const handleNavigateSubMenu = async (e: React.MouseEvent, href: string) => {
+    if (isDirty) {
+      e.preventDefault();
+      const canProceed = await confirmUnsavedChangesGuard('leaving menu');
+      if (canProceed) {
+        router.push(href);
+      }
     }
   };
 
@@ -1095,7 +1472,17 @@ export default function PreparationChartsDashboardPage({
         title="Milk & Cream Preparation Charts"
         subtitle="Prepare, formulate & calculate batch parameters prior to Stock Statement Entry"
         actions={
-          <div style={{ display: 'flex', gap: 10 }}>
+          <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+            <button
+              type="button"
+              className={`btn ${isDirty ? 'btn-primary' : 'btn-secondary'} btn-sm`}
+              onClick={handleSaveChart}
+              disabled={saving}
+              style={isDirty ? { background: '#16a34a', borderColor: '#16a34a', color: '#ffffff', fontWeight: 800 } : { fontWeight: 600 }}
+              title="Save preparation chart formulation to database"
+            >
+              {saving ? 'Saving...' : isDirty ? '💾 Save Preparation Chart (Unsaved Changes)' : '💾 Save Preparation Chart'}
+            </button>
             <button type="button" className="btn btn-primary btn-sm" onClick={handleProceedToStockEntry}>
               ➡️ Save & Proceed to Stock Statement Entry
             </button>
@@ -1107,9 +1494,7 @@ export default function PreparationChartsDashboardPage({
             items={DAILY_ENTRY_STEP_ITEMS}
             flat={true}
             activeStep={activeStep || 'prep'}
-            onStepClick={(key) => {
-              if (onStepChange) onStepChange(key);
-            }}
+            onStepClick={(key) => handleStepClick(key)}
             style={{ marginBottom: 0, marginTop: 4 }}
           />
         )}
@@ -1147,7 +1532,12 @@ export default function PreparationChartsDashboardPage({
                   type="date"
                   className="form-input"
                   value={date}
-                  onChange={e => setDate(e.target.value)}
+                  onChange={async (e) => {
+                    const newDate = e.target.value;
+                    if (newDate === date) return;
+                    const canProceed = await confirmUnsavedChangesGuard('changing date');
+                    if (canProceed) setDate(newDate);
+                  }}
                   style={{ width: 170 }}
                 />
               </div>
@@ -1173,7 +1563,11 @@ export default function PreparationChartsDashboardPage({
                     <button
                       type="button"
                       className={`btn btn-sm ${shift === 'D' ? 'btn-primary' : 'btn-ghost'}`}
-                      onClick={() => setShift('D')}
+                      onClick={async () => {
+                        if (shift === 'D') return;
+                        const canProceed = await confirmUnsavedChangesGuard('changing shift');
+                        if (canProceed) setShift('D');
+                      }}
                       style={{ padding: '4px 12px', fontSize: '0.8rem', fontWeight: 600 }}
                     >
                       ☀️ {dayShiftLabel}
@@ -1181,7 +1575,11 @@ export default function PreparationChartsDashboardPage({
                     <button
                       type="button"
                       className={`btn btn-sm ${shift === 'N' ? 'btn-primary' : 'btn-ghost'}`}
-                      onClick={() => setShift('N')}
+                      onClick={async () => {
+                        if (shift === 'N') return;
+                        const canProceed = await confirmUnsavedChangesGuard('changing shift');
+                        if (canProceed) setShift('N');
+                      }}
                       style={{ padding: '4px 12px', fontSize: '0.8rem', fontWeight: 600 }}
                     >
                       🌙 {nightShiftLabel}
@@ -1194,6 +1592,7 @@ export default function PreparationChartsDashboardPage({
               <Link
                 href="/dashboard/stock/preparation-charts/defaults"
                 className="btn btn-secondary btn-sm"
+                onClick={e => handleNavigateSubMenu(e, '/dashboard/stock/preparation-charts/defaults')}
                 style={{ color: '#b45309', borderColor: '#fde68a', background: '#fffbeb', fontWeight: 700, textDecoration: 'none', display: 'inline-flex', alignItems: 'center' }}
                 title="Create, view & edit default formulation chart tables stored in database"
               >
@@ -1202,6 +1601,7 @@ export default function PreparationChartsDashboardPage({
               <Link
                 href="/dashboard/stock/preparation-charts/mappings"
                 className="btn btn-secondary btn-sm"
+                onClick={e => handleNavigateSubMenu(e, '/dashboard/stock/preparation-charts/mappings')}
                 style={{ color: '#0369a1', borderColor: '#bae6fd', background: '#f0f9ff', fontWeight: 700, textDecoration: 'none', display: 'inline-flex', alignItems: 'center' }}
                 title="Configure custom stage 1 to stage 2 mapping rules"
               >
@@ -1223,19 +1623,12 @@ export default function PreparationChartsDashboardPage({
               >
                 ⚙️ Edit Columns
               </button>
-              <button
-                type="button"
-                className={`btn btn-sm ${isTableEditing ? 'btn-primary' : 'btn-secondary'}`}
-                onClick={() => {
-                  setIsTableEditing(prev => !prev);
-                  setIsColumnEditing(false);
-                }}
-                style={{ color: isTableEditing ? '#ffffff' : '#0369a1', borderColor: '#bae6fd', background: isTableEditing ? '#0369a1' : '#ffffff', fontWeight: 700 }}
-                title="Toggle Table Data Editing"
+              <Link
+                href="/dashboard/stock/preparation-charts/masters"
+                className="btn btn-secondary btn-sm"
+                onClick={e => handleNavigateSubMenu(e, '/dashboard/stock/preparation-charts/masters')}
+                title="Manage Chart Master Names"
               >
-                ✏️ Edit Formulation Table
-              </button>
-              <Link href="/dashboard/stock/preparation-charts/masters" className="btn btn-secondary btn-sm" title="Manage Chart Master Names">
                 📊 Chart Master Names
               </Link>
             </div>
@@ -1265,10 +1658,14 @@ export default function PreparationChartsDashboardPage({
             items={masters}
             getItemKey={m => m.key}
             selectedKey={activeChartKey}
-            onSelectKey={key => {
-              setActiveChartKey(key);
-              setIsTableEditing(false);
-              setIsColumnEditing(false);
+            onSelectKey={async (key) => {
+              if (key === activeChartKey) return;
+              const canProceed = await confirmUnsavedChangesGuard('switching charts');
+              if (canProceed) {
+                setActiveChartKey(key);
+                setIsTableEditing(false);
+                setIsColumnEditing(false);
+              }
             }}
             leftPanelTitle="📋 Select Preparation Chart"
             leftPanelWidth={340}
@@ -1319,7 +1716,7 @@ export default function PreparationChartsDashboardPage({
               const summaryCols = qtyLitIdx >= 0 ? columns.slice(qtyLitIdx) : (columns.length > 0 && columns[0].type === 'text' ? columns.slice(1) : columns);
 
               return (
-                <div className="card" style={{ border: '1px solid var(--border)', overflow: 'hidden' }}>
+                <div className="card" style={{ border: isDirty ? '2px solid #16a34a' : '1px solid var(--border)', overflow: 'hidden', transition: 'border 0.2s ease' }}>
                   {/* Header Banner with Edit / Read-Only controls */}
                   <div style={{
                     padding: '14px 20px',
@@ -1346,7 +1743,11 @@ export default function PreparationChartsDashboardPage({
                         flexWrap: 'wrap'
                       }}>
                         <span>📋 {selectedMaster.name}</span>
-                        {hasSavedEntryMap[selectedMaster.key] ? (
+                        {isDirty ? (
+                          <span style={{ fontSize: '0.72rem', background: '#16a34a', color: '#ffffff', padding: '2px 8px', borderRadius: 10, fontWeight: 800, animation: 'pulse 1.5s infinite' }} title="Unsaved changes in formulation table">
+                            ⚡ UNSAVED EDITS
+                          </span>
+                        ) : hasSavedEntryMap[selectedMaster.key] ? (
                           <span style={{ fontSize: '0.72rem', background: '#dcfce7', color: '#166534', padding: '2px 8px', borderRadius: 10, fontWeight: 800 }} title={`Saved entry for ${date}`}>
                             📄 SAVED DATE ENTRY
                           </span>
@@ -1375,6 +1776,16 @@ export default function PreparationChartsDashboardPage({
                     </div>
 
                     <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+                      <button
+                        type="button"
+                        className={`btn ${isDirty ? 'btn-primary' : 'btn-secondary'} btn-sm`}
+                        onClick={handleSaveChart}
+                        disabled={saving}
+                        style={isDirty ? { background: '#16a34a', borderColor: '#16a34a', color: '#ffffff', fontWeight: 800 } : { fontWeight: 700 }}
+                        title="Save preparation chart formulation to database"
+                      >
+                        {saving ? 'Saving...' : isDirty ? '💾 Save Preparation Chart (Unsaved)' : '💾 Save Preparation Chart'}
+                      </button>
                       {isColumnEditing ? (
                         <>
                           <button
@@ -1448,6 +1859,105 @@ export default function PreparationChartsDashboardPage({
                         </>
                       )}
                     </div>
+                  </div>
+
+                  {/* Batch Tabs Bar & Combined Daily Totals Bar */}
+                  <div style={{ padding: '10px 16px', background: '#f8fafc', borderBottom: '1px solid var(--border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12 }}>
+                    {/* Batch Tabs Bar */}
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                      <span style={{ fontSize: '0.8rem', fontWeight: 800, color: '#0369a1', display: 'flex', alignItems: 'center', gap: 4 }}>
+                        <span>🧪 Daily Batches:</span>
+                      </span>
+                      {activeBatches.map((b, bIdx) => {
+                        const isSelected = bIdx === activeBatchIdx;
+                        return (
+                          <button
+                            key={`batch_tab_${bIdx}`}
+                            type="button"
+                            onClick={() => setActiveBatchIndexMap(prev => ({ ...prev, [selectedMaster.key]: bIdx }))}
+                            style={{
+                              padding: '5px 14px',
+                              borderRadius: 8,
+                              fontSize: '0.82rem',
+                              fontWeight: 800,
+                              background: isSelected ? 'linear-gradient(135deg, #0284c7 0%, #0369a1 100%)' : '#ffffff',
+                              color: isSelected ? '#ffffff' : '#0369a1',
+                              border: isSelected ? '1px solid #0284c7' : '1px solid #bae6fd',
+                              boxShadow: isSelected ? '0 2px 6px rgba(2, 132, 199, 0.25)' : 'none',
+                              cursor: 'pointer',
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: 6,
+                            }}
+                          >
+                            <span>🧪 {b.batch_name || `Batch #${bIdx + 1}`}</span>
+                            {b.target_batch_liters ? (
+                              <span style={{ fontSize: '0.72rem', opacity: isSelected ? 0.9 : 0.75 }}>
+                                ({formatNumberValue(b.target_batch_liters, 0)} L)
+                              </span>
+                            ) : null}
+                          </button>
+                        );
+                      })}
+                      <button
+                        type="button"
+                        className="btn btn-secondary btn-sm"
+                        onClick={handleAddBatch}
+                        style={{
+                          padding: '5px 12px',
+                          fontSize: '0.78rem',
+                          fontWeight: 800,
+                          color: '#0284c7',
+                          borderColor: '#bae6fd',
+                          background: '#f0f9ff',
+                        }}
+                        title="Add a new preparation batch for this chart master today"
+                      >
+                        ➕ Add Batch #{activeBatches.length + 1}
+                      </button>
+                      {activeBatches.length > 1 && (
+                        <button
+                          type="button"
+                          className="btn btn-danger btn-sm"
+                          onClick={() => handleDeleteBatch(activeBatchIdx)}
+                          style={{
+                            padding: '4px 8px',
+                            fontSize: '0.75rem',
+                            background: '#fef2f2',
+                            color: '#dc2626',
+                            borderColor: '#fca5a5',
+                            fontWeight: 700,
+                          }}
+                          title="Delete currently selected batch"
+                        >
+                          🗑️ Delete Batch #{activeBatchIdx + 1}
+                        </button>
+                      )}
+                    </div>
+
+                    {/* Combined Daily Totals across all batches for today */}
+                    {activeBatches.length > 1 && (
+                      <div
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: 12,
+                          padding: '4px 12px',
+                          borderRadius: 8,
+                          background: '#ffffff',
+                          border: '1px solid #7dd3fc',
+                          fontSize: '0.78rem',
+                          fontWeight: 700,
+                          color: '#0369a1',
+                        }}
+                        title="Combined Total across all batches of this preparation chart master for the day"
+                      >
+                        <span>📊 Daily Total ({dailyChartSummary.batchCount} Batches):</span>
+                        <span>Qty: <strong>{formatNumberValue(dailyChartSummary.combinedQtyLit, 1)} L</strong> ({formatNumberValue(dailyChartSummary.combinedQtyKg, 2)} Kg)</span>
+                        <span>Fat: <strong>{formatNumberValue(dailyChartSummary.combinedKgFat, 3)} Kg</strong> ({dailyChartSummary.weightedFatPct.toFixed(2)}%)</span>
+                        <span>SNF: <strong>{formatNumberValue(dailyChartSummary.combinedKgSnf, 3)} Kg</strong> ({dailyChartSummary.weightedSnfPct.toFixed(2)}%)</span>
+                      </div>
+                    )}
                   </div>
 
                   {/* Excel Formula Bar (fx) */}
@@ -1631,8 +2141,38 @@ export default function PreparationChartsDashboardPage({
                                   </div>
                                 )}
                               </div>
-                              <div>
-                                {col.name} {col.unit ? `(${col.unit})` : ''}
+                              <div style={{ display: 'flex', alignItems: 'center', justifyContent: col.type === 'text' ? 'flex-start' : 'space-between', gap: 6 }}>
+                                <span>{col.name} {col.unit ? `(${col.unit})` : ''}</span>
+                                {col.type !== 'text' && (
+                                  <select
+                                    value={col.decimals !== undefined ? String(col.decimals) : ''}
+                                    onChange={async (e) => {
+                                      const val = e.target.value !== '' ? parseInt(e.target.value, 10) : undefined;
+                                      const updated = columns.map(c => c.key === col.key ? { ...c, decimals: val } : c);
+                                      setColumns(updated);
+                                      await saveColumnsToApi(updated, `Updated "${col.name}" decimal precision`);
+                                    }}
+                                    style={{
+                                      fontSize: '0.68rem',
+                                      padding: '1px 4px',
+                                      height: 20,
+                                      fontWeight: 700,
+                                      color: '#0369a1',
+                                      background: '#ffffff',
+                                      border: '1px solid #bae6fd',
+                                      borderRadius: 4,
+                                      cursor: 'pointer',
+                                    }}
+                                    title={`Set required decimal places for column ${col.name}`}
+                                  >
+                                    <option value="">Auto ({getStandardColumnDecimals(col.key)})</option>
+                                    <option value="0">.0 (Whole)</option>
+                                    <option value="1">.1 Dec</option>
+                                    <option value="2">.2 Decs</option>
+                                    <option value="3">.3 Decs</option>
+                                    <option value="4">.4 Decs</option>
+                                  </select>
+                                )}
                               </div>
                             </th>
                           ))}
@@ -1674,13 +2214,21 @@ export default function PreparationChartsDashboardPage({
 
                               const rawVal = row.values?.[col.key];
                               const isFormula = typeof rawVal === 'string' && (rawVal.startsWith('=') || rawVal.startsWith('=+'));
-                              const displayVal = isFormula && !isCellFocused
-                                ? (typeof computedVal === 'number' ? (computedVal !== 0 ? computedVal.toLocaleString('en-IN', { maximumFractionDigits: 3 }) : '-') : String(computedVal || '-'))
-                                : (rawVal !== undefined ? rawVal : '');
+                              let displayVal = rawVal !== undefined ? rawVal : '';
+                              if (isFormula && !isCellFocused) {
+                                displayVal = typeof computedVal === 'number'
+                                  ? (computedVal !== 0 ? formatNumberValue(computedVal, col.decimals) : '-')
+                                  : String(computedVal || '-');
+                              } else if (!isCellFocused && !isFormula && rawVal !== undefined && rawVal !== '' && col.type === 'number') {
+                                const numVal = typeof rawVal === 'number' ? rawVal : parseFloat(String(rawVal));
+                                if (!isNaN(numVal)) {
+                                  displayVal = formatNumberValue(numVal, col.decimals);
+                                }
+                              }
 
                               if (isCalc) {
                                 const formattedCalc = typeof computedVal === 'number'
-                                  ? (computedVal !== 0 ? computedVal.toLocaleString('en-IN', { maximumFractionDigits: 3 }) : '-')
+                                  ? (computedVal !== 0 ? formatNumberValue(computedVal, col.decimals) : '-')
                                   : (computedVal || '-');
 
                                 return (
@@ -1704,7 +2252,7 @@ export default function PreparationChartsDashboardPage({
                                 );
                               }
 
-                               if (col.type === 'text') {
+                              if (col.type === 'text') {
                                 return (
                                   <td key={`cell_${rIdx}_${col.key}`}>
                                     <input
@@ -1791,27 +2339,27 @@ export default function PreparationChartsDashboardPage({
                                       background: isDraggedInFill
                                         ? '#bae6fd'
                                         : isCellSelected
-                                        ? '#bae6fd'
-                                        : isFormula
-                                        ? '#e0f2fe'
-                                        : isTableEditing
-                                        ? '#ffffff'
-                                        : '#f8fafc',
+                                          ? '#bae6fd'
+                                          : isFormula
+                                            ? '#e0f2fe'
+                                            : isTableEditing
+                                              ? '#ffffff'
+                                              : '#f8fafc',
                                       color: isFormula ? '#0369a1' : 'var(--text-primary)',
                                       borderColor: isDraggedInFill
                                         ? '#0284c7'
                                         : isCellSelected
-                                        ? '#0284c7'
-                                        : isFormula
-                                        ? '#7dd3fc'
-                                        : isTableEditing
-                                        ? 'var(--border)'
-                                        : 'transparent',
+                                          ? '#0284c7'
+                                          : isFormula
+                                            ? '#7dd3fc'
+                                            : isTableEditing
+                                              ? 'var(--border)'
+                                              : 'transparent',
                                       boxShadow: isDraggedInFill
                                         ? '0 0 0 2px rgba(2, 132, 199, 0.45)'
                                         : isCellSelected
-                                        ? '0 0 0 2px rgba(2, 132, 199, 0.25)'
-                                        : 'none',
+                                          ? '0 0 0 2px rgba(2, 132, 199, 0.25)'
+                                          : 'none',
                                       fontWeight: isFormula ? 800 : 700,
                                     }}
                                   />
@@ -2029,7 +2577,7 @@ export default function PreparationChartsDashboardPage({
                 />
               </div>
 
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12 }}>
                 <div>
                   <label className="form-label" style={{ fontWeight: 600 }}>Data Type</label>
                   <select
@@ -2040,6 +2588,22 @@ export default function PreparationChartsDashboardPage({
                     <option value="number">Number (Input)</option>
                     <option value="text">Text (Variant/Name)</option>
                     <option value="calculated">Calculated (Formula)</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="form-label" style={{ fontWeight: 600 }}>Decimal Places</label>
+                  <select
+                    className="form-select"
+                    value={formColDecimals !== undefined ? String(formColDecimals) : ''}
+                    onChange={e => setFormColDecimals(e.target.value !== '' ? parseInt(e.target.value, 10) : undefined)}
+                  >
+                    <option value="">Auto / Default</option>
+                    <option value="0">0 - Whole Number (102)</option>
+                    <option value="1">1 Decimal Place (1.0)</option>
+                    <option value="2">2 Decimal Places (1.02)</option>
+                    <option value="3">3 Decimal Places (1.023)</option>
+                    <option value="4">4 Decimal Places (1.0234)</option>
                   </select>
                 </div>
 

@@ -373,7 +373,7 @@ export default function ChartMastersConfigPage() {
                 <input
                   type="text"
                   className="form-input"
-                  placeholder="e.g. DELITE PREPARATION CHART, FCM PREPARATION CHART"
+                  placeholder="e.g. DELITE PREPARATION CHART"
                   value={formName}
                   onChange={e => {
                     setFormName(e.target.value);
@@ -385,65 +385,15 @@ export default function ChartMastersConfigPage() {
                 />
               </div>
 
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-                <div>
-                  <label className="form-label" style={{ fontWeight: 600 }}>Product Variant</label>
-                  <input
-                    type="text"
-                    className="form-input"
-                    placeholder="e.g. DELITE, FCM, STD MILK"
-                    value={formProductVariant}
-                    onChange={e => setFormProductVariant(e.target.value)}
-                  />
-                </div>
-
-                <div>
-                  <label className="form-label" style={{ fontWeight: 600 }}>Target Batch (Liters)</label>
-                  <input
-                    type="number"
-                    step="any"
-                    className="form-input"
-                    placeholder="e.g. 21000"
-                    value={formTargetBatchLiters}
-                    onChange={e => setFormTargetBatchLiters(e.target.value)}
-                  />
-                </div>
-              </div>
-
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 10 }}>
-                <div>
-                  <label className="form-label" style={{ fontWeight: 600 }}>Target Fat%</label>
-                  <input
-                    type="number"
-                    step="any"
-                    className="form-input"
-                    placeholder="e.g. 3.50"
-                    value={formTargetFat}
-                    onChange={e => setFormTargetFat(e.target.value)}
-                  />
-                </div>
-                <div>
-                  <label className="form-label" style={{ fontWeight: 600 }}>Target SNF%</label>
-                  <input
-                    type="number"
-                    step="any"
-                    className="form-input"
-                    placeholder="e.g. 8.50"
-                    value={formTargetSnf}
-                    onChange={e => setFormTargetSnf(e.target.value)}
-                  />
-                </div>
-                <div>
-                  <label className="form-label" style={{ fontWeight: 600 }}>Target Sp.gr</label>
-                  <input
-                    type="number"
-                    step="any"
-                    className="form-input"
-                    placeholder="e.g. 1.02976"
-                    value={formTargetSpGr}
-                    onChange={e => setFormTargetSpGr(e.target.value)}
-                  />
-                </div>
+              <div>
+                <label className="form-label" style={{ fontWeight: 600 }}>Product Variant</label>
+                <input
+                  type="text"
+                  className="form-input"
+                  placeholder="e.g. DELITE"
+                  value={formProductVariant}
+                  onChange={e => setFormProductVariant(e.target.value)}
+                />
               </div>
 
               <div>

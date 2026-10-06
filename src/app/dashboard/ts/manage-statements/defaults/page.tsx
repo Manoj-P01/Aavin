@@ -3,32 +3,43 @@
 import { useState, useEffect, useMemo, useCallback } from 'react';
 import Header from '@/components/layout/Header';
 import Link from 'next/link';
-import type { ChartColumnDef, ChartMasterDef, ChartRowData, ChartEntryData } from '@/app/api/stock/preparation-charts/route';
 import { getStandardColumnDecimals } from '@/lib/calculations';
 import { useConfirm } from '@/context/ConfirmContext';
 
-export default function MasterDefaultFormulationsPage() {
-  const { confirm, showWarning } = useConfirm();
-  const [columns, setColumns] = useState<ChartColumnDef[]>([]);
-  const [masters, setMasters] = useState<ChartMasterDef[]>([]);
-  const [templates, setTemplates] = useState<Record<string, {
-    rows: ChartRowData[];
-    target_batch_liters?: number;
-    target_fat?: number;
-    target_snf?: number;
-  }>>({});
-  const [chartEntriesData, setChartEntriesData] = useState<Record<string, {
-    rows: ChartRowData[];
-    target_batch_liters?: number;
-    target_fat?: number;
-    target_snf?: number;
-  }>>({});
+export interface STGColumnDef {
+  key: string;
+  name: string;
+  type: 'number' | 'text' | 'calculated';
+  formula?: string;
+  unit?: string;
+  decimals?: number;
+  sort_order?: number;
+  is_active?: boolean;
+}
 
-  const [activeChartKey, setActiveChartKey] = useState<string | null>(null);
-  const [rows, setRows] = useState<ChartRowData[]>([]);
-  const [targetBatchLit, setTargetBatchLit] = useState<number | undefined>(undefined);
-  const [targetFat, setTargetFat] = useState<number | undefined>(undefined);
-  const [targetSnf, setTargetSnf] = useState<number | undefined>(undefined);
+export interface STGMasterDef {
+  key: string;
+  label: string;
+  variant?: string;
+  description?: string;
+  is_split?: boolean;
+  default_rows?: any[];
+  rows?: any[];
+}
+
+export interface STGRowData {
+  variant: string;
+  values: Record<string, any>;
+}
+
+export default function STGDefaultFormulationsPage() {
+  const { confirm, showWarning } = useConfirm();
+  const [columns, setColumns] = useState<STGColumnDef[]>([]);
+  const [masters, setMasters] = useState<STGMasterDef[]>([]);
+  const [templates, setTemplates] = useState<Record<string, STGRowData[]>>({});
+
+  const [activeMasterKey, setActiveMasterKey] = useState<string | null>(null);
+  const [rows, setRows] = useState<STGRowData[]>([]);
 
   const [loading, setLoading] = useState<boolean>(true);
   const [saving, setSaving] = useState<boolean>(false);
@@ -62,12 +73,10 @@ export default function MasterDefaultFormulationsPage() {
           if (Array.isArray(prods) && prods.length > 0) {
             const names = prods.map((p: any) => p.short_name || p.product_name || p.full_name || p.key).filter(Boolean);
             setProductOptions(Array.from(new Set(names)));
-          } else {
-            setProductOptions([]);
           }
         }
       } catch (e) {
-        console.error('Error fetching products master in defaults page:', e);
+        console.error('Error fetching products master:', e);
       }
     }
     loadProductsMaster();
@@ -77,61 +86,69 @@ export default function MasterDefaultFormulationsPage() {
   const loadData = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await fetch('/api/stock/preparation-charts');
-      if (res.ok) {
-        const json = await res.json();
-        const loadedCols: ChartColumnDef[] = json.columns || [];
-        const loadedMasters: ChartMasterDef[] = json.masters || [];
-        const loadedTemplates: Record<string, any> = json.templates || {};
+      const [colRes, masterRes] = await Promise.all([
+        fetch('/api/ts/columns'),
+        fetch('/api/ts/masters'),
+      ]);
 
-        setColumns(loadedCols);
+      if (colRes.ok) {
+        const json = await colRes.json();
+        setColumns(json.columns || []);
+      }
+
+      if (masterRes.ok) {
+        const json = await masterRes.json();
+        const loadedMasters: STGMasterDef[] = json.masters || [];
         setMasters(loadedMasters);
-        setTemplates(loadedTemplates);
+
+        const tmplMap: Record<string, STGRowData[]> = {};
+        loadedMasters.forEach(m => {
+          if (Array.isArray(m.default_rows) && m.default_rows.length > 0) {
+            tmplMap[m.key] = m.default_rows;
+          } else if (Array.isArray(m.rows) && m.rows.length > 0) {
+            tmplMap[m.key] = m.rows.map(r => ({ variant: r.short_name || r.full_name || r.variant || '', values: r.values || {} }));
+          }
+        });
+        setTemplates(tmplMap);
 
         if (loadedMasters.length > 0) {
-          const initialKey = activeChartKey && loadedMasters.some(m => m.key === activeChartKey)
-            ? activeChartKey
+          const initialKey = activeMasterKey && loadedMasters.some(m => m.key === activeMasterKey)
+            ? activeMasterKey
             : loadedMasters[0].key;
-          setActiveChartKey(initialKey);
-          loadChartMasterDefaults(initialKey, loadedMasters, loadedTemplates);
+          setActiveMasterKey(initialKey);
+          loadMasterDefaults(initialKey, loadedMasters, tmplMap);
         }
       }
     } catch (err) {
-      console.error('Failed to load preparation charts defaults:', err);
+      console.error('Failed to load STG defaults:', err);
     }
     setLoading(false);
-  }, [activeChartKey]);
+  }, [activeMasterKey]);
 
   useEffect(() => {
     loadData();
   }, []);
 
-  const loadChartMasterDefaults = (
-    chartKey: string,
-    mastersList: ChartMasterDef[],
-    tmplMap: Record<string, any>
+  const loadMasterDefaults = (
+    masterKey: string,
+    mastersList: STGMasterDef[],
+    tmplMap: Record<string, STGRowData[]>
   ) => {
-    const chartMaster = mastersList.find(m => m.key === chartKey);
-    const existingTmpl = tmplMap[chartKey];
+    const master = mastersList.find(m => m.key === masterKey);
+    const existingTmpl = tmplMap[masterKey];
 
-    if (existingTmpl && Array.isArray(existingTmpl.rows) && existingTmpl.rows.length > 0) {
-      setRows(JSON.parse(JSON.stringify(existingTmpl.rows)));
-      setTargetBatchLit(existingTmpl.target_batch_liters !== undefined ? existingTmpl.target_batch_liters : chartMaster?.target_batch_liters);
-      setTargetFat(existingTmpl.target_fat !== undefined ? existingTmpl.target_fat : chartMaster?.target_fat);
-      setTargetSnf(existingTmpl.target_snf !== undefined ? existingTmpl.target_snf : chartMaster?.target_snf);
+    if (existingTmpl && Array.isArray(existingTmpl) && existingTmpl.length > 0) {
+      setRows(JSON.parse(JSON.stringify(existingTmpl)));
     } else {
-      setRows([{ variant: chartMaster?.product_variant || 'Milk Variant', values: { variant: chartMaster?.product_variant || 'Milk Variant' } }]);
-      setTargetBatchLit(chartMaster?.target_batch_liters);
-      setTargetFat(chartMaster?.target_fat);
-      setTargetSnf(chartMaster?.target_snf);
+      setRows([{ variant: master?.variant || master?.label || 'Particular Variant', values: { variant: master?.variant || master?.label || 'Particular Variant' } }]);
     }
     setSelectedCell(null);
     setFocusedCell(null);
   };
 
-  const handleSwitchChartMaster = (newKey: string) => {
-    setActiveChartKey(newKey);
-    loadChartMasterDefaults(newKey, masters, templates);
+  const handleSwitchMaster = (newKey: string) => {
+    setActiveMasterKey(newKey);
+    loadMasterDefaults(newKey, masters, templates);
   };
 
   const showToast = (msg: string) => {
@@ -139,7 +156,6 @@ export default function MasterDefaultFormulationsPage() {
     setTimeout(() => setToastMessage(null), 3500);
   };
 
-  // Helper to convert 0-indexed column position into Excel Column Letter (A, B, C, D...)
   const getExcelColName = (idx: number) => {
     let name = '';
     let n = idx;
@@ -150,7 +166,6 @@ export default function MasterDefaultFormulationsPage() {
     return name;
   };
 
-  // Helper to format number according to column decimal precision
   const formatNumberValue = (num: number, decimals?: number, colKey?: string): string => {
     if (isNaN(num)) return '-';
     const dec = getStandardColumnDecimals(colKey || '', decimals);
@@ -165,7 +180,7 @@ export default function MasterDefaultFormulationsPage() {
     formulaInput: string,
     rowIndex: number,
     rowVals: Record<string, any>,
-    rowsContext?: ChartRowData[],
+    rowsContext?: STGRowData[],
     depth: number = 0
   ): number => {
     if (!formulaInput || typeof formulaInput !== 'string' || depth > 10) return 0;
@@ -177,7 +192,7 @@ export default function MasterDefaultFormulationsPage() {
 
     const rowList = rowsContext || rows || [];
 
-    // 1. Expand Excel Cell Range syntax like D2:D7 or SUM(D2:D7) or AVERAGE(A1:C3)
+    // Expand Excel Cell Range syntax like D2:D7 or SUM(D2:D7)
     expr = expr.replace(/(SUM|AVERAGE|AVG|MIN|MAX|COUNT)?\s*\(?\s*([A-Z]+)([0-9]+)\s*:\s*([A-Z]+)([0-9]+)\s*\)?/gi, (match, fnName, c1, r1, c2, r2) => {
       let col1Idx = 0, col2Idx = 0;
       const u1 = c1.toUpperCase();
@@ -208,7 +223,7 @@ export default function MasterDefaultFormulationsPage() {
       return `${func}(${joined})`;
     });
 
-    // 2. Replace Excel Cell References like A1, B1, C2, D1 with numeric values
+    // Replace Excel Cell References like A1, B1, C2, D1 with numeric values
     expr = expr.replace(/([A-Z]+)([0-9]+)/gi, (match, colLetters, rowNumStr) => {
       let colIdx = 0;
       const upperLetters = colLetters.toUpperCase();
@@ -250,7 +265,7 @@ export default function MasterDefaultFormulationsPage() {
       return isNaN(numVal) ? '0' : String(numVal);
     });
 
-    // 3. Replace column key identifiers like qty_lit, sp_gr, qty_kg, fat_pct, snf_pct
+    // Replace column key identifiers
     columns.forEach(col => {
       if (expr.includes(col.key)) {
         const rawVal = rowVals[col.key];
@@ -259,7 +274,6 @@ export default function MasterDefaultFormulationsPage() {
       }
     });
 
-    // 4. Safely evaluate expression
     try {
       let cleanExpr = expr.replace(/[^0-9.\-+\/*%() ,a-zA-Z]/g, '').trim();
       cleanExpr = cleanExpr.replace(/[\-+\/*%,]+$/g, '').trim();
@@ -300,12 +314,10 @@ export default function MasterDefaultFormulationsPage() {
     }
   };
 
-  // Computed cell helper
-  const computeCell = (col: ChartColumnDef, rowVals: Record<string, any>, rowIndex: number = 0, rowsContext?: ChartRowData[]) => {
+  const computeCell = (col: STGColumnDef, rowVals: Record<string, any>, rowIndex: number = 0, rowsContext?: STGRowData[]) => {
     const rList = rowsContext || rows || [];
     const cellVal = rowVals ? rowVals[col.key] : undefined;
 
-    // 1. If an explicit formula or value was set for this cell
     if (cellVal !== undefined && cellVal !== '' && cellVal !== null) {
       if (typeof cellVal === 'string' && (cellVal.startsWith('=') || cellVal.startsWith('=+'))) {
         return evaluateExcelFormula(cellVal, rowIndex, rowVals, rList);
@@ -316,12 +328,11 @@ export default function MasterDefaultFormulationsPage() {
       return cellVal;
     }
 
-    // 2. Default calculated column rules when cellVal is empty/undefined
     if (col.type === 'calculated') {
       if (col.formula) {
         return evaluateExcelFormula(`= ${col.formula}`, rowIndex, rowVals, rList);
       }
-      const qtyLitVal = rowVals ? rowVals.qty_lit : undefined;
+      const qtyLitVal = rowVals ? rowVals.qty_lts : undefined;
       const spGrVal = rowVals ? rowVals.sp_gr : undefined;
 
       const qtyLit = typeof qtyLitVal === 'string' && (qtyLitVal.startsWith('=') || qtyLitVal.startsWith('=+'))
@@ -358,7 +369,6 @@ export default function MasterDefaultFormulationsPage() {
     return cellVal !== undefined ? cellVal : '';
   };
 
-  // Adjusts Excel formula row references when dragging up/down
   const adjustFormulaRowOffset = (formula: string, sourceRowIdx: number, targetRowIdx: number): string => {
     if (!formula || typeof formula !== 'string') return formula;
     if (!formula.startsWith('=') && !formula.startsWith('+')) return formula;
@@ -373,7 +383,6 @@ export default function MasterDefaultFormulationsPage() {
     });
   };
 
-  // Active cell details for Formula Bar
   const activeCellDetails = useMemo(() => {
     if (!selectedCell || !columns.length) {
       return { address: 'A1', colName: '', isCalculated: false, formulaText: '', value: '-' };
@@ -400,18 +409,6 @@ export default function MasterDefaultFormulationsPage() {
     } else if (col.type === 'calculated') {
       if (col.formula) {
         formulaText = `= ${col.formula}`;
-      } else if (col.key === 'qty_kg') {
-        const qtyLitLetter = getExcelColName(Math.max(0, columns.findIndex(c => c.key === 'qty_lit')));
-        const spGrLetter = getExcelColName(Math.max(0, columns.findIndex(c => c.key === 'sp_gr')));
-        formulaText = `= ${qtyLitLetter}${excelRowNum} * ${spGrLetter}${excelRowNum}`;
-      } else if (col.key === 'kg_fat') {
-        const qtyKgLetter = getExcelColName(Math.max(0, columns.findIndex(c => c.key === 'qty_kg')));
-        const fatPctLetter = getExcelColName(Math.max(0, columns.findIndex(c => c.key === 'fat_pct')));
-        formulaText = `= (${qtyKgLetter}${excelRowNum} * ${fatPctLetter}${excelRowNum}) / 100`;
-      } else if (col.key === 'kg_snf') {
-        const qtyKgLetter = getExcelColName(Math.max(0, columns.findIndex(c => c.key === 'qty_kg')));
-        const snfPctLetter = getExcelColName(Math.max(0, columns.findIndex(c => c.key === 'snf_pct')));
-        formulaText = `= (${qtyKgLetter}${excelRowNum} * ${snfPctLetter}${excelRowNum}) / 100`;
       } else {
         formulaText = `= CALCULATED`;
       }
@@ -534,7 +531,7 @@ export default function MasterDefaultFormulationsPage() {
     setIsColModalOpen(true);
   };
 
-  const handleOpenEditColumn = (col: ChartColumnDef) => {
+  const handleOpenEditColumn = (col: STGColumnDef) => {
     setColModalInsertIdx(null);
     setColModalEditingKey(col.key);
     setFormColKey(col.key);
@@ -556,7 +553,7 @@ export default function MasterDefaultFormulationsPage() {
 
     const keyToUse = colModalEditingKey || formColKey.trim().toLowerCase().replace(/[^a-z0-9_]/g, '_') || formColName.trim().toLowerCase().replace(/[^a-z0-9_]/g, '_');
 
-    const newCol: ChartColumnDef = {
+    const newCol: STGColumnDef = {
       key: keyToUse,
       name: formColName.trim(),
       type: formColType,
@@ -569,7 +566,7 @@ export default function MasterDefaultFormulationsPage() {
       is_active: true,
     };
 
-    let updatedCols: ChartColumnDef[];
+    let updatedCols: STGColumnDef[];
     if (colModalEditingKey) {
       updatedCols = columns.map(c => (c.key === colModalEditingKey ? newCol : c));
     } else {
@@ -586,22 +583,6 @@ export default function MasterDefaultFormulationsPage() {
     setColumns(reindexedCols);
     setIsColModalOpen(false);
     showToast(colModalEditingKey ? `Updated column "${newCol.name}" locally. Click "⭐ Save Master Default Table" to save to database.` : `Inserted column "${newCol.name}" locally. Click "⭐ Save Master Default Table" to save to database.`);
-  };
-
-  const chartDecimalMode = useMemo(() => {
-    const numCols = columns.filter(c => c.type !== 'text');
-    if (numCols.length === 0) return '';
-    const firstDec = numCols[0].decimals;
-    if (firstDec === undefined) return '';
-    const allSame = numCols.every(c => c.decimals === firstDec);
-    return allSame ? String(firstDec) : 'custom';
-  }, [columns]);
-
-  const handleApplyGlobalDecimals = (decimalsVal: string) => {
-    const numDec = decimalsVal !== '' && decimalsVal !== 'custom' ? parseInt(decimalsVal, 10) : undefined;
-    const updatedCols = columns.map(c => c.type !== 'text' ? { ...c, decimals: numDec } : c);
-    setColumns(updatedCols);
-    showToast(`Updated column decimal precision locally. Click "⭐ Save Master Default Table" to save to database.`);
   };
 
   const handleDeleteColumnInline = async (key: string, colIdx: number) => {
@@ -636,34 +617,42 @@ export default function MasterDefaultFormulationsPage() {
 
   // Save Master Default Formulation Template & Columns
   const handleSaveDefaultTemplate = async () => {
-    if (!activeChartKey) return;
+    if (!activeMasterKey) return;
     setSaving(true);
-    const chartMaster = masters.find(m => m.key === activeChartKey);
+    const masterDef = masters.find(m => m.key === activeMasterKey);
 
     try {
-      const templatePayload = {
-        chart_key: activeChartKey,
-        rows: rows,
-        target_batch_liters: targetBatchLit,
-        target_fat: targetFat,
-        target_snf: targetSnf,
-      };
-
-      const res = await fetch('/api/stock/preparation-charts', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          columns: columns,
-          template: templatePayload,
-        }),
+      const updatedMasters = masters.map(m => {
+        if (m.key === activeMasterKey) {
+          return {
+            ...m,
+            default_rows: rows,
+            rows: rows.map(r => ({ variant: r.variant || r.values.variant || '', values: r.values })),
+          };
+        }
+        return m;
       });
 
-      if (res.ok) {
+      const [colRes, masterRes] = await Promise.all([
+        fetch('/api/ts/columns', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ columns }),
+        }),
+        fetch('/api/ts/masters', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ masters: updatedMasters }),
+        }),
+      ]);
+
+      if (colRes.ok && masterRes.ok) {
+        setMasters(updatedMasters);
         setTemplates(prev => ({
           ...prev,
-          [activeChartKey]: templatePayload,
+          [activeMasterKey]: rows,
         }));
-        showToast(`⭐ Saved Master Default formulation table and columns for "${chartMaster?.name || activeChartKey}" in database! All un-entered daily charts will inherit these defaults.`);
+        showToast(`⭐ Saved Master Default formulation table and columns for "${masterDef?.label || activeMasterKey}" in database! All un-entered daily STG entries will inherit these defaults.`);
       } else {
         showToast('❌ Failed to save default master template');
       }
@@ -675,28 +664,34 @@ export default function MasterDefaultFormulationsPage() {
   };
 
   const activeMaster = useMemo(() => {
-    if (!activeChartKey) return null;
-    return masters.find(m => m.key === activeChartKey) || null;
-  }, [masters, activeChartKey]);
+    if (!activeMasterKey) return null;
+    return masters.find(m => m.key === activeMasterKey) || null;
+  }, [masters, activeMasterKey]);
 
   return (
     <>
       <Header
         title="Master Default Formulation Tables"
-        subtitle="Manage default batch formulation templates & pre-defined formulas inherited by daily preparation charts"
+        subtitle="Manage default batch formulation templates & pre-defined formulas inherited by daily STG entries"
         actions={
           <div style={{ display: 'flex', gap: 10 }}>
-            <Link href="/dashboard/stock/preparation-charts" className="btn btn-primary btn-sm">
-              🗓️ Daily Preparation Charts Dashboard
+            <Link href="/dashboard/ts/manage-statements/columns" className="btn btn-secondary btn-sm" style={{ color: '#0369a1', borderColor: '#bae6fd', background: '#f0f9ff', fontWeight: 700 }}>
+              ⚙️ STG Column Configuration
             </Link>
-            <Link href="/dashboard/stock/preparation-charts/masters" className="btn btn-secondary btn-sm">
-              ⚙️ Preparation Chart Master Names
+            <Link href="/dashboard/ts/manage-statements" className="btn btn-secondary btn-sm">
+              ← Statement Master Names
             </Link>
           </div>
         }
       />
 
       <div className="page-body animate-fade-in" style={{ display: 'flex', flexDirection: 'column', height: 'calc(100vh - 120px)', overflow: 'hidden' }}>
+        <datalist id="variant-products-list">
+          {productOptions.map(p => (
+            <option key={p} value={p} />
+          ))}
+        </datalist>
+
         {toastMessage && (
           <div
             style={{
@@ -722,49 +717,57 @@ export default function MasterDefaultFormulationsPage() {
         {/* Master Selector Tabs Bar */}
         <div className="card" style={{ marginBottom: 12, padding: '12px 18px', flexShrink: 0 }}>
           <div style={{ fontWeight: 700, fontSize: '0.85rem', color: 'var(--text-secondary)', marginBottom: 8 }}>
-            Select Chart Master Name:
+            Select Statement Master Name:
           </div>
-          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-            {masters.map(m => {
-              const isSelected = m.key === activeChartKey;
-              return (
-                <button
-                  key={`default_tab_${m.key}`}
-                  type="button"
-                  onClick={() => handleSwitchChartMaster(m.key)}
-                  style={{
-                    padding: '8px 16px',
-                    borderRadius: 8,
-                    fontSize: '0.85rem',
-                    fontWeight: 700,
-                    background: isSelected ? '#b45309' : '#f1f5f9',
-                    color: isSelected ? '#ffffff' : '#475569',
-                    border: isSelected ? '1px solid #b45309' : '1px solid #cbd5e1',
-                    cursor: 'pointer',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: 6,
-                  }}
-                >
-                  <span>📋 {m.name}</span>
-                  <span style={{ fontSize: '0.72rem', opacity: 0.85 }}>({m.product_variant || 'DEFAULT'})</span>
-                </button>
-              );
-            })}
-          </div>
+          {loading ? (
+            <div style={{ color: 'var(--text-muted)', fontSize: '0.8rem' }}><span className="spinner" /> Loading statement masters...</div>
+          ) : masters.length === 0 ? (
+            <div style={{ color: 'var(--text-muted)', fontSize: '0.8rem' }}>
+              No statement masters found. <Link href="/dashboard/ts/manage-statements" style={{ color: 'var(--brand-primary)' }}>Create statement masters first.</Link>
+            </div>
+          ) : (
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+              {masters.map(m => {
+                const isSelected = m.key === activeMasterKey;
+                return (
+                  <button
+                    key={`default_tab_${m.key}`}
+                    type="button"
+                    onClick={() => handleSwitchMaster(m.key)}
+                    style={{
+                      padding: '8px 16px',
+                      borderRadius: 8,
+                      fontSize: '0.85rem',
+                      fontWeight: 700,
+                      background: isSelected ? '#b45309' : '#f1f5f9',
+                      color: isSelected ? '#ffffff' : '#475569',
+                      border: isSelected ? '1px solid #b45309' : '1px solid #cbd5e1',
+                      cursor: 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 6,
+                    }}
+                  >
+                    <span>📋 {m.label.replace(/\s*-\s*RECEIPT AND DISPOSAL STATEMENT$/i, '')}</span>
+                    {m.variant && <span style={{ fontSize: '0.72rem', opacity: 0.85 }}>({m.variant})</span>}
+                  </button>
+                );
+              })}
+            </div>
+          )}
         </div>
 
         {/* Main formulation Table Card */}
-        {activeChartKey && (
+        {activeMasterKey && activeMaster && (
           <div className="card" style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', minHeight: 0 }}>
             {/* Table Header Bar */}
             <div style={{ padding: '12px 18px', background: '#fffbeb', borderBottom: '1px solid #fde68a', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexShrink: 0 }}>
               <div>
                 <div style={{ fontWeight: 800, fontSize: '1.05rem', color: '#b45309', display: 'flex', alignItems: 'center', gap: 8 }}>
-                  <span>⭐ Default Master Template for {activeMaster?.name}</span>
+                  <span>⭐ Default Master Template for {activeMaster?.label}</span>
                 </div>
                 <div style={{ fontSize: '0.78rem', color: '#78350f', marginTop: 2 }}>
-                  Formulas and values saved here will automatically populate on all un-entered daily preparation charts.
+                  Formulas and values saved here will automatically populate on all un-entered daily STG entries.
                 </div>
               </div>
 
@@ -806,7 +809,7 @@ export default function MasterDefaultFormulationsPage() {
                   }}
                   style={{ background: '#f0f9ff', border: '1px solid #bae6fd', color: '#0284c7', borderRadius: 6, padding: '5px 12px', fontSize: '0.8rem', fontWeight: 700, cursor: 'pointer' }}
                 >
-                  ➕ Add Ingredient Row
+                  ➕ Add Particular Row
                 </button>
               </div>
             </div>
@@ -1191,6 +1194,7 @@ export default function MasterDefaultFormulationsPage() {
                         <div style={{ display: 'flex', gap: 4, justifyContent: 'center' }}>
                           <button
                             type="button"
+                            disabled={rIdx === 0}
                             onClick={() => {
                               if (rIdx === 0) return;
                               setRows(prev => {
@@ -1201,14 +1205,22 @@ export default function MasterDefaultFormulationsPage() {
                                 return copy;
                               });
                             }}
-                            disabled={rIdx === 0}
-                            style={{ background: '#ffffff', border: '1px solid #cbd5e1', borderRadius: 4, padding: '1px 5px', fontSize: '0.7rem', cursor: 'pointer' }}
+                            style={{
+                              border: '1px solid var(--border)',
+                              background: '#ffffff',
+                              borderRadius: 4,
+                              padding: '2px 6px',
+                              fontSize: '0.72rem',
+                              cursor: rIdx === 0 ? 'not-allowed' : 'pointer',
+                              opacity: rIdx === 0 ? 0.4 : 1,
+                            }}
                             title="Move Row Up"
                           >
                             ▲
                           </button>
                           <button
                             type="button"
+                            disabled={rIdx === rows.length - 1}
                             onClick={() => {
                               if (rIdx === rows.length - 1) return;
                               setRows(prev => {
@@ -1219,8 +1231,15 @@ export default function MasterDefaultFormulationsPage() {
                                 return copy;
                               });
                             }}
-                            disabled={rIdx === rows.length - 1}
-                            style={{ background: '#ffffff', border: '1px solid #cbd5e1', borderRadius: 4, padding: '1px 5px', fontSize: '0.7rem', cursor: 'pointer' }}
+                            style={{
+                              border: '1px solid var(--border)',
+                              background: '#ffffff',
+                              borderRadius: 4,
+                              padding: '2px 6px',
+                              fontSize: '0.72rem',
+                              cursor: rIdx === rows.length - 1 ? 'not-allowed' : 'pointer',
+                              opacity: rIdx === rows.length - 1 ? 0.4 : 1,
+                            }}
                             title="Move Row Down"
                           >
                             ▼
@@ -1228,9 +1247,18 @@ export default function MasterDefaultFormulationsPage() {
                           <button
                             type="button"
                             onClick={() => {
-                              setRows(prev => prev.filter((_, i) => i !== rIdx));
+                              if (rows.length <= 1) return;
+                              setRows(prev => prev.filter((_, idx) => idx !== rIdx));
                             }}
-                            style={{ background: '#fef2f2', border: '1px solid #fca5a5', color: '#dc2626', borderRadius: 4, padding: '1px 5px', fontSize: '0.7rem', cursor: 'pointer' }}
+                            style={{
+                              border: '1px solid #fca5a5',
+                              background: '#fef2f2',
+                              color: '#dc2626',
+                              borderRadius: 4,
+                              padding: '2px 6px',
+                              fontSize: '0.72rem',
+                              cursor: 'pointer',
+                            }}
                             title="Delete Row"
                           >
                             ✕
@@ -1243,180 +1271,111 @@ export default function MasterDefaultFormulationsPage() {
               </table>
             </div>
 
-            {/* Pinned Card Footer */}
-            <div style={{ padding: '14px 20px', background: '#f8fafc', borderTop: '1px solid var(--border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexShrink: 0 }}>
-              <div style={{ fontSize: '0.78rem', color: '#64748b' }}>
+            {/* Bottom Footer Bar */}
+            <div style={{ padding: '12px 18px', background: '#f8fafc', borderTop: '1px solid var(--border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexShrink: 0 }}>
+              <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
                 ⭐ Changes saved here will be stored in database as the Master Default template.
               </div>
+
               <div style={{ display: 'flex', gap: 10 }}>
-                <Link href="/dashboard/stock/preparation-charts" className="btn btn-secondary btn-sm">
+                <Link href="/dashboard/ts/manage-statements" className="btn btn-secondary btn-sm">
                   Cancel
                 </Link>
                 <button
                   type="button"
-                  className="btn btn-primary btn-sm"
                   onClick={handleSaveDefaultTemplate}
-                  disabled={saving || !activeChartKey}
-                  style={{ background: '#b45309', borderColor: '#b45309' }}
+                  disabled={saving}
+                  style={{
+                    background: '#b45309',
+                    color: '#ffffff',
+                    border: 'none',
+                    borderRadius: 6,
+                    padding: '6px 18px',
+                    fontSize: '0.82rem',
+                    fontWeight: 700,
+                    cursor: saving ? 'not-allowed' : 'pointer',
+                    boxShadow: '0 2px 4px rgba(180,83,9,0.2)',
+                  }}
                 >
-                  {saving ? 'Saving Default...' : '⭐ Save Master Default Table'}
+                  {saving ? '💾 Saving Template...' : '⭐ Save Master Default Table'}
                 </button>
               </div>
             </div>
           </div>
         )}
+
+        {!activeMasterKey && !loading && (
+          <div className="card" style={{ padding: 60, textAlign: 'center', color: 'var(--text-muted)' }}>
+            <div style={{ fontSize: '2rem', marginBottom: 12 }}>📊</div>
+            <div style={{ fontWeight: 700, fontSize: '1rem', marginBottom: 8 }}>No Statement Masters Found</div>
+            <div style={{ fontSize: '0.85rem' }}>
+              <Link href="/dashboard/ts/manage-statements" style={{ color: 'var(--brand-primary)' }}>Go to Statement Masters</Link> and create at least one master to get started.
+            </div>
+          </div>
+        )}
       </div>
 
-      {/* Modal for Creating / Editing Column Inline */}
+      {/* Column Modal */}
       {isColModalOpen && (
-        <div style={{
-          position: 'fixed',
-          top: 0,
-          left: 0,
-          right: 0,
-          bottom: 0,
-          background: 'rgba(15, 23, 42, 0.55)',
-          backdropFilter: 'blur(4px)',
-          zIndex: 10050,
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          padding: 16,
-        }}>
-          <div style={{
-            background: '#ffffff',
-            borderRadius: 12,
-            border: '1px solid var(--border)',
-            boxShadow: '0 20px 25px -5px rgba(0,0,0,0.1), 0 8px 10px -6px rgba(0,0,0,0.1)',
-            width: '100%',
-            maxWidth: 520,
-            overflow: 'hidden',
-          }}>
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,0.55)', backdropFilter: 'blur(4px)', zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
+          <div style={{ background: '#fff', borderRadius: 12, border: '1px solid var(--border)', boxShadow: '0 20px 25px -5px rgba(0,0,0,0.1)', width: '100%', maxWidth: 520, overflow: 'hidden' }}>
             <div style={{ padding: '16px 20px', background: '#f8fafc', borderBottom: '1px solid var(--border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <div style={{ fontWeight: 700, fontSize: '1.05rem', color: 'var(--text-primary)' }}>
-                {colModalEditingKey ? '✏️ Edit Preparation Column' : `➕ Insert Column at Position ${getExcelColName(colModalInsertIdx !== null ? colModalInsertIdx : columns.length)}`}
-              </div>
-              <button
-                type="button"
-                onClick={() => setIsColModalOpen(false)}
-                style={{ background: 'none', border: 'none', fontSize: '1.1rem', color: '#64748b', cursor: 'pointer' }}
-              >
-                ✕
-              </button>
+              <div style={{ fontWeight: 700, fontSize: '1.05rem' }}>{colModalEditingKey ? '✏️ Edit STG Column' : '➕ Add STG Column'}</div>
+              <button type="button" onClick={() => setIsColModalOpen(false)} style={{ background: 'none', border: 'none', fontSize: '1.1rem', cursor: 'pointer' }}>✕</button>
             </div>
-
             <form onSubmit={handleSaveColumnModal} style={{ padding: 20, display: 'flex', flexDirection: 'column', gap: 16 }}>
               <div>
                 <label className="form-label" style={{ fontWeight: 600 }}>Column Name <span style={{ color: '#dc2626' }}>*</span></label>
-                <input
-                  type="text"
-                  className="form-input"
-                  placeholder="e.g. Qty (Lit), Sp.gr, Fat%, Kg SNF"
-                  value={formColName}
-                  onChange={e => {
-                    setFormColName(e.target.value);
-                    if (!colModalEditingKey) {
-                      setFormColKey(e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, '_'));
-                    }
-                  }}
-                  required
-                />
+                <input type="text" className="form-input" placeholder="e.g. QTY (LTS), SP.GR, FAT (%)" value={formColName}
+                  onChange={e => { setFormColName(e.target.value); if (!colModalEditingKey) setFormColKey(e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, '_')); }} required />
               </div>
-
               <div>
                 <label className="form-label" style={{ fontWeight: 600 }}>Field Key</label>
-                <input
-                  type="text"
-                  className="form-input"
-                  placeholder="e.g. qty_lit, sp_gr, fat_pct"
-                  value={formColKey}
-                  onChange={e => setFormColKey(e.target.value)}
-                  disabled={!!colModalEditingKey}
-                  style={{ background: colModalEditingKey ? '#f1f5f9' : '#fff' }}
-                />
+                <input type="text" className="form-input" placeholder="e.g. qty_lts, sp_gr, fat_pct" value={formColKey}
+                  onChange={e => setFormColKey(e.target.value)} disabled={!!colModalEditingKey} style={{ background: colModalEditingKey ? '#f1f5f9' : '#fff' }} />
               </div>
-
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12 }}>
                 <div>
                   <label className="form-label" style={{ fontWeight: 600 }}>Data Type</label>
-                  <select
-                    className="form-select"
-                    value={formColType}
-                    onChange={e => setFormColType(e.target.value as any)}
-                  >
+                  <select className="form-select" value={formColType} onChange={e => setFormColType(e.target.value as any)}>
                     <option value="number">Number (Input)</option>
-                    <option value="text">Text (Variant/Name)</option>
+                    <option value="text">Text (Label)</option>
                     <option value="calculated">Calculated (Formula)</option>
                   </select>
                 </div>
-
                 <div>
                   <label className="form-label" style={{ fontWeight: 600 }}>Decimal Places</label>
-                  <select
-                    className="form-select"
-                    value={formColDecimals !== undefined ? String(formColDecimals) : ''}
-                    onChange={e => setFormColDecimals(e.target.value !== '' ? parseInt(e.target.value, 10) : undefined)}
-                  >
+                  <select className="form-select" value={formColDecimals !== undefined ? String(formColDecimals) : ''}
+                    onChange={e => setFormColDecimals(e.target.value !== '' ? parseInt(e.target.value, 10) : undefined)}>
                     <option value="">Auto / Default</option>
-                    <option value="0">0 - Whole Number (102)</option>
-                    <option value="1">1 Decimal Place (1.0)</option>
-                    <option value="2">2 Decimal Places (1.02)</option>
-                    <option value="3">3 Decimal Places (1.023)</option>
-                    <option value="4">4 Decimal Places (1.0234)</option>
+                    <option value="0">0 – Whole Number</option>
+                    <option value="1">1 Decimal</option>
+                    <option value="2">2 Decimals</option>
+                    <option value="3">3 Decimals</option>
+                    <option value="4">4 Decimals</option>
                   </select>
                 </div>
-
                 <div>
                   <label className="form-label" style={{ fontWeight: 600 }}>Unit (Optional)</label>
-                  <input
-                    type="text"
-                    className="form-input"
-                    placeholder="e.g. Liters, Kg, %"
-                    value={formColUnit}
-                    onChange={e => setFormColUnit(e.target.value)}
-                  />
+                  <input type="text" className="form-input" placeholder="e.g. Lts, Kg, %" value={formColUnit} onChange={e => setFormColUnit(e.target.value)} />
                 </div>
               </div>
-
               {formColType === 'calculated' && (
                 <div>
                   <label className="form-label" style={{ fontWeight: 600 }}>Formula Expression</label>
-                  <input
-                    type="text"
-                    className="form-input"
-                    placeholder="e.g. B1 * C1 or (D1 * E1) / 100"
-                    value={formColFormula}
-                    onChange={e => setFormColFormula(e.target.value)}
-                    style={{ fontFamily: 'monospace' }}
-                  />
+                  <input type="text" className="form-input" placeholder="e.g. qty_lts * sp_gr" value={formColFormula}
+                    onChange={e => setFormColFormula(e.target.value)} style={{ fontFamily: 'monospace' }} />
+                  <div style={{ fontSize: '0.72rem', color: '#0369a1', marginTop: 4 }}>Use field keys: <code>qty_lts * sp_gr</code> or <code>qty_kg * fat_pct / 100</code></div>
                 </div>
               )}
-
               <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, paddingTop: 10, borderTop: '1px solid var(--border)' }}>
-                <button
-                  type="button"
-                  className="btn btn-secondary btn-sm"
-                  onClick={() => setIsColModalOpen(false)}
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  className="btn btn-primary btn-sm"
-                >
-                  {colModalEditingKey ? '💾 Update Column' : '➕ Save & Insert Column'}
-                </button>
+                <button type="button" className="btn btn-secondary btn-sm" onClick={() => setIsColModalOpen(false)}>Cancel</button>
+                <button type="submit" className="btn btn-primary btn-sm">{colModalEditingKey ? '💾 Update Column' : '➕ Save Column'}</button>
               </div>
             </form>
           </div>
         </div>
       )}
-      {/* Datalist for Product Variant Dropdown */}
-      <datalist id="variant-products-list">
-        {productOptions.map(p => (
-          <option key={`defaults_prod_opt_${p}`} value={p} />
-        ))}
-      </datalist>
     </>
   );
 }
