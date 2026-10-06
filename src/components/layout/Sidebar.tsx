@@ -16,8 +16,12 @@ const NAV_SECTIONS = [
   {
     label: 'Stock Statement',
     items: [
+      { href: '/dashboard/stock/preparation-charts', icon: '📋', label: 'Preparation Charts' },
       { href: '/dashboard/stock/new', icon: '📦', label: 'New Stock Statement Entry' },
       { href: '/dashboard/stock', icon: '📦', label: 'Stock Register' },
+      { href: '/dashboard/stock/preparation-charts/masters', icon: '📊', label: 'Chart Names Master' },
+      { href: '/dashboard/stock/preparation-charts/defaults', icon: '⭐', label: 'Master Default Formulations' },
+      { href: '/dashboard/stock/preparation-charts/columns', icon: '⚙️', label: 'Chart Columns Config' },
       { href: '/dashboard/stock/products', icon: '⚙️', label: 'Products List' },
       { href: '/dashboard/stock/mappings', icon: '🔄', label: 'Disposals ➔ Receipts Mappings' },
       { href: '/dashboard/stock/partitions', icon: '🔀', label: 'Receipts Internal Partitions' },
@@ -124,6 +128,7 @@ export default function Sidebar() {
                            pathSegments[3] !== 'products' &&
                            pathSegments[3] !== 'mappings' &&
                            pathSegments[3] !== 'partitions' &&
+                           pathSegments[3] !== 'preparation-charts' &&
                            pathSegments[3] !== 'periodical';
                   }
                   

@@ -13,6 +13,12 @@ export interface StepItem {
 
 export const DAILY_ENTRY_STEP_ITEMS: StepItem[] = [
   {
+    key: 'prep',
+    title: 'Preparation Charts',
+    description: 'Milk & Cream Formulations',
+    icon: '📋',
+  },
+  {
     key: 'stock',
     title: 'Stock Statement Entry',
     description: 'Milk & Cream Stock Balances',
