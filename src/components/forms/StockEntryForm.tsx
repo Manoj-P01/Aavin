@@ -690,7 +690,7 @@ export default function StockEntryForm({
                           const meta = JSON.parse(metaJson);
                           if (meta.custom_columns) prevCustomCols = meta.custom_columns;
                           if (meta.custom_values) prevCustomVals = meta.custom_values;
-                        } catch {}
+                        } catch { }
                       }
                     });
                   }
@@ -750,15 +750,19 @@ export default function StockEntryForm({
               } catch (e) {
                 console.error('Failed to parse metadata:', e);
               }
-              cleanNotes = cleanNotes.replace(part, '').trim();
             }
           });
+
+          cleanNotes = notesParts
+            .filter((part: string) => !part.includes('__METADATA__:') && !part.includes('__STOCK_SUMMARY__:'))
+            .join('\n')
+            .trim();
 
           setColumnsUnique(parsedCols);
           setNotes(cleanNotes);
 
           const sortedDbRows = [...(json.data.stock_rows || [])].sort((a: any, b: any) => (a.sort_order ?? 0) - (b.sort_order ?? 0));
-          
+
           // Base template contains OB, Receipts, and Disposals
           const loadedRows = makeDefaultRows(receiptRowsConfig, disposalRowsConfig);
 
@@ -914,7 +918,7 @@ export default function StockEntryForm({
                       try {
                         const meta = JSON.parse(metaJson);
                         if (meta.custom_values) prevCustomVals = meta.custom_values;
-                      } catch {}
+                      } catch { }
                     }
                   });
                 }
@@ -1322,7 +1326,13 @@ export default function StockEntryForm({
     });
 
     // Save TS entry via POST /api/entries
-    const userNotesText = notes ? notes.trim() : '';
+    const userNotesText = notes
+      ? notes
+          .split('\n')
+          .filter(p => !p.includes('__METADATA__:') && !p.includes('__STOCK_SUMMARY__:'))
+          .join('\n')
+          .trim()
+      : '';
     let tsNotes: string | null = null;
     if (userNotesText) {
       const tsMeta = {
@@ -1408,8 +1418,13 @@ export default function StockEntryForm({
         stockSummaryRows[3].summary_data[normKey] = obVal + recVal - dispVal;
       });
 
-      // Format notes: attach metadata & stock summary JSON
-      const userNotesText = notes ? notes.trim() : '';
+      const userNotesText = notes
+        ? notes
+            .split('\n')
+            .filter(p => !p.includes('__METADATA__:') && !p.includes('__STOCK_SUMMARY__:'))
+            .join('\n')
+            .trim()
+        : '';
       const notesParts: string[] = [];
       if (userNotesText) notesParts.push(userNotesText);
 
@@ -1796,85 +1811,85 @@ export default function StockEntryForm({
                         </div>
                       )}
                     </td>
-                  {columns.map(col => {
-                    const isMappedReceiptCell = isReceiptsSection && (
-                      internalRules.some(rule => rule.enabled !== false && (rule.targetReceiptProductKey || rule.sourceProductKey) === col.key) ||
-                      (internalRules.length === 0 && col.key === 'dlt_milk')
-                    );
-                    const isReadOnly = (isBalanceSection && !obUnlocked) || (isMappedReceiptCell && !receiptsUnlocked);
+                    {columns.map(col => {
+                      const isMappedReceiptCell = isReceiptsSection && (
+                        internalRules.some(rule => rule.enabled !== false && (rule.targetReceiptProductKey || rule.sourceProductKey) === col.key) ||
+                        (internalRules.length === 0 && col.key === 'dlt_milk')
+                      );
+                      const isReadOnly = (isBalanceSection && !obUnlocked) || (isMappedReceiptCell && !receiptsUnlocked);
 
-                    return (
-                      <td key={col.key}>
-                        <input
-                          id={`stock-input-${i}-${col.key}`}
-                          type="number"
-                          step="any"
-                          placeholder="0"
-                          value={r.values[col.key] || ''}
-                          onChange={e => updateCell(i, col.key, e.target.value)}
-                          onFocus={() => setFocusedRowIdx(i)}
-                          onKeyDown={e => handleTableKeyDown(e, i, col.key)}
-                          title={isMappedReceiptCell ? (receiptsUnlocked ? 'Unlocked for manual edit' : 'Auto-calculated from Disposals row total. Click ✏️ Edit Mapped Receipts to unlock.') : undefined}
-                          style={{
-                            fontFamily: 'var(--font-numbers)',
-                            backgroundColor: isReadOnly ? '#f8fafc' : (isFocusedRow ? 'rgba(255, 255, 255, 0.8)' : 'transparent'),
-                            color: isReadOnly ? (isMappedReceiptCell ? '#047857' : '#64748b') : 'inherit',
-                            fontWeight: isMappedReceiptCell ? 700 : (isFocusedRow ? 600 : 'normal'),
-                            cursor: isReadOnly ? 'not-allowed' : 'text',
-                          }}
-                          readOnly={isReadOnly}
-                          onWheel={e => e.currentTarget.blur()}
-                        />
-                      </td>
-                    );
-                  })}
-                  <td style={{ padding: 4 }}>
-                    <input
-                      type="text"
-                      value={(() => {
-                        const total = columns.reduce((sum, col) => sum + (parseFloat(r.values[col.key] || '0') || 0), 0);
-                        return total === 0 ? '' : total.toLocaleString('en-IN', { maximumFractionDigits: 3 });
-                      })()}
-                      disabled
-                      style={{
-                        fontFamily: 'var(--font-numbers)',
-                        fontWeight: 600,
-                        backgroundColor: '#f1f5f9',
-                        color: '#475569',
-                        textAlign: 'center',
-                        border: 'none',
-                        width: '100%',
-                        padding: '6px 8px',
-                        cursor: 'not-allowed',
-                      }}
-                    />
-                  </td>
-                  {!isBalanceSection && isDisposalsSection && (
-                    <td className="no-print" style={{ textAlign: 'center' }}>
-                      {isMappedDisposalRow && (
-                        <div style={{ display: 'flex', gap: 6, justifyContent: 'center', alignItems: 'center' }}>
-                          <button
-                            type="button"
+                      return (
+                        <td key={col.key}>
+                          <input
+                            id={`stock-input-${i}-${col.key}`}
+                            type="number"
+                            step="any"
+                            placeholder="0"
+                            value={r.values[col.key] || ''}
+                            onChange={e => updateCell(i, col.key, e.target.value)}
+                            onFocus={() => setFocusedRowIdx(i)}
+                            onKeyDown={e => handleTableKeyDown(e, i, col.key)}
+                            title={isMappedReceiptCell ? (receiptsUnlocked ? 'Unlocked for manual edit' : 'Auto-calculated from Disposals row total. Click ✏️ Edit Mapped Receipts to unlock.') : undefined}
                             style={{
-                              background: 'rgba(245, 158, 11, 0.15)',
-                              border: '1px solid #f59e0b',
-                              borderRadius: 4,
-                              cursor: 'pointer',
-                              fontSize: '0.95rem',
-                              padding: '2px 4px',
+                              fontFamily: 'var(--font-numbers)',
+                              backgroundColor: isReadOnly ? '#f8fafc' : (isFocusedRow ? 'rgba(255, 255, 255, 0.8)' : 'transparent'),
+                              color: isReadOnly ? (isMappedReceiptCell ? '#047857' : '#64748b') : 'inherit',
+                              fontWeight: isMappedReceiptCell ? 700 : (isFocusedRow ? 600 : 'normal'),
+                              cursor: isReadOnly ? 'not-allowed' : 'text',
                             }}
-                            title="🔀 Configure Receipts Internal Partitions Mapping"
-                            onClick={() => openPartitionModal(i, 'RECEIPTS_PARTITION')}
-                          >
-                            🔀
-                          </button>
-                        </div>
-                      )}
+                            readOnly={isReadOnly}
+                            onWheel={e => e.currentTarget.blur()}
+                          />
+                        </td>
+                      );
+                    })}
+                    <td style={{ padding: 4 }}>
+                      <input
+                        type="text"
+                        value={(() => {
+                          const total = columns.reduce((sum, col) => sum + (parseFloat(r.values[col.key] || '0') || 0), 0);
+                          return total === 0 ? '' : total.toLocaleString('en-IN', { maximumFractionDigits: 3 });
+                        })()}
+                        disabled
+                        style={{
+                          fontFamily: 'var(--font-numbers)',
+                          fontWeight: 600,
+                          backgroundColor: '#f1f5f9',
+                          color: '#475569',
+                          textAlign: 'center',
+                          border: 'none',
+                          width: '100%',
+                          padding: '6px 8px',
+                          cursor: 'not-allowed',
+                        }}
+                      />
                     </td>
-                  )}
-                </tr>
-              );
-            })}
+                    {!isBalanceSection && isDisposalsSection && (
+                      <td className="no-print" style={{ textAlign: 'center' }}>
+                        {isMappedDisposalRow && (
+                          <div style={{ display: 'flex', gap: 6, justifyContent: 'center', alignItems: 'center' }}>
+                            <button
+                              type="button"
+                              style={{
+                                background: 'rgba(245, 158, 11, 0.15)',
+                                border: '1px solid #f59e0b',
+                                borderRadius: 4,
+                                cursor: 'pointer',
+                                fontSize: '0.95rem',
+                                padding: '2px 4px',
+                              }}
+                              title="🔀 Configure Receipts Internal Partitions Mapping"
+                              onClick={() => openPartitionModal(i, 'RECEIPTS_PARTITION')}
+                            >
+                              🔀
+                            </button>
+                          </div>
+                        )}
+                      </td>
+                    )}
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>
@@ -1910,14 +1925,14 @@ export default function StockEntryForm({
                   const val = getSectionSum('OB', col.key);
                   return (
                     <td key={col.key} style={{ textAlign: 'center', fontSize: '0.8rem', padding: '8px 4px', fontFamily: 'var(--font-numbers)' }}>
-                      {val === 0 ? '—' : val.toLocaleString('en-IN', { maximumFractionDigits: 3 })}
+                      {val === 0 ? '0' : val.toLocaleString('en-IN', { maximumFractionDigits: 3 })}
                     </td>
                   );
                 })}
                 <td style={{ textAlign: 'center', fontSize: '0.8rem', padding: '8px 4px', fontFamily: 'var(--font-numbers)', fontWeight: 700 }}>
                   {(() => {
                     const rowSum = columns.reduce((sum, col) => sum + getSectionSum('OB', col.key), 0);
-                    return rowSum === 0 ? '—' : rowSum.toLocaleString('en-IN', { maximumFractionDigits: 3 });
+                    return rowSum === 0 ? '0' : rowSum.toLocaleString('en-IN', { maximumFractionDigits: 3 });
                   })()}
                 </td>
                 <td></td>
@@ -1929,14 +1944,14 @@ export default function StockEntryForm({
                   const val = getSectionSum('RECEIPT', col.key);
                   return (
                     <td key={col.key} style={{ textAlign: 'center', fontSize: '0.8rem', padding: '8px 4px', fontFamily: 'var(--font-numbers)' }}>
-                      {val === 0 ? '—' : val.toLocaleString('en-IN', { maximumFractionDigits: 3 })}
+                      {val === 0 ? '0' : val.toLocaleString('en-IN', { maximumFractionDigits: 3 })}
                     </td>
                   );
                 })}
                 <td style={{ textAlign: 'center', fontSize: '0.8rem', padding: '8px 4px', fontFamily: 'var(--font-numbers)', fontWeight: 700 }}>
                   {(() => {
                     const rowSum = columns.reduce((sum, col) => sum + getSectionSum('RECEIPT', col.key), 0);
-                    return rowSum === 0 ? '—' : rowSum.toLocaleString('en-IN', { maximumFractionDigits: 3 });
+                    return rowSum === 0 ? '0' : rowSum.toLocaleString('en-IN', { maximumFractionDigits: 3 });
                   })()}
                 </td>
                 <td></td>
@@ -1950,14 +1965,14 @@ export default function StockEntryForm({
                   const val = obVal + recVal;
                   return (
                     <td key={col.key} style={{ textAlign: 'center', fontSize: '0.8rem', fontWeight: 700, padding: '8px 4px', fontFamily: 'var(--font-numbers)' }}>
-                      {val === 0 ? '—' : val.toLocaleString('en-IN', { maximumFractionDigits: 3 })}
+                      {val === 0 ? '0' : val.toLocaleString('en-IN', { maximumFractionDigits: 3 })}
                     </td>
                   );
                 })}
                 <td style={{ textAlign: 'center', fontSize: '0.8rem', padding: '8px 4px', fontFamily: 'var(--font-numbers)', fontWeight: 700 }}>
                   {(() => {
                     const rowSum = columns.reduce((sum, col) => sum + (getSectionSum('OB', col.key) + getSectionSum('RECEIPT', col.key)), 0);
-                    return rowSum === 0 ? '—' : rowSum.toLocaleString('en-IN', { maximumFractionDigits: 3 });
+                    return rowSum === 0 ? '0' : rowSum.toLocaleString('en-IN', { maximumFractionDigits: 3 });
                   })()}
                 </td>
                 <td></td>
@@ -1969,14 +1984,14 @@ export default function StockEntryForm({
                   const val = getSectionSum('DISPOSAL', col.key);
                   return (
                     <td key={col.key} style={{ textAlign: 'center', fontSize: '0.8rem', padding: '8px 4px', fontFamily: 'var(--font-numbers)' }}>
-                      {val === 0 ? '—' : val.toLocaleString('en-IN', { maximumFractionDigits: 3 })}
+                      {val === 0 ? '0' : val.toLocaleString('en-IN', { maximumFractionDigits: 3 })}
                     </td>
                   );
                 })}
                 <td style={{ textAlign: 'center', fontSize: '0.8rem', padding: '8px 4px', fontFamily: 'var(--font-numbers)', fontWeight: 700 }}>
                   {(() => {
                     const rowSum = columns.reduce((sum, col) => sum + getSectionSum('DISPOSAL', col.key), 0);
-                    return rowSum === 0 ? '—' : rowSum.toLocaleString('en-IN', { maximumFractionDigits: 3 });
+                    return rowSum === 0 ? '0' : rowSum.toLocaleString('en-IN', { maximumFractionDigits: 3 });
                   })()}
                 </td>
                 <td></td>
@@ -1991,7 +2006,7 @@ export default function StockEntryForm({
                   const val = obVal + recVal - dispVal;
                   return (
                     <td key={col.key} style={{ textAlign: 'center', fontSize: '0.8rem', fontWeight: 700, padding: '8px 4px', color: val < 0 ? '#ef4444' : 'inherit', fontFamily: 'var(--font-numbers)' }}>
-                      {val === 0 ? '—' : val.toLocaleString('en-IN', { maximumFractionDigits: 3 })}
+                      {val === 0 ? '0' : val.toLocaleString('en-IN', { maximumFractionDigits: 3 })}
                     </td>
                   );
                 })}
@@ -2003,7 +2018,7 @@ export default function StockEntryForm({
                       const dispVal = getSectionSum('DISPOSAL', col.key);
                       return sum + (obVal + recVal - dispVal);
                     }, 0);
-                    return rowSum === 0 ? '—' : rowSum.toLocaleString('en-IN', { maximumFractionDigits: 3 });
+                    return rowSum === 0 ? '0' : rowSum.toLocaleString('en-IN', { maximumFractionDigits: 3 });
                   })()}
                 </td>
                 <td></td>
@@ -2342,25 +2357,7 @@ export default function StockEntryForm({
               </button>
             </div>
 
-            {/* Modal Tabs */}
-            <div style={{ display: 'flex', gap: 8, marginBottom: 16, background: '#f1f5f9', padding: 4, borderRadius: 8 }}>
-              <button
-                type="button"
-                className={`btn btn-sm ${partitionModalTab === 'DAIRY_BREAKDOWN' ? 'btn-primary' : 'btn-ghost'}`}
-                onClick={() => setPartitionModalTab('DAIRY_BREAKDOWN')}
-                style={{ flex: 1, fontSize: '0.8rem', fontWeight: 600 }}
-              >
-                🏢 Dairy Breakdown (e.g. Madurai-SSM)
-              </button>
-              <button
-                type="button"
-                className={`btn btn-sm ${partitionModalTab === 'RECEIPTS_PARTITION' ? 'btn-primary' : 'btn-ghost'}`}
-                onClick={() => setPartitionModalTab('RECEIPTS_PARTITION')}
-                style={{ flex: 1, fontSize: '0.8rem', fontWeight: 600 }}
-              >
-                🔄 Receipts Internal Partitions
-              </button>
-            </div>
+
 
             <datalist id="preset-dairies-list">
               {presetDairies.map(p => (

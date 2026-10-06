@@ -396,9 +396,13 @@ export default function STGEntryForm({
                 } catch (e) {
                   console.error('Failed to parse STG metadata:', e);
                 }
-                cleanNotes = cleanNotes.replace(part, '').trim();
               }
             });
+
+            cleanNotes = notesParts
+              .filter((part: string) => !part.includes('__METADATA__:') && !part.includes('__STOCK_SUMMARY__:'))
+              .join('\n')
+              .trim();
 
             // Combine global template statements with today's saved statements and stg_rows blocks
             const stmtMap = new Map<string, { key: string; label: string }>();
@@ -1650,7 +1654,13 @@ export default function STGEntryForm({
         }
       });
 
-      const userNotesText = notes ? notes.trim() : '';
+      const userNotesText = notes
+        ? notes
+            .split('\n')
+            .filter(p => !p.includes('__METADATA__:') && !p.includes('__STOCK_SUMMARY__:'))
+            .join('\n')
+            .trim()
+        : '';
       let finalNotes: string | null = null;
       if (userNotesText) {
         const metadata = {
