@@ -5,7 +5,6 @@ import Header from '@/components/layout/Header';
 import Step, { DAILY_ENTRY_STEP_ITEMS } from '@/components/ui/Step';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import MasterDetailLayout from '@/components/ui/MasterDetailLayout';
 import type { ChartColumnDef, ChartMasterDef, ChartRowData, ChartEntryData, ChartBatchData } from '@/app/api/stock/preparation-charts/route';
 import { getStandardColumnDecimals } from '@/lib/calculations';
 import { useConfirm } from '@/context/ConfirmContext';
@@ -1787,6 +1786,25 @@ export default function PreparationChartsDashboardPage({
     }
   };
 
+  const handleSwitchChart = async (newKey: string) => {
+    if (newKey === activeChartKey) return;
+    const canProceed = await confirmUnsavedChangesGuard('switching charts');
+    if (canProceed) {
+      setActiveChartKey(newKey);
+      setIsTableEditing(false);
+      setIsColumnEditing(false);
+      const chartCols = chartColumnsMap[newKey] || templates[newKey]?.columns || defaultColumns;
+      if (Array.isArray(chartCols) && chartCols.length > 0) {
+        setColumns(chartCols);
+      }
+    }
+  };
+
+  const selectedMaster = activeMaster;
+  const qtyLitIdx = columns.findIndex(c => c.key === 'qty_lit');
+  const labelColSpan = qtyLitIdx >= 0 ? qtyLitIdx + 1 : (columns.length > 0 && columns[0].type === 'text' ? 2 : 1);
+  const summaryCols = qtyLitIdx >= 0 ? columns.slice(qtyLitIdx) : (columns.length > 0 && columns[0].type === 'text' ? columns.slice(1) : columns);
+
   const dayShiftLabel = shiftConfig.shifts.find(s => s.key === 'D')?.label || 'Day';
   const nightShiftLabel = shiftConfig.shifts.find(s => s.key === 'N')?.label || 'Night';
 
@@ -1914,15 +1932,109 @@ export default function PreparationChartsDashboardPage({
               >
                 ⭐ Master Default Formulations
               </Link>
-              <Link
-                href="/dashboard/stock/preparation-charts/mappings"
-                className="btn btn-secondary btn-sm"
-                onClick={e => handleNavigateSubMenu(e, '/dashboard/stock/preparation-charts/mappings')}
-                style={{ color: '#0369a1', borderColor: '#bae6fd', background: '#f0f9ff', fontWeight: 700, textDecoration: 'none', display: 'inline-flex', alignItems: 'center' }}
-                title="Configure custom stage 1 to stage 2 mapping rules"
+
+              {/* 📋 Select Preparation Chart (placed where 🔀 Custom Mapping Rules was) */}
+              <div
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 8,
+                  background: '#f0f9ff',
+                  padding: '3px 10px',
+                  borderRadius: 8,
+                  border: '1px solid #bae6fd',
+                }}
               >
-                🔀 Custom Mapping Rules
-              </Link>
+                <label
+                  htmlFor="preparation-chart-select"
+                  style={{
+                    fontSize: '0.8rem',
+                    fontWeight: 800,
+                    color: '#0369a1',
+                    whiteSpace: 'nowrap',
+                    margin: 0,
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 5,
+                    cursor: 'pointer',
+                  }}
+                >
+                  <span>📋</span> Select Preparation Chart:
+                </label>
+                <select
+                  id="preparation-chart-select"
+                  className="form-select"
+                  value={activeChartKey || ''}
+                  onChange={e => handleSwitchChart(e.target.value)}
+                  disabled={loading || masters.length === 0}
+                  style={{
+                    fontSize: '0.82rem',
+                    fontWeight: 700,
+                    color: '#0369a1',
+                    background: '#ffffff',
+                    border: '1px solid #7dd3fc',
+                    borderRadius: 6,
+                    padding: '4px 10px',
+                    cursor: 'pointer',
+                    minWidth: 230,
+                  }}
+                >
+                  {masters.map(m => (
+                    <option key={m.key} value={m.key}>
+                      {m.name} {m.product_variant ? `(${m.product_variant})` : ''}
+                    </option>
+                  ))}
+                </select>
+                {masters.length > 1 && (
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+                    <button
+                      type="button"
+                      title="Previous Preparation Chart"
+                      onClick={() => {
+                        const idx = masters.findIndex(m => m.key === activeChartKey);
+                        if (idx > 0) handleSwitchChart(masters[idx - 1].key);
+                      }}
+                      disabled={masters.findIndex(m => m.key === activeChartKey) <= 0}
+                      style={{
+                        background: '#ffffff',
+                        border: '1px solid #bae6fd',
+                        borderRadius: 4,
+                        padding: '2px 6px',
+                        cursor: masters.findIndex(m => m.key === activeChartKey) <= 0 ? 'not-allowed' : 'pointer',
+                        opacity: masters.findIndex(m => m.key === activeChartKey) <= 0 ? 0.4 : 1,
+                        fontSize: '0.75rem',
+                        color: '#0369a1',
+                        fontWeight: 800,
+                      }}
+                    >
+                      ◀
+                    </button>
+                    <button
+                      type="button"
+                      title="Next Preparation Chart"
+                      onClick={() => {
+                        const idx = masters.findIndex(m => m.key === activeChartKey);
+                        if (idx >= 0 && idx < masters.length - 1) handleSwitchChart(masters[idx + 1].key);
+                      }}
+                      disabled={masters.findIndex(m => m.key === activeChartKey) >= masters.length - 1}
+                      style={{
+                        background: '#ffffff',
+                        border: '1px solid #bae6fd',
+                        borderRadius: 4,
+                        padding: '2px 6px',
+                        cursor: masters.findIndex(m => m.key === activeChartKey) >= masters.length - 1 ? 'not-allowed' : 'pointer',
+                        opacity: masters.findIndex(m => m.key === activeChartKey) >= masters.length - 1 ? 0.4 : 1,
+                        fontSize: '0.75rem',
+                        color: '#0369a1',
+                        fontWeight: 800,
+                      }}
+                    >
+                      ▶
+                    </button>
+                  </div>
+                )}
+              </div>
+
               {/* Download Charts Button */}
               <button
                 type="button"
@@ -1936,20 +2048,8 @@ export default function PreparationChartsDashboardPage({
               </button>
             </div>
 
-            {/* Repositioned Chart Master Names and Edit Columns / Formulation Buttons */}
+            {/* Repositioned Chart Master Names (Edit Columns removed because it is already present in table header) */}
             <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
-              <button
-                type="button"
-                className={`btn btn-sm ${isColumnEditing ? 'btn-primary' : 'btn-secondary'}`}
-                onClick={() => {
-                  setIsColumnEditing(prev => !prev);
-                  setIsTableEditing(false);
-                }}
-                style={{ color: isColumnEditing ? '#ffffff' : '#0284c7', borderColor: '#bae6fd', background: isColumnEditing ? '#0284c7' : '#ffffff', fontWeight: 700 }}
-                title="Toggle Column Editing (+L, +R, ✏️, ✕)"
-              >
-                ⚙️ Edit Columns
-              </button>
               <Link
                 href="/dashboard/stock/preparation-charts/masters"
                 className="btn btn-secondary btn-sm"
@@ -1980,74 +2080,12 @@ export default function PreparationChartsDashboardPage({
               📊 Open Chart Master Names Configuration
             </Link>
           </div>
+        ) : !selectedMaster ? (
+          <div className="card" style={{ padding: 40, textAlign: 'center', color: 'var(--text-muted)' }}>
+            Select a Preparation Chart from the top selector to display formulation batch details
+          </div>
         ) : (
-          <MasterDetailLayout<ChartMasterDef>
-            items={masters}
-            getItemKey={m => m.key}
-            selectedKey={activeChartKey}
-            onSelectKey={async (key) => {
-              if (key === activeChartKey) return;
-              const canProceed = await confirmUnsavedChangesGuard('switching charts');
-              if (canProceed) {
-                setActiveChartKey(key);
-                setIsTableEditing(false);
-                setIsColumnEditing(false);
-                const chartCols = chartColumnsMap[key] || templates[key]?.columns || defaultColumns;
-                if (Array.isArray(chartCols) && chartCols.length > 0) {
-                  setColumns(chartCols);
-                }
-              }
-            }}
-            leftPanelTitle="📋 Select Preparation Chart"
-            leftPanelWidth={340}
-            searchPlaceholder="🔍 Search chart name or variant..."
-            filterPredicate={(m, q) =>
-              m.name.toLowerCase().includes(q) ||
-              (m.product_variant || '').toLowerCase().includes(q) ||
-              (m.description || '').toLowerCase().includes(q)
-            }
-            emptyListMessage="No preparation charts matching search"
-            emptyDetailMessage="Select a Preparation Chart from the left panel to display formulation batch details"
-            headerExtra={
-              <Link
-                href="/dashboard/stock/preparation-charts/masters"
-                style={{ fontSize: '0.72rem', color: 'var(--brand-primary)', fontWeight: 700, textDecoration: 'none' }}
-                title="Manage or add new Chart Names"
-              >
-                ⚙️ Manage
-              </Link>
-            }
-            renderListItem={(m, isSelected) => (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <div style={{ fontWeight: 800, fontSize: '0.88rem', color: isSelected ? 'var(--brand-primary)' : 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: 6 }}>
-                    <span>📋 {m.name}</span>
-                    {isSelected && <span style={{ width: 8, height: 8, borderRadius: '50%', background: 'var(--brand-primary)', display: 'inline-block' }} />}
-                  </div>
-                  <span
-                    style={{
-                      padding: '2px 8px',
-                      borderRadius: 10,
-                      fontSize: '0.7rem',
-                      fontWeight: 700,
-                      background: isSelected ? '#0284c7' : '#e2e8f0',
-                      color: isSelected ? '#ffffff' : '#475569',
-                    }}
-                  >
-                    {m.product_variant || 'DEFAULT'}
-                  </span>
-                </div>
-              </div>
-            )}
-            renderDetail={selectedMaster => {
-              if (!selectedMaster) return null;
-
-              const qtyLitIdx = columns.findIndex(c => c.key === 'qty_lit');
-              const labelColSpan = qtyLitIdx >= 0 ? qtyLitIdx + 1 : (columns.length > 0 && columns[0].type === 'text' ? 2 : 1);
-              const summaryCols = qtyLitIdx >= 0 ? columns.slice(qtyLitIdx) : (columns.length > 0 && columns[0].type === 'text' ? columns.slice(1) : columns);
-
-              return (
-                <div className="card" style={{ border: isDirty ? '2px solid #16a34a' : '1px solid var(--border)', overflow: 'hidden', transition: 'border 0.2s ease' }}>
+          <div className="card" style={{ width: '100%', border: isDirty ? '2px solid #16a34a' : '1px solid var(--border)', overflow: 'hidden', transition: 'border 0.2s ease' }}>
                   {/* Header Banner with Edit / Read-Only controls */}
                   <div style={{
                     padding: '14px 20px',
@@ -2789,9 +2827,6 @@ export default function PreparationChartsDashboardPage({
                     </div>
                   )}
                 </div>
-              );
-            }}
-          />
         )}
 
         {/* Bottom Stage Navigation */}
