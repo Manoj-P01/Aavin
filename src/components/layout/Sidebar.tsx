@@ -96,38 +96,59 @@ const checkItemActive = (href: string, pathname: string) => {
   return hrefSegments.every((seg: string, idx: number) => pathSegments[idx] === seg);
 };
 
+const getInitialSections = (currentPathname: string): Record<string, boolean> => {
+  const initial: Record<string, boolean> = {};
+  NAV_SECTIONS.forEach(sec => {
+    const containsActive = sec.items.some(
+      item => 'href' in item && typeof item.href === 'string' && checkItemActive(item.href, currentPathname)
+    );
+    initial[sec.label] = sec.label === 'Overview' || containsActive;
+  });
+  return initial;
+};
+
 export default function Sidebar() {
   const pathname = usePathname();
   const { sidebarOpen, setSidebarOpen, setConfigOpen } = useSidebar();
   const { confirm } = useConfirm();
 
   // Manage open/collapsed state of accordion sections
+  // Initial state is computed deterministically from pathname on both server and client to avoid hydration mismatch
   const [openSections, setOpenSections] = useState<Record<string, boolean>>(() => {
-    if (typeof window !== 'undefined') {
-      try {
-        const saved = localStorage.getItem('aavin_sidebar_sections_state');
-        if (saved) return JSON.parse(saved);
-      } catch (e) {
-        // ignore
-      }
-    }
-    // Default open sections: Overview and whatever section contains active link
-    const initial: Record<string, boolean> = {
-      'Overview': true,
-      'Chart Preparation': true,
-      'Stock Statement': false,
-      'STG Entry': false,
-      'TS Entry': false,
-      'Rule Mapping': false,
-      'Configuration': false,
-    };
-    return initial;
+    return getInitialSections(pathname);
   });
+
+  // Reconcile saved preferences from localStorage only after client hydration
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem('aavin_sidebar_sections_state');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        setOpenSections(prev => {
+          const updated = { ...prev, ...parsed };
+          // Always ensure the active route's section stays open
+          NAV_SECTIONS.forEach(sec => {
+            const containsActive = sec.items.some(
+              item => 'href' in item && typeof item.href === 'string' && checkItemActive(item.href, pathname)
+            );
+            if (containsActive) {
+              updated[sec.label] = true;
+            }
+          });
+          return updated;
+        });
+      }
+    } catch (e) {
+      // ignore
+    }
+  }, []);
 
   // Whenever pathname changes, auto-expand the section containing the active route
   useEffect(() => {
     NAV_SECTIONS.forEach(sec => {
-      const containsActive = sec.items.some(item => 'href' in item && checkItemActive(item.href, pathname));
+      const containsActive = sec.items.some(
+        item => 'href' in item && typeof item.href === 'string' && checkItemActive(item.href, pathname)
+      );
       if (containsActive) {
         setOpenSections(prev => {
           if (prev[sec.label]) return prev;
@@ -191,7 +212,7 @@ export default function Sidebar() {
         {NAV_SECTIONS.map(section => {
           const isOpen = !!openSections[section.label];
           const hasActiveItem = section.items.some(
-            item => 'href' in item && checkItemActive(item.href, pathname)
+            item => 'href' in item && typeof item.href === 'string' && checkItemActive(item.href, pathname)
           );
 
           return (
