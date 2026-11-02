@@ -71,6 +71,7 @@ export default function StockListPage() {
         subtitle="Monthly milk & cream stock history"
         actions={
           <div style={{ display: 'flex', gap: 8 }}>
+            <Link href="/dashboard/stock/defaults" className="btn btn-secondary btn-sm" style={{ fontWeight: 700, color: '#15803d', borderColor: '#86efac', background: '#f0fdf4' }}>⭐ Master Default Statement</Link>
             <Link href="/dashboard/stock/query" className="btn btn-secondary btn-sm">🔍 Query Summary Register</Link>
             <Link href="/dashboard/stock/new" className="btn btn-primary btn-sm">➕ New Stock Statement Entry</Link>
           </div>

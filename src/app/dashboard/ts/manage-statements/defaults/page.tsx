@@ -61,27 +61,6 @@ export default function STGDefaultFormulationsPage() {
   const [formColUnit, setFormColUnit] = useState<string>('');
   const [formColDecimals, setFormColDecimals] = useState<number | undefined>(undefined);
 
-  const [productOptions, setProductOptions] = useState<string[]>([]);
-
-  useEffect(() => {
-    async function loadProductsMaster() {
-      try {
-        const res = await fetch('/api/master/products');
-        if (res.ok) {
-          const json = await res.json();
-          const prods = json.data || json.products || [];
-          if (Array.isArray(prods) && prods.length > 0) {
-            const names = prods.map((p: any) => p.short_name || p.product_name || p.full_name || p.key).filter(Boolean);
-            setProductOptions(Array.from(new Set(names)));
-          }
-        }
-      } catch (e) {
-        console.error('Error fetching products master:', e);
-      }
-    }
-    loadProductsMaster();
-  }, []);
-
   // Fetch Configs & Templates from DB
   const loadData = useCallback(async () => {
     setLoading(true);
@@ -140,7 +119,7 @@ export default function STGDefaultFormulationsPage() {
     if (existingTmpl && Array.isArray(existingTmpl) && existingTmpl.length > 0) {
       setRows(JSON.parse(JSON.stringify(existingTmpl)));
     } else {
-      setRows([{ variant: master?.variant || master?.label || 'Particular Variant', values: { variant: master?.variant || master?.label || 'Particular Variant' } }]);
+      setRows([{ variant: '', values: {} }]);
     }
     setSelectedCell(null);
     setFocusedCell(null);
@@ -686,12 +665,6 @@ export default function STGDefaultFormulationsPage() {
       />
 
       <div className="page-body animate-fade-in" style={{ display: 'flex', flexDirection: 'column', height: 'calc(100vh - 120px)', overflow: 'hidden' }}>
-        <datalist id="variant-products-list">
-          {productOptions.map(p => (
-            <option key={p} value={p} />
-          ))}
-        </datalist>
-
         {toastMessage && (
           <div
             style={{
@@ -1116,7 +1089,6 @@ export default function STGDefaultFormulationsPage() {
                             )}
                             <input
                               type="text"
-                              list={col.type === 'text' ? 'variant-products-list' : undefined}
                               className="form-input"
                               value={displayVal}
                               placeholder="-"

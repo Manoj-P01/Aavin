@@ -45,6 +45,7 @@ export interface StockEntryFormProps {
   activeStep?: string;
   onStepChange?: (stepKey: string) => void;
   onNextStep?: () => void;
+  onPrevStep?: () => void;
   onDateShiftChange?: (date: string, shift: Shift) => void;
   initialDate?: string;
   initialShift?: Shift;
@@ -55,18 +56,31 @@ export default function StockEntryForm({
   activeStep,
   onStepChange,
   onNextStep,
+  onPrevStep,
   onDateShiftChange,
   initialDate,
   initialShift,
 }: StockEntryFormProps = {}) {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const { confirm, showWarning, showError } = useConfirm();
+  const { confirm, showWarning, showError, showSuccess } = useConfirm();
   const paramDate = searchParams.get('date');
   const paramShift = searchParams.get('shift');
 
   const [entryDate, setEntryDate] = useState(initialDate || paramDate || new Date().toISOString().split('T')[0]);
   const [shift, setShift] = useState<Shift>(initialShift || (paramShift === 'N' || paramShift === 'D' ? paramShift : 'D'));
+
+  useEffect(() => {
+    if (initialDate && initialDate !== entryDate) {
+      setEntryDate(initialDate);
+    }
+  }, [initialDate]);
+
+  useEffect(() => {
+    if (initialShift && initialShift !== shift) {
+      setShift(initialShift);
+    }
+  }, [initialShift]);
   const [shiftConfigs, setShiftConfigs] = useState<any[]>([
     { key: 'D', label: 'Day Shift', start: '06:00', end: '18:00' },
     { key: 'N', label: 'Night Shift', start: '18:00', end: '06:00' },
@@ -708,10 +722,33 @@ export default function StockEntryForm({
               }
 
               if (active) {
+                let initialRows = makeDefaultRows(receiptRowsConfig, disposalRowsConfig);
+                try {
+                  const tmplRes = await fetch('/api/stock/templates');
+                  if (tmplRes.ok) {
+                    const tmplJson = await tmplRes.json();
+                    const defMaster = (tmplJson.masters || []).find((m: any) => m.is_default) || tmplJson.masters?.[0];
+                    const savedTmpl = defMaster ? tmplJson.templates?.[defMaster.key] : null;
+                    if (savedTmpl && Array.isArray(savedTmpl.rows) && savedTmpl.rows.length > 0) {
+                      initialRows = savedTmpl.rows.map((r: any) => ({
+                        row_type: r.row_type,
+                        row_label: r.row_label,
+                        values: { ...r.values },
+                      }));
+                      if (Array.isArray(savedTmpl.product_columns) && savedTmpl.product_columns.length > 0) {
+                        finalCols = savedTmpl.product_columns;
+                      }
+                    }
+                  }
+                } catch (tErr) {
+                  console.warn('Could not load custom stock master template, using standard defaults:', tErr);
+                }
+
                 setColumnsUnique(finalCols);
-                const defaultRows = makeDefaultRows(receiptRowsConfig, disposalRowsConfig);
-                defaultRows[0].values = initialObValues;
-                setRows(defaultRows);
+                if (initialRows.length > 0) {
+                  initialRows[0].values = { ...initialRows[0].values, ...initialObValues };
+                }
+                setRows(initialRows);
                 setNotes('');
                 await syncFromPreparationCharts();
               }
@@ -1391,12 +1428,19 @@ export default function StockEntryForm({
     setSaving(true); setError(''); setSuccess('');
     try {
       // 1. Extract custom columns and values metadata
-      const customCols = columns.filter(c => (c as any).is_custom);
+      const DB_STOCK_ROW_COLS = new Set([
+        'wh_milk', 'dlt_milk', 'fc_milk', 'std_milk', 'toned_curd', 'toned_milk',
+        'dtm', 'skim_milk', 'cream', 'butter_milk', 'r_con', 'smp', 'water'
+      ]);
+      const customCols = columns.filter(c => {
+        const norm = c.key.trim().toLowerCase().replace(/[\._\s]/g, '_');
+        return (c as any).is_custom || !DB_STOCK_ROW_COLS.has(norm);
+      });
       const customValues: Record<string, Record<string, string>> = {}; // row_label -> colKey -> val
       rows.forEach(r => {
         const vals: Record<string, string> = {};
         customCols.forEach(cc => {
-          if (r.values[cc.key]) {
+          if (r.values[cc.key] !== undefined && r.values[cc.key] !== '') {
             vals[cc.key] = r.values[cc.key]!;
           }
         });
@@ -1527,8 +1571,9 @@ export default function StockEntryForm({
       if (nextAction === 'view') {
         router.push(`/dashboard/stock/${entryDate}/${shift}`);
       } else if (nextAction === 'next') {
+        if (onDateShiftChange) onDateShiftChange(entryDate, shift);
         if (onNextStep) {
-          onNextStep();
+          (onNextStep as any)(entryDate, shift);
         } else {
           // Advance to next shift or day
           if (reportMode === 'shift') {
@@ -2045,13 +2090,20 @@ export default function StockEntryForm({
   };
 
   const handleStepClick = (key: string) => {
+    if (onDateShiftChange) {
+      onDateShiftChange(entryDate, shift);
+    }
     if (onStepChange) {
       onStepChange(key);
       return;
     }
     const s = shift || 'F';
     if (key === 'prep') {
-      router.push(`/dashboard/stock/preparation-charts?date=${entryDate}&shift=${s}`);
+      if (onPrevStep) {
+        (onPrevStep as any)(entryDate, s);
+      } else {
+        router.push(`/dashboard/stock/preparation-charts?date=${entryDate}&shift=${s}`);
+      }
     } else if (key === 'stg') {
       router.push(`/dashboard/ts/new-stg?date=${entryDate}&shift=${s}`);
     } else if (key === 'ts') {
@@ -2077,6 +2129,13 @@ export default function StockEntryForm({
       setRows(prevRows => {
         const nextRows = [...prevRows];
 
+        // Track fresh totals mapped from prep charts for each (targetRowIdx, targetColKey)
+        // so that clicking Sync SETS/OVERWRITES the mapped quantities with the exact prep chart totals,
+        // rather than accumulating on top of previously loaded/synced values.
+        const syncedTotals: Record<number, Record<string, number>> = {};
+        const affectedCells = new Set<string>(); // "targetRowIdx:colKey"
+        const mappedBatchKeys = new Set<string>(); // deduplication key per batch source
+
         Object.keys(entries).forEach(chartKey => {
           const entry = entries[chartKey];
           const masterDef = masters.find((m: any) => m.key === chartKey);
@@ -2092,7 +2151,7 @@ export default function StockEntryForm({
                 target_snf: entry.target_snf,
               }];
 
-          batchesList.forEach((batch: any) => {
+          batchesList.forEach((batch: any, batchIdx: number) => {
             // Find active mapping rules for this chart / variant
             const matchingRules = mappingRules.filter(rule => {
               if (rule.enabled === false) return false;
@@ -2127,39 +2186,81 @@ export default function StockEntryForm({
                 let batchQty = 0;
                 const targetBatchVol = Number(batch.target_batch_liters || entry.target_batch_liters || masterDef?.target_batch_liters || 0);
                 const ruleVarNorm = norm(rule.sourceVariant || '*');
-                const isChartLevelVariant = ruleVarNorm === '*' || ruleVarNorm === '' || ruleVarNorm === chartVariantNorm || (chartVariantNorm !== '' && (chartVariantNorm.includes(ruleVarNorm) || ruleVarNorm.includes(chartVariantNorm)));
+                const isWildcardVariant = ruleVarNorm === '*' || ruleVarNorm === '';
+                const isChartLevelVariant = isWildcardVariant || ruleVarNorm === chartVariantNorm || (chartVariantNorm !== '' && (chartVariantNorm.includes(ruleVarNorm) || ruleVarNorm.includes(chartVariantNorm)));
 
-                // 1. If rule is for overall chart or volume column, use overall target batch volume
-                if (targetBatchVol > 0 && (isChartLevelVariant || normPref.includes('qty') || normPref.includes('lit') || normPref.includes('vol') || normPref.includes('batch'))) {
-                  batchQty = targetBatchVol;
+                const bRows: any[] = Array.isArray(batch.rows) && batch.rows.length > 0 ? batch.rows : (Array.isArray(entry.rows) ? entry.rows : []);
+
+                // Helper to extract numeric value for preferred column key from a row values object
+                const extractColVal = (vals: Record<string, any>, prefKey: string): number => {
+                  const normP = norm(prefKey);
+                  // Direct key lookup
+                  if (vals[prefKey] !== undefined && vals[prefKey] !== null && vals[prefKey] !== '') {
+                    const n = parseFloat(String(vals[prefKey]).replace(/,/g, ''));
+                    if (!isNaN(n)) return n;
+                  }
+                  // Normalized exact key lookup
+                  for (const [k, v] of Object.entries(vals)) {
+                    if (v === undefined || v === null || v === '') continue;
+                    if (norm(k) === normP) {
+                      const n = parseFloat(String(v).replace(/,/g, ''));
+                      if (!isNaN(n)) return n;
+                    }
+                  }
+                  // Flexible fuzzy column key lookup (e.g. qty vs qty_lit or qty_kg vs kg)
+                  for (const [k, v] of Object.entries(vals)) {
+                    if (v === undefined || v === null || v === '') continue;
+                    const nk = norm(k);
+                    const isQtyMatch = (normP.includes('qty') || normP.includes('lit')) && (nk === 'qty' || nk === 'qtylit' || nk === 'volume' || nk === 'vol');
+                    const isKgMatch = (normP.includes('kg') && !normP.includes('fat') && !normP.includes('snf')) && (nk === 'qtykg' || nk === 'kg');
+                    const isFatMatch = (normP.includes('kgfat') || normP === 'kgfat') && (nk === 'kgfat' || nk === 'fatkg');
+                    const isSnfMatch = (normP.includes('kgsnf') || normP === 'kgsnf') && (nk === 'kgsnf' || nk === 'snfkg');
+                    if (isQtyMatch || isKgMatch || isFatMatch || isSnfMatch || nk.includes(normP) || normP.includes(nk)) {
+                      const n = parseFloat(String(v).replace(/,/g, ''));
+                      if (!isNaN(n)) return n;
+                    }
+                  }
+                  return 0;
+                };
+
+                // 1. Search batch rows for matching variant row(s)
+                let matchedRows: any[] = [];
+                if (!isWildcardVariant) {
+                  // Exact match on row variant
+                  matchedRows = bRows.filter((r: any) => {
+                    const rVar = norm(r.variant || r.values?.variant || r.ingredient || r.name || r.item || '');
+                    return rVar === ruleVarNorm;
+                  });
+
+                  // If no exact match, try prefix / substring match
+                  if (matchedRows.length === 0) {
+                    matchedRows = bRows.filter((r: any) => {
+                      const rVar = norm(r.variant || r.values?.variant || r.ingredient || r.name || r.item || '');
+                      return rVar !== '' && (rVar.startsWith(ruleVarNorm) || ruleVarNorm.startsWith(rVar) || rVar.includes(ruleVarNorm));
+                    });
+                  }
+                } else {
+                  // Wildcard rule: search for chart product variant row first
+                  if (chartVariantNorm !== '') {
+                    matchedRows = bRows.filter((r: any) => {
+                      const rVar = norm(r.variant || r.values?.variant || r.ingredient || r.name || r.item || '');
+                      return rVar === chartVariantNorm;
+                    });
+                  }
                 }
 
-                // 2. Otherwise search batch rows for specific ingredient row value
-                if (batchQty === 0) {
-                  const bRows: any[] = Array.isArray(batch.rows) && batch.rows.length > 0 ? batch.rows : (Array.isArray(entry.rows) ? entry.rows : []);
-
-                  for (const r of bRows) {
-                    const rVar = norm(r.variant || r.values?.variant || r.ingredient || r.name || r.item || '');
-                    const rowMatches = isChartLevelVariant || (rVar !== '' && (rVar === ruleVarNorm || rVar.includes(ruleVarNorm) || ruleVarNorm.includes(rVar)));
-
-                    if (rowMatches) {
-                      const vals = r?.values || r || {};
-                      for (const [k, v] of Object.entries(vals)) {
-                        if (norm(k) === normPref && v !== undefined && v !== null && v !== '') {
-                          const num = parseFloat(String(v).replace(/,/g, ''));
-                          if (!isNaN(num) && num > 0) {
-                            batchQty = num;
-                            break;
-                          }
-                        }
-                      }
-                      if (batchQty > 0) break;
+                if (matchedRows.length > 0) {
+                  for (const r of matchedRows) {
+                    const vals = r?.values || r || {};
+                    const val = extractColVal(vals, preferredKey);
+                    if (val > 0) {
+                      batchQty += val;
                     }
                   }
                 }
 
-                // 3. Fallback: targetBatchVol
-                if (batchQty === 0) {
+                // 2. Fallback: if no specific row value was found and this is a chart-level or wildcard rule, use targetBatchVol
+                if (batchQty === 0 && (isWildcardVariant || isChartLevelVariant)) {
                   batchQty = targetBatchVol;
                 }
 
@@ -2198,7 +2299,6 @@ export default function StockEntryForm({
                   }
 
                   if (targetRowIdx !== -1) {
-                    const targetRow = { ...nextRows[targetRowIdx], values: { ...nextRows[targetRowIdx].values } };
                     const targetProdKey = rule.targetProductKey || '';
                     const normTargetProd = norm(targetProdKey);
 
@@ -2219,14 +2319,15 @@ export default function StockEntryForm({
                     });
 
                     if (matchedCol) {
-                      const existingValStr = targetRow.values[matchedCol.key];
-                      const existingVal = existingValStr !== undefined && existingValStr !== '' && !isNaN(parseFloat(existingValStr))
-                        ? parseFloat(existingValStr)
-                        : 0;
-                      const totalVal = existingVal + batchQty;
-                      targetRow.values[matchedCol.key] = String(totalVal);
-                      nextRows[targetRowIdx] = targetRow;
-                      mappedCount++;
+                      const dedupKey = `b_${chartKey}_${batchIdx}_${rule.id || rule.rule_key || `${ruleVarNorm}_${normPref}`}_to_${targetRowIdx}_${matchedCol.key}`;
+                      if (!mappedBatchKeys.has(dedupKey)) {
+                        mappedBatchKeys.add(dedupKey);
+
+                        if (!syncedTotals[targetRowIdx]) syncedTotals[targetRowIdx] = {};
+                        syncedTotals[targetRowIdx][matchedCol.key] = (syncedTotals[targetRowIdx][matchedCol.key] || 0) + batchQty;
+                        affectedCells.add(`${targetRowIdx}:${matchedCol.key}`);
+                        mappedCount++;
+                      }
                     }
                   }
                 }
@@ -2242,7 +2343,6 @@ export default function StockEntryForm({
 
                 if (receiptIndices.length > 0) {
                   const targetIdx = receiptIndices[0];
-                  const targetRow = { ...nextRows[targetIdx], values: { ...nextRows[targetIdx].values } };
                   const varUpper = (chartVariantNorm || '').toUpperCase();
 
                   const matchedCol = columns.find(c => {
@@ -2258,19 +2358,32 @@ export default function StockEntryForm({
                   });
 
                   if (matchedCol) {
-                    const existingValStr = targetRow.values[matchedCol.key];
-                    const existingVal = existingValStr !== undefined && existingValStr !== '' && !isNaN(parseFloat(existingValStr))
-                      ? parseFloat(existingValStr)
-                      : 0;
-                    const totalVal = existingVal + batchQty;
-                    targetRow.values[matchedCol.key] = String(totalVal);
-                    nextRows[targetIdx] = targetRow;
-                    mappedCount++;
+                    const dedupKey = `fallback_${chartKey}_${batchIdx}_to_${targetIdx}_${matchedCol.key}`;
+                    if (!mappedBatchKeys.has(dedupKey)) {
+                      mappedBatchKeys.add(dedupKey);
+
+                      if (!syncedTotals[targetIdx]) syncedTotals[targetIdx] = {};
+                      syncedTotals[targetIdx][matchedCol.key] = (syncedTotals[targetIdx][matchedCol.key] || 0) + batchQty;
+                      affectedCells.add(`${targetIdx}:${matchedCol.key}`);
+                      mappedCount++;
+                    }
                   }
                 }
               }
             }
           });
+        });
+
+        // Apply calculated synced totals directly to nextRows (replacing previous values for affected cells)
+        affectedCells.forEach(cellKey => {
+          const [rowIdxStr, colKey] = cellKey.split(':');
+          const rowIdx = parseInt(rowIdxStr, 10);
+          if (!isNaN(rowIdx) && nextRows[rowIdx]) {
+            const val = syncedTotals[rowIdx][colKey];
+            const updatedRow = { ...nextRows[rowIdx], values: { ...nextRows[rowIdx].values } };
+            updatedRow.values[colKey] = String(val);
+            nextRows[rowIdx] = updatedRow;
+          }
         });
 
         return nextRows;
@@ -2292,7 +2405,13 @@ export default function StockEntryForm({
       const shiftParam = shift ? `&shift=${shift}` : '';
       const url = `/api/export-excel?date=${entryDate}${shiftParam}&stock=true`;
       const res = await fetch(url);
-      if (!res.ok) throw new Error('Export failed');
+      if (!res.ok) {
+        let errJson: any = {};
+        try { errJson = await res.json(); } catch {}
+        const msg = errJson.error || 'Failed to export Excel stock statement. Please ensure entry data is saved first.';
+        showWarning(msg, 'Export Notice');
+        return;
+      }
       const blob = await res.blob();
       const downloadUrl = window.URL.createObjectURL(blob);
       const a = document.createElement('a');
@@ -2311,41 +2430,20 @@ export default function StockEntryForm({
     }
   };
 
+  const handlePrevStage = () => {
+    if (onDateShiftChange) onDateShiftChange(entryDate, shift);
+    if (onPrevStep) {
+      (onPrevStep as any)(entryDate, shift);
+    } else {
+      router.push(`/dashboard/stock/preparation-charts?date=${entryDate}${shift ? `&shift=${shift}` : ''}`);
+    }
+  };
+
   return (
     <>
       <Header
         title="Milk & Cream Stock Statement Entry"
         subtitle={`Enter daily milk & cream stock data (${reportMode === 'full_day' ? 'Full Day' : (shift === 'D' ? 'Day Shift' : 'Night Shift')})`}
-        actions={
-          <div style={{ display: 'flex', gap: 8 }} className="no-print">
-            <Link
-              href={`/dashboard/stock/preparation-charts?date=${entryDate}${shift ? `&shift=${shift}` : ''}`}
-              className="btn btn-secondary btn-sm"
-              style={{ borderColor: '#d97706', color: '#b45309', backgroundColor: '#fffbeb', fontWeight: 600 }}
-              title="View Preparation Charts for selected Date & Shift"
-            >
-              📋 Preparation Charts
-            </Link>
-            <button
-              type="button"
-              className="btn btn-secondary btn-sm"
-              onClick={() => window.print()}
-              title="Print Stock Statement Entry"
-            >
-              🖨️ Print Statement
-            </button>
-            <button
-              type="button"
-              className="btn btn-secondary btn-sm"
-              style={{ borderColor: '#16a34a', color: '#16a34a', fontWeight: 600 }}
-              onClick={handleExportDailyExcel}
-              title="Download Stock Statement Entry as Excel"
-            >
-              📥 Download Excel
-            </button>
-            <Link href="/dashboard/stock" className="btn btn-secondary btn-sm">← Back to Stock List</Link>
-          </div>
-        }
       >
         <Step
           items={DAILY_ENTRY_STEP_ITEMS}
@@ -2363,13 +2461,22 @@ export default function StockEntryForm({
               <div className="section-title" style={{ margin: 0 }}>Entry Details</div>
               <div style={{ display: 'flex', gap: 6 }} className="no-print">
                 <Link
-                  href={`/dashboard/stock/preparation-charts?date=${entryDate}${shift ? `&shift=${shift}` : ''}`}
+                  href="/dashboard/stock/defaults"
+                  className="btn btn-secondary btn-xs"
+                  style={{ borderColor: '#86efac', color: '#166534', backgroundColor: '#f0fdf4', fontSize: '0.75rem', padding: '4px 10px', fontWeight: 600 }}
+                  title="Configure Master Default Statement Template for Milk & Cream Stock Statement Entry"
+                >
+                  ⭐ Master Default Statement
+                </Link>
+                <button
+                  type="button"
                   className="btn btn-secondary btn-xs"
                   style={{ borderColor: '#d97706', color: '#b45309', backgroundColor: '#fffbeb', fontSize: '0.75rem', padding: '4px 10px', fontWeight: 600 }}
-                  title="View Preparation Charts for selected Date & Shift"
+                  onClick={handlePrevStage}
+                  title="Previous Stage: View Preparation Charts for selected Date & Shift"
                 >
                   📋 Preparation Charts
-                </Link>
+                </button>
                 <button
                   type="button"
                   className="btn btn-secondary btn-xs"
@@ -2377,9 +2484,15 @@ export default function StockEntryForm({
                   onClick={async () => {
                     const count = await syncFromPreparationCharts();
                     if (count > 0) {
-                      alert(`✅ Synced ${count} preparation formulation batch quantity(ies) into Stock Statement Entry Receipts!`);
+                      await showSuccess(
+                        `Synced ${count} preparation formulation batch quantity(ies) into Stock Statement Entry Receipts!`,
+                        'Preparation Charts Synced'
+                      );
                     } else {
-                      alert(`⚠️ No saved preparation charts data found for ${entryDate}. Please ensure preparation charts are saved for this date.`);
+                      await showWarning(
+                        `No saved preparation charts data found for ${entryDate}. Please ensure preparation charts are saved for this date.`,
+                        'No Preparation Charts Found'
+                      );
                     }
                   }}
                   title="Auto-fill receipt quantities from saved Preparation Charts"
@@ -2404,18 +2517,34 @@ export default function StockEntryForm({
                 </button>
               </div>
             </div>
-            <button
-              type="button"
-              className="btn btn-primary btn-sm"
-              disabled={saving}
-              onClick={async () => {
-                await handleSave('stay');
-                router.push(`/dashboard/ts/new-stg?date=${entryDate}${shift ? `&shift=${shift}` : ''}`);
-              }}
-              style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 16px', fontWeight: 600, background: 'linear-gradient(135deg, #0284c7 0%, #0d9488 100%)', borderColor: '#0284c7' }}
-            >
-              {saving ? 'Saving...' : '💾 Save & Open Solid Balance (STG) Entry ➔'}
-            </button>
+            <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+              <button
+                type="button"
+                className="btn btn-secondary btn-sm"
+                onClick={handlePrevStage}
+                disabled={saving}
+                style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontWeight: 600 }}
+                title="Go back to previous stage: Preparation Charts"
+              >
+                ← Back to Preparation Charts
+              </button>
+              <button
+                type="button"
+                className="btn btn-primary btn-sm"
+                disabled={saving}
+                onClick={async () => {
+                  if (stepMode) {
+                    await handleSave('next');
+                  } else {
+                    await handleSave('stay');
+                    router.push(`/dashboard/ts/new-stg?date=${entryDate}${shift ? `&shift=${shift}` : ''}`);
+                  }
+                }}
+                style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 16px', fontWeight: 600, background: 'linear-gradient(135deg, #0284c7 0%, #0d9488 100%)', borderColor: '#0284c7' }}
+              >
+                {saving ? 'Saving...' : '💾 Save & Open Solid Balance (STG) Entry ➔'}
+              </button>
+            </div>
           </div>
           <div className="form-row form-row-3">
             <div className="form-group">
@@ -2425,7 +2554,11 @@ export default function StockEntryForm({
                 type="date"
                 className="form-input"
                 value={entryDate}
-                onChange={e => setEntryDate(e.target.value)}
+                onChange={e => {
+                  const newDate = e.target.value;
+                  setEntryDate(newDate);
+                  if (onDateShiftChange) onDateShiftChange(newDate, shift);
+                }}
                 max={new Date().toISOString().split('T')[0]}
               />
             </div>
@@ -2445,7 +2578,10 @@ export default function StockEntryForm({
                         id={`shift-${s}`}
                         type="button"
                         className={`btn ${shift === s ? 'btn-primary' : 'btn-secondary'}`}
-                        onClick={() => setShift(s)}
+                        onClick={() => {
+                          setShift(s);
+                          if (onDateShiftChange) onDateShiftChange(entryDate, s);
+                        }}
                         style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 2, padding: '6px 12px', height: 'auto', alignItems: 'center', justifyContent: 'center' }}
                       >
                         <div style={{ fontWeight: 600, fontSize: '0.85rem' }}>
@@ -2493,6 +2629,8 @@ export default function StockEntryForm({
 
         {renderSummaryTable()}
 
+
+
         {/* Actions */}
         <div style={{ display: 'flex', gap: 12, justifyContent: 'space-between', alignItems: 'center', marginTop: 16, flexWrap: 'wrap' }} className="no-print">
           <div>
@@ -2527,15 +2665,15 @@ export default function StockEntryForm({
                 }}
               >
                 {saving ? (
-                  <>
-                    <span className="spinner" style={{ width: 16, height: 16 }} /> Compiling STG & TS...
-                  </>
+                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                    <span className="spinner" style={{ width: 16, height: 16 }} /> Compiling STG &amp; TS...
+                  </span>
                 ) : (
-                  <>Next: Generate STG & TS ➔</>
+                  'Next: Proceed to Solid Balance (STG) ➔'
                 )}
               </button>
             ) : (
-              <>
+              <div style={{ display: 'flex', gap: 12 }}>
                 <button
                   type="button"
                   className="btn btn-secondary"
@@ -2543,7 +2681,7 @@ export default function StockEntryForm({
                   disabled={saving}
                   style={{ display: 'flex', alignItems: 'center', gap: 6 }}
                 >
-                  ⏭️ Save & Continue (Next)
+                  ⏭️ Save &amp; Continue (Next)
                 </button>
                 <button
                   type="button"
@@ -2555,9 +2693,9 @@ export default function StockEntryForm({
                   disabled={saving}
                   style={{ display: 'flex', alignItems: 'center', gap: 6, background: 'linear-gradient(135deg, #0284c7 0%, #0d9488 100%)', borderColor: '#0284c7' }}
                 >
-                  💾 Save & Open Solid Balance (STG) Entry ➔
+                  💾 Save &amp; Open Solid Balance (STG) Entry ➔
                 </button>
-              </>
+              </div>
             )}
             <button
               id="stock-save-btn"
@@ -2566,13 +2704,7 @@ export default function StockEntryForm({
               disabled={saving}
               style={{ display: 'flex', alignItems: 'center', gap: 6 }}
             >
-              {saving ? (
-                <>
-                  <span className="spinner" style={{ width: 16, height: 16 }} /> Saving…
-                </>
-              ) : (
-                <>💾 Save & View Report</>
-              )}
+              {saving ? 'Saving…' : '💾 Save & View Report'}
             </button>
           </div>
         </div>
@@ -2615,7 +2747,7 @@ export default function StockEntryForm({
                   <span>{partitionModalTab === 'DAIRY_BREAKDOWN' ? '🏢 Destination Dairy Breakdown Configuration' : '🔄 Receipts Internal Partitions Configuration'}</span>
                 </div>
                 <div style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', marginTop: 4 }}>
-                  Particulars: <strong style={{ color: '#d97706' }}>{rows[activePartitionRowIdx]?.row_label || 'Disposal Row'}</strong>
+                  Particulars: <strong style={{ color: '#d97706' }}>{(activePartitionRowIdx !== null ? rows[activePartitionRowIdx]?.row_label : '') || 'Disposal Row'}</strong>
                 </div>
               </div>
               <button
@@ -2884,7 +3016,7 @@ export default function StockEntryForm({
                 {/* Receipts Partition Tab View */}
                 {(() => {
                   const rowValSum = columns.reduce(
-                    (sum, col) => sum + (parseFloat(rows[activePartitionRowIdx]?.values[col.key] || '0') || 0), 0
+                    (sum, col) => sum + (parseFloat((activePartitionRowIdx !== null ? rows[activePartitionRowIdx]?.values[col.key] : '0') || '0') || 0), 0
                   );
                   const partitionSum = partitionItems.reduce(
                     (sum, p) => sum + (parseFloat(p.value || '0') || 0), 0

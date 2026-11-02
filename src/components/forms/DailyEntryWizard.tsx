@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import StockEntryForm from '@/components/forms/StockEntryForm';
 import STGEntryForm from '@/components/forms/STGEntryForm';
@@ -27,6 +27,55 @@ export default function DailyEntryWizard() {
     paramShift === 'N' || paramShift === 'D' || paramShift === 'F' ? (paramShift as Shift) : 'F'
   );
 
+  // Sync date, shift, or step if URL query params change
+  useEffect(() => {
+    if (paramDate && paramDate !== entryDate) {
+      setEntryDate(paramDate);
+    }
+  }, [paramDate]);
+
+  useEffect(() => {
+    if (paramShift && (paramShift === 'D' || paramShift === 'N' || paramShift === 'F') && paramShift !== shift) {
+      setShift(paramShift as Shift);
+    }
+  }, [paramShift]);
+
+  useEffect(() => {
+    if (paramStep && (paramStep === 'prep' || paramStep === 'stock' || paramStep === 'stg' || paramStep === 'ts') && paramStep !== activeStep) {
+      setActiveStep(paramStep as any);
+    }
+  }, [paramStep]);
+
+  // Keep browser URL updated with selected date, shift & step
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const params = new URLSearchParams(window.location.search);
+      let changed = false;
+      if (entryDate && params.get('date') !== entryDate) {
+        params.set('date', entryDate);
+        changed = true;
+      }
+      if (shift && params.get('shift') !== shift) {
+        params.set('shift', shift);
+        changed = true;
+      }
+      if (activeStep && params.get('step') !== activeStep) {
+        params.set('step', activeStep);
+        changed = true;
+      }
+      if (changed) {
+        window.history.replaceState(null, '', `?${params.toString()}`);
+      }
+    }
+  }, [entryDate, shift, activeStep]);
+
+  const handleDateShiftChange = (newDate: string, newShift?: Shift | string | null) => {
+    if (newDate) setEntryDate(newDate);
+    if (newShift && (newShift === 'D' || newShift === 'N' || newShift === 'F')) {
+      setShift(newShift as Shift);
+    }
+  };
+
   const handleStepChange = (key: string) => {
     if (key === 'prep' || key === 'stock' || key === 'stg' || key === 'ts') {
       setActiveStep(key as 'prep' | 'stock' | 'stg' | 'ts');
@@ -42,7 +91,11 @@ export default function DailyEntryWizard() {
           stepMode={true}
           activeStep={activeStep}
           onStepChange={handleStepChange}
-          onNextStep={() => setActiveStep('stock')}
+          onNextStep={(nextDate?: string, nextShift?: any) => {
+            if (nextDate) handleDateShiftChange(nextDate, nextShift);
+            setActiveStep('stock');
+          }}
+          onDateShiftChange={handleDateShiftChange}
           initialDate={entryDate}
           initialShift={shift || 'F'}
         />
@@ -53,7 +106,15 @@ export default function DailyEntryWizard() {
           stepMode={true}
           activeStep={activeStep}
           onStepChange={handleStepChange}
-          onNextStep={() => setActiveStep('stg')}
+          onNextStep={(nextDate?: string, nextShift?: any) => {
+            if (nextDate) handleDateShiftChange(nextDate, nextShift);
+            setActiveStep('stg');
+          }}
+          onPrevStep={(nextDate?: string, nextShift?: any) => {
+            if (nextDate) handleDateShiftChange(nextDate, nextShift);
+            setActiveStep('prep');
+          }}
+          onDateShiftChange={handleDateShiftChange}
           initialDate={entryDate}
           initialShift={shift || 'F'}
         />
@@ -64,8 +125,15 @@ export default function DailyEntryWizard() {
           stepMode={true}
           activeStep={activeStep}
           onStepChange={handleStepChange}
-          onNextStep={() => setActiveStep('ts')}
-          onPrevStep={() => setActiveStep('stock')}
+          onNextStep={(nextDate?: string, nextShift?: any) => {
+            if (nextDate) handleDateShiftChange(nextDate, nextShift);
+            setActiveStep('ts');
+          }}
+          onPrevStep={(nextDate?: string, nextShift?: any) => {
+            if (nextDate) handleDateShiftChange(nextDate, nextShift);
+            setActiveStep('stock');
+          }}
+          onDateShiftChange={handleDateShiftChange}
           initialDate={entryDate}
           initialShift={shift}
         />
@@ -76,10 +144,14 @@ export default function DailyEntryWizard() {
           stepMode={true}
           activeStep={activeStep}
           onStepChange={handleStepChange}
-          onPrevStep={() => setActiveStep('stg')}
+          onPrevStep={(nextDate?: string, nextShift?: any) => {
+            if (nextDate) handleDateShiftChange(nextDate, nextShift);
+            setActiveStep('stg');
+          }}
           onFinish={() => {
             router.push(`/dashboard/ts/${entryDate}?shift=${shift || 'F'}`);
           }}
+          onDateShiftChange={handleDateShiftChange}
           initialDate={entryDate}
           initialShift={shift}
         />

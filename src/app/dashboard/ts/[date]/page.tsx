@@ -227,7 +227,9 @@ export default function TSViewPage() {
           flat={true}
           activeStep="reports"
           onStepClick={(key) => {
-            if (key === 'stock') {
+            if (key === 'prep') {
+              router.push(`/dashboard/stock/preparation-charts?date=${date}${shift ? `&shift=${shift}` : ''}`);
+            } else if (key === 'stock') {
               router.push(`/dashboard/stock/new?date=${date}&shift=${shift || 'F'}`);
             } else if (key === 'stg') {
               router.push(`/dashboard/ts/new-stg?date=${date}&shift=${shift || 'F'}`);
@@ -367,6 +369,36 @@ export default function TSViewPage() {
             )}
           </div>
         )}
+
+        {/* Stage Navigation */}
+        <div
+          className="no-print"
+          style={{
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            padding: '16px 20px',
+            background: 'var(--surface, #ffffff)',
+            borderRadius: 12,
+            border: '1px solid var(--border)',
+            marginTop: 20,
+            marginBottom: 30,
+            boxShadow: '0 4px 12px rgba(0, 0, 0, 0.03)',
+          }}
+        >
+          <button
+            type="button"
+            className="btn btn-secondary"
+            onClick={() => router.push(`/dashboard/ts/new?date=${date}&shift=${shift || 'F'}`)}
+            style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}
+          >
+            ← Back to TS Statement Entry
+          </button>
+          <div style={{ display: 'flex', gap: 10 }}>
+            <button className="btn btn-secondary btn-sm" onClick={handlePrint}>🖨 Print / PDF</button>
+            <button className="btn btn-primary btn-sm" style={{ borderColor: '#16a34a', backgroundColor: '#16a34a' }} onClick={() => setExportModalOpen(true)}>📥 Export Excel</button>
+          </div>
+        </div>
       </div>
 
       {exportModalOpen && (

@@ -119,6 +119,7 @@ function buildStockStatementSheet(
   }
 
   const customValues: Record<string, Record<string, number>> = {};
+  const summaryByType: Record<string, Record<string, number>> = {};
 
   if (entryNotes) {
     const parts = entryNotes.split('\n');
@@ -137,10 +138,27 @@ function buildStockStatementSheet(
           }
           if (meta.custom_values) {
             Object.entries(meta.custom_values).forEach(([rLabel, cVals]: any) => {
-              if (!customValues[rLabel]) customValues[rLabel] = {};
+              const normRLabel = normalizeKey(rLabel);
+              if (!customValues[normRLabel]) customValues[normRLabel] = {};
               Object.entries(cVals).forEach(([cKey, v]: any) => {
-                customValues[rLabel][cKey] = parseFloat(v) || 0;
+                customValues[normRLabel][normalizeKey(cKey)] = parseFloat(v) || 0;
               });
+            });
+          }
+        } catch {}
+      }
+      if (part.includes('__STOCK_SUMMARY__:')) {
+        try {
+          const summaries = JSON.parse(part.split('__STOCK_SUMMARY__:')[1]);
+          if (Array.isArray(summaries)) {
+            summaries.forEach((s: any) => {
+              const sType = s.summary_type;
+              if (!summaryByType[sType]) summaryByType[sType] = {};
+              if (s.summary_data && typeof s.summary_data === 'object') {
+                Object.entries(s.summary_data).forEach(([k, v]: any) => {
+                  summaryByType[sType][normalizeKey(k)] = Number(v) || 0;
+                });
+              }
             });
           }
         } catch {}
@@ -193,21 +211,48 @@ function buildStockStatementSheet(
     }
 
     // 4. Custom values metadata fallback
-    const rLabel = (r.row_label || '').trim();
-    if (customValues[rLabel]) {
-      for (const k of Object.keys(customValues[rLabel])) {
-        if (normalizeKey(k) === targetNorm) {
-          return customValues[rLabel][k];
-        }
+    const rLabelNorm = normalizeKey(r.row_label || '');
+    if (customValues[rLabelNorm] && customValues[rLabelNorm][targetNorm] !== undefined) {
+      return customValues[rLabelNorm][targetNorm];
+    }
+    for (const [savedLabel, vals] of Object.entries(customValues)) {
+      if (savedLabel === rLabelNorm) {
+        if (vals[targetNorm] !== undefined) return vals[targetNorm];
       }
     }
+
+    // 5. Fallback from summaryByType for OB or single receipt row
+    if (r.row_type === 'OB' && summaryByType['OB'] && summaryByType['OB'][targetNorm] !== undefined) {
+      return summaryByType['OB'][targetNorm];
+    }
+    if (r.row_type === 'RECEIPT' && (rLabelNorm === 'receipts' || stockRowsData.filter(x => x.row_type === 'RECEIPT').length === 1)) {
+      if (summaryByType['TOTAL_RECEIPT'] && summaryByType['TOTAL_RECEIPT'][targetNorm] !== undefined) {
+        return summaryByType['TOTAL_RECEIPT'][targetNorm];
+      }
+    }
+
     return 0;
   };
 
   const getSum = (rowType: 'OB' | 'RECEIPT' | 'DISPOSAL', colKey: string): number => {
-    return stockRowsData
+    const targetNorm = normalizeKey(colKey);
+    const sum = stockRowsData
       .filter(r => r.row_type === rowType)
-      .reduce((sum, r) => sum + getCellVal(r, colKey), 0);
+      .reduce((acc, r) => acc + getCellVal(r, colKey), 0);
+
+    if (sum !== 0) return sum;
+
+    if (rowType === 'OB' && summaryByType['OB'] && summaryByType['OB'][targetNorm] !== undefined) {
+      return summaryByType['OB'][targetNorm];
+    }
+    if (rowType === 'RECEIPT' && summaryByType['TOTAL_RECEIPT'] && summaryByType['TOTAL_RECEIPT'][targetNorm] !== undefined) {
+      return summaryByType['TOTAL_RECEIPT'][targetNorm];
+    }
+    if (rowType === 'DISPOSAL' && summaryByType['TOTAL_DISPOSAL'] && summaryByType['TOTAL_DISPOSAL'][targetNorm] !== undefined) {
+      return summaryByType['TOTAL_DISPOSAL'][targetNorm];
+    }
+
+    return 0;
   };
 
   let dateDisplay = dateStr;
@@ -222,7 +267,7 @@ function buildStockStatementSheet(
   // Row 1 Title
   sheetData.push([
     cell('NKL-MILK AND CREAM STOCK STATEMENT', { isBold: true, noBorder: true }),
-    ...new Array(stockCols.length).fill(cell('', { noBorder: true })),
+    ...new Array(Math.max(0, stockCols.length - 1)).fill(cell('', { noBorder: true })),
     cell(`DATE: ${dateDisplay}`, { isBold: true, noBorder: true, alignment: 'right' })
   ]);
   merges.push({ s: { r: 0, c: 0 }, e: { r: 0, c: stockCols.length - 1 } });
@@ -230,26 +275,23 @@ function buildStockStatementSheet(
   // Row 2 Headers
   sheetData.push([
     cell('Particulars', { isHeader: true }),
-    ...stockCols.map(c => cell(c.label, { isHeader: true })),
-    cell('Total', { isHeader: true })
+    ...stockCols.map(c => cell(c.label, { isHeader: true }))
   ]);
 
   // Row 3 Opening Balance
   const obVals = stockCols.map(c => getSum('OB', c.key));
-  const obTotal = obVals.reduce((a, b) => a + b, 0);
   sheetData.push([
     cell('OPENING BALANCE', { isBold: true }),
-    ...obVals.map(v => cell(val(v), { isBold: true, isNum: true })),
-    cell(val(obTotal), { isBold: true, isNum: true })
+    ...obVals.map(v => cell(val(v), { isBold: true, isNum: true }))
   ]);
 
   // Receipts
   const recHeaderIdx = sheetData.length;
   sheetData.push([
     cell('Receipts:', { isBold: true }),
-    ...new Array(stockCols.length + 1).fill(cell('', { noBorder: true }))
+    ...new Array(stockCols.length).fill(cell('', { noBorder: true }))
   ]);
-  merges.push({ s: { r: recHeaderIdx, c: 0 }, e: { r: recHeaderIdx, c: stockCols.length + 1 } });
+  merges.push({ s: { r: recHeaderIdx, c: 0 }, e: { r: recHeaderIdx, c: stockCols.length } });
 
   // Dynamically collect Receipt rows from entry data sorted by sort_order
   const entryReceipts = [...stockRowsData]
@@ -258,29 +300,25 @@ function buildStockStatementSheet(
 
   entryReceipts.forEach(r => {
     const rVals = stockCols.map(c => getCellVal(r, c.key));
-    const total = rVals.reduce((a, b) => a + b, 0);
     sheetData.push([
       cell(r.row_label),
-      ...rVals.map(v => cell(val(v), { isNum: true })),
-      cell(val(total), { isNum: true })
+      ...rVals.map(v => cell(val(v), { isNum: true }))
     ]);
   });
 
-  const recTotalVals = stockCols.map(c => getSum('RECEIPT', c.key));
-  const recTotalSum = recTotalVals.reduce((a, b) => a + b, 0);
+  const recTotalVals = stockCols.map((c, i) => obVals[i] + getSum('RECEIPT', c.key));
   sheetData.push([
     cell('TOTAL', { isBold: true }),
-    ...recTotalVals.map(v => cell(val(v), { isBold: true, isNum: true })),
-    cell(val(recTotalSum), { isBold: true, isNum: true })
+    ...recTotalVals.map(v => cell(val(v), { isBold: true, isNum: true }))
   ]);
 
   // Disposals
   const dispHeaderIdx = sheetData.length;
   sheetData.push([
     cell('Disposals:', { isBold: true }),
-    ...new Array(stockCols.length + 1).fill(cell('', { noBorder: true }))
+    ...new Array(stockCols.length).fill(cell('', { noBorder: true }))
   ]);
-  merges.push({ s: { r: dispHeaderIdx, c: 0 }, e: { r: dispHeaderIdx, c: stockCols.length + 1 } });
+  merges.push({ s: { r: dispHeaderIdx, c: 0 }, e: { r: dispHeaderIdx, c: stockCols.length } });
 
   // Dynamically collect Disposal rows from entry data sorted by sort_order
   const entryDisposals = [...stockRowsData]
@@ -289,53 +327,51 @@ function buildStockStatementSheet(
 
   entryDisposals.forEach(r => {
     const rVals = stockCols.map(c => getCellVal(r, c.key));
-    const total = rVals.reduce((a, b) => a + b, 0);
     sheetData.push([
       cell(r.row_label),
-      ...rVals.map(v => cell(val(v), { isNum: true })),
-      cell(val(total), { isNum: true })
+      ...rVals.map(v => cell(val(v), { isNum: true }))
     ]);
   });
 
   const dispTotalVals = stockCols.map(c => getSum('DISPOSAL', c.key));
-  const dispTotalSum = dispTotalVals.reduce((a, b) => a + b, 0);
   sheetData.push([
     cell('TOTAL', { isBold: true }),
-    ...dispTotalVals.map(v => cell(val(v), { isBold: true, isNum: true })),
-    cell(val(dispTotalSum), { isBold: true, isNum: true })
+    ...dispTotalVals.map(v => cell(val(v), { isBold: true, isNum: true }))
   ]);
 
-  // Closing Balance
-  const cbVals = stockCols.map((c, i) => obVals[i] + recTotalVals[i] - dispTotalVals[i]);
-  const cbTotalSum = (obTotal + recTotalSum) - dispTotalSum;
+  // Closing Balance (Receipts Total which is OB + Receipts, minus Disposals Total)
+  const cbVals = stockCols.map((c, i) => {
+    const calc = recTotalVals[i] - dispTotalVals[i];
+    if (calc !== 0) return calc;
+    const targetNorm = normalizeKey(c.key);
+    if (summaryByType['CB'] && summaryByType['CB'][targetNorm] !== undefined) {
+      return summaryByType['CB'][targetNorm];
+    }
+    return 0;
+  });
   sheetData.push([
     cell('Closing Balance', { isBold: true }),
-    ...cbVals.map(v => cell(val(v), { isBold: true, isNum: true })),
-    cell(val(cbTotalSum), { isBold: true, isNum: true })
+    ...cbVals.map(v => cell(val(v), { isBold: true, isNum: true }))
   ]);
 
   // Physical & Difference if available
   const physicalRow = stockRowsData.find(r => (r as any).row_type === 'PHYSICAL' || r.row_label?.toLowerCase() === 'physical');
   if (physicalRow) {
     const physVals = stockCols.map(c => getCellVal(physicalRow, c.key));
-    const physSum = physVals.reduce((a, b) => a + b, 0);
     sheetData.push([
       cell('physical'),
-      ...physVals.map(v => cell(val(v), { isNum: true })),
-      cell(val(physSum), { isNum: true })
+      ...physVals.map(v => cell(val(v), { isNum: true }))
     ]);
 
     const diffVals = stockCols.map((c, i) => physVals[i] - cbVals[i]);
-    const diffSum = physSum - cbTotalSum;
     sheetData.push([
       cell('difference', { isBold: true }),
-      ...diffVals.map(v => cell(val(v), { isBold: true, isNum: true })),
-      cell(val(diffSum), { isBold: true, isNum: true })
+      ...diffVals.map(v => cell(val(v), { isBold: true, isNum: true }))
     ]);
   }
 
   const ws = XLSX.utils.aoa_to_sheet(sheetData);
-  ws['!cols'] = [{ wch: 24 }, ...new Array(stockCols.length + 1).fill({ wch: 12 })];
+  ws['!cols'] = [{ wch: 24 }, ...new Array(stockCols.length).fill({ wch: 12 })];
   ws['!merges'] = merges;
 
   return ws;
@@ -427,80 +463,104 @@ export async function GET(req: NextRequest) {
     }
 
     let entryNotes = '';
+    let stockEntryNotes = '';
     let stgRowsData: STGRow[] = [];
     let tsRowsData: TSMilkRow[] = [];
     let stockRowsData: StockRow[] = [];
 
     // 1. Fetch data from DB
     const supabase = getSupabaseServiceClient();
-    let query = supabase
-      .from('entries')
-      .select('id, notes')
-      .eq('entry_date', date)
-      .eq('report_type', 'TS');
 
-    if (shift) {
-      query = query.eq('shift', shift);
-    } else {
-      query = query.is('shift', null);
+    // Fetch TS/STG entry data if requested
+    if (includeTs || includeStg) {
+      let query = supabase
+        .from('entries')
+        .select('id, notes')
+        .eq('entry_date', date)
+        .eq('report_type', 'TS');
+
+      if (shift && shift !== 'F') {
+        query = query.eq('shift', shift);
+      }
+
+      let { data: entries, error: entryErr } = await query;
+
+      if ((entryErr || !entries || entries.length === 0) && shift && shift !== 'F') {
+        const fallbackQuery = supabase
+          .from('entries')
+          .select('id, notes')
+          .eq('entry_date', date)
+          .eq('report_type', 'TS');
+        const fallbackRes = await fallbackQuery;
+        if (!fallbackRes.error && fallbackRes.data && fallbackRes.data.length > 0) {
+          entries = fallbackRes.data;
+        }
+      }
+
+      if (entries && entries.length > 0) {
+        const entryIds = entries.map((e: any) => e.id);
+        entryNotes = entries.map((e: any) => e.notes).filter(Boolean).join('\n') || '';
+
+        const [tsRows, stgRows] = await Promise.all([
+          supabase
+            .from('ts_milk_rows')
+            .select('*')
+            .in('entry_id', entryIds)
+            .order('sort_order', { ascending: true }),
+          supabase
+            .from('stg_rows')
+            .select('*')
+            .in('entry_id', entryIds)
+            .order('sort_order', { ascending: true }),
+        ]);
+
+        if (!tsRows.error) tsRowsData = tsRows.data as TSMilkRow[];
+        if (!stgRows.error) stgRowsData = stgRows.data as STGRow[];
+      }
     }
 
-    const { data: entries, error: entryErr } = await query;
-    if (entryErr) throw entryErr;
-
-    if (entries && entries.length > 0) {
-      const entryId = entries[0].id;
-      entryNotes = entries[0].notes || '';
-
-      const [tsRows, stgRows] = await Promise.all([
-        supabase
-          .from('ts_milk_rows')
-          .select('*')
-          .eq('entry_id', entryId)
-          .order('sort_order', { ascending: true }),
-        supabase
-          .from('stg_rows')
-          .select('*')
-          .eq('entry_id', entryId)
-          .order('sort_order', { ascending: true }),
-      ]);
-
-      if (!tsRows.error) tsRowsData = tsRows.data as TSMilkRow[];
-      if (!stgRows.error) stgRowsData = stgRows.data as STGRow[];
-    }
-
-    // Fetch Stock entry data if needed
-    let stockQuery = supabase
-      .from('entries')
-      .select('id, notes')
-      .eq('entry_date', date)
-      .eq('report_type', 'STOCK');
-    if (shift) stockQuery = stockQuery.eq('shift', shift);
-
-    const { data: stockEntries } = await stockQuery;
-    let targetStockEntry = stockEntries && stockEntries.length > 0 ? stockEntries[0] : null;
-
-    if (!targetStockEntry && shift) {
-      const { data: fallbackEntries } = await supabase
+    // Fetch Stock entry data if requested or by default
+    if (includeStock || (!includeTs && !includeStg)) {
+      let stockQuery = supabase
         .from('entries')
         .select('id, notes')
         .eq('entry_date', date)
         .eq('report_type', 'STOCK');
-      if (fallbackEntries && fallbackEntries.length > 0) targetStockEntry = fallbackEntries[0];
-    }
 
-    if (targetStockEntry) {
-      if (!entryNotes) entryNotes = targetStockEntry.notes || '';
-      const stockRes = await supabase
-        .from('stock_rows')
-        .select('*')
-        .eq('entry_id', targetStockEntry.id)
-        .order('sort_order', { ascending: true });
-      if (stockRes.data) stockRowsData = stockRes.data as StockRow[];
+      if (shift && shift !== 'F') {
+        stockQuery = stockQuery.eq('shift', shift);
+      }
+
+      let { data: stockEntries } = await stockQuery;
+
+      if ((!stockEntries || stockEntries.length === 0) && shift && shift !== 'F') {
+        const fallbackQuery = supabase
+          .from('entries')
+          .select('id, notes')
+          .eq('entry_date', date)
+          .eq('report_type', 'STOCK');
+        const fallbackRes = await fallbackQuery;
+        if (!fallbackRes.error && fallbackRes.data && fallbackRes.data.length > 0) {
+          stockEntries = fallbackRes.data;
+        }
+      }
+
+      if (stockEntries && stockEntries.length > 0) {
+        const stockEntryIds = stockEntries.map((e: any) => e.id);
+        stockEntryNotes = stockEntries.map((e: any) => e.notes).filter(Boolean).join('\n') || '';
+        if (!entryNotes) entryNotes = stockEntryNotes;
+        const stockRes = await supabase
+          .from('stock_rows')
+          .select('*')
+          .in('entry_id', stockEntryIds)
+          .order('sort_order', { ascending: true });
+        if (stockRes.data) stockRowsData = stockRes.data as StockRow[];
+      }
     }
 
     if (tsRowsData.length === 0 && stgRowsData.length === 0 && stockRowsData.length === 0) {
-      return NextResponse.json({ error: 'No report data found for this date and shift' }, { status: 404 });
+      const formattedDateDisplay = date.split('-').reverse().join('-');
+      return NextResponse.json({ error: `No saved stock statement or report data found for ${formattedDateDisplay}. Please save the entry first before exporting.` }, { status: 404 });
     }
 
     // Determine shift text
@@ -1077,7 +1137,7 @@ export async function GET(req: NextRequest) {
 
     // 5. Build Stock Statement Sheet
     if (includeStock && stockRowsData.length > 0) {
-      const stockWs = buildStockStatementSheet(stockRowsData, date, entryNotes, masterConfig);
+      const stockWs = buildStockStatementSheet(stockRowsData, date, stockEntryNotes || entryNotes, masterConfig);
       XLSX.utils.book_append_sheet(wb, stockWs, 'Stock Statement');
     }
 

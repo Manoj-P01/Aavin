@@ -126,17 +126,22 @@ export async function POST(req: NextRequest) {
 
     const actorUsername = req.headers.get('x-user-name') || 'admin';
     const normalizeColKey = (k: string) => k.trim().replace(/\.+/g, '_').replace(/_+/g, '_').toLowerCase();
-    const standardValidCols = new Set(['wh_milk', 'dlt_milk', 'fc_milk', 'std_milk', 'dtm', 'skim_milk', 'cream', 'butter_milk', 'r_con', 'smp', 'water']);
+    
+    const supabase = getSupabaseServiceClient();
 
-    let finalCols = Array.from(standardValidCols);
+    // Load dynamic product columns strictly from database products_master table
+    let finalCols: string[] = [];
     try {
-      const supabase = getSupabaseServiceClient();
-      const { data: dbProds } = await supabase.from('products_master').select('product_key').eq('is_active', true);
+      const { data: dbProds } = await supabase.from('products_master').select('product_key').eq('is_active', true).order('sort_order', { ascending: true });
       if (Array.isArray(dbProds) && dbProds.length > 0) {
-        const dbCols = dbProds.map(p => normalizeColKey(p.product_key));
-        finalCols = Array.from(new Set([...standardValidCols, ...dbCols]));
+        finalCols = dbProds.map(p => normalizeColKey(p.product_key));
       }
     } catch (e) {}
+
+    // Fallback standard default column list if database products_master is empty
+    if (finalCols.length === 0) {
+      finalCols = ['wh_milk', 'dlt_milk', 'fc_milk', 'std_milk', 'dtm', 'skim_milk', 'cream', 'butter_milk', 'r_con', 'smp', 'water'];
+    }
 
     const rowsToInsert = (stock_rows || []).map((r: any, i: number) => {
       const rowObj: any = {
@@ -176,7 +181,7 @@ export async function POST(req: NextRequest) {
       return rowObj;
     });
 
-    // Prepare final summary rows (use provided or auto-compute from rowsToInsert)
+    // Prepare final summary rows (use provided or auto-compute from raw stock_rows)
     let finalSummaryRows: any[] = [];
     if (Array.isArray(stock_summary_rows) && stock_summary_rows.length > 0) {
       finalSummaryRows = stock_summary_rows.map((s: any, idx: number) => {
@@ -226,7 +231,7 @@ export async function POST(req: NextRequest) {
         };
       });
     } else {
-      // Auto-compute 4 summary rows
+      // Auto-compute 4 summary rows across all products (including custom products)
       const obData: Record<string, number> = {};
       const recData: Record<string, number> = {};
       const dispData: Record<string, number> = {};
@@ -234,13 +239,32 @@ export async function POST(req: NextRequest) {
 
       finalCols.forEach(colKey => {
         const normKey = colKey.trim().replace(/\.+/g, '_').replace(/_+/g, '_').toLowerCase();
+        const targetNorm = colKey.toLowerCase().replace(/[^a-z0-9]/g, '');
         let obVal = 0, recVal = 0, dispVal = 0;
-        rowsToInsert.forEach(r => {
-          const val = Number(r[colKey]) || 0;
-          if (r.row_type === 'OB') obVal += val;
-          else if (r.row_type === 'RECEIPT') recVal += val;
-          else if (r.row_type === 'DISPOSAL') dispVal += val;
+
+        (stock_rows || []).forEach((r: any) => {
+          let numVal = 0;
+          if (r[colKey] !== undefined && r[colKey] !== null && r[colKey] !== '') {
+            const num = typeof r[colKey] === 'number' ? r[colKey] : parseFloat(String(r[colKey]));
+            if (!isNaN(num)) numVal = num;
+          } else if (targetNorm) {
+            for (const [rk, rv] of Object.entries(r)) {
+              if (rv === undefined || rv === null || rv === '') continue;
+              if (rk.toLowerCase().replace(/[^a-z0-9]/g, '') === targetNorm) {
+                const num = typeof rv === 'number' ? rv : parseFloat(String(rv));
+                if (!isNaN(num)) {
+                  numVal = num;
+                  break;
+                }
+              }
+            }
+          }
+
+          if (r.row_type === 'OB') obVal += numVal;
+          else if (r.row_type === 'RECEIPT') recVal += numVal;
+          else if (r.row_type === 'DISPOSAL') dispVal += numVal;
         });
+
         obData[colKey] = obVal;
         obData[normKey] = obVal;
         recData[colKey] = recVal;
@@ -260,8 +284,6 @@ export async function POST(req: NextRequest) {
     }
 
     // Store stock_summary_rows strictly in DB table
-    const supabase = getSupabaseServiceClient();
-
     try {
       await supabase.from('stock_summary_rows').delete().eq('entry_id', entry_id);
     } catch (e) {}
@@ -272,10 +294,31 @@ export async function POST(req: NextRequest) {
     ]);
 
     if (rowsToInsert.length > 0) {
-      const { error: insertErr } = await supabase.from('stock_rows').insert(rowsToInsert);
-      if (insertErr) {
-        console.error('Failed to insert stock_rows in Supabase:', insertErr);
-        throw new Error(`Failed to insert stock rows: ${insertErr.message}`);
+      let currentRows = rowsToInsert;
+      let inserted = false;
+      let attempts = 0;
+
+      while (!inserted && attempts < 10) {
+        attempts++;
+        const { error: insertErr } = await supabase.from('stock_rows').insert(currentRows);
+        if (!insertErr) {
+          inserted = true;
+          break;
+        }
+
+        const match = insertErr.message?.match(/Could not find the ['"]([^'"]+)['"] column of ['"]stock_rows['"]/i);
+        if (match && match[1]) {
+          const missingCol = match[1];
+          console.warn(`Column '${missingCol}' does not exist on Postgres table stock_rows. Stripping column property and retrying insert...`);
+          currentRows = currentRows.map((r: any) => {
+            const copy = { ...r };
+            delete copy[missingCol];
+            return copy;
+          });
+        } else {
+          console.error('Failed to insert stock_rows in Supabase:', insertErr);
+          throw new Error(`Failed to insert stock rows: ${insertErr.message}`);
+        }
       }
     }
 

@@ -114,6 +114,7 @@ export async function GET(req: NextRequest) {
       target_batch_liters?: number;
       target_fat?: number;
       target_snf?: number;
+      columns?: ChartColumnDef[];
     }> = {};
 
     try {
@@ -129,6 +130,29 @@ export async function GET(req: NextRequest) {
     } catch (e) {
       console.error('Error fetching templates JSON:', e);
     }
+
+    // 3b. Fetch per-chart column configurations from prep_chart_configs
+    let chart_columns: Record<string, ChartColumnDef[]> = {};
+    try {
+      const { data: chartColsRes } = await supabase
+        .from('prep_chart_configs')
+        .select('config_json')
+        .eq('config_key', 'chart_columns')
+        .maybeSingle();
+
+      if (chartColsRes && chartColsRes.config_json && typeof chartColsRes.config_json === 'object') {
+        chart_columns = chartColsRes.config_json;
+      }
+    } catch (e) {
+      console.error('Error fetching chart_columns JSON:', e);
+    }
+
+    // Ensure templates with custom columns are merged into chart_columns
+    Object.keys(templates).forEach(k => {
+      if (Array.isArray(templates[k]?.columns) && templates[k].columns!.length > 0 && !chart_columns[k]) {
+        chart_columns[k] = templates[k].columns!;
+      }
+    });
 
     // 4. Fetch Custom Mappings Rules strictly from dedicated table prep_to_stock_mapping_rules
     try {
@@ -222,6 +246,7 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({
       success: true,
       columns,
+      chart_columns,
       masters,
       templates,
       mappings,
@@ -242,8 +267,29 @@ export async function POST(req: NextRequest) {
 
     const supabase = getSupabaseServiceClient();
 
-    // 1. Save Columns JSON array
-    if (Array.isArray(body.columns)) {
+    // 1. Save Columns JSON
+    // If a specific chart_key is provided with columns, save into chart_columns map for that chart only!
+    if (body.chart_key && Array.isArray(body.columns)) {
+      const { data: chartColsRes } = await supabase
+        .from('prep_chart_configs')
+        .select('config_json')
+        .eq('config_key', 'chart_columns')
+        .maybeSingle();
+
+      const existingChartCols = chartColsRes?.config_json && typeof chartColsRes.config_json === 'object' ? chartColsRes.config_json : {};
+      const updatedChartCols = {
+        ...existingChartCols,
+        [body.chart_key]: body.columns,
+      };
+
+      await supabase.from('prep_chart_configs').upsert({
+        config_key: 'chart_columns',
+        config_json: updatedChartCols,
+        updated_by: actorUsername,
+        updated_at: new Date().toISOString(),
+      }, { onConflict: 'config_key' });
+    } else if (Array.isArray(body.columns) && !body.template) {
+      // Otherwise save to global default columns
       await supabase.from('prep_chart_configs').upsert({
         config_key: 'columns',
         config_json: body.columns,
@@ -304,7 +350,10 @@ export async function POST(req: NextRequest) {
       } catch (e) {
         // ignore error
       }
-    } else if (body.template && body.template.chart_key) {
+    }
+
+    // 5. Save Single Default Chart Template & Chart Columns
+    if (body.template && body.template.chart_key) {
       const { data: tmplRes } = await supabase
         .from('prep_chart_configs')
         .select('config_json')
@@ -312,6 +361,10 @@ export async function POST(req: NextRequest) {
         .maybeSingle();
 
       const existingTemplates = tmplRes?.config_json && typeof tmplRes.config_json === 'object' ? tmplRes.config_json : {};
+      const templateCols = Array.isArray(body.template.columns)
+        ? body.template.columns
+        : (Array.isArray(body.columns) ? body.columns : undefined);
+
       const updatedTemplates = {
         ...existingTemplates,
         [body.template.chart_key]: {
@@ -319,6 +372,7 @@ export async function POST(req: NextRequest) {
           target_batch_liters: body.template.target_batch_liters,
           target_fat: body.template.target_fat,
           target_snf: body.template.target_snf,
+          columns: templateCols,
         }
       };
 
@@ -328,9 +382,31 @@ export async function POST(req: NextRequest) {
         updated_by: actorUsername,
         updated_at: new Date().toISOString(),
       }, { onConflict: 'config_key' });
+
+      // Also ensure chart_columns map stores this chart's specific columns
+      if (templateCols) {
+        const { data: chartColsRes } = await supabase
+          .from('prep_chart_configs')
+          .select('config_json')
+          .eq('config_key', 'chart_columns')
+          .maybeSingle();
+
+        const existingChartCols = chartColsRes?.config_json && typeof chartColsRes.config_json === 'object' ? chartColsRes.config_json : {};
+        const updatedChartCols = {
+          ...existingChartCols,
+          [body.template.chart_key]: templateCols,
+        };
+
+        await supabase.from('prep_chart_configs').upsert({
+          config_key: 'chart_columns',
+          config_json: updatedChartCols,
+          updated_by: actorUsername,
+          updated_at: new Date().toISOString(),
+        }, { onConflict: 'config_key' });
+      }
     }
 
-    // 4. Save Entry JSON for Date & Shift
+    // 5. Save Entry JSON for Date & Shift
     if (body.entry && body.entry.chart_key && body.entry.entry_date && body.entry.shift) {
       await supabase.from('prep_chart_entries').upsert({
         chart_key: body.entry.chart_key,
@@ -361,8 +437,49 @@ export async function DELETE(req: NextRequest) {
 
     const columnKey = searchParams.get('column_key');
     const masterKey = searchParams.get('master_key');
+    const chartKey = searchParams.get('chart_key');
 
     const supabase = getSupabaseServiceClient();
+
+    if (chartKey && columnKey) {
+      // Delete column specifically for a chart master
+      const { data: chartColsRes } = await supabase
+        .from('prep_chart_configs')
+        .select('config_json')
+        .eq('config_key', 'chart_columns')
+        .maybeSingle();
+
+      const existingChartCols = chartColsRes?.config_json && typeof chartColsRes.config_json === 'object' ? chartColsRes.config_json : {};
+      if (Array.isArray(existingChartCols[chartKey])) {
+        existingChartCols[chartKey] = existingChartCols[chartKey].filter((c: any) => c.key !== columnKey);
+        await supabase.from('prep_chart_configs').upsert({
+          config_key: 'chart_columns',
+          config_json: existingChartCols,
+          updated_by: actorUsername,
+          updated_at: new Date().toISOString(),
+        }, { onConflict: 'config_key' });
+      }
+
+      // Also update template if it stored columns
+      const { data: tmplRes } = await supabase
+        .from('prep_chart_configs')
+        .select('config_json')
+        .eq('config_key', 'templates')
+        .maybeSingle();
+
+      if (tmplRes?.config_json && tmplRes.config_json[chartKey]?.columns) {
+        const updatedTemplates = { ...tmplRes.config_json };
+        updatedTemplates[chartKey].columns = updatedTemplates[chartKey].columns.filter((c: any) => c.key !== columnKey);
+        await supabase.from('prep_chart_configs').upsert({
+          config_key: 'templates',
+          config_json: updatedTemplates,
+          updated_by: actorUsername,
+          updated_at: new Date().toISOString(),
+        }, { onConflict: 'config_key' });
+      }
+
+      return NextResponse.json({ success: true, message: `Column '${columnKey}' deleted from chart '${chartKey}'` });
+    }
 
     if (columnKey) {
       const { data: colsRes } = await supabase

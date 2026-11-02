@@ -8,6 +8,7 @@ export interface ConfirmOptions {
   confirmText?: string;
   cancelText?: string;
   type?: 'danger' | 'warning' | 'info' | 'success' | 'error';
+  icon?: string;
 }
 
 export interface ConfirmContextType {
@@ -28,6 +29,7 @@ interface ModalState {
   cancelText: string;
   type: 'danger' | 'warning' | 'info' | 'success' | 'error';
   isAlertOnly: boolean;
+  icon?: string;
   resolve: (val: boolean) => void;
 }
 
@@ -64,6 +66,7 @@ export function ConfirmProvider({ children }: { children: ReactNode }) {
         cancelText: opts.cancelText || 'Cancel',
         type: opts.type || 'danger',
         isAlertOnly: false,
+        icon: opts.icon,
         resolve: (result: boolean) => {
           setModal(null);
           resolve(result);
@@ -151,7 +154,7 @@ export function ConfirmProvider({ children }: { children: ReactNode }) {
       case 'error':
         return '❌';
       case 'warning':
-        return '⚡';
+        return '⚠️';
       case 'success':
         return '✅';
       case 'info':
@@ -247,7 +250,7 @@ export function ConfirmProvider({ children }: { children: ReactNode }) {
                   flexShrink: 0,
                 }}
               >
-                {getIcon(modal.type)}
+                {modal.icon || getIcon(modal.type)}
               </div>
               <div>
                 <h3 style={{ margin: 0, fontSize: '1.125rem', fontWeight: 700, color: '#0f172a' }}>

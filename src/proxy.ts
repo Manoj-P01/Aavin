@@ -41,7 +41,9 @@ export async function proxy(req: NextRequest) {
     const payload = await verifyAccessToken(token);
     if (!payload) {
       if (pathname.startsWith('/api/')) {
-        return NextResponse.json({ error: 'Unauthorized: Token expired or invalid' }, { status: 401 });
+        const res = NextResponse.json({ error: 'Unauthorized: Token expired or invalid' }, { status: 401 });
+        res.cookies.delete(ACCESS_TOKEN_COOKIE);
+        return res;
       }
       const loginUrl = new URL('/login', req.url);
       loginUrl.searchParams.set('reason', 'idle_timeout');
