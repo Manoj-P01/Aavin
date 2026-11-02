@@ -2,6 +2,7 @@ import type { Metadata } from 'next';
 import './globals.css';
 import { LoadingProvider } from '@/context/LoadingContext';
 import { ConfirmProvider } from '@/context/ConfirmContext';
+import IdleSessionTracker from '@/components/auth/IdleSessionTracker';
 
 export const metadata: Metadata = {
   title: 'Aavin Dashboard | NKL Dairy Union',
@@ -22,6 +23,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       <body>
         <LoadingProvider>
           <ConfirmProvider>
+            <IdleSessionTracker />
             {children}
           </ConfirmProvider>
         </LoadingProvider>

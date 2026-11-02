@@ -36,6 +36,25 @@ export interface STGRowData {
 export interface STGBlockState {
   rows: STGRowData[];
   cmpdd_norm?: string;
+  summary_overrides?: Record<string, string>;
+  opening_balance?: {
+    qty_lts?: string;
+    qty_kg?: string;
+    fat_pct?: string;
+    snf_pct?: string;
+    sp_gr?: string;
+    kg_fat?: string;
+    kg_snf?: string;
+  };
+  physical_count?: {
+    qty_lts?: string;
+    qty_kg?: string;
+    fat_pct?: string;
+    snf_pct?: string;
+    sp_gr?: string;
+    kg_fat?: string;
+    kg_snf?: string;
+  };
 }
 
 export interface STGEntryFormProps {
@@ -44,8 +63,9 @@ export interface STGEntryFormProps {
   stepMode?: boolean;
   activeStep?: string;
   onStepChange?: (stepKey: string) => void;
-  onNextStep?: () => void;
-  onPrevStep?: () => void;
+  onNextStep?: (date?: string, shift?: any) => void;
+  onPrevStep?: (date?: string, shift?: any) => void;
+  onDateShiftChange?: (date: string, shift: Shift | null) => void;
   initialDate?: string;
   initialShift?: Shift | null;
 }
@@ -58,6 +78,7 @@ export default function STGEntryForm({
   onStepChange,
   onNextStep,
   onPrevStep,
+  onDateShiftChange,
   initialDate,
   initialShift,
 }: STGEntryFormProps) {
@@ -71,6 +92,18 @@ export default function STGEntryForm({
   const [shift, setShift] = useState<Shift | null>(
     initialShift !== undefined ? initialShift : ((paramShift === 'D' || paramShift === 'N') ? paramShift : null)
   );
+
+  useEffect(() => {
+    if (initialDate && initialDate !== entryDate) {
+      setEntryDate(initialDate);
+    }
+  }, [initialDate]);
+
+  useEffect(() => {
+    if (initialShift !== undefined && initialShift !== shift) {
+      setShift(initialShift);
+    }
+  }, [initialShift]);
   const [shiftConfigs, setShiftConfigs] = useState<any[]>([
     { key: 'D', label: 'Day Shift', start: '06:00', end: '18:00' },
     { key: 'N', label: 'Night Shift', start: '18:00', end: '06:00' },
@@ -84,7 +117,7 @@ export default function STGEntryForm({
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
 
-  const [selectedCell, setSelectedCell] = useState<{ blockKey: string; rowIndex: number; colKey: string } | null>(null);
+  const [selectedCell, setSelectedCell] = useState<{ blockKey: string; rowIndex: number | string; colKey: string; fieldKey?: string } | null>(null);
   const [focusedCell, setFocusedCell] = useState<{ blockKey: string; rowIndex: number; colKey: string } | null>(null);
   const [fillDrag, setFillDrag] = useState<{ blockKey: string; sourceRow: number; targetRow: number; colKey: string } | null>(null);
   const [productOptions, setProductOptions] = useState<string[]>([]);
@@ -647,6 +680,82 @@ export default function STGEntryForm({
     });
   };
 
+  const handleObChange = (blockKey: string, field: string, value: string) => {
+    setBlocks(prev => {
+      const next = { ...prev };
+      const b = { ...next[blockKey] };
+      const ob = { ...(b.opening_balance || {}), [field]: value };
+
+      const lts = parseFloat(ob.qty_lts || '0') || 0;
+      const spgr = parseFloat(ob.sp_gr || '0') || 0;
+      let kg = parseFloat(ob.qty_kg || '0') || 0;
+
+      if (field === 'qty_lts' || field === 'sp_gr') {
+        if (spgr > 0 && lts > 0) {
+          kg = Math.round(lts * spgr * 100) / 100;
+          ob.qty_kg = String(kg);
+        } else if (lts > 0 && !ob.qty_kg) {
+          kg = lts;
+          ob.qty_kg = String(kg);
+        }
+      }
+
+      const fatPct = parseFloat(ob.fat_pct || '0') || 0;
+      const snfPct = parseFloat(ob.snf_pct || '0') || 0;
+      if (kg > 0) {
+        if (fatPct > 0) ob.kg_fat = String(Math.round(((kg * fatPct) / 100) * 1000) / 1000);
+        if (snfPct > 0) ob.kg_snf = String(Math.round(((kg * snfPct) / 100) * 1000) / 1000);
+      }
+
+      b.opening_balance = ob;
+      next[blockKey] = b;
+      return next;
+    });
+  };
+
+  const handleCbChange = (blockKey: string, field: string, value: string) => {
+    setBlocks(prev => {
+      const next = { ...prev };
+      const b = { ...next[blockKey] };
+      const cb = { ...(b.physical_count || {}), [field]: value };
+
+      const lts = parseFloat(cb.qty_lts || '0') || 0;
+      const spgr = parseFloat(cb.sp_gr || '0') || 0;
+      let kg = parseFloat(cb.qty_kg || '0') || 0;
+
+      if (field === 'qty_lts' || field === 'sp_gr') {
+        if (spgr > 0 && lts > 0) {
+          kg = Math.round(lts * spgr * 100) / 100;
+          cb.qty_kg = String(kg);
+        } else if (lts > 0 && !cb.qty_kg) {
+          kg = lts;
+          cb.qty_kg = String(kg);
+        }
+      }
+
+      const fatPct = parseFloat(cb.fat_pct || '0') || 0;
+      const snfPct = parseFloat(cb.snf_pct || '0') || 0;
+      if (kg > 0) {
+        if (fatPct > 0) cb.kg_fat = String(Math.round(((kg * fatPct) / 100) * 1000) / 1000);
+        if (snfPct > 0) cb.kg_snf = String(Math.round(((kg * snfPct) / 100) * 1000) / 1000);
+      }
+
+      b.physical_count = cb;
+      next[blockKey] = b;
+      return next;
+    });
+  };
+
+  const handleCmpddNormChange = (blockKey: string, value: string) => {
+    setBlocks(prev => {
+      const next = { ...prev };
+      const b = { ...next[blockKey] };
+      b.cmpdd_norm = value;
+      next[blockKey] = b;
+      return next;
+    });
+  };
+
   // Save STG statement to database
   const triggerBackgroundSave = async () => {
     setError('');
@@ -750,6 +859,402 @@ export default function STGEntryForm({
     }
   }, [saving, onRegisterActions]);
 
+  // Helper to resolve summary cell Excel address, column name, formula string, and display value
+  const getSummaryFieldMeta = (
+    fieldKey: string | undefined,
+    rowKey: string,
+    matrixRowCount: number,
+    stgCols: STGColumnDef[],
+    summaryVals: {
+      totQtyLts: number; totQtyKg: number; totKgFat: number; totKgSnf: number;
+      obLts: number; obKg: number; obFatPct: number; obSnfPct: number; obSpGr: number; obKgFat: number; obKgSnf: number;
+      cbLts: number; cbKg: number; cbFatPct: number; cbSnfPct: number; cbSpGr: number; cbKgFat: number; cbKgSnf: number;
+      calcGrandRecLts: number; calcGrandRecKg: number; calcGrandRecFat: number; calcGrandRecSnf: number;
+      calcGrandDispLts: number; calcGrandDispKg: number; calcGrandDispFat: number; calcGrandDispSnf: number;
+      calcLossGainLts: number; calcLossGainKg: number; calcLossGainFat: number; calcLossGainSnf: number;
+      calcLossGainPctFat: number; calcLossGainPctSnf: number;
+      cmpddNorm: number;
+    }
+  ) => {
+    if (!fieldKey) return null;
+
+    const receiptColIdx = stgCols.findIndex(c => c.key === 'variant' || c.key === 'receipt' || (c.type === 'text' && c.key !== 'disposal' && !c.key.toLowerCase().includes('disposal')));
+    const disposalColIdx = stgCols.findIndex(c => c.key === 'disposal' || c.key.toLowerCase() === 'disposal' || c.name?.toLowerCase() === 'disposal');
+
+    const qtyLtsIdx = stgCols.findIndex((c, i) => (disposalColIdx < 0 || i < disposalColIdx) && c.key === 'qty_lts');
+    const spGrIdx = stgCols.findIndex((c, i) => (disposalColIdx < 0 || i < disposalColIdx) && c.key === 'sp_gr');
+    const qtyKgIdx = stgCols.findIndex((c, i) => (disposalColIdx < 0 || i < disposalColIdx) && c.key === 'qty_kg');
+    const fatPctIdx = stgCols.findIndex((c, i) => (disposalColIdx < 0 || i < disposalColIdx) && c.key === 'fat_pct');
+    const snfPctIdx = stgCols.findIndex((c, i) => (disposalColIdx < 0 || i < disposalColIdx) && c.key === 'snf_pct');
+    const kgFatIdx = stgCols.findIndex((c, i) => (disposalColIdx < 0 || i < disposalColIdx) && c.key === 'kg_fat');
+    const kgSnfIdx = stgCols.findIndex((c, i) => (disposalColIdx < 0 || i < disposalColIdx) && c.key === 'kg_snf');
+
+    const dispQtyLtsIdx = disposalColIdx >= 0 ? stgCols.findIndex((c, i) => i > disposalColIdx && (c.key.includes('qty_lts') || c.key.includes('lts'))) : qtyLtsIdx;
+    const dispSpGrIdx = disposalColIdx >= 0 ? stgCols.findIndex((c, i) => i > disposalColIdx && c.key.includes('sp_gr')) : spGrIdx;
+    const dispQtyKgIdx = disposalColIdx >= 0 ? stgCols.findIndex((c, i) => i > disposalColIdx && c.key.includes('qty_kg')) : qtyKgIdx;
+    const dispFatPctIdx = disposalColIdx >= 0 ? stgCols.findIndex((c, i) => i > disposalColIdx && c.key.includes('fat_pct')) : fatPctIdx;
+    const dispSnfPctIdx = disposalColIdx >= 0 ? stgCols.findIndex((c, i) => i > disposalColIdx && c.key.includes('snf_pct')) : snfPctIdx;
+    const dispKgFatIdx = disposalColIdx >= 0 ? stgCols.findIndex((c, i) => i > disposalColIdx && (c.key.includes('kg_fat') || c.key.includes('fat'))) : kgFatIdx;
+    const dispKgSnfIdx = disposalColIdx >= 0 ? stgCols.findIndex((c, i) => i > disposalColIdx && (c.key.includes('kg_snf') || c.key.includes('snf'))) : kgSnfIdx;
+
+    const dQtyLtsIdx = dispQtyLtsIdx >= 0 ? dispQtyLtsIdx : (disposalColIdx >= 0 && qtyLtsIdx >= 0 ? disposalColIdx + qtyLtsIdx : qtyLtsIdx);
+    const dSpGrIdx = dispSpGrIdx >= 0 ? dispSpGrIdx : (disposalColIdx >= 0 && spGrIdx >= 0 ? disposalColIdx + spGrIdx : spGrIdx);
+    const dQtyKgIdx = dispQtyKgIdx >= 0 ? dispQtyKgIdx : (disposalColIdx >= 0 && qtyKgIdx >= 0 ? disposalColIdx + qtyKgIdx : qtyKgIdx);
+    const dFatPctIdx = dispFatPctIdx >= 0 ? dispFatPctIdx : (disposalColIdx >= 0 && fatPctIdx >= 0 ? disposalColIdx + fatPctIdx : fatPctIdx);
+    const dSnfPctIdx = dispSnfPctIdx >= 0 ? dispSnfPctIdx : (disposalColIdx >= 0 && snfPctIdx >= 0 ? disposalColIdx + snfPctIdx : snfPctIdx);
+    const dKgFatIdx = dispKgFatIdx >= 0 ? dispKgFatIdx : (disposalColIdx >= 0 && kgFatIdx >= 0 ? disposalColIdx + kgFatIdx : kgFatIdx);
+    const dKgSnfIdx = dispKgSnfIdx >= 0 ? dispKgSnfIdx : (disposalColIdx >= 0 && kgSnfIdx >= 0 ? disposalColIdx + kgSnfIdx : kgSnfIdx);
+
+    const N = Math.max(1, matrixRowCount);
+    const R_tot = N + 1;
+    const R_ob = N + 2;
+    const R_grand = N + 3;
+    const R_lg = N + 4;
+    const R_lg_pct = N + 5;
+    const R_cmpdd = N + 6;
+
+    const cLts = qtyLtsIdx >= 0 ? getExcelColName(qtyLtsIdx) : 'C';
+    const cSpGr = spGrIdx >= 0 ? getExcelColName(spGrIdx) : 'D';
+    const cKg = qtyKgIdx >= 0 ? getExcelColName(qtyKgIdx) : 'E';
+    const cFatPct = fatPctIdx >= 0 ? getExcelColName(fatPctIdx) : 'F';
+    const cSnfPct = snfPctIdx >= 0 ? getExcelColName(snfPctIdx) : 'G';
+    const cKgFat = kgFatIdx >= 0 ? getExcelColName(kgFatIdx) : 'H';
+    const cKgSnf = kgSnfIdx >= 0 ? getExcelColName(kgSnfIdx) : 'I';
+
+    const cdLts = dQtyLtsIdx >= 0 ? getExcelColName(dQtyLtsIdx) : 'L';
+    const cdSpGr = dSpGrIdx >= 0 ? getExcelColName(dSpGrIdx) : 'M';
+    const cdKg = dQtyKgIdx >= 0 ? getExcelColName(dQtyKgIdx) : 'N';
+    const cdFatPct = dFatPctIdx >= 0 ? getExcelColName(dFatPctIdx) : 'O';
+    const cdSnfPct = dSnfPctIdx >= 0 ? getExcelColName(dSnfPctIdx) : 'P';
+    const cdKgFat = dKgFatIdx >= 0 ? getExcelColName(dKgFatIdx) : 'Q';
+    const cdKgSnf = dKgSnfIdx >= 0 ? getExcelColName(dKgSnfIdx) : 'R';
+
+    let colIdx = -1;
+    let rNum = R_tot;
+    let colName = '';
+    let formula = '';
+    let displayValue = '-';
+
+    switch (fieldKey) {
+      // Total Receipts
+      case 'tot_rec_lts':
+        colIdx = qtyLtsIdx; rNum = R_tot;
+        colName = 'Total Receipt QTY (Lts)';
+        formula = `=SUM(${cLts}1:${cLts}${N})`;
+        displayValue = formatNumberValue(summaryVals.totQtyLts, 0);
+        break;
+      case 'tot_rec_sp_gr':
+        colIdx = spGrIdx; rNum = R_tot;
+        colName = 'Total Receipt Sp.Gr';
+        formula = `=+${cKg}${R_tot}/${cLts}${R_tot}`;
+        displayValue = summaryVals.totQtyLts > 0 ? formatNumberValue(summaryVals.totQtyKg / summaryVals.totQtyLts, 4) : '0';
+        break;
+      case 'tot_rec_kg':
+        colIdx = qtyKgIdx; rNum = R_tot;
+        colName = 'Total Receipt QTY (Kg)';
+        formula = `=SUM(${cKg}1:${cKg}${N})`;
+        displayValue = formatNumberValue(summaryVals.totQtyKg, 2);
+        break;
+      case 'tot_rec_fat_pct':
+        colIdx = fatPctIdx; rNum = R_tot;
+        colName = 'Total Receipt FAT (%)';
+        formula = `=+(${cKgFat}${R_tot}/${cKg}${R_tot})*100`;
+        displayValue = summaryVals.totQtyKg > 0 ? formatNumberValue((summaryVals.totKgFat / summaryVals.totQtyKg) * 100, 2) + '%' : '0%';
+        break;
+      case 'tot_rec_snf_pct':
+        colIdx = snfPctIdx; rNum = R_tot;
+        colName = 'Total Receipt SNF (%)';
+        formula = `=+(${cKgSnf}${R_tot}/${cKg}${R_tot})*100`;
+        displayValue = summaryVals.totQtyKg > 0 ? formatNumberValue((summaryVals.totKgSnf / summaryVals.totQtyKg) * 100, 2) + '%' : '0%';
+        break;
+      case 'tot_rec_fat':
+        colIdx = kgFatIdx; rNum = R_tot;
+        colName = 'Total Receipt FAT (Kg)';
+        formula = `=SUM(${cKgFat}1:${cKgFat}${N})`;
+        displayValue = formatNumberValue(summaryVals.totKgFat, 3);
+        break;
+      case 'tot_rec_snf':
+        colIdx = kgSnfIdx; rNum = R_tot;
+        colName = 'Total Receipt SNF (Kg)';
+        formula = `=SUM(${cKgSnf}1:${cKgSnf}${N})`;
+        displayValue = formatNumberValue(summaryVals.totKgSnf, 3);
+        break;
+
+      // Total Disposals
+      case 'tot_disp_lts':
+        colIdx = dQtyLtsIdx; rNum = R_tot;
+        colName = 'Total Disposal QTY (Lts)';
+        formula = `=SUM(${cdLts}1:${cdLts}${N})`;
+        displayValue = formatNumberValue(summaryVals.totQtyLts, 0);
+        break;
+      case 'tot_disp_sp_gr':
+        colIdx = dSpGrIdx; rNum = R_tot;
+        colName = 'Total Disposal Sp.Gr';
+        formula = `=+${cdKg}${R_tot}/${cdLts}${R_tot}`;
+        displayValue = summaryVals.totQtyLts > 0 ? formatNumberValue(summaryVals.totQtyKg / summaryVals.totQtyLts, 4) : '0';
+        break;
+      case 'tot_disp_kg':
+        colIdx = dQtyKgIdx; rNum = R_tot;
+        colName = 'Total Disposal QTY (Kg)';
+        formula = `=SUM(${cdKg}1:${cdKg}${N})`;
+        displayValue = formatNumberValue(summaryVals.totQtyKg, 2);
+        break;
+      case 'tot_disp_fat_pct':
+        colIdx = dFatPctIdx; rNum = R_tot;
+        colName = 'Total Disposal FAT (%)';
+        formula = `=+(${cdKgFat}${R_tot}/${cdKg}${R_tot})*100`;
+        displayValue = summaryVals.totQtyKg > 0 ? formatNumberValue((summaryVals.totKgFat / summaryVals.totQtyKg) * 100, 2) + '%' : '0%';
+        break;
+      case 'tot_disp_snf_pct':
+        colIdx = dSnfPctIdx; rNum = R_tot;
+        colName = 'Total Disposal SNF (%)';
+        formula = `=+(${cdKgSnf}${R_tot}/${cdKg}${R_tot})*100`;
+        displayValue = summaryVals.totQtyKg > 0 ? formatNumberValue((summaryVals.totKgSnf / summaryVals.totQtyKg) * 100, 2) + '%' : '0%';
+        break;
+      case 'tot_disp_fat':
+        colIdx = dKgFatIdx; rNum = R_tot;
+        colName = 'Total Disposal FAT (Kg)';
+        formula = `=SUM(${cdKgFat}1:${cdKgFat}${N})`;
+        displayValue = formatNumberValue(summaryVals.totKgFat, 3);
+        break;
+      case 'tot_disp_snf':
+        colIdx = dKgSnfIdx; rNum = R_tot;
+        colName = 'Total Disposal SNF (Kg)';
+        formula = `=SUM(${cdKgSnf}1:${cdKgSnf}${N})`;
+        displayValue = formatNumberValue(summaryVals.totKgSnf, 3);
+        break;
+
+      // Opening Balance
+      case 'ob_qty_lts':
+        colIdx = qtyLtsIdx; rNum = R_ob;
+        colName = 'Opening Balance QTY (Lts)';
+        formula = `= OB QTY (Lts)`;
+        displayValue = formatNumberValue(summaryVals.obLts, 0);
+        break;
+      case 'ob_sp_gr':
+        colIdx = spGrIdx; rNum = R_ob;
+        colName = 'Opening Balance Sp.Gr';
+        formula = `= OB Sp.Gr`;
+        displayValue = formatNumberValue(summaryVals.obSpGr, 4);
+        break;
+      case 'ob_qty_kg':
+        colIdx = qtyKgIdx; rNum = R_ob;
+        colName = 'Opening Balance QTY (Kg)';
+        formula = `= OB QTY (Kg)`;
+        displayValue = formatNumberValue(summaryVals.obKg, 2);
+        break;
+      case 'ob_fat_pct':
+        colIdx = fatPctIdx; rNum = R_ob;
+        colName = 'Opening Balance FAT (%)';
+        formula = `= OB FAT (%)`;
+        displayValue = formatNumberValue(summaryVals.obFatPct, 2) + '%';
+        break;
+      case 'ob_snf_pct':
+        colIdx = snfPctIdx; rNum = R_ob;
+        colName = 'Opening Balance SNF (%)';
+        formula = `= OB SNF (%)`;
+        displayValue = formatNumberValue(summaryVals.obSnfPct, 2) + '%';
+        break;
+      case 'ob_kg_fat':
+        colIdx = kgFatIdx; rNum = R_ob;
+        colName = 'Opening Balance FAT (Kg)';
+        formula = `=+(${cKg}${R_ob}*${cFatPct}${R_ob})/100`;
+        displayValue = formatNumberValue(summaryVals.obKgFat, 3);
+        break;
+      case 'ob_kg_snf':
+        colIdx = kgSnfIdx; rNum = R_ob;
+        colName = 'Opening Balance SNF (Kg)';
+        formula = `=+(${cKg}${R_ob}*${cSnfPct}${R_ob})/100`;
+        displayValue = formatNumberValue(summaryVals.obKgSnf, 3);
+        break;
+
+      // Closing Balance
+      case 'cb_qty_lts':
+        colIdx = dQtyLtsIdx; rNum = R_ob;
+        colName = 'Closing Balance QTY (Lts)';
+        formula = `= CB QTY (Lts)`;
+        displayValue = formatNumberValue(summaryVals.cbLts, 0);
+        break;
+      case 'cb_sp_gr':
+        colIdx = dSpGrIdx; rNum = R_ob;
+        colName = 'Closing Balance Sp.Gr';
+        formula = `= CB Sp.Gr`;
+        displayValue = formatNumberValue(summaryVals.cbSpGr, 4);
+        break;
+      case 'cb_qty_kg':
+        colIdx = dQtyKgIdx; rNum = R_ob;
+        colName = 'Closing Balance QTY (Kg)';
+        formula = `= CB QTY (Kg)`;
+        displayValue = formatNumberValue(summaryVals.cbKg, 2);
+        break;
+      case 'cb_fat_pct':
+        colIdx = dFatPctIdx; rNum = R_ob;
+        colName = 'Closing Balance FAT (%)';
+        formula = `= CB FAT (%)`;
+        displayValue = formatNumberValue(summaryVals.cbFatPct, 2) + '%';
+        break;
+      case 'cb_snf_pct':
+        colIdx = dSnfPctIdx; rNum = R_ob;
+        colName = 'Closing Balance SNF (%)';
+        formula = `= CB SNF (%)`;
+        displayValue = formatNumberValue(summaryVals.cbSnfPct, 2) + '%';
+        break;
+      case 'cb_kg_fat':
+        colIdx = dKgFatIdx; rNum = R_ob;
+        colName = 'Closing Balance FAT (Kg)';
+        formula = `=+(${cdKg}${R_ob}*${cdFatPct}${R_ob})/100`;
+        displayValue = formatNumberValue(summaryVals.cbKgFat, 3);
+        break;
+      case 'cb_kg_snf':
+        colIdx = dKgSnfIdx; rNum = R_ob;
+        colName = 'Closing Balance SNF (Kg)';
+        formula = `=+(${cdKg}${R_ob}*${cdSnfPct}${R_ob})/100`;
+        displayValue = formatNumberValue(summaryVals.cbKgSnf, 3);
+        break;
+
+      // Grand Total Receipts
+      case 'grand_rec_lts':
+        colIdx = qtyLtsIdx; rNum = R_grand;
+        colName = 'Grand Total Receipt QTY (Lts)';
+        formula = `=+${cLts}${R_tot}+${cLts}${R_ob}`;
+        displayValue = formatNumberValue(summaryVals.calcGrandRecLts, 0);
+        break;
+      case 'grand_rec_sp_gr':
+        colIdx = spGrIdx; rNum = R_grand;
+        colName = 'Grand Total Receipt Sp.Gr';
+        formula = `=+${cKg}${R_grand}/${cLts}${R_grand}`;
+        displayValue = summaryVals.calcGrandRecLts > 0 ? formatNumberValue(summaryVals.calcGrandRecKg / summaryVals.calcGrandRecLts, 4) : '0';
+        break;
+      case 'grand_rec_kg':
+        colIdx = qtyKgIdx; rNum = R_grand;
+        colName = 'Grand Total Receipt QTY (Kg)';
+        formula = `=+${cKg}${R_tot}+${cKg}${R_ob}`;
+        displayValue = formatNumberValue(summaryVals.calcGrandRecKg, 2);
+        break;
+      case 'grand_rec_fat_pct':
+        colIdx = fatPctIdx; rNum = R_grand;
+        colName = 'Grand Total Receipt FAT (%)';
+        formula = `=+(${cKgFat}${R_grand}/${cKg}${R_grand})*100`;
+        displayValue = summaryVals.calcGrandRecKg > 0 ? formatNumberValue((summaryVals.calcGrandRecFat / summaryVals.calcGrandRecKg) * 100, 2) + '%' : '0%';
+        break;
+      case 'grand_rec_snf_pct':
+        colIdx = snfPctIdx; rNum = R_grand;
+        colName = 'Grand Total Receipt SNF (%)';
+        formula = `=+(${cKgSnf}${R_grand}/${cKg}${R_grand})*100`;
+        displayValue = summaryVals.calcGrandRecKg > 0 ? formatNumberValue((summaryVals.calcGrandRecSnf / summaryVals.calcGrandRecKg) * 100, 2) + '%' : '0%';
+        break;
+      case 'grand_rec_fat':
+        colIdx = kgFatIdx; rNum = R_grand;
+        colName = 'Grand Total Receipt FAT (Kg)';
+        formula = `=+${cKgFat}${R_tot}+${cKgFat}${R_ob}`;
+        displayValue = formatNumberValue(summaryVals.calcGrandRecFat, 3);
+        break;
+      case 'grand_rec_snf':
+        colIdx = kgSnfIdx; rNum = R_grand;
+        colName = 'Grand Total Receipt SNF (Kg)';
+        formula = `=+${cKgSnf}${R_tot}+${cKgSnf}${R_ob}`;
+        displayValue = formatNumberValue(summaryVals.calcGrandRecSnf, 3);
+        break;
+
+      // Grand Total Disposals
+      case 'grand_disp_lts':
+        colIdx = dQtyLtsIdx; rNum = R_grand;
+        colName = 'Grand Total Disposal QTY (Lts)';
+        formula = `=+${cdLts}${R_tot}+${cdLts}${R_ob}`;
+        displayValue = formatNumberValue(summaryVals.calcGrandDispLts, 0);
+        break;
+      case 'grand_disp_sp_gr':
+        colIdx = dSpGrIdx; rNum = R_grand;
+        colName = 'Grand Total Disposal Sp.Gr';
+        formula = `=+${cdKg}${R_grand}/${cdLts}${R_grand}`;
+        displayValue = summaryVals.calcGrandDispLts > 0 ? formatNumberValue(summaryVals.calcGrandDispKg / summaryVals.calcGrandDispLts, 4) : '0';
+        break;
+      case 'grand_disp_kg':
+        colIdx = dQtyKgIdx; rNum = R_grand;
+        colName = 'Grand Total Disposal QTY (Kg)';
+        formula = `=+${cdKg}${R_tot}+${cdKg}${R_ob}`;
+        displayValue = formatNumberValue(summaryVals.calcGrandDispKg, 2);
+        break;
+      case 'grand_disp_fat_pct':
+        colIdx = dFatPctIdx; rNum = R_grand;
+        colName = 'Grand Total Disposal FAT (%)';
+        formula = `=+(${cdKgFat}${R_grand}/${cdKg}${R_grand})*100`;
+        displayValue = summaryVals.calcGrandDispKg > 0 ? formatNumberValue((summaryVals.calcGrandDispFat / summaryVals.calcGrandDispKg) * 100, 2) + '%' : '0%';
+        break;
+      case 'grand_disp_snf_pct':
+        colIdx = dSnfPctIdx; rNum = R_grand;
+        colName = 'Grand Total Disposal SNF (%)';
+        formula = `=+(${cdKgSnf}${R_grand}/${cdKg}${R_grand})*100`;
+        displayValue = summaryVals.calcGrandDispKg > 0 ? formatNumberValue((summaryVals.calcGrandDispSnf / summaryVals.calcGrandDispKg) * 100, 2) + '%' : '0%';
+        break;
+      case 'grand_disp_fat':
+        colIdx = dKgFatIdx; rNum = R_grand;
+        colName = 'Grand Total Disposal FAT (Kg)';
+        formula = `=+${cdKgFat}${R_tot}+${cdKgFat}${R_ob}`;
+        displayValue = formatNumberValue(summaryVals.calcGrandDispFat, 3);
+        break;
+      case 'grand_disp_snf':
+        colIdx = dKgSnfIdx; rNum = R_grand;
+        colName = 'Grand Total Disposal SNF (Kg)';
+        formula = `=+${cdKgSnf}${R_tot}+${cdKgSnf}${R_ob}`;
+        displayValue = formatNumberValue(summaryVals.calcGrandDispSnf, 3);
+        break;
+
+      // Loss / Gain
+      case 'loss_gain_lts':
+        colIdx = dQtyLtsIdx; rNum = R_lg;
+        colName = 'Loss / Gain QTY (Lts)';
+        formula = `=+${cdLts}${R_grand}-${cLts}${R_grand}`;
+        displayValue = formatNumberValue(summaryVals.calcLossGainLts, 0);
+        break;
+      case 'loss_gain_kg':
+        colIdx = dQtyKgIdx; rNum = R_lg;
+        colName = 'Loss / Gain QTY (Kg)';
+        formula = `=+${cdKg}${R_grand}-${cKg}${R_grand}`;
+        displayValue = formatNumberValue(summaryVals.calcLossGainKg, 2);
+        break;
+      case 'loss_gain_fat':
+        colIdx = dKgFatIdx; rNum = R_lg;
+        colName = 'Loss / Gain FAT (Kg)';
+        formula = `=+${cdKgFat}${R_grand}-${cKgFat}${R_grand}`;
+        displayValue = formatNumberValue(summaryVals.calcLossGainFat, 3);
+        break;
+      case 'loss_gain_snf':
+        colIdx = dKgSnfIdx; rNum = R_lg;
+        colName = 'Loss / Gain SNF (Kg)';
+        formula = `=+${cdKgSnf}${R_grand}-${cKgSnf}${R_grand}`;
+        displayValue = formatNumberValue(summaryVals.calcLossGainSnf, 3);
+        break;
+
+      // Loss / Gain %
+      case 'loss_gain_pct_fat':
+        colIdx = dKgFatIdx; rNum = R_lg_pct;
+        colName = 'Loss / Gain FAT (%)';
+        formula = `=+(${cdKgFat}${R_lg}/${cKgFat}${R_grand})*100`;
+        displayValue = formatNumberValue(summaryVals.calcLossGainPctFat, 2) + '%';
+        break;
+      case 'loss_gain_pct_snf':
+        colIdx = dKgSnfIdx; rNum = R_lg_pct;
+        colName = 'Loss / Gain SNF (%)';
+        formula = `=+(${cdKgSnf}${R_lg}/${cKgSnf}${R_grand})*100`;
+        displayValue = formatNumberValue(summaryVals.calcLossGainPctSnf, 2) + '%';
+        break;
+
+      // CMPDD Norms
+      case 'cmpdd_norm':
+        colIdx = dKgFatIdx >= 0 ? dKgFatIdx : dKgSnfIdx; rNum = R_cmpdd;
+        colName = 'CMPDD Norms (%)';
+        formula = `= CMPDD Norm (%)`;
+        displayValue = formatNumberValue(summaryVals.cmpddNorm, 1) + '%';
+        break;
+    }
+
+    const colLetter = colIdx >= 0 ? getExcelColName(colIdx) : 'C';
+    const address = `${colLetter}${rNum}`;
+
+    return { address, colName, formula, displayValue };
+  };
+
   // Render Single Formulation Table matching Master Default Formulation Tables
   const renderStatementBlock = (s: { key: string; label: string; variant?: string } | null) => {
     if (!s) return null;
@@ -757,39 +1262,182 @@ export default function STGEntryForm({
     const blockState = blocks[blockKey] || { rows: [] };
     const rows = blockState.rows || [];
 
-    const colIdx = selectedCell?.blockKey === blockKey ? stgColumns.findIndex(c => c.key === selectedCell.colKey) : -1;
-    const activeCol = colIdx >= 0 ? stgColumns[colIdx] : null;
+    // Calculate Summary Values for Formula Bar & Summary Table
+    const obState = blockState.opening_balance || {};
+    const cbState = blockState.physical_count || {};
+    const summaryOverrides = blockState.summary_overrides || {};
 
+    const qtyLtsCol = stgColumns.find(c => c.key === 'qty_lts') || { key: 'qty_lts', name: 'QTY', type: 'number' as const };
+    const qtyKgCol = stgColumns.find(c => c.key === 'qty_kg') || { key: 'qty_kg', name: 'QTY', type: 'calculated' as const };
+    const kgFatCol = stgColumns.find(c => c.key === 'kg_fat') || { key: 'kg_fat', name: 'FAT', type: 'calculated' as const };
+    const kgSnfCol = stgColumns.find(c => c.key === 'kg_snf') || { key: 'kg_snf', name: 'SNF', type: 'calculated' as const };
+
+    const totQtyLts = rows.reduce((sum, r, rIdx) => sum + (Number(computeCell(qtyLtsCol, r.values || {}, rIdx, stgColumns, rows)) || 0), 0);
+    const totQtyKg = rows.reduce((sum, r, rIdx) => sum + (Number(computeCell(qtyKgCol, r.values || {}, rIdx, stgColumns, rows)) || 0), 0);
+    const totKgFat = rows.reduce((sum, r, rIdx) => sum + (Number(computeCell(kgFatCol, r.values || {}, rIdx, stgColumns, rows)) || 0), 0);
+    const totKgSnf = rows.reduce((sum, r, rIdx) => sum + (Number(computeCell(kgSnfCol, r.values || {}, rIdx, stgColumns, rows)) || 0), 0);
+
+    const recTotLts = summaryOverrides['tot_rec_lts'] !== undefined && summaryOverrides['tot_rec_lts'] !== '' ? parseFloat(summaryOverrides['tot_rec_lts']) : totQtyLts;
+    const recTotKg = summaryOverrides['tot_rec_kg'] !== undefined && summaryOverrides['tot_rec_kg'] !== '' ? parseFloat(summaryOverrides['tot_rec_kg']) : totQtyKg;
+    const recTotFat = summaryOverrides['tot_rec_fat'] !== undefined && summaryOverrides['tot_rec_fat'] !== '' ? parseFloat(summaryOverrides['tot_rec_fat']) : totKgFat;
+    const recTotSnf = summaryOverrides['tot_rec_snf'] !== undefined && summaryOverrides['tot_rec_snf'] !== '' ? parseFloat(summaryOverrides['tot_rec_snf']) : totKgSnf;
+
+    const dispTotLts = summaryOverrides['tot_disp_lts'] !== undefined && summaryOverrides['tot_disp_lts'] !== '' ? parseFloat(summaryOverrides['tot_disp_lts']) : totQtyLts;
+    const dispTotKg = summaryOverrides['tot_disp_kg'] !== undefined && summaryOverrides['tot_disp_kg'] !== '' ? parseFloat(summaryOverrides['tot_disp_kg']) : totQtyKg;
+    const dispTotFat = summaryOverrides['tot_disp_fat'] !== undefined && summaryOverrides['tot_disp_fat'] !== '' ? parseFloat(summaryOverrides['tot_disp_fat']) : totKgFat;
+    const dispTotSnf = summaryOverrides['tot_disp_snf'] !== undefined && summaryOverrides['tot_disp_snf'] !== '' ? parseFloat(summaryOverrides['tot_disp_snf']) : totKgSnf;
+
+    const obLts = parseFloat(obState.qty_lts || '0') || 0;
+    const obKg = parseFloat(obState.qty_kg || '0') || 0;
+    const obFatPct = parseFloat(obState.fat_pct || '0') || 0;
+    const obSnfPct = parseFloat(obState.snf_pct || '0') || 0;
+    const obSpGr = parseFloat(obState.sp_gr || '0') || 0;
+    const obKgFat = obKg && obFatPct ? (obKg * obFatPct) / 100 : (parseFloat(obState.kg_fat || '0') || 0);
+    const obKgSnf = obKg && obSnfPct ? (obKg * obSnfPct) / 100 : (parseFloat(obState.kg_snf || '0') || 0);
+
+    const cbLts = parseFloat(cbState.qty_lts || '0') || 0;
+    const cbKg = parseFloat(cbState.qty_kg || '0') || 0;
+    const cbFatPct = parseFloat(cbState.fat_pct || '0') || 0;
+    const cbSnfPct = parseFloat(cbState.snf_pct || '0') || 0;
+    const cbSpGr = parseFloat(cbState.sp_gr || '0') || 0;
+    const cbKgFat = cbKg && cbFatPct ? (cbKg * cbFatPct) / 100 : (parseFloat(cbState.kg_fat || '0') || 0);
+    const cbKgSnf = cbKg && cbSnfPct ? (cbKg * cbSnfPct) / 100 : (parseFloat(cbState.kg_snf || '0') || 0);
+
+    const calcGrandRecLts = recTotLts + obLts;
+    const calcGrandRecKg = recTotKg + obKg;
+    const calcGrandRecFat = recTotFat + obKgFat;
+    const calcGrandRecSnf = recTotSnf + obKgSnf;
+
+    const grandRecLts = summaryOverrides['grand_rec_lts'] !== undefined && summaryOverrides['grand_rec_lts'] !== '' ? parseFloat(summaryOverrides['grand_rec_lts']) : calcGrandRecLts;
+    const grandRecKg = summaryOverrides['grand_rec_kg'] !== undefined && summaryOverrides['grand_rec_kg'] !== '' ? parseFloat(summaryOverrides['grand_rec_kg']) : calcGrandRecKg;
+    const grandRecFat = summaryOverrides['grand_rec_fat'] !== undefined && summaryOverrides['grand_rec_fat'] !== '' ? parseFloat(summaryOverrides['grand_rec_fat']) : calcGrandRecFat;
+    const grandRecSnf = summaryOverrides['grand_rec_snf'] !== undefined && summaryOverrides['grand_rec_snf'] !== '' ? parseFloat(summaryOverrides['grand_rec_snf']) : calcGrandRecSnf;
+
+    const calcGrandDispLts = dispTotLts + cbLts;
+    const calcGrandDispKg = dispTotKg + cbKg;
+    const calcGrandDispFat = dispTotFat + cbKgFat;
+    const calcGrandDispSnf = dispTotSnf + cbKgSnf;
+
+    const grandDispLts = summaryOverrides['grand_disp_lts'] !== undefined && summaryOverrides['grand_disp_lts'] !== '' ? parseFloat(summaryOverrides['grand_disp_lts']) : calcGrandDispLts;
+    const grandDispKg = summaryOverrides['grand_disp_kg'] !== undefined && summaryOverrides['grand_disp_kg'] !== '' ? parseFloat(summaryOverrides['grand_disp_kg']) : calcGrandDispKg;
+    const grandDispFat = summaryOverrides['grand_disp_fat'] !== undefined && summaryOverrides['grand_disp_fat'] !== '' ? parseFloat(summaryOverrides['grand_disp_fat']) : calcGrandDispFat;
+    const grandDispSnf = summaryOverrides['grand_disp_snf'] !== undefined && summaryOverrides['grand_disp_snf'] !== '' ? parseFloat(summaryOverrides['grand_disp_snf']) : calcGrandDispSnf;
+
+    const calcLossGainLts = grandDispLts - grandRecLts;
+    const calcLossGainKg = grandDispKg - grandRecKg;
+    const calcLossGainFat = grandDispFat - grandRecFat;
+    const calcLossGainSnf = grandDispSnf - grandRecSnf;
+
+    const lossGainLts = summaryOverrides['loss_gain_lts'] !== undefined && summaryOverrides['loss_gain_lts'] !== '' ? parseFloat(summaryOverrides['loss_gain_lts']) : calcLossGainLts;
+    const lossGainKg = summaryOverrides['loss_gain_kg'] !== undefined && summaryOverrides['loss_gain_kg'] !== '' ? parseFloat(summaryOverrides['loss_gain_kg']) : calcLossGainKg;
+    const lossGainFat = summaryOverrides['loss_gain_fat'] !== undefined && summaryOverrides['loss_gain_fat'] !== '' ? parseFloat(summaryOverrides['loss_gain_fat']) : calcLossGainFat;
+    const lossGainSnf = summaryOverrides['loss_gain_snf'] !== undefined && summaryOverrides['loss_gain_snf'] !== '' ? parseFloat(summaryOverrides['loss_gain_snf']) : calcLossGainSnf;
+
+    const calcLossGainPctFat = grandRecFat !== 0 ? (lossGainFat / grandRecFat) * 100 : 0;
+    const calcLossGainPctSnf = grandRecSnf !== 0 ? (lossGainSnf / grandRecSnf) * 100 : 0;
+
+    const lossGainPctFat = summaryOverrides['loss_gain_pct_fat'] !== undefined && summaryOverrides['loss_gain_pct_fat'] !== '' ? parseFloat(summaryOverrides['loss_gain_pct_fat']) : calcLossGainPctFat;
+    const lossGainPctSnf = summaryOverrides['loss_gain_pct_snf'] !== undefined && summaryOverrides['loss_gain_pct_snf'] !== '' ? parseFloat(summaryOverrides['loss_gain_pct_snf']) : calcLossGainPctSnf;
+
+    const cmpddNorm = parseFloat(blockState.cmpdd_norm || '0.5') || 0.5;
+    const isFatWithinNorm = Math.abs(lossGainPctFat) <= cmpddNorm;
+    const isSnfWithinNorm = Math.abs(lossGainPctSnf) <= cmpddNorm;
+    const isWithinNorm = isFatWithinNorm && isSnfWithinNorm;
+
+    const receiptColIdx = stgColumns.findIndex(c => c.key === 'variant' || c.key === 'receipt' || (c.type === 'text' && c.key !== 'disposal' && c.key !== 'particular' && !c.key.toLowerCase().includes('disposal')));
+    const disposalColIdx = stgColumns.findIndex(c => c.key === 'disposal' || c.key.toLowerCase() === 'disposal' || c.name?.toLowerCase() === 'disposal');
+
+    const qtyLtsIdx = stgColumns.findIndex((c, i) => (disposalColIdx < 0 || i < disposalColIdx) && c.key === 'qty_lts');
+    const qtyKgIdx = stgColumns.findIndex((c, i) => (disposalColIdx < 0 || i < disposalColIdx) && c.key === 'qty_kg');
+    const spGrIdx = stgColumns.findIndex((c, i) => (disposalColIdx < 0 || i < disposalColIdx) && c.key === 'sp_gr');
+    const fatPctIdx = stgColumns.findIndex((c, i) => (disposalColIdx < 0 || i < disposalColIdx) && c.key === 'fat_pct');
+    const snfPctIdx = stgColumns.findIndex((c, i) => (disposalColIdx < 0 || i < disposalColIdx) && c.key === 'snf_pct');
+    const kgFatIdx = stgColumns.findIndex((c, i) => (disposalColIdx < 0 || i < disposalColIdx) && c.key === 'kg_fat');
+    const kgSnfIdx = stgColumns.findIndex((c, i) => (disposalColIdx < 0 || i < disposalColIdx) && c.key === 'kg_snf');
+
+    const dispQtyLtsIdx = disposalColIdx >= 0 ? stgColumns.findIndex((c, i) => i > disposalColIdx && (c.key.includes('qty_lts') || c.key.includes('lts'))) : qtyLtsIdx;
+    const dispSpGrIdx = disposalColIdx >= 0 ? stgColumns.findIndex((c, i) => i > disposalColIdx && c.key.includes('sp_gr')) : spGrIdx;
+    const dispQtyKgIdx = disposalColIdx >= 0 ? stgColumns.findIndex((c, i) => i > disposalColIdx && c.key.includes('qty_kg')) : qtyKgIdx;
+    const dispFatPctIdx = disposalColIdx >= 0 ? stgColumns.findIndex((c, i) => i > disposalColIdx && c.key.includes('fat_pct')) : fatPctIdx;
+    const dispSnfPctIdx = disposalColIdx >= 0 ? stgColumns.findIndex((c, i) => i > disposalColIdx && c.key.includes('snf_pct')) : snfPctIdx;
+    const dispKgFatIdx = disposalColIdx >= 0 ? stgColumns.findIndex((c, i) => i > disposalColIdx && (c.key.includes('kg_fat') || c.key.includes('fat'))) : kgFatIdx;
+    const dispKgSnfIdx = disposalColIdx >= 0 ? stgColumns.findIndex((c, i) => i > disposalColIdx && (c.key.includes('kg_snf') || c.key.includes('snf'))) : kgSnfIdx;
+
+    const dQtyLtsIdx = dispQtyLtsIdx >= 0 ? dispQtyLtsIdx : (disposalColIdx >= 0 && qtyLtsIdx >= 0 ? disposalColIdx + qtyLtsIdx : qtyLtsIdx);
+    const dSpGrIdx = dispSpGrIdx >= 0 ? dispSpGrIdx : (disposalColIdx >= 0 && spGrIdx >= 0 ? disposalColIdx + spGrIdx : spGrIdx);
+    const dQtyKgIdx = dispQtyKgIdx >= 0 ? dispQtyKgIdx : (disposalColIdx >= 0 && qtyKgIdx >= 0 ? disposalColIdx + qtyKgIdx : qtyKgIdx);
+    const dFatPctIdx = dispFatPctIdx >= 0 ? dispFatPctIdx : (disposalColIdx >= 0 && fatPctIdx >= 0 ? disposalColIdx + fatPctIdx : fatPctIdx);
+    const dSnfPctIdx = dispSnfPctIdx >= 0 ? dispSnfPctIdx : (disposalColIdx >= 0 && snfPctIdx >= 0 ? disposalColIdx + snfPctIdx : snfPctIdx);
+    const dKgFatIdx = dispKgFatIdx >= 0 ? dispKgFatIdx : (disposalColIdx >= 0 && kgFatIdx >= 0 ? disposalColIdx + kgFatIdx : kgFatIdx);
+    const dKgSnfIdx = dispKgSnfIdx >= 0 ? dispKgSnfIdx : (disposalColIdx >= 0 && kgSnfIdx >= 0 ? disposalColIdx + kgSnfIdx : kgSnfIdx);
+
+    // Active Cell State Evaluation for Top Formula Bar
     let activeAddress = 'A1';
     let activeColName = '';
-    let activeIsCalc = false;
     let activeFormulaText = '';
     let activeValue = '-';
 
-    if (selectedCell && selectedCell.blockKey === blockKey && activeCol && colIdx >= 0) {
-      const excelColLetter = getExcelColName(colIdx);
-      const excelRowNum = selectedCell.rowIndex + 1;
-      activeAddress = `${excelColLetter}${excelRowNum}`;
-      activeColName = activeCol.name;
-      activeIsCalc = activeCol.type === 'calculated';
+    if (selectedCell && selectedCell.blockKey === blockKey) {
+      if (typeof selectedCell.rowIndex === 'number') {
+        const colIdx = stgColumns.findIndex(c => c.key === selectedCell.colKey);
+        if (colIdx >= 0) {
+          const activeCol = stgColumns[colIdx];
+          const excelColLetter = getExcelColName(colIdx);
+          const excelRowNum = selectedCell.rowIndex + 1;
+          activeAddress = `${excelColLetter}${excelRowNum}`;
+          activeColName = activeCol.name;
 
-      const currentRow = rows[selectedCell.rowIndex] || { variant: '', values: {} };
-      const rowVals = currentRow.values || {};
-      const computedVal = computeCell(activeCol, rowVals, selectedCell.rowIndex, stgColumns, rows);
+          const currentRow = rows[selectedCell.rowIndex] || { variant: '', values: {} };
+          const rowVals = currentRow.values || {};
+          const computedVal = computeCell(activeCol, rowVals, selectedCell.rowIndex, stgColumns, rows);
 
-      const storedVal = rowVals[activeCol.key];
-      if (typeof storedVal === 'string' && (storedVal.startsWith('=') || storedVal.startsWith('=+'))) {
-        activeFormulaText = storedVal;
-      } else if (activeCol.type === 'calculated') {
-        activeFormulaText = activeCol.formula ? `= ${activeCol.formula}` : '= CALCULATED';
-      } else {
-        const rawVal = storedVal !== undefined ? storedVal : (activeCol.type === 'text' ? (currentRow.variant || '') : '');
-        activeFormulaText = rawVal !== '' ? (String(rawVal).startsWith('=') ? String(rawVal) : `= ${rawVal}`) : '';
+          const storedVal = rowVals[activeCol.key];
+          if (typeof storedVal === 'string' && (storedVal.startsWith('=') || storedVal.startsWith('=+'))) {
+            activeFormulaText = storedVal;
+          } else if (activeCol.type === 'calculated') {
+            activeFormulaText = activeCol.formula ? `= ${activeCol.formula}` : '= CALCULATED';
+          } else {
+            const rawVal = storedVal !== undefined ? storedVal : (activeCol.type === 'text' ? (currentRow.variant || '') : '');
+            activeFormulaText = rawVal !== '' ? (String(rawVal).startsWith('=') ? String(rawVal) : `= ${rawVal}`) : '';
+          }
+
+          activeValue = typeof computedVal === 'number'
+            ? (computedVal !== 0 ? formatNumberValue(computedVal, activeCol.decimals, activeCol.key) : '0')
+            : (computedVal || '-');
+        }
+      } else if (typeof selectedCell.rowIndex === 'string') {
+        const rKey = selectedCell.rowIndex;
+        const fKey = selectedCell.fieldKey;
+
+        const summaryMeta = getSummaryFieldMeta(
+          fKey,
+          rKey,
+          rows.length,
+          stgColumns,
+          {
+            totQtyLts, totQtyKg, totKgFat, totKgSnf,
+            obLts, obKg, obFatPct, obSnfPct, obSpGr, obKgFat, obKgSnf,
+            cbLts, cbKg, cbFatPct, cbSnfPct, cbSpGr, cbKgFat, cbKgSnf,
+            calcGrandRecLts, calcGrandRecKg, calcGrandRecFat, calcGrandRecSnf,
+            calcGrandDispLts, calcGrandDispKg, calcGrandDispFat, calcGrandDispSnf,
+            calcLossGainLts, calcLossGainKg, calcLossGainFat, calcLossGainSnf,
+            calcLossGainPctFat, calcLossGainPctSnf,
+            cmpddNorm
+          }
+        );
+
+        if (summaryMeta) {
+          activeAddress = summaryMeta.address;
+          activeColName = summaryMeta.colName;
+          activeValue = summaryMeta.displayValue;
+          const userOverride = fKey ? summaryOverrides[fKey] : undefined;
+          if (userOverride !== undefined && userOverride !== '') {
+            activeFormulaText = userOverride.startsWith('=') ? userOverride : `= ${userOverride}`;
+          } else {
+            activeFormulaText = summaryMeta.formula;
+          }
+        }
       }
-
-      activeValue = typeof computedVal === 'number'
-        ? (computedVal !== 0 ? formatNumberValue(computedVal, activeCol.decimals, activeCol.key) : '0')
-        : (computedVal || '-');
     }
 
     return (
@@ -923,9 +1571,35 @@ export default function STGEntryForm({
               }}
               onChange={e => {
                 if (!selectedCell || selectedCell.blockKey !== blockKey) return;
-                handleCellChange(selectedCell.rowIndex, selectedCell.colKey, e.target.value);
+                const val = e.target.value;
+                if (typeof selectedCell.rowIndex === 'number') {
+                  handleCellChange(selectedCell.rowIndex, selectedCell.colKey, val);
+                } else if (typeof selectedCell.rowIndex === 'string' && selectedCell.fieldKey) {
+                  const fKey = selectedCell.fieldKey;
+                  if (['ob_qty_lts', 'ob_sp_gr', 'ob_qty_kg', 'ob_fat_pct', 'ob_snf_pct'].includes(fKey)) {
+                    handleObChange(blockKey, fKey.replace('ob_', ''), val);
+                  } else if (['cb_qty_lts', 'cb_sp_gr', 'cb_qty_kg', 'cb_fat_pct', 'cb_snf_pct'].includes(fKey)) {
+                    handleCbChange(blockKey, fKey.replace('cb_', ''), val);
+                  } else if (fKey === 'cmpdd_norm') {
+                    handleCmpddNormChange(blockKey, val);
+                  } else {
+                    setBlocks(prev => {
+                      const next = { ...prev };
+                      const b = { ...next[blockKey] };
+                      const ov = { ...(b.summary_overrides || {}) };
+                      if (val === '') {
+                        delete ov[fKey];
+                      } else {
+                        ov[fKey] = val;
+                      }
+                      b.summary_overrides = ov;
+                      next[blockKey] = b;
+                      return next;
+                    });
+                  }
+                }
               }}
-              placeholder={selectedCell && selectedCell.blockKey === blockKey ? "Enter value or formula e.g. =+B1*A1" : "Click any cell in the table below to inspect or enter formula"}
+              placeholder={selectedCell && selectedCell.blockKey === blockKey ? "Enter value or formula e.g. =SUM(C1:C4) or =+B1*A1" : "Click any cell in formulation or summary table to inspect formula"}
               style={{
                 fontFamily: 'monospace',
                 fontWeight: 700,
@@ -1255,20 +1929,626 @@ export default function STGEntryForm({
                 </tr>
               ))}
             </tbody>
-
           </table>
         </div>
+
+        {/* Dedicated Live Summary Table: Stock Statement Summary (Live) */}
+        {(() => {
+          const renderSummaryInput = (
+            fieldKey: string,
+            calcVal: number,
+            decimals: number,
+            unitSuffix: string = '',
+            customStyle?: React.CSSProperties,
+            rowKey: string = 'row-summary',
+            colKey: string = 'qty_lts'
+          ) => {
+            const userOverride = summaryOverrides[fieldKey];
+            const hasOverride = userOverride !== undefined && userOverride !== '';
+            const displayCalc = !isNaN(calcVal) ? formatNumberValue(calcVal, decimals) : '-';
+            const valToShow = hasOverride ? userOverride : (calcVal !== 0 && !isNaN(calcVal) ? String(calcVal) : '');
+            const isCellSelected = selectedCell?.blockKey === blockKey && selectedCell?.fieldKey === fieldKey;
+
+            return (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+                <input
+                  type="text"
+                  placeholder={displayCalc}
+                  value={valToShow}
+                  onFocus={() => setSelectedCell({ blockKey, rowIndex: rowKey, colKey, fieldKey })}
+                  onClick={() => setSelectedCell({ blockKey, rowIndex: rowKey, colKey, fieldKey })}
+                  onChange={e => {
+                    const val = e.target.value;
+                    setBlocks(prev => {
+                      const next = { ...prev };
+                      const b = { ...next[blockKey] };
+                      const ov = { ...(b.summary_overrides || {}) };
+                      if (val === '') {
+                        delete ov[fieldKey];
+                      } else {
+                        ov[fieldKey] = val;
+                      }
+                      b.summary_overrides = ov;
+                      next[blockKey] = b;
+                      return next;
+                    });
+                  }}
+                  title={`Calculated: ${displayCalc}. Click to inspect formula in Formula Bar or type to override.`}
+                  style={{
+                    width: '100%',
+                    padding: '2px 4px',
+                    fontSize: '0.8rem',
+                    textAlign: 'right',
+                    fontFamily: 'var(--font-numbers)',
+                    fontWeight: 800,
+                    borderRadius: 4,
+                    border: isCellSelected
+                      ? '2px solid #b45309'
+                      : (hasOverride ? '1px solid #f59e0b' : '1px solid #cbd5e1'),
+                    background: isCellSelected
+                      ? '#fef3c7'
+                      : (hasOverride ? '#fffbeb' : '#ffffff'),
+                    color: hasOverride ? '#b45309' : (customStyle?.color || 'var(--text-primary)'),
+                    boxShadow: isCellSelected
+                      ? '0 0 0 2px rgba(180, 83, 9, 0.35)'
+                      : (hasOverride ? '0 0 0 1px #f59e0b' : 'none'),
+                    outline: 'none',
+                    ...customStyle,
+                  }}
+                />
+                {unitSuffix && <span style={{ fontSize: '0.72rem', fontWeight: 800, color: '#64748b' }}>{unitSuffix}</span>}
+              </div>
+            );
+          };
+
+          const renderObInput = (field: string, val: string, placeholder: string, step?: string) => {
+            const fieldKey = `ob_${field}`;
+            const isCellSelected = selectedCell?.blockKey === blockKey && selectedCell?.fieldKey === fieldKey;
+            return (
+              <input
+                type="number"
+                step={step}
+                placeholder={placeholder}
+                value={val || ''}
+                onFocus={() => setSelectedCell({ blockKey, rowIndex: 'row-ob-cb', colKey: field, fieldKey })}
+                onClick={() => setSelectedCell({ blockKey, rowIndex: 'row-ob-cb', colKey: field, fieldKey })}
+                onChange={e => handleObChange(blockKey, field, e.target.value)}
+                style={{
+                  width: '100%',
+                  padding: '2px 4px',
+                  fontSize: '0.8rem',
+                  textAlign: 'right',
+                  borderRadius: 4,
+                  border: isCellSelected ? '2px solid #b45309' : '1px solid #7dd3fc',
+                  background: isCellSelected ? '#fef3c7' : '#ffffff',
+                  fontWeight: 700,
+                  boxShadow: isCellSelected ? '0 0 0 2px rgba(180, 83, 9, 0.35)' : 'none',
+                  outline: 'none'
+                }}
+              />
+            );
+          };
+
+          const renderCbInput = (field: string, val: string, placeholder: string, step?: string) => {
+            const fieldKey = `cb_${field}`;
+            const isCellSelected = selectedCell?.blockKey === blockKey && selectedCell?.fieldKey === fieldKey;
+            return (
+              <input
+                type="number"
+                step={step}
+                placeholder={placeholder}
+                value={val || ''}
+                onFocus={() => setSelectedCell({ blockKey, rowIndex: 'row-ob-cb', colKey: field, fieldKey })}
+                onClick={() => setSelectedCell({ blockKey, rowIndex: 'row-ob-cb', colKey: field, fieldKey })}
+                onChange={e => handleCbChange(blockKey, field, e.target.value)}
+                style={{
+                  width: '100%',
+                  padding: '2px 4px',
+                  fontSize: '0.8rem',
+                  textAlign: 'right',
+                  borderRadius: 4,
+                  border: isCellSelected ? '2px solid #b45309' : '1px solid #fdba74',
+                  background: isCellSelected ? '#fef3c7' : '#ffffff',
+                  fontWeight: 700,
+                  boxShadow: isCellSelected ? '0 0 0 2px rgba(180, 83, 9, 0.35)' : 'none',
+                  outline: 'none'
+                }}
+              />
+            );
+          };
+
+          const renderSummaryRowPair = (
+            rowKey: string,
+            icon: React.ReactNode,
+            receiptLabel: React.ReactNode | null,
+            receiptValues: Record<number, React.ReactNode>,
+            disposalLabel: React.ReactNode | null,
+            disposalValues: Record<number, React.ReactNode>,
+            rowStyle: React.CSSProperties,
+            lastColContent: React.ReactNode = '-'
+          ) => {
+            if (disposalColIdx >= 0) {
+              return (
+                <tr key={rowKey} style={rowStyle}>
+                  <td style={{ textAlign: 'center' }}>{icon}</td>
+                  {stgColumns.map((col, cIdx) => {
+                    if (cIdx === receiptColIdx) {
+                      return <td key={`r_lbl_${col.key}`}>{receiptLabel || <span style={{ color: '#94a3b8' }}>-</span>}</td>;
+                    }
+                    if (cIdx === disposalColIdx) {
+                      return <td key={`d_lbl_${col.key}`}>{disposalLabel || <span style={{ color: '#94a3b8' }}>-</span>}</td>;
+                    }
+                    if (cIdx < disposalColIdx) {
+                      if (receiptValues[cIdx] !== undefined) {
+                        return (
+                          <td key={`r_val_${col.key}`} style={{ textAlign: 'right', fontFamily: 'var(--font-numbers)' }}>
+                            {receiptValues[cIdx]}
+                          </td>
+                        );
+                      }
+                      return <td key={`r_empty_${col.key}`} style={{ textAlign: 'center', color: '#94a3b8' }}>-</td>;
+                    }
+                    if (cIdx > disposalColIdx) {
+                      if (disposalValues[cIdx] !== undefined) {
+                        return (
+                          <td key={`d_val_${col.key}`} style={{ textAlign: 'right', fontFamily: 'var(--font-numbers)' }}>
+                            {disposalValues[cIdx]}
+                          </td>
+                        );
+                      }
+                      return <td key={`d_empty_${col.key}`} style={{ textAlign: 'center', color: '#94a3b8' }}>-</td>;
+                    }
+                    return <td key={`empty_${col.key}`} style={{ textAlign: 'center', color: '#94a3b8' }}>-</td>;
+                  })}
+                  <td style={{ textAlign: 'center' }}>{lastColContent}</td>
+                </tr>
+              );
+            }
+
+            return (
+              <React.Fragment key={rowKey}>
+                {receiptLabel && (
+                  <tr key={`${rowKey}-rec`} style={rowStyle}>
+                    <td style={{ textAlign: 'center' }}>{icon}</td>
+                    {stgColumns.map((col, cIdx) => {
+                      if (cIdx === receiptColIdx) return <td key={col.key}>{receiptLabel}</td>;
+                      if (receiptValues[cIdx] !== undefined) {
+                        return <td key={col.key} style={{ textAlign: 'right', fontFamily: 'var(--font-numbers)' }}>{receiptValues[cIdx]}</td>;
+                      }
+                      return <td key={col.key} style={{ textAlign: 'center', color: '#94a3b8' }}>-</td>;
+                    })}
+                    <td style={{ textAlign: 'center' }}>-</td>
+                  </tr>
+                )}
+                {disposalLabel && (
+                  <tr key={`${rowKey}-disp`} style={rowStyle}>
+                    <td style={{ textAlign: 'center' }}>{icon}</td>
+                    {stgColumns.map((col, cIdx) => {
+                      if (cIdx === receiptColIdx) return <td key={col.key}>{disposalLabel}</td>;
+                      if (disposalValues[cIdx] !== undefined) {
+                        return <td key={col.key} style={{ textAlign: 'right', fontFamily: 'var(--font-numbers)' }}>{disposalValues[cIdx]}</td>;
+                      }
+                      return <td key={col.key} style={{ textAlign: 'center', color: '#94a3b8' }}>-</td>;
+                    })}
+                    <td style={{ textAlign: 'center' }}>{lastColContent}</td>
+                  </tr>
+                )}
+              </React.Fragment>
+            );
+          };
+
+          const numStyle = (color: string) => ({ color, fontWeight: 800 } as React.CSSProperties);
+
+          let summaryActiveAddress = `C${rows.length + 1}`;
+          let summaryActiveColName = 'Total Receipt QTY (Lts)';
+          let summaryActiveFormulaText = `=SUM(C1:${getExcelColName(qtyLtsIdx >= 0 ? qtyLtsIdx : 2)}${rows.length})`;
+          let summaryActiveValue = formatNumberValue(totQtyLts, 0);
+
+          if (selectedCell && selectedCell.blockKey === blockKey && typeof selectedCell.rowIndex === 'string') {
+            const rKey = selectedCell.rowIndex;
+            const fKey = selectedCell.fieldKey;
+
+            const summaryMeta = getSummaryFieldMeta(
+              fKey,
+              rKey,
+              rows.length,
+              stgColumns,
+              {
+                totQtyLts, totQtyKg, totKgFat, totKgSnf,
+                obLts, obKg, obFatPct, obSnfPct, obSpGr, obKgFat, obKgSnf,
+                cbLts, cbKg, cbFatPct, cbSnfPct, cbSpGr, cbKgFat, cbKgSnf,
+                calcGrandRecLts, calcGrandRecKg, calcGrandRecFat, calcGrandRecSnf,
+                calcGrandDispLts, calcGrandDispKg, calcGrandDispFat, calcGrandDispSnf,
+                calcLossGainLts, calcLossGainKg, calcLossGainFat, calcLossGainSnf,
+                calcLossGainPctFat, calcLossGainPctSnf,
+                cmpddNorm
+              }
+            );
+
+            if (summaryMeta) {
+              summaryActiveAddress = summaryMeta.address;
+              summaryActiveColName = summaryMeta.colName;
+              summaryActiveValue = summaryMeta.displayValue;
+              const userOverride = fKey ? summaryOverrides[fKey] : undefined;
+              if (userOverride !== undefined && userOverride !== '') {
+                summaryActiveFormulaText = userOverride.startsWith('=') ? userOverride : `= ${userOverride}`;
+              } else {
+                summaryActiveFormulaText = summaryMeta.formula;
+              }
+            }
+          }
+
+          return (
+            <div style={{ marginTop: 24, paddingTop: 16, borderTop: '2px dashed #cbd5e1' }}>
+              <div className="entry-form-section-title" style={{ color: 'var(--brand-primary)', marginBottom: 12, display: 'flex', alignItems: 'center', gap: 10 }}>
+                <span>📊 Stock Statement Summary (Live)</span>
+                <span style={{ fontSize: '0.75rem', fontWeight: 600, color: '#0284c7', background: '#e0f2fe', padding: '2px 8px', borderRadius: 4 }}>
+                  {cleanStatementLabel(s.label)}
+                </span>
+                <span style={{ fontSize: '0.72rem', fontWeight: 700, color: '#059669', background: '#ecfdf5', padding: '2px 8px', borderRadius: 4 }}>
+                  ⚡ Auto-calculated & Fully Editable
+                </span>
+              </div>
+
+              {/* Dedicated Formula Bar for Stock Statement Summary (Live) */}
+              <div
+                style={{
+                  padding: '8px 16px',
+                  marginBottom: 14,
+                  background: 'linear-gradient(135deg, #f0f9ff 0%, #e0f2fe 100%)',
+                  borderRadius: 8,
+                  border: '1px solid #7dd3fc',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 12,
+                  boxShadow: '0 1px 3px rgba(2, 132, 199, 0.08)',
+                }}
+              >
+                <div
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 4,
+                    background: '#ffffff',
+                    padding: '3px 10px',
+                    borderRadius: 6,
+                    border: '1px solid #0284c7',
+                    fontWeight: 800,
+                    fontSize: '0.85rem',
+                    color: '#0369a1',
+                    fontFamily: 'monospace',
+                    minWidth: 65,
+                    justifyContent: 'center',
+                  }}
+                  title="Summary Cell Excel Address"
+                >
+                  <span>{summaryActiveAddress}</span>
+                </div>
+
+                <div
+                  style={{
+                    fontWeight: 900,
+                    fontSize: '1.05rem',
+                    color: '#0284c7',
+                    fontStyle: 'italic',
+                    fontFamily: 'serif',
+                    userSelect: 'none',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 4,
+                  }}
+                  title="Stock Statement Summary Formula Indicator"
+                >
+                  <span>ƒx</span>
+                </div>
+
+                <div style={{ height: 20, width: 1, background: '#7dd3fc' }} />
+
+                <div style={{ flex: 1, display: 'flex', alignItems: 'center', gap: 10, minWidth: 260 }}>
+                  {summaryActiveColName && (
+                    <span
+                      style={{
+                        fontSize: '0.75rem',
+                        fontWeight: 700,
+                        background: '#0284c7',
+                        color: '#ffffff',
+                        padding: '2px 8px',
+                        borderRadius: 4,
+                        whiteSpace: 'nowrap',
+                      }}
+                    >
+                      {summaryActiveColName}
+                    </span>
+                  )}
+                  <input
+                    type="text"
+                    className="form-input"
+                    value={summaryActiveFormulaText}
+                    onKeyDown={e => {
+                      if (e.key === 'Enter') {
+                        (e.target as HTMLInputElement).blur();
+                      }
+                    }}
+                    onChange={e => {
+                      if (!selectedCell || selectedCell.blockKey !== blockKey || typeof selectedCell.rowIndex !== 'string' || !selectedCell.fieldKey) return;
+                      const val = e.target.value;
+                      const fKey = selectedCell.fieldKey;
+
+                      if (['ob_qty_lts', 'ob_sp_gr', 'ob_qty_kg', 'ob_fat_pct', 'ob_snf_pct'].includes(fKey)) {
+                        handleObChange(blockKey, fKey.replace('ob_', ''), val);
+                      } else if (['cb_qty_lts', 'cb_sp_gr', 'cb_qty_kg', 'cb_fat_pct', 'cb_snf_pct'].includes(fKey)) {
+                        handleCbChange(blockKey, fKey.replace('cb_', ''), val);
+                      } else if (fKey === 'cmpdd_norm') {
+                        handleCmpddNormChange(blockKey, val);
+                      } else {
+                        setBlocks(prev => {
+                          const next = { ...prev };
+                          const b = { ...next[blockKey] };
+                          const ov = { ...(b.summary_overrides || {}) };
+                          if (val === '') {
+                            delete ov[fKey];
+                          } else {
+                            ov[fKey] = val;
+                          }
+                          b.summary_overrides = ov;
+                          next[blockKey] = b;
+                          return next;
+                        });
+                      }
+                    }}
+                    placeholder="Click any cell in Stock Statement Summary (Live) below to inspect or enter formula (e.g. =SUM(C1:C4))"
+                    style={{
+                      fontFamily: 'monospace',
+                      fontWeight: 700,
+                      fontSize: '0.85rem',
+                      background: '#ffffff',
+                      color: summaryActiveFormulaText.startsWith('=') ? '#0284c7' : 'var(--text-primary)',
+                      borderColor: '#0284c7',
+                      height: 30,
+                    }}
+                  />
+                </div>
+
+                {summaryActiveValue && (
+                  <div
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 6,
+                      padding: '3px 10px',
+                      borderRadius: 6,
+                      background: '#ffffff',
+                      border: '1px solid #7dd3fc',
+                      color: '#0369a1',
+                      fontSize: '0.78rem',
+                      fontWeight: 700,
+                    }}
+                  >
+                    <span style={{ color: '#0369a1' }}>Value:</span>
+                    <span style={{ fontFamily: 'var(--font-numbers)', fontWeight: 800 }}>{summaryActiveValue}</span>
+                  </div>
+                )}
+              </div>
+
+              <div style={{ overflowX: 'auto' }}>
+                <table className="inline-table" style={{ width: '100%', minWidth: 700 }}>
+                  <thead>
+                    <tr style={{ background: '#f1f5f9' }}>
+                      <th style={{ width: 40, textAlign: 'center' }}>#</th>
+                      {stgColumns.map((col, cIdx) => (
+                        <th
+                          key={`sum_head_${col.key}`}
+                          style={{
+                            textAlign: col.type === 'text' ? 'left' : 'right',
+                            background: col.type === 'calculated' ? '#e0f2fe' : '#f1f5f9',
+                            color: col.type === 'calculated' ? '#0369a1' : 'var(--text-primary)',
+                            padding: '8px 10px',
+                            fontSize: '0.82rem',
+                            minWidth: 110,
+                          }}
+                        >
+                          <span>{col.name} {col.unit ? `(${col.unit})` : ''}</span>
+                        </th>
+                      ))}
+                      <th style={{ textAlign: 'center', width: 140 }}>Status / Action</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {/* Row 1: Total (Receipt) & Total (Disposal) */}
+                    {renderSummaryRowPair(
+                      'row-total',
+                      <span style={{ color: '#64748b' }}>∑</span>,
+                      <span style={{ fontWeight: 800, color: '#334155' }}>Total (Receipt)</span>,
+                      {
+                        ...(qtyLtsIdx >= 0 ? { [qtyLtsIdx]: renderSummaryInput('tot_rec_lts', totQtyLts, 0, '', numStyle('#0369a1'), 'row-total', 'qty_lts') } : {}),
+                        ...(spGrIdx >= 0 ? { [spGrIdx]: renderSummaryInput('tot_rec_sp_gr', totQtyLts > 0 ? totQtyKg / totQtyLts : 0, 4, '', { color: '#0369a1' }, 'row-total', 'sp_gr') } : {}),
+                        ...(qtyKgIdx >= 0 ? { [qtyKgIdx]: renderSummaryInput('tot_rec_kg', totQtyKg, 2, '', numStyle('#0369a1'), 'row-total', 'qty_kg') } : {}),
+                        ...(fatPctIdx >= 0 ? { [fatPctIdx]: renderSummaryInput('tot_rec_fat_pct', totQtyKg > 0 ? (totKgFat / totQtyKg) * 100 : 0, 2, '%', { color: '#0369a1' }, 'row-total', 'fat_pct') } : {}),
+                        ...(snfPctIdx >= 0 ? { [snfPctIdx]: renderSummaryInput('tot_rec_snf_pct', totQtyKg > 0 ? (totKgSnf / totQtyKg) * 100 : 0, 2, '%', { color: '#0369a1' }, 'row-total', 'snf_pct') } : {}),
+                        ...(kgFatIdx >= 0 ? { [kgFatIdx]: renderSummaryInput('tot_rec_fat', totKgFat, 3, '', numStyle('#0369a1'), 'row-total', 'kg_fat') } : {}),
+                        ...(kgSnfIdx >= 0 ? { [kgSnfIdx]: renderSummaryInput('tot_rec_snf', totKgSnf, 3, '', numStyle('#0369a1'), 'row-total', 'kg_snf') } : {}),
+                      },
+                      <span style={{ fontWeight: 800, color: '#c2410c' }}>Total (Disposal)</span>,
+                      {
+                        ...(dQtyLtsIdx >= 0 ? { [dQtyLtsIdx]: renderSummaryInput('tot_disp_lts', totQtyLts, 0, '', numStyle('#c2410c'), 'row-total', 'qty_lts') } : {}),
+                        ...(dSpGrIdx >= 0 ? { [dSpGrIdx]: renderSummaryInput('tot_disp_sp_gr', totQtyLts > 0 ? totQtyKg / totQtyLts : 0, 4, '', { color: '#c2410c' }, 'row-total', 'sp_gr') } : {}),
+                        ...(dQtyKgIdx >= 0 ? { [dQtyKgIdx]: renderSummaryInput('tot_disp_kg', totQtyKg, 2, '', numStyle('#c2410c'), 'row-total', 'qty_kg') } : {}),
+                        ...(dFatPctIdx >= 0 ? { [dFatPctIdx]: renderSummaryInput('tot_disp_fat_pct', totQtyKg > 0 ? (totKgFat / totQtyKg) * 100 : 0, 2, '%', { color: '#c2410c' }, 'row-total', 'fat_pct') } : {}),
+                        ...(dSnfPctIdx >= 0 ? { [dSnfPctIdx]: renderSummaryInput('tot_disp_snf_pct', totQtyKg > 0 ? (totKgSnf / totQtyKg) * 100 : 0, 2, '%', { color: '#c2410c' }, 'row-total', 'snf_pct') } : {}),
+                        ...(dKgFatIdx >= 0 ? { [dKgFatIdx]: renderSummaryInput('tot_disp_fat', totKgFat, 3, '', numStyle('#c2410c'), 'row-total', 'kg_fat') } : {}),
+                        ...(dKgSnfIdx >= 0 ? { [dKgSnfIdx]: renderSummaryInput('tot_disp_snf', totKgSnf, 3, '', numStyle('#c2410c'), 'row-total', 'kg_snf') } : {}),
+                      },
+                      { background: '#f8fafc', fontWeight: 800, borderTop: '2px solid #cbd5e1' }
+                    )}
+
+                    {/* Row 2: Opening Balance (O/B) & Closing Balance (C/B) */}
+                    {renderSummaryRowPair(
+                      'row-ob-cb',
+                      <span style={{ color: '#0284c7' }}>📥</span>,
+                      <span style={{ fontWeight: 800, color: '#0369a1' }}>Opening Balance (O/B)</span>,
+                      {
+                        ...(qtyLtsIdx >= 0 ? { [qtyLtsIdx]: renderObInput('qty_lts', obState.qty_lts || '', 'Lts') } : {}),
+                        ...(spGrIdx >= 0 ? { [spGrIdx]: renderObInput('sp_gr', obState.sp_gr || '', 'Sp.Gr', '0.0001') } : {}),
+                        ...(qtyKgIdx >= 0 ? { [qtyKgIdx]: renderObInput('qty_kg', obState.qty_kg || '', 'Kg') } : {}),
+                        ...(fatPctIdx >= 0 ? { [fatPctIdx]: renderObInput('fat_pct', obState.fat_pct || '', 'Fat%', '0.01') } : {}),
+                        ...(snfPctIdx >= 0 ? { [snfPctIdx]: renderObInput('snf_pct', obState.snf_pct || '', 'Snf%', '0.01') } : {}),
+                        ...(kgFatIdx >= 0 ? { [kgFatIdx]: renderSummaryInput('ob_kg_fat', obKgFat, 3, '', numStyle('#0369a1'), 'row-ob-cb', 'kg_fat') } : {}),
+                        ...(kgSnfIdx >= 0 ? { [kgSnfIdx]: renderSummaryInput('ob_kg_snf', obKgSnf, 3, '', numStyle('#0369a1'), 'row-ob-cb', 'kg_snf') } : {}),
+                      },
+                      <span style={{ fontWeight: 800, color: '#c2410c' }}>Closing Balance (C/B)</span>,
+                      {
+                        ...(dQtyLtsIdx >= 0 ? { [dQtyLtsIdx]: renderCbInput('qty_lts', cbState.qty_lts || '', 'Lts') } : {}),
+                        ...(dSpGrIdx >= 0 ? { [dSpGrIdx]: renderCbInput('sp_gr', cbState.sp_gr || '', 'Sp.Gr', '0.0001') } : {}),
+                        ...(dQtyKgIdx >= 0 ? { [dQtyKgIdx]: renderCbInput('qty_kg', cbState.qty_kg || '', 'Kg') } : {}),
+                        ...(dFatPctIdx >= 0 ? { [dFatPctIdx]: renderCbInput('fat_pct', cbState.fat_pct || '', 'Fat%', '0.01') } : {}),
+                        ...(dSnfPctIdx >= 0 ? { [dSnfPctIdx]: renderCbInput('snf_pct', cbState.snf_pct || '', 'Snf%', '0.01') } : {}),
+                        ...(dKgFatIdx >= 0 ? { [dKgFatIdx]: renderSummaryInput('cb_kg_fat', cbKgFat, 3, '', numStyle('#c2410c'), 'row-ob-cb', 'kg_fat') } : {}),
+                        ...(dKgSnfIdx >= 0 ? { [dKgSnfIdx]: renderSummaryInput('cb_kg_snf', cbKgSnf, 3, '', numStyle('#c2410c'), 'row-ob-cb', 'kg_snf') } : {}),
+                      },
+                      { background: '#f0f9ff', fontWeight: 800 }
+                    )}
+
+                    {/* Row 3: Grand Total Receipts & Grand Total Disposals */}
+                    {renderSummaryRowPair(
+                      'row-grand-total',
+                      <span style={{ color: '#0369a1' }}>∑</span>,
+                      <span style={{ fontWeight: 800, color: '#0c4a6e' }}>Grand Total Receipts</span>,
+                      {
+                        ...(qtyLtsIdx >= 0 ? { [qtyLtsIdx]: renderSummaryInput('grand_rec_lts', calcGrandRecLts, 0, '', numStyle('#0c4a6e'), 'row-grand-total', 'qty_lts') } : {}),
+                        ...(spGrIdx >= 0 ? { [spGrIdx]: renderSummaryInput('grand_rec_sp_gr', grandRecLts > 0 ? grandRecKg / grandRecLts : 0, 4, '', { color: '#0c4a6e' }, 'row-grand-total', 'sp_gr') } : {}),
+                        ...(qtyKgIdx >= 0 ? { [qtyKgIdx]: renderSummaryInput('grand_rec_kg', calcGrandRecKg, 2, '', numStyle('#0c4a6e'), 'row-grand-total', 'qty_kg') } : {}),
+                        ...(fatPctIdx >= 0 ? { [fatPctIdx]: renderSummaryInput('grand_rec_fat_pct', grandRecKg > 0 ? (grandRecFat / grandRecKg) * 100 : 0, 2, '%', { color: '#0c4a6e' }, 'row-grand-total', 'fat_pct') } : {}),
+                        ...(snfPctIdx >= 0 ? { [snfPctIdx]: renderSummaryInput('grand_rec_snf_pct', grandRecKg > 0 ? (grandRecSnf / grandRecKg) * 100 : 0, 2, '%', { color: '#0c4a6e' }, 'row-grand-total', 'snf_pct') } : {}),
+                        ...(kgFatIdx >= 0 ? { [kgFatIdx]: renderSummaryInput('grand_rec_fat', calcGrandRecFat, 3, '', numStyle('#0c4a6e'), 'row-grand-total', 'kg_fat') } : {}),
+                        ...(kgSnfIdx >= 0 ? { [kgSnfIdx]: renderSummaryInput('grand_rec_snf', calcGrandRecSnf, 3, '', numStyle('#0c4a6e'), 'row-grand-total', 'kg_snf') } : {}),
+                      },
+                      <span style={{ fontWeight: 800, color: '#7c2d12' }}>Grand Total Disposals</span>,
+                      {
+                        ...(dQtyLtsIdx >= 0 ? { [dQtyLtsIdx]: renderSummaryInput('grand_disp_lts', calcGrandDispLts, 0, '', numStyle('#7c2d12'), 'row-grand-total', 'qty_lts') } : {}),
+                        ...(dSpGrIdx >= 0 ? { [dSpGrIdx]: renderSummaryInput('grand_disp_sp_gr', grandDispLts > 0 ? grandDispKg / grandDispLts : 0, 4, '', { color: '#7c2d12' }, 'row-grand-total', 'sp_gr') } : {}),
+                        ...(dQtyKgIdx >= 0 ? { [dQtyKgIdx]: renderSummaryInput('grand_disp_kg', calcGrandDispKg, 2, '', numStyle('#7c2d12'), 'row-grand-total', 'qty_kg') } : {}),
+                        ...(dFatPctIdx >= 0 ? { [dFatPctIdx]: renderSummaryInput('grand_disp_fat_pct', grandDispKg > 0 ? (grandDispFat / grandDispKg) * 100 : 0, 2, '%', { color: '#7c2d12' }, 'row-grand-total', 'fat_pct') } : {}),
+                        ...(dSnfPctIdx >= 0 ? { [dSnfPctIdx]: renderSummaryInput('grand_disp_snf_pct', grandDispKg > 0 ? (grandDispSnf / grandDispKg) * 100 : 0, 2, '%', { color: '#7c2d12' }, 'row-grand-total', 'snf_pct') } : {}),
+                        ...(dKgFatIdx >= 0 ? { [dKgFatIdx]: renderSummaryInput('grand_disp_fat', calcGrandDispFat, 3, '', numStyle('#7c2d12'), 'row-grand-total', 'kg_fat') } : {}),
+                        ...(dKgSnfIdx >= 0 ? { [dKgSnfIdx]: renderSummaryInput('grand_disp_snf', calcGrandDispSnf, 3, '', numStyle('#7c2d12'), 'row-grand-total', 'kg_snf') } : {}),
+                      },
+                      { background: '#e0f2fe', fontWeight: 800, borderBottom: '1px solid #bae6fd' }
+                    )}
+
+                    {/* Row 4: Loss / Gain */}
+                    {renderSummaryRowPair(
+                      'row-loss-gain',
+                      <span style={{ color: '#dc2626' }}>📊</span>,
+                      null,
+                      {},
+                      <span style={{ fontWeight: 800, color: '#b91c1c' }}>Loss / Gain</span>,
+                      {
+                        ...(dQtyLtsIdx >= 0 ? { [dQtyLtsIdx]: renderSummaryInput('loss_gain_lts', calcLossGainLts, 0, '', { color: lossGainLts >= 0 ? '#16a34a' : '#dc2626', fontWeight: 800 }, 'row-loss-gain', 'qty_lts') } : {}),
+                        ...(dQtyKgIdx >= 0 ? { [dQtyKgIdx]: renderSummaryInput('loss_gain_kg', calcLossGainKg, 2, '', { color: lossGainKg >= 0 ? '#16a34a' : '#dc2626', fontWeight: 800 }, 'row-loss-gain', 'qty_kg') } : {}),
+                        ...(dKgFatIdx >= 0 ? { [dKgFatIdx]: renderSummaryInput('loss_gain_fat', calcLossGainFat, 3, '', { color: lossGainFat >= 0 ? '#16a34a' : '#dc2626', fontWeight: 800 }, 'row-loss-gain', 'kg_fat') } : {}),
+                        ...(dKgSnfIdx >= 0 ? { [dKgSnfIdx]: renderSummaryInput('loss_gain_snf', calcLossGainSnf, 3, '', { color: lossGainSnf >= 0 ? '#16a34a' : '#dc2626', fontWeight: 800 }, 'row-loss-gain', 'kg_snf') } : {}),
+                      },
+                      { background: '#fef2f2', fontWeight: 800 }
+                    )}
+
+                    {/* Row 5: Loss / Gain % */}
+                    {renderSummaryRowPair(
+                      'row-loss-gain-pct',
+                      <span style={{ color: '#dc2626' }}>%</span>,
+                      null,
+                      {},
+                      <span style={{ fontWeight: 800, color: '#b91c1c' }}>Loss / Gain %</span>,
+                      {
+                        ...(dKgFatIdx >= 0 ? { [dKgFatIdx]: renderSummaryInput('loss_gain_pct_fat', calcLossGainPctFat, 2, '%', { color: Math.abs(lossGainPctFat) > cmpddNorm ? '#dc2626' : '#16a34a', fontWeight: 800 }, 'row-loss-gain-pct', 'kg_fat') } : {}),
+                        ...(dKgSnfIdx >= 0 ? { [dKgSnfIdx]: renderSummaryInput('loss_gain_pct_snf', calcLossGainPctSnf, 2, '%', { color: Math.abs(lossGainPctSnf) > cmpddNorm ? '#dc2626' : '#16a34a', fontWeight: 800 }, 'row-loss-gain-pct', 'kg_snf') } : {}),
+                      },
+                      { background: '#fef2f2', fontWeight: 800 }
+                    )}
+
+                    {/* Row 6: CMPDD Norms % */}
+                    {renderSummaryRowPair(
+                      'row-cmpdd',
+                      <span style={{ color: '#475569' }}>🎯</span>,
+                      null,
+                      {},
+                      <span style={{ fontWeight: 800, color: '#334155' }}>CMPDD Norms %</span>,
+                      {
+                        ...(dKgFatIdx >= 0 ? {
+                          [dKgFatIdx]: (
+                            <input
+                              type="number"
+                              step="0.1"
+                              value={blockState.cmpdd_norm || '0.5'}
+                              onFocus={() => setSelectedCell({ blockKey, rowIndex: 'row-cmpdd', colKey: 'kg_fat', fieldKey: 'cmpdd_norm' })}
+                              onClick={() => setSelectedCell({ blockKey, rowIndex: 'row-cmpdd', colKey: 'kg_fat', fieldKey: 'cmpdd_norm' })}
+                              onChange={e => handleCmpddNormChange(blockKey, e.target.value)}
+                              style={{
+                                width: 55,
+                                padding: '2px 4px',
+                                fontSize: '0.8rem',
+                                fontWeight: 800,
+                                textAlign: 'center',
+                                borderRadius: 4,
+                                border: selectedCell?.blockKey === blockKey && selectedCell?.fieldKey === 'cmpdd_norm' ? '2px solid #b45309' : '1px solid #cbd5e1',
+                                background: selectedCell?.blockKey === blockKey && selectedCell?.fieldKey === 'cmpdd_norm' ? '#fef3c7' : '#ffffff',
+                                boxShadow: selectedCell?.blockKey === blockKey && selectedCell?.fieldKey === 'cmpdd_norm' ? '0 0 0 2px rgba(180, 83, 9, 0.35)' : 'none',
+                                outline: 'none'
+                              }}
+                            />
+                          )
+                        } : {}),
+                        ...(dKgSnfIdx >= 0 ? {
+                          [dKgSnfIdx]: (
+                            <input
+                              type="number"
+                              step="0.1"
+                              value={blockState.cmpdd_norm || '0.5'}
+                              onFocus={() => setSelectedCell({ blockKey, rowIndex: 'row-cmpdd', colKey: 'kg_snf', fieldKey: 'cmpdd_norm' })}
+                              onClick={() => setSelectedCell({ blockKey, rowIndex: 'row-cmpdd', colKey: 'kg_snf', fieldKey: 'cmpdd_norm' })}
+                              onChange={e => handleCmpddNormChange(blockKey, e.target.value)}
+                              style={{
+                                width: 55,
+                                padding: '2px 4px',
+                                fontSize: '0.8rem',
+                                fontWeight: 800,
+                                textAlign: 'center',
+                                borderRadius: 4,
+                                border: selectedCell?.blockKey === blockKey && selectedCell?.fieldKey === 'cmpdd_norm' ? '2px solid #b45309' : '1px solid #cbd5e1',
+                                background: selectedCell?.blockKey === blockKey && selectedCell?.fieldKey === 'cmpdd_norm' ? '#fef3c7' : '#ffffff',
+                                boxShadow: selectedCell?.blockKey === blockKey && selectedCell?.fieldKey === 'cmpdd_norm' ? '0 0 0 2px rgba(180, 83, 9, 0.35)' : 'none',
+                                outline: 'none'
+                              }}
+                            />
+                          )
+                        } : {}),
+                      },
+                      { background: '#f8fafc', fontWeight: 800, borderBottom: '2px solid #cbd5e1' },
+                      <span style={{ padding: '2px 8px', borderRadius: 12, fontSize: '0.72rem', fontWeight: 800, background: isWithinNorm ? '#f0fdf4' : '#fef2f2', color: isWithinNorm ? '#15803d' : '#b91c1c', border: isWithinNorm ? '1px solid #86efac' : '1px solid #fca5a5' }}>
+                        {isWithinNorm ? '🟢 Within CMPDD Norm' : '🔴 Exceeds CMPDD Norm'}
+                      </span>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          );
+        })()}
       </div>
     );
   };
 
   const handleStepClick = (key: string) => {
+    if (onDateShiftChange) {
+      onDateShiftChange(entryDate, shift);
+    }
     if (onStepChange) {
       onStepChange(key);
       return;
     }
     const s = shift ?? 'F';
-    if (key === 'stock') {
+    if (key === 'prep') {
+      router.push(`/dashboard/stock/preparation-charts?date=${entryDate}&shift=${s}`);
+    } else if (key === 'stock') {
       router.push(`/dashboard/stock/new?date=${entryDate}&shift=${s}`);
     } else if (key === 'stg') {
       router.push(`/dashboard/ts/new-stg?date=${entryDate}&shift=${s}`);
@@ -1346,7 +2626,11 @@ export default function STGEntryForm({
                 type="date"
                 className="form-input"
                 value={entryDate}
-                onChange={e => setEntryDate(e.target.value)}
+                onChange={e => {
+                  const newDate = e.target.value;
+                  setEntryDate(newDate);
+                  if (onDateShiftChange) onDateShiftChange(newDate, shift);
+                }}
                 max={new Date().toISOString().split('T')[0]}
               />
             </div>
@@ -1358,7 +2642,10 @@ export default function STGEntryForm({
                     <button
                       type="button"
                       className={`btn ${shift === 'F' || !shift ? 'btn-primary' : 'btn-secondary'}`}
-                      onClick={() => setShift('F')}
+                      onClick={() => {
+                        setShift('F');
+                        if (onDateShiftChange) onDateShiftChange(entryDate, 'F');
+                      }}
                       style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '10px 16px' }}
                     >
                       <span style={{ fontWeight: 600, fontSize: '0.875rem' }}>🗓️ Full Day (F)</span>
@@ -1366,7 +2653,10 @@ export default function STGEntryForm({
                     <button
                       type="button"
                       className={`btn ${shift === 'D' || shift === 'N' ? 'btn-primary' : 'btn-secondary'}`}
-                      onClick={() => setShift('D')}
+                      onClick={() => {
+                        setShift('D');
+                        if (onDateShiftChange) onDateShiftChange(entryDate, 'D');
+                      }}
                       style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '10px 16px' }}
                     >
                       <span style={{ fontWeight: 600, fontSize: '0.875rem' }}>⏱️ Shift-wise</span>
@@ -1387,7 +2677,10 @@ export default function STGEntryForm({
                             id={`shift-${s}`}
                             type="button"
                             className={`btn ${shift === s ? 'btn-primary' : 'btn-secondary'}`}
-                            onClick={() => setShift(s)}
+                            onClick={() => {
+                              setShift(s);
+                              if (onDateShiftChange) onDateShiftChange(entryDate, s);
+                            }}
                             style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '10px 16px' }}
                           >
                             <span style={{ fontWeight: 600, fontSize: '0.875rem' }}>
@@ -1539,7 +2832,14 @@ export default function STGEntryForm({
               <button
                 type="button"
                 className="btn btn-secondary"
-                onClick={onPrevStep}
+                onClick={() => {
+                  if (onDateShiftChange) onDateShiftChange(entryDate, shift);
+                  if (onPrevStep) {
+                    onPrevStep(entryDate, shift);
+                  } else {
+                    router.push(`/dashboard/stock/new?date=${entryDate}&shift=${shift || 'F'}`);
+                  }
+                }}
                 style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}
               >
                 ← Back to Stock Entry
@@ -1548,7 +2848,8 @@ export default function STGEntryForm({
                 type="button"
                 className="btn btn-primary"
                 onClick={async () => {
-                  if (onNextStep) onNextStep();
+                  if (onDateShiftChange) onDateShiftChange(entryDate, shift);
+                  if (onNextStep) onNextStep(entryDate, shift);
                 }}
                 style={{
                   display: 'inline-flex',

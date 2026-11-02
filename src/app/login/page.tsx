@@ -18,7 +18,7 @@ function LoginFormContent() {
   useEffect(() => {
     const reason = searchParams.get('reason');
     if (reason === 'idle_timeout') {
-      setIdleMessage('Your session expired due to 10 minutes of inactivity. Please log in again.');
+      setIdleMessage('Unauthorized: Token expired or invalid. Your session expired due to 10 minutes of inactivity. Please log in again.');
     }
   }, [searchParams]);
 

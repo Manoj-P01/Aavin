@@ -14,7 +14,8 @@ export interface PreparationChartsProps {
   stepMode?: boolean;
   activeStep?: string;
   onStepChange?: (key: string) => void;
-  onNextStep?: () => void;
+  onNextStep?: (date?: string, shift?: string) => void;
+  onDateShiftChange?: (date: string, shift: 'D' | 'N' | 'F' | string) => void;
   initialDate?: string;
   initialShift?: 'D' | 'N' | 'F' | string | null;
 }
@@ -24,6 +25,7 @@ export default function PreparationChartsDashboardPage({
   activeStep,
   onStepChange,
   onNextStep,
+  onDateShiftChange,
   initialDate,
   initialShift,
 }: PreparationChartsProps = {}) {
@@ -36,7 +38,21 @@ export default function PreparationChartsDashboardPage({
     return 'F';
   });
 
+  useEffect(() => {
+    if (initialDate && initialDate !== date) {
+      setDate(initialDate);
+    }
+  }, [initialDate]);
+
+  useEffect(() => {
+    if (initialShift && (initialShift === 'D' || initialShift === 'N' || initialShift === 'F') && initialShift !== shift) {
+      setShift(initialShift as any);
+    }
+  }, [initialShift]);
+
   const [columns, setColumns] = useState<ChartColumnDef[]>([]);
+  const [defaultColumns, setDefaultColumns] = useState<ChartColumnDef[]>([]);
+  const [chartColumnsMap, setChartColumnsMap] = useState<Record<string, ChartColumnDef[]>>({});
   const [masters, setMasters] = useState<ChartMasterDef[]>([]);
   const [activeChartKey, setActiveChartKey] = useState<string | null>(null);
 
@@ -46,6 +62,11 @@ export default function PreparationChartsDashboardPage({
   const [isColumnEditing, setIsColumnEditing] = useState<boolean>(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [isDirty, setIsDirty] = useState<boolean>(false);
+
+  // Download modal state
+  const [showDownloadModal, setShowDownloadModal] = useState<boolean>(false);
+  const [downloadFormat, setDownloadFormat] = useState<'excel' | 'pdf'>('excel');
+  const [downloadSelectedCharts, setDownloadSelectedCharts] = useState<string[]>([]);
 
   const [hasSavedEntryMap, setHasSavedEntryMap] = useState<Record<string, boolean>>({});
 
@@ -90,6 +111,7 @@ export default function PreparationChartsDashboardPage({
     target_batch_liters?: number;
     target_fat?: number;
     target_snf?: number;
+    columns?: ChartColumnDef[];
   }>>({});
 
   const [chartEntriesData, setChartEntriesData] = useState<Record<string, {
@@ -98,6 +120,7 @@ export default function PreparationChartsDashboardPage({
     target_batch_liters?: number;
     target_fat?: number;
     target_snf?: number;
+    columns?: ChartColumnDef[];
   }>>({});
 
   const [activeBatchIndexMap, setActiveBatchIndexMap] = useState<Record<string, number>>({});
@@ -157,18 +180,27 @@ export default function PreparationChartsDashboardPage({
       if (res.ok) {
         const json = await res.json();
         const loadedCols: ChartColumnDef[] = json.columns || [];
+        const loadedChartCols: Record<string, ChartColumnDef[]> = json.chart_columns || {};
         const loadedMasters: ChartMasterDef[] = json.masters || [];
         const loadedTemplates: Record<string, any> = json.templates || {};
         const loadedEntries: Record<string, ChartEntryData> = json.entries || {};
 
-        setColumns(loadedCols);
+        setDefaultColumns(loadedCols);
+        setChartColumnsMap(loadedChartCols);
         setMasters(loadedMasters);
         setTemplates(loadedTemplates);
 
-        if (loadedMasters.length > 0 && (!activeChartKey || !loadedMasters.some(m => m.key === activeChartKey))) {
-          setActiveChartKey(loadedMasters[0].key);
-        } else if (loadedMasters.length === 0) {
-          setActiveChartKey(null);
+        const currentKey = activeChartKey && loadedMasters.some(m => m.key === activeChartKey)
+          ? activeChartKey
+          : (loadedMasters[0]?.key || null);
+
+        setActiveChartKey(currentKey);
+
+        if (currentKey) {
+          const specificCols = loadedChartCols[currentKey] || loadedTemplates[currentKey]?.columns;
+          setColumns(Array.isArray(specificCols) && specificCols.length > 0 ? specificCols : loadedCols);
+        } else {
+          setColumns(loadedCols);
         }
 
         // Build local state per master chart strictly from DB JSON (Supporting multiple batches)
@@ -213,7 +245,7 @@ export default function PreparationChartsDashboardPage({
               target_fat: m.target_fat,
               target_snf: m.target_snf,
               rows: [
-                { variant: m.product_variant || 'Milk Variant', values: { variant: m.product_variant || 'Milk Variant' } }
+                { variant: '', values: {} }
               ],
             }];
           }
@@ -299,7 +331,7 @@ export default function PreparationChartsDashboardPage({
       target_batch_liters: activeMaster.target_batch_liters,
       target_fat: activeMaster.target_fat,
       target_snf: activeMaster.target_snf,
-      rows: [{ variant: activeMaster.product_variant || 'Milk Variant', values: { variant: activeMaster.product_variant || 'Milk Variant' } }],
+      rows: [{ variant: '', values: {} }],
     }];
   }, [chartEntriesData, activeMaster]);
 
@@ -338,7 +370,7 @@ export default function PreparationChartsDashboardPage({
     const masterTemplate = templates[activeMaster.key];
     const templateRows = masterTemplate && Array.isArray(masterTemplate.rows) && masterTemplate.rows.length > 0
       ? JSON.parse(JSON.stringify(masterTemplate.rows))
-      : [{ variant: activeMaster.product_variant || 'Milk Variant', values: { variant: activeMaster.product_variant || 'Milk Variant' } }];
+      : [{ variant: '', values: {} }];
 
     const newBatch: ChartBatchData = {
       batch_number: newBatchNumber,
@@ -474,8 +506,8 @@ export default function PreparationChartsDashboardPage({
       const currentBatches = [...activeBatches];
       const targetBatch = { ...currentBatches[activeBatchIdx] };
       const newRow: ChartRowData = {
-        variant: 'New Ingredient',
-        values: { variant: 'New Ingredient' },
+        variant: '',
+        values: {},
       };
       const newRows = [...targetBatch.rows];
       if (typeof insertIndex === 'number' && insertIndex >= 0 && insertIndex <= newRows.length) {
@@ -554,6 +586,260 @@ export default function PreparationChartsDashboardPage({
   // Selected cell state for Excel Formula Bar
   const [selectedCell, setSelectedCell] = useState<{ rowIndex: number; colKey: string } | null>(null);
   const [focusedCell, setFocusedCell] = useState<{ rowIndex: number; colKey: string } | null>(null);
+
+  // ─── Download helpers ───────────────────────────────────────────────────────
+
+  /** Open the download modal and pre-select all charts */
+  const openDownloadModal = () => {
+    setDownloadSelectedCharts(masters.map(m => m.key));
+    setDownloadFormat('excel');
+    setShowDownloadModal(true);
+  };
+
+  /** Toggle a chart key in the download selection */
+  const toggleDownloadChart = (key: string) => {
+    setDownloadSelectedCharts(prev =>
+      prev.includes(key) ? prev.filter(k => k !== key) : [...prev, key]
+    );
+  };
+
+  /** Compute the actual qty_lit total from a batch's rows (used as fallback target) */
+  const computeBatchQtyTotal = (batchRows: ChartRowData[]): number => {
+    const qtyLitCol = columns.find(c => c.key === 'qty_lit');
+    if (!qtyLitCol) return 0;
+    let total = 0;
+    (batchRows || []).forEach((row, rIdx) => {
+      const v = computeCell(qtyLitCol, row.values || {}, rIdx, batchRows);
+      const n = parseFloat(String(v));
+      if (!isNaN(n)) total += n;
+    });
+    return total;
+  };
+
+  /** Generate proper .xlsx with one sheet per chart, table borders, no TOTAL row, no Variant/Row column */
+  const handleDownloadExcel = async () => {
+    const chartsToExport = masters.filter(m => downloadSelectedCharts.includes(m.key));
+    if (chartsToExport.length === 0) { showToast('⚠️ No charts selected for download'); return; }
+
+    const shiftLabel = shiftConfig.mode === 'full_day' ? 'Full Day' : (shift === 'D' ? 'Day Shift' : 'Night Shift');
+
+    // Dynamically import xlsx-js-style (client-only)
+    const XLSX = await import('xlsx-js-style');
+
+    // Border style used on every data cell
+    const border = {
+      top: { style: 'thin', color: { rgb: '94A3B8' } },
+      bottom: { style: 'thin', color: { rgb: '94A3B8' } },
+      left: { style: 'thin', color: { rgb: '94A3B8' } },
+      right: { style: 'thin', color: { rgb: '94A3B8' } },
+    };
+
+    const headerFill = { fgColor: { rgb: '1E3A5F' } };
+    const batchHeaderFill = { fgColor: { rgb: 'E0F2FE' } };
+    const titleFill = { fgColor: { rgb: 'EDE9FE' } };
+    const whiteFont = { bold: true, color: { rgb: 'FFFFFF' }, sz: 10 };
+    const darkFont = { bold: true, color: { rgb: '1E293B' }, sz: 10 };
+    const mutedFont = { color: { rgb: '475569' }, sz: 9 };
+    const normalFont = { color: { rgb: '1E293B' }, sz: 9 };
+
+    const wb = XLSX.utils.book_new();
+    (wb as any).Props = { Title: `Preparation Charts ${date}`, Subject: shiftLabel };
+
+    chartsToExport.forEach(master => {
+      const chartData = chartEntriesData[master.key];
+      const batches = chartData?.batches || [];
+
+      // Sheet name: max 31 chars, sanitised (no []:*?/\)
+      const rawName = (master.product_variant || master.name).replace(/[\[\]:*?/\\]/g, '').substring(0, 31);
+      const sheetName = rawName || master.key.substring(0, 31);
+
+      const sheetData: any[][] = [];
+
+      // Row 0: Title
+      sheetData.push([`Milk & Cream Preparation Charts`]);
+      // Row 1: Date / Shift info
+      sheetData.push([`Date: ${date}  |  Shift: ${shiftLabel}  |  Chart: ${master.name}`]);
+      // Row 2: Chart meta (Target, Fat, SNF)
+      const targetForChart = master.target_batch_liters ?? (batches[0] ? computeBatchQtyTotal(batches[0].rows || []) : 0);
+      sheetData.push([`Target: ${targetForChart > 0 ? targetForChart : '-'} L    Fat: ${master.target_fat ?? '-'}%    SNF: ${master.target_snf ?? '-'}%`]);
+      sheetData.push([]); // blank row
+
+      // Column headers (no "Variant/Row" first column)
+      sheetData.push(columns.map(c => c.name));
+
+      if (batches.length === 0) {
+        sheetData.push(['No batch data available']);
+      } else {
+        batches.forEach((batch, bIdx) => {
+          const batchTarget = batch.target_batch_liters ?? master.target_batch_liters ?? computeBatchQtyTotal(batch.rows || []);
+          // Batch sub-header
+          sheetData.push([`${batch.batch_name || `Batch #${bIdx + 1}`}  —  Target: ${batchTarget > 0 ? batchTarget : '-'} L`]);
+
+          // Data rows (no variant label column, no TOTAL row)
+          (batch.rows || []).forEach((row, rIdx) => {
+            const rowCells = columns.map(col => {
+              const val = computeCell(col, row.values || {}, rIdx, batch.rows);
+              if (val === undefined || val === null || val === '') return '';
+              if (typeof val === 'number') return isNaN(val) ? '' : parseFloat(val.toFixed(col.decimals ?? 3));
+              const n = parseFloat(String(val));
+              return isNaN(n) ? String(val) : parseFloat(n.toFixed(col.decimals ?? 3));
+            });
+            sheetData.push(rowCells);
+          });
+
+          sheetData.push([]); // blank between batches
+        });
+      }
+
+      const ws = XLSX.utils.aoa_to_sheet(sheetData);
+
+      // Apply styles cell by cell
+      const numCols = columns.length;
+      const range = XLSX.utils.decode_range(ws['!ref'] || 'A1');
+
+      for (let R = range.s.r; R <= range.e.r; R++) {
+        for (let C = range.s.c; C <= range.e.c; C++) {
+          const addr = XLSX.utils.encode_cell({ r: R, c: C });
+          if (!ws[addr]) ws[addr] = { v: '', t: 's' };
+
+          const cell = ws[addr];
+
+          if (R === 0) {
+            // Title row
+            cell.s = { fill: titleFill, font: { bold: true, color: { rgb: '5B21B6' }, sz: 13 }, alignment: { horizontal: 'left' } };
+          } else if (R === 1 || R === 2) {
+            // Subtitle rows
+            cell.s = { font: mutedFont, alignment: { horizontal: 'left' } };
+          } else if (R === 3) {
+            // Blank row — no style needed
+          } else if (R === 4) {
+            // Column header row
+            cell.s = {
+              fill: headerFill,
+              font: whiteFont,
+              border,
+              alignment: { horizontal: 'center', vertical: 'center' },
+            };
+          } else {
+            const rowVal = ws[addr]?.v;
+            // Batch sub-header: single-string row spanning first cell
+            const firstCellAddr = XLSX.utils.encode_cell({ r: R, c: 0 });
+            const firstCellVal = ws[firstCellAddr]?.v;
+            const isBatchRow = typeof firstCellVal === 'string' && /Batch #?\d/.test(firstCellVal) && C === 0;
+
+            if (isBatchRow) {
+              cell.s = { fill: batchHeaderFill, font: { bold: true, color: { rgb: '0369A1' }, sz: 10 }, alignment: { horizontal: 'left' } };
+            } else if (typeof rowVal === 'number') {
+              cell.s = {
+                border,
+                font: normalFont,
+                numFmt: '0.000',
+                alignment: { horizontal: 'right' },
+              };
+            } else {
+              cell.s = {
+                border,
+                font: normalFont,
+                alignment: { horizontal: 'left' },
+              };
+            }
+          }
+        }
+      }
+
+      // Column widths
+      ws['!cols'] = columns.map(() => ({ wch: 14 }));
+      // Merge title across all columns
+      if (numCols > 1) {
+        ws['!merges'] = [
+          { s: { r: 0, c: 0 }, e: { r: 0, c: numCols - 1 } },
+          { s: { r: 1, c: 0 }, e: { r: 1, c: numCols - 1 } },
+          { s: { r: 2, c: 0 }, e: { r: 2, c: numCols - 1 } },
+        ];
+      }
+
+      XLSX.utils.book_append_sheet(wb, ws, sheetName);
+    });
+
+    // Write workbook as binary and trigger download
+    const wbOut = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
+    const blob = new Blob([wbOut], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `Preparation_Charts_${date}_${shiftLabel.replace(/ /g, '_')}.xlsx`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    setShowDownloadModal(false);
+    showToast(`✅ Downloaded ${chartsToExport.length} chart(s) as Excel (.xlsx)`);
+  };
+
+  /** Generate a print-ready PDF for selected charts — no Variant/Row column, no TOTAL row */
+  const handleDownloadPDF = () => {
+    const chartsToExport = masters.filter(m => downloadSelectedCharts.includes(m.key));
+    if (chartsToExport.length === 0) { showToast('⚠️ No charts selected for download'); return; }
+
+    const shiftLabel = shiftConfig.mode === 'full_day' ? 'Full Day' : (shift === 'D' ? 'Day Shift' : 'Night Shift');
+    const colHeaders = columns.map(c => c.name);
+
+    const tableStyle = 'border-collapse:collapse;width:100%;font-size:11px;margin-bottom:18px';
+    const thStyle = 'border:1px solid #94a3b8;padding:5px 8px;background:#1e3a5f;color:#ffffff;font-weight:700;text-align:center;white-space:nowrap';
+    const tdStyle = 'border:1px solid #cbd5e1;padding:4px 8px;text-align:right;white-space:nowrap';
+
+    let html = `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Preparation Charts - ${date}</title>`;
+    html += `<style>body{font-family:Arial,sans-serif;margin:20px;color:#1e293b}h1{font-size:15px;color:#1e3a5f;margin-bottom:4px}h2{font-size:13px;color:#0369a1;margin:16px 0 4px;border-bottom:2px solid #0369a1;padding-bottom:4px}h3{font-size:11px;color:#374151;margin:10px 0 4px}p{font-size:10px;color:#64748b;margin:0 0 8px}table{${tableStyle}}@media print{@page{margin:15mm;size:A3 landscape}}</style>`;
+    html += `</head><body>`;
+    html += `<h1>🥛 Milk &amp; Cream Preparation Charts</h1>`;
+    html += `<p>Date: <strong>${date}</strong> &nbsp;|&nbsp; Shift: <strong>${shiftLabel}</strong> &nbsp;|&nbsp; Generated: ${new Date().toLocaleString('en-IN')}</p>`;
+
+    chartsToExport.forEach(master => {
+      const chartData = chartEntriesData[master.key];
+      const batches = chartData?.batches || [];
+      const targetForChart = master.target_batch_liters ?? (batches[0] ? computeBatchQtyTotal(batches[0].rows || []) : 0);
+      html += `<h2>${master.name} <small style="font-weight:500;font-size:10px;color:#64748b">(${master.product_variant || 'DEFAULT'}) — Target: ${targetForChart > 0 ? targetForChart : '-'} L | Fat: ${master.target_fat ?? '-'}% | SNF: ${master.target_snf ?? '-'}%</small></h2>`;
+
+      if (batches.length === 0) {
+        html += `<p style="color:#94a3b8;font-style:italic">No batch data available.</p>`;
+      } else {
+        batches.forEach((batch, bIdx) => {
+          const batchTarget = batch.target_batch_liters ?? master.target_batch_liters ?? computeBatchQtyTotal(batch.rows || []);
+          html += `<h3>${batch.batch_name || `Batch #${bIdx + 1}`} — Target: ${batchTarget > 0 ? batchTarget : '-'} L</h3>`;
+          // Header row — no "Variant/Row" column
+          html += `<table><thead><tr>${colHeaders.map(h => `<th style="${thStyle}">${h}</th>`).join('')}</tr></thead><tbody>`;
+
+          // Data rows — no TOTAL row
+          (batch.rows || []).forEach((row, rIdx) => {
+            html += `<tr>`;
+            columns.forEach(col => {
+              const val = computeCell(col, row.values || {}, rIdx, batch.rows);
+              let displayVal = '';
+              if (val !== undefined && val !== null && val !== '') {
+                if (typeof val === 'number') displayVal = isNaN(val) ? '' : parseFloat(val.toFixed(col.decimals ?? 3)).toLocaleString('en-IN', { minimumFractionDigits: col.decimals ?? 3, maximumFractionDigits: col.decimals ?? 3 });
+                else displayVal = String(val);
+              }
+              html += `<td style="${tdStyle}">${displayVal}</td>`;
+            });
+            html += `</tr>`;
+          });
+
+          html += `</tbody></table>`;
+        });
+      }
+    });
+
+    html += `</body></html>`;
+
+    const printWindow = window.open('', '_blank', 'width=1200,height=800');
+    if (!printWindow) { showToast('❌ Popup blocked — allow popups to download PDF'); return; }
+    printWindow.document.write(html);
+    printWindow.document.close();
+    printWindow.focus();
+    setTimeout(() => { printWindow.print(); }, 600);
+    setShowDownloadModal(false);
+    showToast(`✅ PDF print dialog opened for ${chartsToExport.length} chart(s)`);
+  };
 
   // Helper to convert 0-indexed column position into Excel Column Letter (A, B, C, D...)
   const getExcelColName = (idx: number) => {
@@ -752,9 +1038,18 @@ export default function PreparationChartsDashboardPage({
       const res = await fetch('/api/stock/preparation-charts', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ columns: colsToSave }),
+        body: JSON.stringify({
+          chart_key: activeChartKey,
+          columns: colsToSave,
+        }),
       });
       if (res.ok) {
+        if (activeChartKey) {
+          setChartColumnsMap(prev => ({
+            ...prev,
+            [activeChartKey]: colsToSave,
+          }));
+        }
         showToast(`✅ ${successMsg}`);
       } else {
         showToast('❌ Failed to save column updates');
@@ -812,15 +1107,26 @@ export default function PreparationChartsDashboardPage({
     setColumns(reindexedCols);
     setIsColModalOpen(false);
 
-    // If a column was inserted, shift formula references across all chart entries in local state and master modal rows
-    if (shiftAction && targetShiftIdx !== null) {
+    // If a column was inserted, shift formula references strictly for active chart in local state
+    if (shiftAction && targetShiftIdx !== null && activeMaster) {
       const shiftedIdx = targetShiftIdx;
       setChartEntriesData(prev => {
         const next = { ...prev };
-        Object.keys(next).forEach(chartKey => {
-          const chartData = next[chartKey];
-          if (chartData && Array.isArray(chartData.rows)) {
-            const updatedRows = chartData.rows.map(row => {
+        const chartData = next[activeMaster.key];
+        if (chartData && Array.isArray(chartData.rows)) {
+          const updatedRows = chartData.rows.map(row => {
+            const updatedVals = { ...row.values };
+            Object.keys(updatedVals).forEach(vk => {
+              const val = updatedVals[vk];
+              if (typeof val === 'string' && (val.startsWith('=') || val.startsWith('+'))) {
+                updatedVals[vk] = shiftExcelFormulaReferences(val, 'insert', shiftedIdx);
+              }
+            });
+            return { ...row, values: updatedVals };
+          });
+          const updatedBatches = (chartData.batches || []).map(b => ({
+            ...b,
+            rows: (b.rows || []).map(row => {
               const updatedVals = { ...row.values };
               Object.keys(updatedVals).forEach(vk => {
                 const val = updatedVals[vk];
@@ -829,14 +1135,12 @@ export default function PreparationChartsDashboardPage({
                 }
               });
               return { ...row, values: updatedVals };
-            });
-            next[chartKey] = { ...chartData, rows: updatedRows };
-          }
-        });
+            }),
+          }));
+          next[activeMaster.key] = { ...chartData, rows: updatedRows, batches: updatedBatches };
+        }
         return next;
       });
-
-
     }
 
     await saveColumnsToApi(reindexedCols, colModalEditingKey ? `Updated column "${newCol.name}"` : `Inserted column "${newCol.name}"`);
@@ -881,11 +1185,11 @@ export default function PreparationChartsDashboardPage({
     const filteredCols = columns.filter(c => c.key !== key).map((c, i) => ({ ...c, sort_order: i + 1 }));
     setColumns(filteredCols);
 
-    // Shift formulas for deleted column index
-    setChartEntriesData(prev => {
-      const next = { ...prev };
-      Object.keys(next).forEach(chartKey => {
-        const chartData = next[chartKey];
+    // Shift formulas for deleted column index strictly for activeMaster
+    if (activeMaster) {
+      setChartEntriesData(prev => {
+        const next = { ...prev };
+        const chartData = next[activeMaster.key];
         if (chartData && Array.isArray(chartData.rows)) {
           const updatedRows = chartData.rows.map(row => {
             const updatedVals = { ...row.values };
@@ -898,11 +1202,25 @@ export default function PreparationChartsDashboardPage({
             });
             return { ...row, values: updatedVals };
           });
-          next[chartKey] = { ...chartData, rows: updatedRows };
+          const updatedBatches = (chartData.batches || []).map(b => ({
+            ...b,
+            rows: (b.rows || []).map(row => {
+              const updatedVals = { ...row.values };
+              delete updatedVals[key];
+              Object.keys(updatedVals).forEach(vk => {
+                const val = updatedVals[vk];
+                if (typeof val === 'string' && (val.startsWith('=') || val.startsWith('+'))) {
+                  updatedVals[vk] = shiftExcelFormulaReferences(val, 'delete', colIdx);
+                }
+              });
+              return { ...row, values: updatedVals };
+            }),
+          }));
+          next[activeMaster.key] = { ...chartData, rows: updatedRows, batches: updatedBatches };
         }
+        return next;
       });
-      return next;
-    });
+    }
 
 
 
@@ -1426,8 +1744,11 @@ export default function PreparationChartsDashboardPage({
       const savedOk = await handleSaveChart();
       if (!savedOk) return;
     }
+    if (onDateShiftChange) {
+      onDateShiftChange(date, shift);
+    }
     if (stepMode && onNextStep) {
-      onNextStep();
+      onNextStep(date, shift);
     } else if (stepMode && onStepChange) {
       onStepChange('stock');
     } else {
@@ -1440,6 +1761,9 @@ export default function PreparationChartsDashboardPage({
     const canProceed = await confirmUnsavedChangesGuard(`navigating to ${stepKey}`);
     if (!canProceed) return;
 
+    if (onDateShiftChange) {
+      onDateShiftChange(date, shift);
+    }
     if (onStepChange) {
       onStepChange(stepKey);
     } else if (stepKey === 'stock') {
@@ -1471,23 +1795,6 @@ export default function PreparationChartsDashboardPage({
       <Header
         title="Milk & Cream Preparation Charts"
         subtitle="Prepare, formulate & calculate batch parameters prior to Stock Statement Entry"
-        actions={
-          <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
-            <button
-              type="button"
-              className={`btn ${isDirty ? 'btn-primary' : 'btn-secondary'} btn-sm`}
-              onClick={handleSaveChart}
-              disabled={saving}
-              style={isDirty ? { background: '#16a34a', borderColor: '#16a34a', color: '#ffffff', fontWeight: 800 } : { fontWeight: 600 }}
-              title="Save preparation chart formulation to database"
-            >
-              {saving ? 'Saving...' : isDirty ? '💾 Save Preparation Chart (Unsaved Changes)' : '💾 Save Preparation Chart'}
-            </button>
-            <button type="button" className="btn btn-primary btn-sm" onClick={handleProceedToStockEntry}>
-              ➡️ Save & Proceed to Stock Statement Entry
-            </button>
-          </div>
-        }
       >
         {stepMode && (
           <Step
@@ -1536,7 +1843,10 @@ export default function PreparationChartsDashboardPage({
                     const newDate = e.target.value;
                     if (newDate === date) return;
                     const canProceed = await confirmUnsavedChangesGuard('changing date');
-                    if (canProceed) setDate(newDate);
+                    if (canProceed) {
+                      setDate(newDate);
+                      if (onDateShiftChange) onDateShiftChange(newDate, shift);
+                    }
                   }}
                   style={{ width: 170 }}
                 />
@@ -1566,7 +1876,10 @@ export default function PreparationChartsDashboardPage({
                       onClick={async () => {
                         if (shift === 'D') return;
                         const canProceed = await confirmUnsavedChangesGuard('changing shift');
-                        if (canProceed) setShift('D');
+                        if (canProceed) {
+                          setShift('D');
+                          if (onDateShiftChange) onDateShiftChange(date, 'D');
+                        }
                       }}
                       style={{ padding: '4px 12px', fontSize: '0.8rem', fontWeight: 600 }}
                     >
@@ -1578,7 +1891,10 @@ export default function PreparationChartsDashboardPage({
                       onClick={async () => {
                         if (shift === 'N') return;
                         const canProceed = await confirmUnsavedChangesGuard('changing shift');
-                        if (canProceed) setShift('N');
+                        if (canProceed) {
+                          setShift('N');
+                          if (onDateShiftChange) onDateShiftChange(date, 'N');
+                        }
                       }}
                       style={{ padding: '4px 12px', fontSize: '0.8rem', fontWeight: 600 }}
                     >
@@ -1607,6 +1923,17 @@ export default function PreparationChartsDashboardPage({
               >
                 🔀 Custom Mapping Rules
               </Link>
+              {/* Download Charts Button */}
+              <button
+                type="button"
+                className="btn btn-secondary btn-sm"
+                onClick={openDownloadModal}
+                disabled={masters.length === 0 || loading}
+                style={{ color: '#7c3aed', borderColor: '#ddd6fe', background: '#faf5ff', fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: 5 }}
+                title="Download Preparation Charts as Excel or PDF"
+              >
+                ⬇️ Download Charts
+              </button>
             </div>
 
             {/* Repositioned Chart Master Names and Edit Columns / Formulation Buttons */}
@@ -1665,6 +1992,10 @@ export default function PreparationChartsDashboardPage({
                 setActiveChartKey(key);
                 setIsTableEditing(false);
                 setIsColumnEditing(false);
+                const chartCols = chartColumnsMap[key] || templates[key]?.columns || defaultColumns;
+                if (Array.isArray(chartCols) && chartCols.length > 0) {
+                  setColumns(chartCols);
+                }
               }
             }}
             leftPanelTitle="📋 Select Preparation Chart"
@@ -1762,7 +2093,7 @@ export default function PreparationChartsDashboardPage({
                           </span>
                         ) : isTableEditing ? (
                           <span style={{ fontSize: '0.72rem', background: '#fef08a', color: '#854d0e', padding: '2px 8px', borderRadius: 10, fontWeight: 800 }}>
-                            ✏️ FORMULATION TABLE EDIT MODE
+                            ✏️ EDIT MODE
                           </span>
                         ) : (
                           <span style={{ fontSize: '0.72rem', background: '#e0f2fe', color: '#0369a1', padding: '2px 8px', borderRadius: 10, fontWeight: 700 }}>
@@ -2445,67 +2776,57 @@ export default function PreparationChartsDashboardPage({
                   </div>
 
                   {/* Card Footer controls */}
-                  <div style={{ padding: '12px 20px', background: '#f8fafc', borderTop: '1px solid var(--border)', display: 'flex', justifyContent: 'flex-end', alignItems: 'center', flexWrap: 'wrap', gap: 10 }}>
-                    <div style={{ display: 'flex', gap: 10 }}>
-                      {isTableEditing && (
-                        <button
-                          type="button"
-                          className="btn btn-secondary btn-sm"
-                          onClick={handleSaveChart}
-                          disabled={saving}
-                        >
-                          {saving ? 'Saving...' : '💾 Save Formulation'}
-                        </button>
-                      )}
+                  {isTableEditing && (
+                    <div style={{ padding: '12px 20px', background: '#f8fafc', borderTop: '1px solid var(--border)', display: 'flex', justifyContent: 'flex-end', alignItems: 'center', flexWrap: 'wrap', gap: 10 }}>
                       <button
                         type="button"
-                        className="btn btn-primary btn-sm"
-                        onClick={handleProceedToStockEntry}
+                        className="btn btn-secondary btn-sm"
+                        onClick={handleSaveChart}
+                        disabled={saving}
                       >
-                        ➡️ Save & Proceed to Stock Statement Entry
+                        {saving ? 'Saving...' : '💾 Save Formulation'}
                       </button>
                     </div>
-                  </div>
+                  )}
                 </div>
               );
             }}
           />
         )}
 
-        {stepMode && (
-          <div
-            className="no-print"
+        {/* Bottom Stage Navigation */}
+        <div
+          className="no-print"
+          style={{
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            padding: '16px 20px',
+            background: 'var(--surface, #ffffff)',
+            borderRadius: 12,
+            border: '1px solid var(--border)',
+            marginTop: 20,
+            boxShadow: '0 4px 12px rgba(0, 0, 0, 0.03)',
+          }}
+        >
+          <div />
+          <button
+            type="button"
+            className="btn btn-primary"
+            onClick={handleProceedToStockEntry}
             style={{
-              display: 'flex',
-              justifyContent: 'space-between',
+              display: 'inline-flex',
               alignItems: 'center',
-              padding: '16px 20px',
-              background: 'var(--surface, #ffffff)',
-              borderRadius: 12,
-              border: '1px solid var(--border)',
-              marginTop: 20,
-              boxShadow: '0 4px 12px rgba(0, 0, 0, 0.03)',
+              gap: 6,
+              background: 'linear-gradient(135deg, #0ea5e9 0%, #10b981 100%)',
+              borderColor: '#0ea5e9',
+              fontWeight: 700,
+              boxShadow: '0 4px 12px rgba(14, 165, 233, 0.25)',
             }}
           >
-            <div />
-            <button
-              type="button"
-              className="btn btn-primary"
-              onClick={handleProceedToStockEntry}
-              style={{
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: 6,
-                background: 'linear-gradient(135deg, #0ea5e9 0%, #10b981 100%)',
-                borderColor: '#0ea5e9',
-                fontWeight: 700,
-                boxShadow: '0 4px 12px rgba(14, 165, 233, 0.25)',
-              }}
-            >
-              Next: Proceed to Stock Statement Entry ➔
-            </button>
-          </div>
-        )}
+            Next: Proceed to Stock Statement Entry ➔
+          </button>
+        </div>
       </div>
 
       {/* Modal for Creating / Editing Column Inline directly from Table */}
@@ -2658,6 +2979,172 @@ export default function PreparationChartsDashboardPage({
           <option key={`prod_opt_${p}`} value={p} />
         ))}
       </datalist>
+
+      {/* ─── Download Charts Modal ────────────────────────────────────────────── */}
+      {showDownloadModal && (
+        <div
+          style={{
+            position: 'fixed', inset: 0, zIndex: 9999,
+            background: 'rgba(15,23,42,0.55)', backdropFilter: 'blur(4px)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+          }}
+          onClick={e => { if (e.target === e.currentTarget) setShowDownloadModal(false); }}
+        >
+          <div
+            style={{
+              background: '#ffffff', borderRadius: 16, boxShadow: '0 25px 60px rgba(0,0,0,0.25)',
+              width: 520, maxWidth: '94vw', maxHeight: '88vh', overflow: 'hidden',
+              display: 'flex', flexDirection: 'column',
+            }}
+          >
+            {/* Modal Header */}
+            <div style={{ padding: '20px 24px 16px', borderBottom: '1px solid #e2e8f0', background: 'linear-gradient(135deg, #faf5ff 0%, #ede9fe 100%)' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <div>
+                  <div style={{ fontWeight: 800, fontSize: '1.1rem', color: '#5b21b6' }}>⬇️ Download Preparation Charts</div>
+                  <div style={{ fontSize: '0.78rem', color: '#6b7280', marginTop: 3 }}>Choose format and select which charts to include</div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setShowDownloadModal(false)}
+                  style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '1.3rem', color: '#94a3b8', lineHeight: 1 }}
+                  title="Close"
+                >✕</button>
+              </div>
+            </div>
+
+            {/* Modal Body */}
+            <div style={{ padding: '20px 24px', overflowY: 'auto', flex: 1 }}>
+
+              {/* Format Selection */}
+              <div style={{ marginBottom: 20 }}>
+                <div style={{ fontWeight: 700, fontSize: '0.85rem', color: '#374151', marginBottom: 10 }}>📄 Export Format</div>
+                <div style={{ display: 'flex', gap: 10 }}>
+                  {(['excel', 'pdf'] as const).map(fmt => (
+                    <button
+                      key={fmt}
+                      type="button"
+                      onClick={() => setDownloadFormat(fmt)}
+                      style={{
+                        flex: 1, padding: '12px 16px', borderRadius: 10, cursor: 'pointer', fontWeight: 700,
+                        fontSize: '0.9rem', border: `2px solid ${downloadFormat === fmt ? (fmt === 'excel' ? '#16a34a' : '#dc2626') : '#e2e8f0'}`,
+                        background: downloadFormat === fmt ? (fmt === 'excel' ? '#f0fdf4' : '#fef2f2') : '#f8fafc',
+                        color: downloadFormat === fmt ? (fmt === 'excel' ? '#15803d' : '#b91c1c') : '#64748b',
+                        transition: 'all 0.15s ease',
+                      }}
+                    >
+                      {fmt === 'excel' ? '📊 Excel (.xlsx)' : '🖨️ PDF (Print)'}
+                      <div style={{ fontSize: '0.7rem', fontWeight: 500, marginTop: 3, opacity: 0.85 }}>
+                        {fmt === 'excel' ? 'Proper Excel file with sheet per chart + borders' : 'Print or save as PDF'}
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Chart Selection */}
+              <div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+                  <div style={{ fontWeight: 700, fontSize: '0.85rem', color: '#374151' }}>📋 Select Charts to Include</div>
+                  <div style={{ display: 'flex', gap: 8 }}>
+                    <button
+                      type="button"
+                      onClick={() => setDownloadSelectedCharts(masters.map(m => m.key))}
+                      style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '0.75rem', color: '#0284c7', fontWeight: 700, padding: '2px 6px', borderRadius: 4, textDecoration: 'underline' }}
+                    >
+                      Select All
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setDownloadSelectedCharts([])}
+                      style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '0.75rem', color: '#dc2626', fontWeight: 700, padding: '2px 6px', borderRadius: 4, textDecoration: 'underline' }}
+                    >
+                      Clear All
+                    </button>
+                  </div>
+                </div>
+
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 6, maxHeight: 280, overflowY: 'auto', padding: '2px 0' }}>
+                  {masters.map(master => {
+                    const isChecked = downloadSelectedCharts.includes(master.key);
+                    const hasSaved = hasSavedEntryMap[master.key];
+                    return (
+                      <label
+                        key={master.key}
+                        style={{
+                          display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px',
+                          borderRadius: 8, cursor: 'pointer',
+                          border: `1.5px solid ${isChecked ? '#a5b4fc' : '#e2e8f0'}`,
+                          background: isChecked ? '#eef2ff' : '#f8fafc',
+                          transition: 'all 0.12s ease',
+                          userSelect: 'none',
+                        }}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={isChecked}
+                          onChange={() => toggleDownloadChart(master.key)}
+                          style={{ width: 16, height: 16, accentColor: '#7c3aed', flexShrink: 0 }}
+                        />
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div style={{ fontWeight: 700, fontSize: '0.85rem', color: isChecked ? '#4338ca' : '#374151' }}>
+                            📋 {master.name}
+                          </div>
+                          <div style={{ fontSize: '0.72rem', color: '#6b7280', marginTop: 1, display: 'flex', alignItems: 'center', gap: 8 }}>
+                            <span>{master.product_variant || 'DEFAULT'}</span>
+                            {master.target_batch_liters ? <span>· {master.target_batch_liters} L</span> : null}
+                            {master.target_fat ? <span>· Fat {master.target_fat}%</span> : null}
+                          </div>
+                        </div>
+                        <span
+                          style={{
+                            fontSize: '0.65rem', fontWeight: 800, padding: '2px 7px', borderRadius: 8, flexShrink: 0,
+                            background: hasSaved ? '#dcfce7' : '#fef3c7',
+                            color: hasSaved ? '#15803d' : '#b45309',
+                          }}
+                        >
+                          {hasSaved ? '✅ Saved' : '⭐ Default'}
+                        </span>
+                      </label>
+                    );
+                  })}
+                </div>
+
+                {downloadSelectedCharts.length > 0 && (
+                  <div style={{ marginTop: 10, fontSize: '0.75rem', color: '#6b7280', fontWeight: 600 }}>
+                    {downloadSelectedCharts.length} of {masters.length} chart(s) selected
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Modal Footer */}
+            <div style={{ padding: '16px 24px', borderTop: '1px solid #e2e8f0', background: '#f8fafc', display: 'flex', justifyContent: 'flex-end', gap: 10 }}>
+              <button
+                type="button"
+                className="btn btn-secondary btn-sm"
+                onClick={() => setShowDownloadModal(false)}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="btn btn-primary btn-sm"
+                disabled={downloadSelectedCharts.length === 0}
+                onClick={downloadFormat === 'excel' ? handleDownloadExcel : handleDownloadPDF}
+                style={{
+                  background: downloadFormat === 'excel' ? '#16a34a' : '#7c3aed',
+                  borderColor: downloadFormat === 'excel' ? '#16a34a' : '#7c3aed',
+                  opacity: downloadSelectedCharts.length === 0 ? 0.5 : 1,
+                }}
+              >
+                {downloadFormat === 'excel' ? '📊 Download Excel (.xlsx)' : '🖨️ Open PDF / Print'}
+                {downloadSelectedCharts.length > 0 && ` (${downloadSelectedCharts.length} chart${downloadSelectedCharts.length > 1 ? 's' : ''})`}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </>
   );
 }

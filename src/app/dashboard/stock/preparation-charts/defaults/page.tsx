@@ -10,18 +10,22 @@ import { useConfirm } from '@/context/ConfirmContext';
 export default function MasterDefaultFormulationsPage() {
   const { confirm, showWarning } = useConfirm();
   const [columns, setColumns] = useState<ChartColumnDef[]>([]);
+  const [defaultColumns, setDefaultColumns] = useState<ChartColumnDef[]>([]);
+  const [chartColumnsMap, setChartColumnsMap] = useState<Record<string, ChartColumnDef[]>>({});
   const [masters, setMasters] = useState<ChartMasterDef[]>([]);
   const [templates, setTemplates] = useState<Record<string, {
     rows: ChartRowData[];
     target_batch_liters?: number;
     target_fat?: number;
     target_snf?: number;
+    columns?: ChartColumnDef[];
   }>>({});
   const [chartEntriesData, setChartEntriesData] = useState<Record<string, {
     rows: ChartRowData[];
     target_batch_liters?: number;
     target_fat?: number;
     target_snf?: number;
+    columns?: ChartColumnDef[];
   }>>({});
 
   const [activeChartKey, setActiveChartKey] = useState<string | null>(null);
@@ -32,6 +36,7 @@ export default function MasterDefaultFormulationsPage() {
 
   const [loading, setLoading] = useState<boolean>(true);
   const [saving, setSaving] = useState<boolean>(false);
+  const [isDirty, setIsDirty] = useState<boolean>(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
   const [selectedCell, setSelectedCell] = useState<{ rowIndex: number; colKey: string } | null>(null);
@@ -50,28 +55,28 @@ export default function MasterDefaultFormulationsPage() {
   const [formColUnit, setFormColUnit] = useState<string>('');
   const [formColDecimals, setFormColDecimals] = useState<number | undefined>(undefined);
 
-  const [productOptions, setProductOptions] = useState<string[]>([]);
+  // Modal State for Save As Separate Master Template
+  const [isSaveAsModalOpen, setIsSaveAsModalOpen] = useState<boolean>(false);
+  const [saveAsName, setSaveAsName] = useState<string>('');
+  const [saveAsKey, setSaveAsKey] = useState<string>('');
+  const [saveAsVariant, setSaveAsVariant] = useState<string>('');
+  const [saveAsBatchLit, setSaveAsBatchLit] = useState<string>('');
+  const [saveAsFat, setSaveAsFat] = useState<string>('');
+  const [saveAsSnf, setSaveAsSnf] = useState<string>('');
+  const [saveAsSpGr, setSaveAsSpGr] = useState<string>('');
+  const [saveAsDescription, setSaveAsDescription] = useState<string>('');
 
-  useEffect(() => {
-    async function loadProductsMaster() {
-      try {
-        const res = await fetch('/api/master/products');
-        if (res.ok) {
-          const json = await res.json();
-          const prods = json.data || json.products || [];
-          if (Array.isArray(prods) && prods.length > 0) {
-            const names = prods.map((p: any) => p.short_name || p.product_name || p.full_name || p.key).filter(Boolean);
-            setProductOptions(Array.from(new Set(names)));
-          } else {
-            setProductOptions([]);
-          }
-        }
-      } catch (e) {
-        console.error('Error fetching products master in defaults page:', e);
-      }
-    }
-    loadProductsMaster();
-  }, []);
+  // Modal State for Creating a Brand New Master Template
+  const [isNewMasterModalOpen, setIsNewMasterModalOpen] = useState<boolean>(false);
+  const [newMasterName, setNewMasterName] = useState<string>('');
+  const [newMasterKey, setNewMasterKey] = useState<string>('');
+  const [newMasterVariant, setNewMasterVariant] = useState<string>('');
+  const [newMasterBatchLit, setNewMasterBatchLit] = useState<string>('');
+  const [newMasterFat, setNewMasterFat] = useState<string>('');
+  const [newMasterSnf, setNewMasterSnf] = useState<string>('');
+  const [newMasterSpGr, setNewMasterSpGr] = useState<string>('');
+  const [newMasterDescription, setNewMasterDescription] = useState<string>('');
+  const [newMasterSource, setNewMasterSource] = useState<string>('blank');
 
   // Fetch Configs & Templates from DB
   const loadData = useCallback(async () => {
@@ -81,10 +86,12 @@ export default function MasterDefaultFormulationsPage() {
       if (res.ok) {
         const json = await res.json();
         const loadedCols: ChartColumnDef[] = json.columns || [];
+        const loadedChartCols: Record<string, ChartColumnDef[]> = json.chart_columns || {};
         const loadedMasters: ChartMasterDef[] = json.masters || [];
         const loadedTemplates: Record<string, any> = json.templates || {};
 
-        setColumns(loadedCols);
+        setDefaultColumns(loadedCols);
+        setChartColumnsMap(loadedChartCols);
         setMasters(loadedMasters);
         setTemplates(loadedTemplates);
 
@@ -93,7 +100,7 @@ export default function MasterDefaultFormulationsPage() {
             ? activeChartKey
             : loadedMasters[0].key;
           setActiveChartKey(initialKey);
-          loadChartMasterDefaults(initialKey, loadedMasters, loadedTemplates);
+          loadChartMasterDefaults(initialKey, loadedMasters, loadedTemplates, loadedChartCols, loadedCols);
         }
       }
     } catch (err) {
@@ -109,10 +116,19 @@ export default function MasterDefaultFormulationsPage() {
   const loadChartMasterDefaults = (
     chartKey: string,
     mastersList: ChartMasterDef[],
-    tmplMap: Record<string, any>
+    tmplMap: Record<string, any>,
+    chartColsMap: Record<string, ChartColumnDef[]>,
+    fallbackCols: ChartColumnDef[]
   ) => {
     const chartMaster = mastersList.find(m => m.key === chartKey);
     const existingTmpl = tmplMap[chartKey];
+
+    // Load columns specifically for this chart master only
+    const specificCols = chartColsMap[chartKey] || existingTmpl?.columns;
+    const colsToUse = Array.isArray(specificCols) && specificCols.length > 0
+      ? JSON.parse(JSON.stringify(specificCols))
+      : JSON.parse(JSON.stringify(fallbackCols));
+    setColumns(colsToUse);
 
     if (existingTmpl && Array.isArray(existingTmpl.rows) && existingTmpl.rows.length > 0) {
       setRows(JSON.parse(JSON.stringify(existingTmpl.rows)));
@@ -120,7 +136,8 @@ export default function MasterDefaultFormulationsPage() {
       setTargetFat(existingTmpl.target_fat !== undefined ? existingTmpl.target_fat : chartMaster?.target_fat);
       setTargetSnf(existingTmpl.target_snf !== undefined ? existingTmpl.target_snf : chartMaster?.target_snf);
     } else {
-      setRows([{ variant: chartMaster?.product_variant || 'Milk Variant', values: { variant: chartMaster?.product_variant || 'Milk Variant' } }]);
+      // Clean empty row - Variant column is NOT auto-filled
+      setRows([{ variant: '', values: {} }]);
       setTargetBatchLit(chartMaster?.target_batch_liters);
       setTargetFat(chartMaster?.target_fat);
       setTargetSnf(chartMaster?.target_snf);
@@ -129,9 +146,21 @@ export default function MasterDefaultFormulationsPage() {
     setFocusedCell(null);
   };
 
-  const handleSwitchChartMaster = (newKey: string) => {
+  const handleSwitchChartMaster = async (newKey: string) => {
+    if (newKey === activeChartKey) return;
+    if (isDirty) {
+      const isConfirmed = await confirm({
+        title: 'Unsaved Changes',
+        message: `You have unsaved changes in the formulation template for "${activeMaster?.name}". If you switch tabs without saving, these changes will be discarded. Do you want to switch anyway?`,
+        confirmText: 'Discard & Switch',
+        cancelText: 'Stay on Current',
+        type: 'warning',
+      });
+      if (!isConfirmed) return;
+    }
+    setIsDirty(false);
     setActiveChartKey(newKey);
-    loadChartMasterDefaults(newKey, masters, templates);
+    loadChartMasterDefaults(newKey, masters, templates, chartColumnsMap, defaultColumns);
   };
 
   const showToast = (msg: string) => {
@@ -358,6 +387,41 @@ export default function MasterDefaultFormulationsPage() {
     return cellVal !== undefined ? cellVal : '';
   };
 
+  // Shifts cell references in formulas (e.g., A1, B1, C2) when columns are inserted or deleted
+  const shiftExcelFormulaReferences = (
+    formula: string,
+    action: 'insert' | 'delete',
+    targetIdx: number
+  ): string => {
+    if (!formula || typeof formula !== 'string' || (!formula.includes('=') && !formula.startsWith('+'))) return formula;
+
+    return formula.replace(/([A-Z]+)([0-9]+)/gi, (match, colLetters, rowNumStr) => {
+      let cIdx = 0;
+      const upperLetters = colLetters.toUpperCase();
+      for (let i = 0; i < upperLetters.length; i++) {
+        cIdx = cIdx * 26 + (upperLetters.charCodeAt(i) - 64);
+      }
+      cIdx = cIdx - 1;
+
+      let newCIdx = cIdx;
+      if (action === 'insert') {
+        if (cIdx >= targetIdx) {
+          newCIdx = cIdx + 1;
+        }
+      } else if (action === 'delete') {
+        if (cIdx === targetIdx) {
+          return '#REF!';
+        }
+        if (cIdx > targetIdx) {
+          newCIdx = cIdx - 1;
+        }
+      }
+
+      const newColLetters = getExcelColName(newCIdx);
+      return `${newColLetters}${rowNumStr}`;
+    });
+  };
+
   // Adjusts Excel formula row references when dragging up/down
   const adjustFormulaRowOffset = (formula: string, sourceRowIdx: number, targetRowIdx: number): string => {
     if (!formula || typeof formula !== 'string') return formula;
@@ -434,6 +498,7 @@ export default function MasterDefaultFormulationsPage() {
   }, [selectedCell, columns, rows]);
 
   const handleCellChange = (rowIndex: number, colKey: string, rawVal: any) => {
+    setIsDirty(true);
     setRows(prev => {
       const next = [...prev];
       const targetRow = { ...next[rowIndex] };
@@ -486,6 +551,7 @@ export default function MasterDefaultFormulationsPage() {
       if (fillDrag) {
         const { sourceRow, targetRow, colKey } = fillDrag;
         if (sourceRow !== targetRow) {
+          setIsDirty(true);
           const minRow = Math.min(sourceRow, targetRow);
           const maxRow = Math.max(sourceRow, targetRow);
 
@@ -570,6 +636,9 @@ export default function MasterDefaultFormulationsPage() {
     };
 
     let updatedCols: ChartColumnDef[];
+    let targetShiftIdx: number | null = null;
+    let shiftAction: 'insert' | 'delete' | null = null;
+
     if (colModalEditingKey) {
       updatedCols = columns.map(c => (c.key === colModalEditingKey ? newCol : c));
     } else {
@@ -580,12 +649,39 @@ export default function MasterDefaultFormulationsPage() {
       updatedCols = [...columns];
       const insertIdx = colModalInsertIdx !== null ? colModalInsertIdx : columns.length;
       updatedCols.splice(insertIdx, 0, newCol);
+      targetShiftIdx = insertIdx;
+      shiftAction = 'insert';
     }
 
     const reindexedCols = updatedCols.map((c, i) => ({ ...c, sort_order: i + 1 }));
     setColumns(reindexedCols);
+    if (activeChartKey) {
+      setChartColumnsMap(prev => ({
+        ...prev,
+        [activeChartKey]: reindexedCols,
+      }));
+    }
+
+    // Shift formula references on rows for this active chart only
+    if (shiftAction && targetShiftIdx !== null) {
+      const shiftedIdx = targetShiftIdx;
+      setRows(prev => {
+        return prev.map(row => {
+          const updatedVals = { ...row.values };
+          Object.keys(updatedVals).forEach(vk => {
+            const val = updatedVals[vk];
+            if (typeof val === 'string' && (val.startsWith('=') || val.startsWith('+'))) {
+              updatedVals[vk] = shiftExcelFormulaReferences(val, 'insert', shiftedIdx);
+            }
+          });
+          return { ...row, values: updatedVals };
+        });
+      });
+    }
+
+    setIsDirty(true);
     setIsColModalOpen(false);
-    showToast(colModalEditingKey ? `Updated column "${newCol.name}" locally. Click "⭐ Save Master Default Table" to save to database.` : `Inserted column "${newCol.name}" locally. Click "⭐ Save Master Default Table" to save to database.`);
+    showToast(colModalEditingKey ? `Updated column "${newCol.name}" for this chart master. Click "⭐ Save Master Default Table" to save to database.` : `Inserted column "${newCol.name}" for this chart master. Click "⭐ Save Master Default Table" to save to database.`);
   };
 
   const chartDecimalMode = useMemo(() => {
@@ -601,7 +697,14 @@ export default function MasterDefaultFormulationsPage() {
     const numDec = decimalsVal !== '' && decimalsVal !== 'custom' ? parseInt(decimalsVal, 10) : undefined;
     const updatedCols = columns.map(c => c.type !== 'text' ? { ...c, decimals: numDec } : c);
     setColumns(updatedCols);
-    showToast(`Updated column decimal precision locally. Click "⭐ Save Master Default Table" to save to database.`);
+    if (activeChartKey) {
+      setChartColumnsMap(prev => ({
+        ...prev,
+        [activeChartKey]: updatedCols,
+      }));
+    }
+    setIsDirty(true);
+    showToast(`Updated column decimal precision for this chart master. Click "⭐ Save Master Default Table" to save to database.`);
   };
 
   const handleDeleteColumnInline = async (key: string, colIdx: number) => {
@@ -612,7 +715,7 @@ export default function MasterDefaultFormulationsPage() {
 
     const isConfirmed = await confirm({
       title: 'Confirm Column Deletion',
-      message: `Are you sure you want to delete column "${columns[colIdx]?.name}"?`,
+      message: `Are you sure you want to delete column "${columns[colIdx]?.name}" from this chart master?`,
       confirmText: 'Delete Column',
       cancelText: 'Cancel',
       type: 'danger',
@@ -622,19 +725,33 @@ export default function MasterDefaultFormulationsPage() {
 
     const filteredCols = columns.filter(c => c.key !== key).map((c, i) => ({ ...c, sort_order: i + 1 }));
     setColumns(filteredCols);
+    if (activeChartKey) {
+      setChartColumnsMap(prev => ({
+        ...prev,
+        [activeChartKey]: filteredCols,
+      }));
+    }
 
+    // Shift formulas on deleted column index for this active chart only
     setRows(prev => {
       return prev.map(row => {
         const updatedVals = { ...row.values };
         delete updatedVals[key];
+        Object.keys(updatedVals).forEach(vk => {
+          const val = updatedVals[vk];
+          if (typeof val === 'string' && (val.startsWith('=') || val.startsWith('+'))) {
+            updatedVals[vk] = shiftExcelFormulaReferences(val, 'delete', colIdx);
+          }
+        });
         return { ...row, values: updatedVals };
       });
     });
 
-    showToast(`Deleted column "${key}" locally. Click "⭐ Save Master Default Table" to save to database.`);
+    setIsDirty(true);
+    showToast(`Deleted column "${key}" from this chart master. Click "⭐ Save Master Default Table" to save to database.`);
   };
 
-  // Save Master Default Formulation Template & Columns
+  // Save Master Default Formulation Template & Columns for Current Master
   const handleSaveDefaultTemplate = async () => {
     if (!activeChartKey) return;
     setSaving(true);
@@ -647,12 +764,14 @@ export default function MasterDefaultFormulationsPage() {
         target_batch_liters: targetBatchLit,
         target_fat: targetFat,
         target_snf: targetSnf,
+        columns: columns,
       };
 
       const res = await fetch('/api/stock/preparation-charts', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
+          chart_key: activeChartKey,
           columns: columns,
           template: templatePayload,
         }),
@@ -663,6 +782,11 @@ export default function MasterDefaultFormulationsPage() {
           ...prev,
           [activeChartKey]: templatePayload,
         }));
+        setChartColumnsMap(prev => ({
+          ...prev,
+          [activeChartKey]: columns,
+        }));
+        setIsDirty(false);
         showToast(`⭐ Saved Master Default formulation table and columns for "${chartMaster?.name || activeChartKey}" in database! All un-entered daily charts will inherit these defaults.`);
       } else {
         showToast('❌ Failed to save default master template');
@@ -670,6 +794,223 @@ export default function MasterDefaultFormulationsPage() {
     } catch (err) {
       console.error('Save master template error:', err);
       showToast('❌ Server error saving master template');
+    }
+    setSaving(false);
+  };
+
+  // Open Save As Modal
+  const handleOpenSaveAs = () => {
+    if (!activeMaster) return;
+    setSaveAsName(`${activeMaster.name} (COPY)`);
+    setSaveAsKey('');
+    setSaveAsVariant(activeMaster.product_variant || '');
+    setSaveAsBatchLit(targetBatchLit !== undefined ? String(targetBatchLit) : (activeMaster.target_batch_liters !== undefined ? String(activeMaster.target_batch_liters) : ''));
+    setSaveAsFat(targetFat !== undefined ? String(targetFat) : (activeMaster.target_fat !== undefined ? String(activeMaster.target_fat) : ''));
+    setSaveAsSnf(targetSnf !== undefined ? String(targetSnf) : (activeMaster.target_snf !== undefined ? String(activeMaster.target_snf) : ''));
+    setSaveAsSpGr(activeMaster.target_sp_gr !== undefined ? String(activeMaster.target_sp_gr) : '');
+    setSaveAsDescription(activeMaster.description || '');
+    setIsSaveAsModalOpen(true);
+  };
+
+  // Save As Separate Master Default Template
+  const handleSaveAsSeparateMaster = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!saveAsName.trim()) {
+      alert('Please enter a Chart Name');
+      return;
+    }
+
+    const keyToUse = saveAsKey.trim().toLowerCase().replace(/[^a-z0-9_]/g, '_') ||
+      saveAsName.trim().toLowerCase().replace(/[^a-z0-9_]/g, '_');
+
+    if (masters.some(m => m.key === keyToUse)) {
+      alert(`A chart with key "${keyToUse}" already exists! Please use a unique Chart Name.`);
+      return;
+    }
+
+    setSaving(true);
+    const newMaster: ChartMasterDef = {
+      key: keyToUse,
+      name: saveAsName.trim().toUpperCase(),
+      product_variant: saveAsVariant.trim().toUpperCase() || saveAsName.trim().split(' ')[0],
+      target_fat: saveAsFat !== '' ? parseFloat(saveAsFat) : undefined,
+      target_snf: saveAsSnf !== '' ? parseFloat(saveAsSnf) : undefined,
+      target_sp_gr: saveAsSpGr !== '' ? parseFloat(saveAsSpGr) : undefined,
+      target_batch_liters: saveAsBatchLit !== '' ? parseFloat(saveAsBatchLit) : undefined,
+      description: saveAsDescription.trim(),
+      sort_order: masters.length + 1,
+      is_active: true,
+    };
+
+    // Deep clone current columns and rows so changes to this new master NEVER affect original master
+    const clonedColumns: ChartColumnDef[] = JSON.parse(JSON.stringify(columns));
+    const clonedRows: ChartRowData[] = JSON.parse(JSON.stringify(rows));
+
+    const updatedMasters = [...masters, newMaster];
+
+    const templatePayload = {
+      chart_key: keyToUse,
+      rows: clonedRows,
+      target_batch_liters: newMaster.target_batch_liters,
+      target_fat: newMaster.target_fat,
+      target_snf: newMaster.target_snf,
+      columns: clonedColumns,
+    };
+
+    try {
+      const res = await fetch('/api/stock/preparation-charts', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          masters: updatedMasters,
+          chart_key: keyToUse,
+          columns: clonedColumns,
+          template: templatePayload,
+        }),
+      });
+
+      if (res.ok) {
+        setMasters(updatedMasters);
+        setTemplates(prev => ({
+          ...prev,
+          [keyToUse]: templatePayload,
+        }));
+        setChartColumnsMap(prev => ({
+          ...prev,
+          [keyToUse]: clonedColumns,
+        }));
+
+        setIsSaveAsModalOpen(false);
+        setIsDirty(false);
+        setActiveChartKey(keyToUse);
+        loadChartMasterDefaults(keyToUse, updatedMasters, {
+          ...templates,
+          [keyToUse]: templatePayload,
+        }, {
+          ...chartColumnsMap,
+          [keyToUse]: clonedColumns,
+        }, defaultColumns);
+
+        showToast(`⭐ Saved as new separate Master Default Template "${newMaster.name}"! The original master template is completely unaffected.`);
+      } else {
+        showToast('❌ Failed to save new master template');
+      }
+    } catch (err) {
+      console.error('Save as master template error:', err);
+      showToast('❌ Server error saving new master template');
+    }
+    setSaving(false);
+  };
+
+  // Open New Master Modal
+  const handleOpenNewMaster = () => {
+    setNewMasterName('');
+    setNewMasterKey('');
+    setNewMasterVariant('');
+    setNewMasterBatchLit('');
+    setNewMasterFat('');
+    setNewMasterSnf('');
+    setNewMasterSpGr('');
+    setNewMasterDescription('');
+    setNewMasterSource(activeChartKey || 'blank');
+    setIsNewMasterModalOpen(true);
+  };
+
+  // Create Brand New Master Template
+  const handleCreateNewMaster = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newMasterName.trim()) {
+      alert('Please enter a Chart Name');
+      return;
+    }
+
+    const keyToUse = newMasterKey.trim().toLowerCase().replace(/[^a-z0-9_]/g, '_') ||
+      newMasterName.trim().toLowerCase().replace(/[^a-z0-9_]/g, '_');
+
+    if (masters.some(m => m.key === keyToUse)) {
+      alert(`A chart with key "${keyToUse}" already exists! Please use a unique Chart Name.`);
+      return;
+    }
+
+    setSaving(true);
+    const newMaster: ChartMasterDef = {
+      key: keyToUse,
+      name: newMasterName.trim().toUpperCase(),
+      product_variant: newMasterVariant.trim().toUpperCase() || newMasterName.trim().split(' ')[0],
+      target_fat: newMasterFat !== '' ? parseFloat(newMasterFat) : undefined,
+      target_snf: newMasterSnf !== '' ? parseFloat(newMasterSnf) : undefined,
+      target_sp_gr: newMasterSpGr !== '' ? parseFloat(newMasterSpGr) : undefined,
+      target_batch_liters: newMasterBatchLit !== '' ? parseFloat(newMasterBatchLit) : undefined,
+      description: newMasterDescription.trim(),
+      sort_order: masters.length + 1,
+      is_active: true,
+    };
+
+    let initialCols: ChartColumnDef[];
+    let initialRows: ChartRowData[];
+
+    if (newMasterSource === 'blank' || !templates[newMasterSource]) {
+      initialCols = JSON.parse(JSON.stringify(defaultColumns));
+      initialRows = [{ variant: '', values: {} }];
+    } else {
+      const sourceTmpl = templates[newMasterSource];
+      const sourceCols = chartColumnsMap[newMasterSource] || sourceTmpl?.columns || defaultColumns;
+      initialCols = JSON.parse(JSON.stringify(sourceCols));
+      initialRows = JSON.parse(JSON.stringify(sourceTmpl?.rows || [{ variant: '', values: {} }]));
+    }
+
+    const updatedMasters = [...masters, newMaster];
+
+    const templatePayload = {
+      chart_key: keyToUse,
+      rows: initialRows,
+      target_batch_liters: newMaster.target_batch_liters,
+      target_fat: newMaster.target_fat,
+      target_snf: newMaster.target_snf,
+      columns: initialCols,
+    };
+
+    try {
+      const res = await fetch('/api/stock/preparation-charts', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          masters: updatedMasters,
+          chart_key: keyToUse,
+          columns: initialCols,
+          template: templatePayload,
+        }),
+      });
+
+      if (res.ok) {
+        setMasters(updatedMasters);
+        setTemplates(prev => ({
+          ...prev,
+          [keyToUse]: templatePayload,
+        }));
+        setChartColumnsMap(prev => ({
+          ...prev,
+          [keyToUse]: initialCols,
+        }));
+
+        setIsNewMasterModalOpen(false);
+        setIsDirty(false);
+        setActiveChartKey(keyToUse);
+        loadChartMasterDefaults(keyToUse, updatedMasters, {
+          ...templates,
+          [keyToUse]: templatePayload,
+        }, {
+          ...chartColumnsMap,
+          [keyToUse]: initialCols,
+        }, defaultColumns);
+
+        showToast(`✅ Created new Chart Master "${newMaster.name}" with its own separate default template!`);
+      } else {
+        showToast('❌ Failed to create new chart master');
+      }
+    } catch (err) {
+      console.error('Error creating new chart master:', err);
+      showToast('❌ Server error creating chart master');
     }
     setSaving(false);
   };
@@ -721,10 +1062,15 @@ export default function MasterDefaultFormulationsPage() {
 
         {/* Master Selector Tabs Bar */}
         <div className="card" style={{ marginBottom: 12, padding: '12px 18px', flexShrink: 0 }}>
-          <div style={{ fontWeight: 700, fontSize: '0.85rem', color: 'var(--text-secondary)', marginBottom: 8 }}>
-            Select Chart Master Name:
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8, flexWrap: 'wrap', gap: 8 }}>
+            <div style={{ fontWeight: 700, fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
+              Select Chart Master Name:
+            </div>
+            <div style={{ fontSize: '0.78rem', color: '#64748b' }}>
+              💡 Each master has its own separate default template and columns.
+            </div>
           </div>
-          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
             {masters.map(m => {
               const isSelected = m.key === activeChartKey;
               return (
@@ -751,6 +1097,26 @@ export default function MasterDefaultFormulationsPage() {
                 </button>
               );
             })}
+            <button
+              type="button"
+              onClick={handleOpenNewMaster}
+              style={{
+                padding: '8px 16px',
+                borderRadius: 8,
+                fontSize: '0.85rem',
+                fontWeight: 700,
+                background: '#f8fafc',
+                color: '#0284c7',
+                border: '1px dashed #38bdf8',
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                gap: 6,
+              }}
+              title="Add a brand new Chart Master and default template"
+            >
+              <span>➕ Add Chart Master</span>
+            </button>
           </div>
         </div>
 
@@ -758,17 +1124,42 @@ export default function MasterDefaultFormulationsPage() {
         {activeChartKey && (
           <div className="card" style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', minHeight: 0 }}>
             {/* Table Header Bar */}
-            <div style={{ padding: '12px 18px', background: '#fffbeb', borderBottom: '1px solid #fde68a', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexShrink: 0 }}>
+            <div style={{ padding: '12px 18px', background: '#fffbeb', borderBottom: '1px solid #fde68a', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexShrink: 0, flexWrap: 'wrap', gap: 10 }}>
               <div>
                 <div style={{ fontWeight: 800, fontSize: '1.05rem', color: '#b45309', display: 'flex', alignItems: 'center', gap: 8 }}>
                   <span>⭐ Default Master Template for {activeMaster?.name}</span>
+                  <span style={{ fontSize: '0.72rem', background: '#fef3c7', color: '#92400e', border: '1px solid #fde68a', padding: '2px 8px', borderRadius: 12, fontWeight: 700 }}>
+                    {activeMaster?.product_variant || 'DEFAULT'}
+                  </span>
                 </div>
                 <div style={{ fontSize: '0.78rem', color: '#78350f', marginTop: 2 }}>
-                  Formulas and values saved here will automatically populate on all un-entered daily preparation charts.
+                  Formulas and values saved here will automatically populate on all un-entered daily preparation charts for this master.
                 </div>
               </div>
 
-              <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+              <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+                <button
+                  type="button"
+                  onClick={handleOpenSaveAs}
+                  className="btn btn-secondary btn-sm"
+                  style={{
+                    background: '#ffffff',
+                    border: '1px solid #f59e0b',
+                    color: '#b45309',
+                    fontWeight: 700,
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 5,
+                    fontSize: '0.8rem',
+                    padding: '5px 12px',
+                    borderRadius: 6,
+                    cursor: 'pointer',
+                  }}
+                  title="Save current formulation table as a new separate Master Template without modifying existing templates"
+                >
+                  💾 Save Template
+                </button>
+
                 <button
                   type="button"
                   onClick={() => setIsColEditing(prev => !prev)}
@@ -803,6 +1194,7 @@ export default function MasterDefaultFormulationsPage() {
                       ...prev,
                       { variant: '', values: {} }
                     ]);
+                    setIsDirty(true);
                   }}
                   style={{ background: '#f0f9ff', border: '1px solid #bae6fd', color: '#0284c7', borderRadius: 6, padding: '5px 12px', fontSize: '0.8rem', fontWeight: 700, cursor: 'pointer' }}
                 >
@@ -997,6 +1389,13 @@ export default function MasterDefaultFormulationsPage() {
                                 const val = e.target.value !== '' ? parseInt(e.target.value, 10) : undefined;
                                 const updated = columns.map(c => c.key === col.key ? { ...c, decimals: val } : c);
                                 setColumns(updated);
+                                if (activeChartKey) {
+                                  setChartColumnsMap(prev => ({
+                                    ...prev,
+                                    [activeChartKey]: updated,
+                                  }));
+                                }
+                                setIsDirty(true);
                               }}
                               style={{
                                 fontSize: '0.68rem',
@@ -1113,7 +1512,6 @@ export default function MasterDefaultFormulationsPage() {
                             )}
                             <input
                               type="text"
-                              list={col.type === 'text' ? 'variant-products-list' : undefined}
                               className="form-input"
                               value={displayVal}
                               placeholder="-"
@@ -1193,6 +1591,7 @@ export default function MasterDefaultFormulationsPage() {
                             type="button"
                             onClick={() => {
                               if (rIdx === 0) return;
+                              setIsDirty(true);
                               setRows(prev => {
                                 const copy = [...prev];
                                 const temp = copy[rIdx];
@@ -1211,6 +1610,7 @@ export default function MasterDefaultFormulationsPage() {
                             type="button"
                             onClick={() => {
                               if (rIdx === rows.length - 1) return;
+                              setIsDirty(true);
                               setRows(prev => {
                                 const copy = [...prev];
                                 const temp = copy[rIdx];
@@ -1228,6 +1628,22 @@ export default function MasterDefaultFormulationsPage() {
                           <button
                             type="button"
                             onClick={() => {
+                              setIsDirty(true);
+                              setRows(prev => {
+                                const copy = [...prev];
+                                copy.splice(rIdx + 1, 0, { variant: '', values: {} });
+                                return copy;
+                              });
+                            }}
+                            style={{ background: '#f0f9ff', border: '1px solid #bae6fd', color: '#0284c7', borderRadius: 4, padding: '1px 6px', fontSize: '0.7rem', cursor: 'pointer', fontWeight: 700 }}
+                            title="Insert Empty Row Below"
+                          >
+                            ➕ Insert
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setIsDirty(true);
                               setRows(prev => prev.filter((_, i) => i !== rIdx));
                             }}
                             style={{ background: '#fef2f2', border: '1px solid #fca5a5', color: '#dc2626', borderRadius: 4, padding: '1px 5px', fontSize: '0.7rem', cursor: 'pointer' }}
@@ -1252,6 +1668,21 @@ export default function MasterDefaultFormulationsPage() {
                 <Link href="/dashboard/stock/preparation-charts" className="btn btn-secondary btn-sm">
                   Cancel
                 </Link>
+                <button
+                  type="button"
+                  className="btn btn-secondary btn-sm"
+                  onClick={handleOpenSaveAs}
+                  disabled={saving || !activeChartKey}
+                  style={{
+                    background: '#ffffff',
+                    border: '1px solid #d97706',
+                    color: '#b45309',
+                    fontWeight: 700,
+                  }}
+                  title="Save this table as a new separate Master Template without modifying existing templates"
+                >
+                  💾 Save Template
+                </button>
                 <button
                   type="button"
                   className="btn btn-primary btn-sm"
@@ -1411,12 +1842,252 @@ export default function MasterDefaultFormulationsPage() {
           </div>
         </div>
       )}
-      {/* Datalist for Product Variant Dropdown */}
-      <datalist id="variant-products-list">
-        {productOptions.map(p => (
-          <option key={`defaults_prod_opt_${p}`} value={p} />
-        ))}
-      </datalist>
+
+      {/* Modal for Save As Separate Master Default Template */}
+      {isSaveAsModalOpen && (
+        <div style={{
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          background: 'rgba(15, 23, 42, 0.55)',
+          backdropFilter: 'blur(4px)',
+          zIndex: 10050,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          padding: 16,
+        }}>
+          <div style={{
+            background: '#ffffff',
+            borderRadius: 12,
+            border: '1px solid var(--border)',
+            boxShadow: '0 20px 25px -5px rgba(0,0,0,0.1), 0 8px 10px -6px rgba(0,0,0,0.1)',
+            width: '100%',
+            maxWidth: 580,
+            overflow: 'hidden',
+          }}>
+            <div style={{ padding: '16px 20px', background: '#fffbeb', borderBottom: '1px solid #fde68a', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div>
+                <div style={{ fontWeight: 800, fontSize: '1.05rem', color: '#b45309', display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <span>💾 Save As Separate Master Template</span>
+                </div>
+                <div style={{ fontSize: '0.75rem', color: '#78350f', marginTop: 2 }}>
+                  Create an independent Master Chart based on <strong>{activeMaster?.name}</strong>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsSaveAsModalOpen(false)}
+                style={{ background: 'none', border: 'none', fontSize: '1.1rem', color: '#78350f', cursor: 'pointer' }}
+              >
+                ✕
+              </button>
+            </div>
+
+            <form onSubmit={handleSaveAsSeparateMaster} style={{ padding: 20, display: 'flex', flexDirection: 'column', gap: 14 }}>
+              <div style={{ padding: '10px 14px', background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 8, fontSize: '0.78rem', color: '#166534', lineHeight: 1.45 }}>
+                ✨ <strong>Completely Separate & Isolated:</strong> The current formulation table ({rows.length} rows, {columns.length} columns, and all formulas) will be copied to this new master. Future edits made here or in this new template will <strong>NEVER affect each other</strong>.
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 12 }}>
+                <div>
+                  <label className="form-label" style={{ fontWeight: 600 }}>New Chart Master Name <span style={{ color: '#dc2626' }}>*</span></label>
+                  <input
+                    type="text"
+                    className="form-input"
+                    placeholder="e.g. TONED MILK PREPARATION CHART"
+                    value={saveAsName}
+                    onChange={e => {
+                      setSaveAsName(e.target.value);
+                      if (!saveAsKey) {
+                        setSaveAsKey(e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, '_'));
+                      }
+                    }}
+                    required
+                  />
+                </div>
+
+                <div>
+                  <label className="form-label" style={{ fontWeight: 600 }}>Product Variant <span style={{ color: '#dc2626' }}>*</span></label>
+                  <input
+                    type="text"
+                    className="form-input"
+                    placeholder="e.g. TM, SM, FCM"
+                    value={saveAsVariant}
+                    onChange={e => setSaveAsVariant(e.target.value)}
+                    required
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="form-label" style={{ fontWeight: 600 }}>Field Key (Unique Identifier)</label>
+                <input
+                  type="text"
+                  className="form-input"
+                  placeholder="e.g. toned_milk_prep_chart"
+                  value={saveAsKey}
+                  onChange={e => setSaveAsKey(e.target.value)}
+                  style={{ fontFamily: 'monospace', fontSize: '0.82rem' }}
+                />
+              </div>             
+
+              <div>
+                <label className="form-label" style={{ fontWeight: 600 }}>Description (Optional)</label>
+                <input
+                  type="text"
+                  className="form-input"
+                  placeholder="e.g. Master formulation template for standardized toned milk"
+                  value={saveAsDescription}
+                  onChange={e => setSaveAsDescription(e.target.value)}
+                />
+              </div>
+
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, paddingTop: 12, borderTop: '1px solid var(--border)' }}>
+                <button
+                  type="button"
+                  className="btn btn-secondary btn-sm"
+                  onClick={() => setIsSaveAsModalOpen(false)}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="btn btn-primary btn-sm"
+                  disabled={saving}
+                  style={{ background: '#b45309', borderColor: '#b45309' }}
+                >
+                  {saving ? 'Saving Separate Master...' : '⭐ Confirm & Save As Separate Master'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Modal for Creating Brand New Master Template */}
+      {isNewMasterModalOpen && (
+        <div style={{
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          background: 'rgba(15, 23, 42, 0.55)',
+          backdropFilter: 'blur(4px)',
+          zIndex: 10050,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          padding: 16,
+        }}>
+          <div style={{
+            background: '#ffffff',
+            borderRadius: 12,
+            border: '1px solid var(--border)',
+            boxShadow: '0 20px 25px -5px rgba(0,0,0,0.1), 0 8px 10px -6px rgba(0,0,0,0.1)',
+            width: '100%',
+            maxWidth: 580,
+            overflow: 'hidden',
+          }}>
+            <div style={{ padding: '16px 20px', background: '#f0f9ff', borderBottom: '1px solid #bae6fd', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div>
+                <div style={{ fontWeight: 800, fontSize: '1.05rem', color: '#0369a1', display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <span>➕ Create New Preparation Chart Master</span>
+                </div>
+                <div style={{ fontSize: '0.75rem', color: '#0284c7', marginTop: 2 }}>
+                  Set up a new milk/cream formulation table with its own independent default template
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsNewMasterModalOpen(false)}
+                style={{ background: 'none', border: 'none', fontSize: '1.1rem', color: '#0369a1', cursor: 'pointer' }}
+              >
+                ✕
+              </button>
+            </div>
+
+            <form onSubmit={handleCreateNewMaster} style={{ padding: 20, display: 'flex', flexDirection: 'column', gap: 14 }}>
+              <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 12 }}>
+                <div>
+                  <label className="form-label" style={{ fontWeight: 600 }}>Chart Master Name <span style={{ color: '#dc2626' }}>*</span></label>
+                  <input
+                    type="text"
+                    className="form-input"
+                    placeholder="e.g. FCM 2 PREPARATION CHART"
+                    value={newMasterName}
+                    onChange={e => {
+                      setNewMasterName(e.target.value);
+                      if (!newMasterKey) {
+                        setNewMasterKey(e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, '_'));
+                      }
+                    }}
+                    required
+                  />
+                </div>
+
+                <div>
+                  <label className="form-label" style={{ fontWeight: 600 }}>Product Variant <span style={{ color: '#dc2626' }}>*</span></label>
+                  <input
+                    type="text"
+                    className="form-input"
+                    placeholder="e.g. FCM, TM, SM"
+                    value={newMasterVariant}
+                    onChange={e => setNewMasterVariant(e.target.value)}
+                    required
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="form-label" style={{ fontWeight: 600 }}>Initial Formulation Template</label>
+                <select
+                  className="form-select"
+                  value={newMasterSource}
+                  onChange={e => setNewMasterSource(e.target.value)}
+                >
+                  <option value="blank">✨ Clean empty table (1 empty ingredient row)</option>
+                  {masters.map(m => (
+                    <option key={`new_src_${m.key}`} value={m.key}>
+                      📋 Copy initial formulation from "{m.name}" ({m.product_variant || 'DEFAULT'})
+                    </option>
+                  ))}
+                </select>
+              </div>                
+              <div>
+                <label className="form-label" style={{ fontWeight: 600 }}>Description (Optional)</label>
+                <input
+                  type="text"
+                  className="form-input"
+                  placeholder="e.g. Description or notes for this formulation chart"
+                  value={newMasterDescription}
+                  onChange={e => setNewMasterDescription(e.target.value)}
+                />
+              </div>
+
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, paddingTop: 12, borderTop: '1px solid var(--border)' }}>
+                <button
+                  type="button"
+                  className="btn btn-secondary btn-sm"
+                  onClick={() => setIsNewMasterModalOpen(false)}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="btn btn-primary btn-sm"
+                  disabled={saving}
+                >
+                  {saving ? 'Creating Master...' : '➕ Create Master Template'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </>
   );
 }

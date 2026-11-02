@@ -84,8 +84,9 @@ export interface TSEntryFormProps {
   stepMode?: boolean;
   activeStep?: string;
   onStepChange?: (stepKey: string) => void;
-  onPrevStep?: () => void;
+  onPrevStep?: (date?: string, shift?: any) => void;
   onFinish?: () => void;
+  onDateShiftChange?: (date: string, shift: Shift | null) => void;
   initialDate?: string;
   initialShift?: Shift | null;
 }
@@ -96,6 +97,7 @@ export default function TSEntryForm({
   onStepChange,
   onPrevStep,
   onFinish,
+  onDateShiftChange,
   initialDate,
   initialShift,
 }: TSEntryFormProps = {}) {
@@ -114,6 +116,19 @@ export default function TSEntryForm({
 
   const [entryDate, setEntryDate] = useState(initialDate || paramDate || new Date().toISOString().split('T')[0]);
   const [shift, setShift] = useState<Shift | null>(getInitialShift());
+
+  useEffect(() => {
+    if (initialDate && initialDate !== entryDate) {
+      setEntryDate(initialDate);
+    }
+  }, [initialDate]);
+
+  useEffect(() => {
+    if (initialShift !== undefined && initialShift !== shift) {
+      setShift(initialShift);
+    }
+  }, [initialShift]);
+
   const [notes, setNotes] = useState('');
   const [rows, setRows] = useState<RowState[]>(makeDefaultRows);
   const [savingSection, setSavingSection] = useState<Record<string, boolean>>({});
@@ -456,12 +471,17 @@ export default function TSEntryForm({
   };
 
   const handleStepClick = (key: string) => {
+    if (onDateShiftChange) {
+      onDateShiftChange(entryDate, shift);
+    }
     if (onStepChange) {
       onStepChange(key);
       return;
     }
     const s = shift ?? 'F';
-    if (key === 'stock') {
+    if (key === 'prep') {
+      router.push(`/dashboard/stock/preparation-charts?date=${entryDate}&shift=${s}`);
+    } else if (key === 'stock') {
       router.push(`/dashboard/stock/new?date=${entryDate}&shift=${s}`);
     } else if (key === 'stg') {
       router.push(`/dashboard/ts/new-stg?date=${entryDate}&shift=${s}`);
@@ -501,7 +521,11 @@ export default function TSEntryForm({
               type="date"
               className="form-input"
               value={entryDate}
-              onChange={e => setEntryDate(e.target.value)}
+              onChange={e => {
+                const newDate = e.target.value;
+                setEntryDate(newDate);
+                if (onDateShiftChange) onDateShiftChange(newDate, shift);
+              }}
               max={new Date().toISOString().split('T')[0]}
             />
           </div>
@@ -513,7 +537,10 @@ export default function TSEntryForm({
                   <button
                     type="button"
                     className={`btn ${shift === 'F' || !shift ? 'btn-primary' : 'btn-secondary'}`}
-                    onClick={() => setShift('F')}
+                    onClick={() => {
+                      setShift('F');
+                      if (onDateShiftChange) onDateShiftChange(entryDate, 'F');
+                    }}
                     style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '10px 16px' }}
                   >
                     <span style={{ fontWeight: 600, fontSize: '0.875rem' }}>🗓️ Full Day (F)</span>
@@ -521,7 +548,10 @@ export default function TSEntryForm({
                   <button
                     type="button"
                     className={`btn ${shift === 'D' || shift === 'N' ? 'btn-primary' : 'btn-secondary'}`}
-                    onClick={() => setShift('D')}
+                    onClick={() => {
+                      setShift('D');
+                      if (onDateShiftChange) onDateShiftChange(entryDate, 'D');
+                    }}
                     style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '10px 16px' }}
                   >
                     <span style={{ fontWeight: 600, fontSize: '0.875rem' }}>⏱️ Shift-wise</span>
@@ -540,7 +570,10 @@ export default function TSEntryForm({
                         key={s.value}
                         type="button"
                         className={`btn ${shift === s.value ? 'btn-primary' : 'btn-secondary'}`}
-                        onClick={() => setShift(s.value as Shift)}
+                        onClick={() => {
+                          setShift(s.value as Shift);
+                          if (onDateShiftChange) onDateShiftChange(entryDate, s.value as Shift);
+                        }}
                         style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '10px 16px' }}
                       >
                         <span style={{ fontWeight: 600, fontSize: '0.875rem' }}>{s.label}</span>
@@ -764,7 +797,14 @@ export default function TSEntryForm({
             <button
               type="button"
               className="btn btn-secondary"
-              onClick={onPrevStep}
+              onClick={() => {
+                if (onDateShiftChange) onDateShiftChange(entryDate, shift);
+                if (onPrevStep) {
+                  onPrevStep(entryDate, shift);
+                } else {
+                  router.push(`/dashboard/ts/new-stg?date=${entryDate}&shift=${shift || 'F'}`);
+                }
+              }}
               disabled={mainSaving}
               style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}
             >

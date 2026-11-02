@@ -1,5 +1,6 @@
 'use client';
 
+import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useSidebar } from '@/context/SidebarContext';
@@ -14,26 +15,37 @@ const NAV_SECTIONS = [
     ],
   },
   {
-    label: 'Stock Statement',
+    label: 'Chart Preparation',
     items: [
-      { href: '/dashboard/stock/preparation-charts', icon: '📋', label: 'Preparation Charts' },
-      { href: '/dashboard/stock/new', icon: '📦', label: 'New Stock Statement Entry' },
-      { href: '/dashboard/stock', icon: '📦', label: 'Stock Register' },
       { href: '/dashboard/stock/preparation-charts/masters', icon: '📊', label: 'Chart Names Master' },
       { href: '/dashboard/stock/preparation-charts/defaults', icon: '⭐', label: 'Master Default Formulations' },
       { href: '/dashboard/stock/preparation-charts/columns', icon: '⚙️', label: 'Chart Columns Config' },
-      { href: '/dashboard/stock/products', icon: '⚙️', label: 'Products List' },
+      { href: '/dashboard/stock/preparation-charts', icon: '📋', label: 'Preparation Charts' },
     ],
   },
   {
-    label: 'Daily Reports',
+    label: 'Stock Statement',
+    items: [
+      { href: '/dashboard/stock/new', icon: '📦', label: 'New Stock Statement Entry' },
+      { href: '/dashboard/stock/defaults', icon: '⭐', label: 'Master Default Statement' },
+      { href: '/dashboard/stock', icon: '📋', label: 'Stock Register' },
+      { href: '/dashboard/stock/products', icon: '🥛', label: 'Products List' },
+    ],
+  },
+  {
+    label: 'STG Entry',
     items: [
       { href: '/dashboard/ts/new-stg', icon: '⚖️', label: 'New STG Entry' },
-      { href: '/dashboard/ts/new', icon: '🧪', label: 'New TS Entry' },
-      { href: '/dashboard/ts', icon: '🧪', label: 'Total Solids (TS)' },
       { href: '/dashboard/ts/manage-statements', icon: '📊', label: 'Statement Master Names' },
       { href: '/dashboard/ts/manage-statements/defaults', icon: '⭐', label: 'Master Default Statements' },
       { href: '/dashboard/ts/manage-statements/columns', icon: '⚙️', label: 'Statement Columns Config' },
+    ],
+  },
+  {
+    label: 'TS Entry',
+    items: [
+      { href: '/dashboard/ts/new', icon: '🧪', label: 'New TS Entry' },
+      { href: '/dashboard/ts', icon: '📄', label: 'Total Solids (TS)' },
     ],
   },
   {
@@ -54,10 +66,111 @@ const NAV_SECTIONS = [
   },
 ];
 
+const checkItemActive = (href: string, pathname: string) => {
+  if (href === '/dashboard') return pathname === '/dashboard';
+  
+  const hrefSegments = href.split('/');
+  const pathSegments = pathname.split('/');
+  
+  if (href === '/dashboard/ts') {
+    return pathSegments[1] === 'dashboard' && 
+           pathSegments[2] === 'ts' && 
+           !['new', 'new-stg', 'config', 'mappings', 'manage-statements'].includes(pathSegments[3]);
+  }
+  if (href === '/dashboard/stock') {
+    return pathSegments[1] === 'dashboard' && 
+           pathSegments[2] === 'stock' && 
+           pathSegments[3] !== 'new' &&
+           pathSegments[3] !== 'products' &&
+           pathSegments[3] !== 'mappings' &&
+           pathSegments[3] !== 'partitions' &&
+           pathSegments[3] !== 'preparation-charts' &&
+           pathSegments[3] !== 'periodical' &&
+           pathSegments[3] !== 'defaults';
+  }
+
+  if (href === '/dashboard/ts/manage-statements') {
+    return pathname === '/dashboard/ts/manage-statements';
+  }
+  
+  return hrefSegments.every((seg: string, idx: number) => pathSegments[idx] === seg);
+};
+
+const getInitialSections = (currentPathname: string): Record<string, boolean> => {
+  const initial: Record<string, boolean> = {};
+  NAV_SECTIONS.forEach(sec => {
+    const containsActive = sec.items.some(
+      item => 'href' in item && typeof item.href === 'string' && checkItemActive(item.href, currentPathname)
+    );
+    initial[sec.label] = sec.label === 'Overview' || containsActive;
+  });
+  return initial;
+};
+
 export default function Sidebar() {
   const pathname = usePathname();
   const { sidebarOpen, setSidebarOpen, setConfigOpen } = useSidebar();
   const { confirm } = useConfirm();
+
+  // Manage open/collapsed state of accordion sections
+  // Initial state is computed deterministically from pathname on both server and client to avoid hydration mismatch
+  const [openSections, setOpenSections] = useState<Record<string, boolean>>(() => {
+    return getInitialSections(pathname);
+  });
+
+  // Reconcile saved preferences from localStorage only after client hydration
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem('aavin_sidebar_sections_state');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        setOpenSections(prev => {
+          const updated = { ...prev, ...parsed };
+          // Always ensure the active route's section stays open
+          NAV_SECTIONS.forEach(sec => {
+            const containsActive = sec.items.some(
+              item => 'href' in item && typeof item.href === 'string' && checkItemActive(item.href, pathname)
+            );
+            if (containsActive) {
+              updated[sec.label] = true;
+            }
+          });
+          return updated;
+        });
+      }
+    } catch (e) {
+      // ignore
+    }
+  }, []);
+
+  // Whenever pathname changes, auto-expand the section containing the active route
+  useEffect(() => {
+    NAV_SECTIONS.forEach(sec => {
+      const containsActive = sec.items.some(
+        item => 'href' in item && typeof item.href === 'string' && checkItemActive(item.href, pathname)
+      );
+      if (containsActive) {
+        setOpenSections(prev => {
+          if (prev[sec.label]) return prev;
+          const updated = { ...prev, [sec.label]: true };
+          try {
+            localStorage.setItem('aavin_sidebar_sections_state', JSON.stringify(updated));
+          } catch (e) {}
+          return updated;
+        });
+      }
+    });
+  }, [pathname]);
+
+  const toggleSection = (label: string) => {
+    setOpenSections(prev => {
+      const updated = { ...prev, [label]: !prev[label] };
+      try {
+        localStorage.setItem('aavin_sidebar_sections_state', JSON.stringify(updated));
+      } catch (e) {}
+      return updated;
+    });
+  };
 
   const handleLinkClick = () => {
     // Do not auto-close sidebar on link click.
@@ -94,75 +207,84 @@ export default function Sidebar() {
         </div>
       </Link>
 
-      {/* Navigation */}
-      <div style={{ flex: 1, overflowY: 'auto', padding: '8px 0' }}>
-        {NAV_SECTIONS.map(section => (
-          <div key={section.label} className="sidebar-section">
-            <div className="sidebar-section-label">{section.label}</div>
-            <ul className="sidebar-nav">
-              {section.items.map(item => {
-                if ('action' in item && item.action === 'settings') {
-                  return (
-                    <li key="settings">
-                      <button
-                        type="button"
-                        className="sidebar-link"
-                        onClick={() => {
-                          setConfigOpen(true);
-                          handleLinkClick();
-                        }}
-                      >
-                        <span className="icon">{item.icon}</span>
-                        {item.label}
-                      </button>
-                    </li>
-                  );
-                }
-                const href = (item as any).href;
-                const isActive = (() => {
-                  if (href === '/dashboard') return pathname === '/dashboard';
-                  
-                  const hrefSegments = href.split('/');
-                  const pathSegments = pathname.split('/');
-                  
-                  if (href === '/dashboard/ts') {
-                    return pathSegments[1] === 'dashboard' && 
-                           pathSegments[2] === 'ts' && 
-                           !['new', 'new-stg', 'config', 'mappings', 'manage-statements'].includes(pathSegments[3]);
-                  }
-                  if (href === '/dashboard/stock') {
-                    return pathSegments[1] === 'dashboard' && 
-                           pathSegments[2] === 'stock' && 
-                           pathSegments[3] !== 'new' &&
-                           pathSegments[3] !== 'products' &&
-                           pathSegments[3] !== 'mappings' &&
-                           pathSegments[3] !== 'partitions' &&
-                           pathSegments[3] !== 'preparation-charts' &&
-                           pathSegments[3] !== 'periodical';
-                  }
+      {/* Navigation Accordion */}
+      <div style={{ flex: 1, overflowY: 'auto' }}>
+        {NAV_SECTIONS.map(section => {
+          const isOpen = !!openSections[section.label];
+          const hasActiveItem = section.items.some(
+            item => 'href' in item && typeof item.href === 'string' && checkItemActive(item.href, pathname)
+          );
 
-                  if (href === '/dashboard/ts/manage-statements') {
-                    return pathname === '/dashboard/ts/manage-statements';
-                  }
-                  
-                  return hrefSegments.every((seg: string, idx: number) => pathSegments[idx] === seg);
-                })();
-                return (
-                  <li key={href}>
-                    <Link
-                      href={href}
-                      className={`sidebar-link ${isActive ? 'active' : ''}`}
-                      onClick={handleLinkClick}
-                    >
-                      <span className="icon">{item.icon}</span>
-                      {item.label}
-                    </Link>
-                  </li>
-                );
-              })}
-            </ul>
-          </div>
-        ))}
+          return (
+            <div key={section.label} className="sidebar-section">
+              {/* Accordion Header Button */}
+              <button
+                type="button"
+                className={`sidebar-accordion-btn ${hasActiveItem ? 'has-active' : ''}`}
+                onClick={() => toggleSection(section.label)}
+                aria-expanded={isOpen}
+              >
+                <span className="sidebar-accordion-title">
+                  {section.label}
+                </span>
+                <svg
+                  className={`sidebar-chevron ${isOpen ? 'open' : ''}`}
+                  width="18"
+                  height="18"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2.4"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                >
+                  <polyline points="6 9 12 15 18 9" />
+                </svg>
+              </button>
+
+              {/* Accordion Content */}
+              {isOpen && (
+                <div className="sidebar-section-content">
+                  <ul className="sidebar-nav">
+                    {section.items.map(item => {
+                      if ('action' in item && item.action === 'settings') {
+                        return (
+                          <li key="settings">
+                            <button
+                              type="button"
+                              className="sidebar-link"
+                              onClick={() => {
+                                setConfigOpen(true);
+                                handleLinkClick();
+                              }}
+                            >
+                              <span className="icon">{item.icon}</span>
+                              {item.label}
+                            </button>
+                          </li>
+                        );
+                      }
+                      const href = (item as any).href;
+                      const isActive = checkItemActive(href, pathname);
+                      return (
+                        <li key={href}>
+                          <Link
+                            href={href}
+                            className={`sidebar-link ${isActive ? 'active' : ''}`}
+                            onClick={handleLinkClick}
+                          >
+                            <span className="icon">{item.icon}</span>
+                            {item.label}
+                          </Link>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                </div>
+              )}
+            </div>
+          );
+        })}
       </div>
 
       {/* Footer */}
