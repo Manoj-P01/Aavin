@@ -22,6 +22,7 @@ export default function PrepToStockMappingsConfigPage() {
   const [chartColumns, setChartColumns] = useState<ChartColumnDef[]>([]);
   const [templates, setTemplates] = useState<Record<string, any>>({});
   const [productOptions, setProductOptions] = useState<Array<{ key: string; label: string }>>([]);
+  const [dbRawProducts, setDbRawProducts] = useState<any[]>([]);
   const [dbReceiptRows, setDbReceiptRows] = useState<string[]>([]);
   const [dbDisposalRows, setDbDisposalRows] = useState<string[]>([]);
 
@@ -75,12 +76,14 @@ export default function PrepToStockMappingsConfigPage() {
           const json = await pRes.json();
           const prods = json.data || json.products || [];
           if (Array.isArray(prods) && prods.length > 0) {
+            setDbRawProducts(prods);
             const opts = prods.map((p: any) => ({
               key: p.product_key || p.key || (p.short_name || p.product_name || p.full_name).toLowerCase().replace(/[^a-z0-9_]/g, '_'),
               label: p.short_name || p.product_name || p.full_name || p.key,
             }));
             setProductOptions(opts);
           } else {
+            setDbRawProducts([]);
             setProductOptions([]);
           }
         }
@@ -144,40 +147,90 @@ export default function PrepToStockMappingsConfigPage() {
     return list;
   }, [masters]);
 
-  // Extract ingredients for a given chart from templates & master
+  // Extract ingredients for a given chart from templates & master dynamically without duplicate variant aliases
   const getChartIngredients = (chartKey: string): string[] => {
-    const set = new Set<string>();
-    const extractVariantsFromRow = (r: any) => {
-      const v1 = typeof r.variant === 'string' ? r.variant.trim() : '';
-      const v2 = typeof r.values?.variant === 'string' ? r.values.variant.trim() : '';
-      const name = typeof r.name === 'string' ? r.name.trim() : '';
-      [v1, v2, name].forEach(v => {
-        if (v && !['new ingredient', 'sample', 'diff', 'difference', 'total'].includes(v.toLowerCase())) {
-          set.add(v);
-        }
-      });
+    const rawList: string[] = [];
+
+    const addVariant = (val?: string) => {
+      if (typeof val !== 'string') return;
+      const trimmed = val.trim();
+      if (!trimmed) return;
+      const lower = trimmed.toLowerCase();
+      if (['new ingredient', 'sample', 'diff', 'difference', 'total'].includes(lower)) return;
+      rawList.push(trimmed);
     };
 
     if (chartKey && chartKey !== '*') {
       const m = masters.find(x => x.key === chartKey);
-      if (m?.product_variant) set.add(m.product_variant);
+      if (m?.product_variant) addVariant(m.product_variant);
 
       const tmpl = templates[chartKey];
       if (tmpl && Array.isArray(tmpl.rows)) {
-        tmpl.rows.forEach(extractVariantsFromRow);
+        tmpl.rows.forEach((r: any) => addVariant(r.variant));
       }
     } else {
       masters.forEach(m => {
-        if (m.product_variant) set.add(m.product_variant);
+        if (m.product_variant) addVariant(m.product_variant);
       });
       Object.values(templates).forEach((tmpl: any) => {
         if (tmpl && Array.isArray(tmpl.rows)) {
-          tmpl.rows.forEach(extractVariantsFromRow);
+          tmpl.rows.forEach((r: any) => addVariant(r.variant));
         }
       });
     }
 
-    return Array.from(set);
+    // Canonicalization map: maps normalized strings (e.g. 'std', 'stdmilk') to one unified display name
+    const canonicalMap = new Map<string, string>();
+
+    // 1. Chart master product_variants take precedence
+    masters.forEach(m => {
+      if (m.product_variant && m.product_variant.trim()) {
+        const pv = m.product_variant.trim();
+        const normKey = pv.toLowerCase().replace(/[\s._-]/g, '');
+        canonicalMap.set(normKey, pv);
+        if (normKey === 'std' || normKey === 'stdmilk') {
+          canonicalMap.set('std', pv);
+          canonicalMap.set('stdmilk', pv);
+        }
+        if (normKey === 'dlt' || normKey === 'dltmilk' || normKey === 'delite') {
+          canonicalMap.set('dlt', pv);
+          canonicalMap.set('dltmilk', pv);
+          canonicalMap.set('delite', pv);
+        }
+        if (normKey === 'fc' || normKey === 'fcm' || normKey === 'fcmilk') {
+          canonicalMap.set('fc', pv);
+          canonicalMap.set('fcm', pv);
+          canonicalMap.set('fcmilk', pv);
+        }
+      }
+    });
+
+    // 2. Map database product names & short names
+    dbRawProducts.forEach((p: any) => {
+      const sName = (p.short_name || '').trim();
+      const pName = (p.product_name || p.full_name || '').trim();
+      const sNorm = sName.toLowerCase().replace(/[\s._-]/g, '');
+      const pNorm = pName.toLowerCase().replace(/[\s._-]/g, '');
+      const preferred = canonicalMap.get(sNorm) || canonicalMap.get(pNorm) || sName || pName;
+      if (sNorm) canonicalMap.set(sNorm, preferred);
+      if (pNorm) canonicalMap.set(pNorm, preferred);
+    });
+
+    // Deduplicate preserving unique ingredients
+    const resultList: string[] = [];
+    const seen = new Set<string>();
+
+    rawList.forEach(v => {
+      const normKey = v.toLowerCase().replace(/[\s._-]/g, '');
+      const canonical = canonicalMap.get(normKey) || v;
+      const seenKey = canonical.toLowerCase();
+      if (!seen.has(seenKey)) {
+        seen.add(seenKey);
+        resultList.push(canonical);
+      }
+    });
+
+    return resultList;
   };
 
   // Currently selected chart object
@@ -194,12 +247,12 @@ export default function PrepToStockMappingsConfigPage() {
   const currentChartIngredients = useMemo(() => {
     if (!selectedChartKey) return [];
     return getChartIngredients(selectedChartKey);
-  }, [selectedChartKey, masters, templates]);
+  }, [selectedChartKey, masters, templates, dbRawProducts]);
 
   // Available variants for the form modal based on formSourceChartKey
   const modalAvailableVariants = useMemo(() => {
     return getChartIngredients(formSourceChartKey);
-  }, [formSourceChartKey, masters, templates]);
+  }, [formSourceChartKey, masters, templates, dbRawProducts]);
 
   // Open modal to create a new rule
   const handleOpenAddRuleModal = (prefillVariant?: string) => {
@@ -972,7 +1025,10 @@ export default function PrepToStockMappingsConfigPage() {
                             {v}
                           </option>
                         ))}
-                        {formSourceVariant && !modalAvailableVariants.includes(formSourceVariant) && (
+                        {formSourceVariant &&
+                          !modalAvailableVariants.some(
+                            v => v.toLowerCase().replace(/[\s._-]/g, '') === formSourceVariant.toLowerCase().replace(/[\s._-]/g, '')
+                          ) && (
                           <option value={formSourceVariant}>{formSourceVariant} (Custom)</option>
                         )}
                       </select>
