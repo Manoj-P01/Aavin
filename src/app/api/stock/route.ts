@@ -282,20 +282,6 @@ export async function POST(req: NextRequest) {
         updated_by: actorUsername,
       };
 
-      // Standard physical numeric columns in Postgres stock_rows table
-      const STANDARD_STOCK_DB_COLS = new Set([
-        'wh_milk', 'dlt_milk', 'fc_milk', 'std_milk', 'toned_curd', 'dtm', 'skim_milk', 'cream', 'butter_milk', 'r_con', 'smp', 'water'
-      ]);
-
-      // Set section column totals ONLY on actual physical numeric columns of stock_rows
-      finalCols.forEach(colKey => {
-        const normKey = colKey.trim().replace(/\.+/g, '_').replace(/_+/g, '_').toLowerCase();
-        if (STANDARD_STOCK_DB_COLS.has(normKey)) {
-          const sumVal = innerRows.reduce((acc, row) => acc + (row.values[normKey] || row.values[colKey] || 0), 0);
-          sectionObj[normKey] = sumVal;
-        }
-      });
-
       rowsToInsert.push(sectionObj);
     });
 
@@ -420,60 +406,11 @@ export async function POST(req: NextRequest) {
     ]);
 
     if (rowsToInsert.length > 0) {
-      const STANDARD_STOCK_DB_COLS = new Set([
-        'wh_milk', 'dlt_milk', 'fc_milk', 'std_milk', 'toned_curd', 'dtm', 'skim_milk', 'cream', 'butter_milk', 'r_con', 'smp', 'water'
-      ]);
-
       const { error: insertErr } = await supabase.from('stock_rows').insert(rowsToInsert);
 
       if (insertErr) {
-        const errMsg = String(insertErr.message || '').toLowerCase();
-        const isEntryJsonMissing = errMsg.includes('entry_json') || 
-                                   String((insertErr as any).details || '').toLowerCase().includes('entry_json') ||
-                                   String((insertErr as any).hint || '').toLowerCase().includes('entry_json');
-
-        if (isEntryJsonMissing) {
-          console.warn("⚠️ Column 'entry_json' does not exist on table 'stock_rows'. Falling back to saving individual stock rows directly. Please run migration 014_stock_rows_entry_json.sql in your Supabase SQL Editor: ALTER TABLE stock_rows ADD COLUMN IF NOT EXISTS entry_json jsonb DEFAULT '{}'::jsonb;");
-
-          const fallbackRows = (stock_rows || []).map((r: any, i: number) => {
-            const rowObj: any = {
-              entry_id,
-              row_type: r.row_type,
-              row_label: r.row_label,
-              sort_order: r.sort_order ?? i,
-              created_by: actorUsername,
-              updated_by: actorUsername,
-            };
-
-            finalCols.forEach(colKey => {
-              const normKey = colKey.trim().replace(/\.+/g, '_').replace(/_+/g, '_').toLowerCase();
-              if (STANDARD_STOCK_DB_COLS.has(normKey)) {
-                let numVal = 0;
-                if (r.values && (r.values[normKey] !== undefined || r.values[colKey] !== undefined)) {
-                  const raw = r.values[normKey] ?? r.values[colKey];
-                  const parsed = typeof raw === 'number' ? raw : parseFloat(String(raw));
-                  if (!isNaN(parsed) && parsed !== 0) numVal = parsed;
-                } else if (r[normKey] !== undefined || r[colKey] !== undefined) {
-                  const raw = r[normKey] ?? r[colKey];
-                  const parsed = typeof raw === 'number' ? raw : parseFloat(String(raw));
-                  if (!isNaN(parsed) && parsed !== 0) numVal = parsed;
-                }
-                rowObj[normKey] = numVal;
-              }
-            });
-
-            return rowObj;
-          });
-
-          const { error: fallbackErr } = await supabase.from('stock_rows').insert(fallbackRows);
-          if (fallbackErr) {
-            console.error('Failed to insert fallback stock_rows in Supabase:', fallbackErr);
-            throw new Error(`Failed to insert stock rows: ${fallbackErr.message}`);
-          }
-        } else {
-          console.error('Failed to insert stock_rows in Supabase:', insertErr);
-          throw new Error(`Failed to insert stock rows: ${insertErr.message}`);
-        }
+        console.error('Failed to insert stock_rows in Supabase:', insertErr);
+        throw new Error(`Failed to insert stock rows: ${insertErr.message}`);
       }
     }
 
