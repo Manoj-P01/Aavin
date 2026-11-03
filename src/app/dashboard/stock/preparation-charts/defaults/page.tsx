@@ -49,6 +49,7 @@ export default function MasterDefaultFormulationsPage() {
   const [colModalEditingKey, setColModalEditingKey] = useState<string | null>(null);
 
   const [formColKey, setFormColKey] = useState<string>('');
+  const [colKeyManuallyEdited, setColKeyManuallyEdited] = useState<boolean>(false);
   const [formColName, setFormColName] = useState<string>('');
   const [formColType, setFormColType] = useState<'number' | 'text' | 'calculated'>('number');
   const [formColFormula, setFormColFormula] = useState<string>('');
@@ -592,6 +593,7 @@ export default function MasterDefaultFormulationsPage() {
     setColModalEditingKey(null);
     setColModalInsertIdx(insertIdx !== undefined ? insertIdx : columns.length);
     setFormColKey('');
+    setColKeyManuallyEdited(false);
     setFormColName('');
     setFormColType('number');
     setFormColFormula('');
@@ -604,6 +606,7 @@ export default function MasterDefaultFormulationsPage() {
     setColModalInsertIdx(null);
     setColModalEditingKey(col.key);
     setFormColKey(col.key);
+    setColKeyManuallyEdited(true);
     setFormColName(col.name);
     setFormColType(col.type);
     setFormColFormula(col.formula || '');
@@ -620,7 +623,11 @@ export default function MasterDefaultFormulationsPage() {
       return;
     }
 
-    const keyToUse = colModalEditingKey || formColKey.trim().toLowerCase().replace(/[^a-z0-9_]/g, '_') || formColName.trim().toLowerCase().replace(/[^a-z0-9_]/g, '_');
+    const keyToUse = formColKey.trim().toLowerCase().replace(/[^a-z0-9_]/g, '_') || formColName.trim().toLowerCase().replace(/[^a-z0-9_]/g, '_');
+    if (!keyToUse) {
+      alert('Please enter a Field Key');
+      return;
+    }
 
     const newCol: ChartColumnDef = {
       key: keyToUse,
@@ -640,10 +647,29 @@ export default function MasterDefaultFormulationsPage() {
     let shiftAction: 'insert' | 'delete' | null = null;
 
     if (colModalEditingKey) {
-      updatedCols = columns.map(c => (c.key === colModalEditingKey ? newCol : c));
+      const oldKey = colModalEditingKey;
+      if (keyToUse !== oldKey && columns.some(c => c.key === keyToUse)) {
+        alert(`Column key "${keyToUse}" already exists! Please use a unique Field Key.`);
+        return;
+      }
+      updatedCols = columns.map(c => (c.key === oldKey ? newCol : c));
+
+      // If key was updated, migrate row.values across all rows
+      if (keyToUse !== oldKey) {
+        setRows(prev =>
+          prev.map(row => {
+            const nextVals = { ...row.values };
+            if (oldKey in nextVals) {
+              nextVals[keyToUse] = nextVals[oldKey];
+              delete nextVals[oldKey];
+            }
+            return { ...row, values: nextVals };
+          })
+        );
+      }
     } else {
       if (columns.some(c => c.key === newCol.key)) {
-        alert(`Column key "${newCol.key}" already exists! Please use a unique column name.`);
+        alert(`Column key "${newCol.key}" already exists! Please use a unique Field Key.`);
         return;
       }
       updatedCols = [...columns];
@@ -1746,7 +1772,7 @@ export default function MasterDefaultFormulationsPage() {
                   value={formColName}
                   onChange={e => {
                     setFormColName(e.target.value);
-                    if (!colModalEditingKey) {
+                    if (!colModalEditingKey && !colKeyManuallyEdited) {
                       setFormColKey(e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, '_'));
                     }
                   }}
@@ -1755,16 +1781,31 @@ export default function MasterDefaultFormulationsPage() {
               </div>
 
               <div>
-                <label className="form-label" style={{ fontWeight: 600 }}>Field Key</label>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <label className="form-label" style={{ fontWeight: 600 }}>
+                    Field Key <span style={{ color: '#dc2626' }}>*</span>
+                  </label>
+                  {colModalEditingKey && (
+                    <span style={{ fontSize: '0.72rem', color: '#0369a1', fontWeight: 600 }}>
+                      Editable (updates key across column settings & row values)
+                    </span>
+                  )}
+                </div>
                 <input
                   type="text"
                   className="form-input"
-                  placeholder="e.g. qty_lit, sp_gr, fat_pct"
+                  placeholder="e.g. qty_lit, sp_gr, fat_pct, kg_snf"
                   value={formColKey}
-                  onChange={e => setFormColKey(e.target.value)}
-                  disabled={!!colModalEditingKey}
-                  style={{ background: colModalEditingKey ? '#f1f5f9' : '#fff' }}
+                  onChange={e => {
+                    setFormColKey(e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, '_'));
+                    setColKeyManuallyEdited(true);
+                  }}
+                  required
+                  style={{ background: '#ffffff', fontFamily: 'monospace', fontWeight: 600 }}
                 />
+                <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: 3 }}>
+                  Unique identifier used in formulas and database storage (lowercase letters, numbers, underscores)
+                </div>
               </div>
 
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12 }}>
