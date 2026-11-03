@@ -78,6 +78,7 @@ export default function MasterDefaultFormulationsPage() {
   const [newMasterSpGr, setNewMasterSpGr] = useState<string>('');
   const [newMasterDescription, setNewMasterDescription] = useState<string>('');
   const [newMasterSource, setNewMasterSource] = useState<string>('blank');
+  const [newMasterColsSource, setNewMasterColsSource] = useState<string>('default');
 
   // Fetch Configs & Templates from DB
   const loadData = useCallback(async () => {
@@ -975,13 +976,17 @@ export default function MasterDefaultFormulationsPage() {
     let initialCols: ChartColumnDef[];
     let initialRows: ChartRowData[];
 
-    if (newMasterSource === 'blank' || !templates[newMasterSource]) {
+    if (newMasterColsSource === 'default' || !templates[newMasterColsSource]) {
       initialCols = JSON.parse(JSON.stringify(defaultColumns));
+    } else {
+      const sourceCols = chartColumnsMap[newMasterColsSource] || templates[newMasterColsSource]?.columns || defaultColumns;
+      initialCols = JSON.parse(JSON.stringify(sourceCols));
+    }
+
+    if (newMasterSource === 'blank' || !templates[newMasterSource]) {
       initialRows = [{ variant: '', values: {} }];
     } else {
       const sourceTmpl = templates[newMasterSource];
-      const sourceCols = chartColumnsMap[newMasterSource] || sourceTmpl?.columns || defaultColumns;
-      initialCols = JSON.parse(JSON.stringify(sourceCols));
       initialRows = JSON.parse(JSON.stringify(sourceTmpl?.rows || [{ variant: '', values: {} }]));
     }
 
@@ -2094,6 +2099,21 @@ export default function MasterDefaultFormulationsPage() {
                   {masters.map(m => (
                     <option key={`new_src_${m.key}`} value={m.key}>
                       📋 Copy initial formulation from "{m.name}" ({m.product_variant || 'DEFAULT'})
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="form-label" style={{ fontWeight: 600 }}>Configured Preparation Chart Columns</label>
+                <select
+                  className="form-select"
+                  value={newMasterColsSource}
+                  onChange={e => setNewMasterColsSource(e.target.value)}
+                >
+                  <option value="default">✨ Use standard columns (Ingredient, Qty, Sp.Gr, Fat%, SNF%, etc.)</option>
+                  {masters.map(m => (
+                    <option key={`new_cols_src_${m.key}`} value={m.key}>
+                      📊 Copy configured columns from "{m.name}" ({m.product_variant || 'DEFAULT'})
                     </option>
                   ))}
                 </select>

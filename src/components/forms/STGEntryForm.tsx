@@ -12,7 +12,6 @@ import Step, { DAILY_ENTRY_STEP_ITEMS } from '@/components/ui/Step';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { fmtNum, cleanStatementLabel, getStandardColumnDecimals } from '@/lib/calculations';
 import { useConfirm } from '@/context/ConfirmContext';
-import MasterDetailLayout from '@/components/ui/MasterDetailLayout';
 import type { Shift } from '@/lib/types';
 
 type STGProductBlock = string;
@@ -116,6 +115,20 @@ export default function STGEntryForm({
   const [reportMode, setReportMode] = useState<'full_day' | 'shift'>('full_day');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+
+  const availableStatements = useMemo(() => {
+    return statements.filter(s => enabledBlockKeys.includes(s.key));
+  }, [statements, enabledBlockKeys]);
+
+  const currentStatement = useMemo(() => {
+    return availableStatements.find(s => s.key === activeBlock) || availableStatements[0] || null;
+  }, [availableStatements, activeBlock]);
+
+  useEffect(() => {
+    if (availableStatements.length > 0 && (!activeBlock || !availableStatements.some(s => s.key === activeBlock))) {
+      setActiveBlock(availableStatements[0].key);
+    }
+  }, [availableStatements, activeBlock]);
 
   const [selectedCell, setSelectedCell] = useState<{ blockKey: string; rowIndex: number | string; colKey: string; fieldKey?: string } | null>(null);
   const [focusedCell, setFocusedCell] = useState<{ blockKey: string; rowIndex: number; colKey: string } | null>(null);
@@ -2704,6 +2717,92 @@ export default function STGEntryForm({
                 placeholder="Enter remarks or details..."
               />
             </div>
+
+            {/* Statement Master Selection - Positioned in Top Card */}
+            <div className="form-group" style={{ minWidth: 280 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+                <label className="form-label" style={{ margin: 0, fontWeight: 700, display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <span>📋</span> Statement Master *
+                </label>
+                <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                  <Link
+                    href="/dashboard/ts/manage-statements/defaults"
+                    style={{ fontSize: '0.72rem', color: '#b45309', fontWeight: 700, textDecoration: 'none' }}
+                    title="Master Default Formulation Tables"
+                  >
+                    ⭐ Defaults
+                  </Link>
+                  <Link
+                    href="/dashboard/ts/manage-statements"
+                    style={{ fontSize: '0.72rem', color: 'var(--brand-primary)', fontWeight: 700, textDecoration: 'none' }}
+                    title="Manage dynamic Statement Master Names"
+                  >
+                    ⚙️ Manage
+                  </Link>
+                </div>
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                <select
+                  id="statement-master-select"
+                  className="form-select"
+                  value={activeBlock || ''}
+                  onChange={e => setActiveBlock(e.target.value)}
+                  disabled={availableStatements.length === 0}
+                  style={{
+                    fontSize: '0.85rem',
+                    fontWeight: 700,
+                    color: '#b45309',
+                    background: '#ffffff',
+                    border: '1px solid #fde68a',
+                    borderRadius: 6,
+                    padding: '8px 12px',
+                    cursor: 'pointer',
+                    flex: 1,
+                  }}
+                >
+                  {availableStatements.map(s => {
+                    const cleanTitle = cleanStatementLabel(s.label).replace(/\s*-\s*RECEIPT AND DISPOSAL STATEMENT$/i, '');
+                    const bRows = blocks[s.key]?.rows || [];
+                    const hasData = bRows.some(r => r.variant || Object.keys(r.values || {}).some(k => k !== 'variant' && r.values[k]));
+                    return (
+                      <option key={s.key} value={s.key}>
+                        {cleanTitle} {hasData ? '✓ (Data Present)' : '(Empty)'}
+                      </option>
+                    );
+                  })}
+                </select>
+                {availableStatements.length > 1 && (
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+                    <button
+                      type="button"
+                      title="Previous Statement Master"
+                      onClick={() => {
+                        const idx = availableStatements.findIndex(s => s.key === activeBlock);
+                        if (idx > 0) setActiveBlock(availableStatements[idx - 1].key);
+                      }}
+                      disabled={availableStatements.findIndex(s => s.key === activeBlock) <= 0}
+                      className="btn btn-secondary btn-sm"
+                      style={{ padding: '6px 8px', fontSize: '0.75rem', fontWeight: 800 }}
+                    >
+                      ◀
+                    </button>
+                    <button
+                      type="button"
+                      title="Next Statement Master"
+                      onClick={() => {
+                        const idx = availableStatements.findIndex(s => s.key === activeBlock);
+                        if (idx >= 0 && idx < availableStatements.length - 1) setActiveBlock(availableStatements[idx + 1].key);
+                      }}
+                      disabled={availableStatements.findIndex(s => s.key === activeBlock) >= availableStatements.length - 1}
+                      className="btn btn-secondary btn-sm"
+                      style={{ padding: '6px 8px', fontSize: '0.75rem', fontWeight: 800 }}
+                    >
+                      ▶
+                    </button>
+                  </div>
+                )}
+              </div>
+            </div>
           </div>
         </div>
 
@@ -2742,76 +2841,12 @@ export default function STGEntryForm({
                 📊 Go to Statement Master Names
               </Link>
             </div>
-          ) : statements.filter(s => enabledBlockKeys.includes(s.key)).length === 0 ? (
+          ) : availableStatements.length === 0 ? (
             <div className="card" style={{ padding: 40, textAlign: 'center', color: 'var(--text-muted)' }}>
               ⚠️ All statements have been excluded for this shift. Please click "➕ Add" above to include a statement block.
             </div>
           ) : (
-            <MasterDetailLayout<{ key: string; label: string; variant?: string }>
-              items={statements.filter(s => enabledBlockKeys.includes(s.key))}
-              getItemKey={s => s.key}
-              selectedKey={activeBlock || (statements.filter(s => enabledBlockKeys.includes(s.key))[0]?.key || null)}
-              onSelectKey={key => setActiveBlock(key)}
-              leftPanelTitle="📋 Statement Master Names"
-              leftPanelWidth={330}
-              searchPlaceholder="🔍 Search statement name..."
-              filterPredicate={(s, q) =>
-                s.label.toLowerCase().includes(q) ||
-                s.key.toLowerCase().includes(q)
-              }
-              emptyListMessage="No statements matching search"
-              emptyDetailMessage="Select a Statement Master Name from the left panel to display formulation matrix details"
-              headerExtra={
-                <Link
-                  href="/dashboard/ts/manage-statements"
-                  style={{ fontSize: '0.72rem', color: 'var(--brand-primary)', fontWeight: 700, textDecoration: 'none' }}
-                  title="Manage or add dynamic Statement Master Names"
-                >
-                  ⚙️ Manage
-                </Link>
-              }
-              renderListItem={(s, isSelected) => {
-                const cleanTitle = cleanStatementLabel(s.label).replace(/\s*-\s*RECEIPT AND DISPOSAL STATEMENT$/i, '');
-                const bRows = blocks[s.key]?.rows || [];
-                const hasData = bRows.some(r => r.variant || Object.keys(r.values || {}).some(k => k !== 'variant' && r.values[k]));
-
-                return (
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                      <div style={{ fontWeight: 800, fontSize: '0.85rem', color: isSelected ? 'var(--brand-primary)' : 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: 6 }}>
-                        <span>📋 {cleanTitle}</span>
-                        {isSelected && <span style={{ width: 8, height: 8, borderRadius: '50%', background: 'var(--brand-primary)', display: 'inline-block' }} />}
-                      </div>
-                      <span
-                        style={{
-                          padding: '2px 7px',
-                          borderRadius: 10,
-                          fontSize: '0.68rem',
-                          fontWeight: 700,
-                          background: isSelected ? '#b45309' : '#e2e8f0',
-                          color: isSelected ? '#ffffff' : '#475569',
-                        }}
-                      >
-                        {s.key}
-                      </span>
-                    </div>
-                    <div style={{ fontSize: '0.72rem', color: 'var(--text-secondary)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 2 }}>
-                      <span>Formulation Matrix</span>
-                      {hasData ? (
-                        <span style={{ color: '#16a34a', fontWeight: 800, fontSize: '0.68rem', background: '#dcfce7', padding: '1px 6px', borderRadius: 8 }}>
-                          ✓ Data Present
-                        </span>
-                      ) : (
-                        <span style={{ color: '#94a3b8', fontSize: '0.68rem' }}>
-                          Empty
-                        </span>
-                      )}
-                    </div>
-                  </div>
-                );
-              }}
-              renderDetail={selectedStatement => renderStatementBlock(selectedStatement)}
-            />
+            renderStatementBlock(currentStatement)
           )}
 
           {stepMode && (

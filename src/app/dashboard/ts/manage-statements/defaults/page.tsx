@@ -3,7 +3,7 @@
 import { useState, useEffect, useMemo, useCallback } from 'react';
 import Header from '@/components/layout/Header';
 import Link from 'next/link';
-import { getStandardColumnDecimals } from '@/lib/calculations';
+import { getStandardColumnDecimals, cleanStatementLabel } from '@/lib/calculations';
 import { useConfirm } from '@/context/ConfirmContext';
 
 export interface STGColumnDef {
@@ -25,6 +25,9 @@ export interface STGMasterDef {
   is_split?: boolean;
   default_rows?: any[];
   rows?: any[];
+  custom_columns?: STGColumnDef[];
+  sort_order?: number;
+  is_active?: boolean;
 }
 
 export interface STGRowData {
@@ -35,6 +38,7 @@ export interface STGRowData {
 export default function STGDefaultFormulationsPage() {
   const { confirm, showWarning } = useConfirm();
   const [columns, setColumns] = useState<STGColumnDef[]>([]);
+  const [defaultColumns, setDefaultColumns] = useState<STGColumnDef[]>([]);
   const [masters, setMasters] = useState<STGMasterDef[]>([]);
   const [templates, setTemplates] = useState<Record<string, STGRowData[]>>({});
 
@@ -62,6 +66,16 @@ export default function STGDefaultFormulationsPage() {
   const [formColUnit, setFormColUnit] = useState<string>('');
   const [formColDecimals, setFormColDecimals] = useState<number | undefined>(undefined);
 
+  // Modal State for Creating a Brand New Statement Master Template
+  const [isNewMasterModalOpen, setIsNewMasterModalOpen] = useState<boolean>(false);
+  const [newMasterName, setNewMasterName] = useState<string>('');
+  const [newMasterKey, setNewMasterKey] = useState<string>('');
+  const [newMasterKeyManuallyEdited, setNewMasterKeyManuallyEdited] = useState<boolean>(false);
+  const [newMasterVariant, setNewMasterVariant] = useState<string>('');
+  const [newMasterDescription, setNewMasterDescription] = useState<string>('');
+  const [newMasterSource, setNewMasterSource] = useState<string>('blank');
+  const [newMasterColsSource, setNewMasterColsSource] = useState<string>('default');
+
   // Fetch Configs & Templates from DB
   const loadData = useCallback(async () => {
     setLoading(true);
@@ -71,9 +85,12 @@ export default function STGDefaultFormulationsPage() {
         fetch('/api/ts/masters'),
       ]);
 
+      let loadedCols: STGColumnDef[] = [];
       if (colRes.ok) {
         const json = await colRes.json();
-        setColumns(json.columns || []);
+        loadedCols = json.columns || [];
+        setColumns(loadedCols);
+        setDefaultColumns(loadedCols);
       }
 
       if (masterRes.ok) {
@@ -96,6 +113,12 @@ export default function STGDefaultFormulationsPage() {
             ? activeMasterKey
             : loadedMasters[0].key;
           setActiveMasterKey(initialKey);
+          const initialMaster = loadedMasters.find(m => m.key === initialKey);
+          if (initialMaster?.custom_columns && initialMaster.custom_columns.length > 0) {
+            setColumns(initialMaster.custom_columns);
+          } else if (loadedCols.length > 0) {
+            setColumns(loadedCols);
+          }
           loadMasterDefaults(initialKey, loadedMasters, tmplMap);
         }
       }
@@ -119,6 +142,8 @@ export default function STGDefaultFormulationsPage() {
 
     if (existingTmpl && Array.isArray(existingTmpl) && existingTmpl.length > 0) {
       setRows(JSON.parse(JSON.stringify(existingTmpl)));
+    } else if (master?.default_rows && master.default_rows.length > 0) {
+      setRows(JSON.parse(JSON.stringify(master.default_rows)));
     } else {
       setRows([{ variant: '', values: {} }]);
     }
@@ -128,7 +153,105 @@ export default function STGDefaultFormulationsPage() {
 
   const handleSwitchMaster = (newKey: string) => {
     setActiveMasterKey(newKey);
+    const targetMaster = masters.find(m => m.key === newKey);
+    if (targetMaster && Array.isArray(targetMaster.custom_columns) && targetMaster.custom_columns.length > 0) {
+      setColumns(targetMaster.custom_columns);
+    } else if (defaultColumns.length > 0) {
+      setColumns(defaultColumns);
+    }
     loadMasterDefaults(newKey, masters, templates);
+  };
+
+  const handleOpenNewMasterModal = () => {
+    setNewMasterName('');
+    setNewMasterKey('');
+    setNewMasterKeyManuallyEdited(false);
+    setNewMasterVariant('');
+    setNewMasterDescription('');
+    setNewMasterSource('blank');
+    setNewMasterColsSource('default');
+    setIsNewMasterModalOpen(true);
+  };
+
+  const handleCreateNewMaster = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newMasterName.trim()) {
+      showToast('❌ Please enter a Statement Master Name');
+      return;
+    }
+
+    const cleanLabel = cleanStatementLabel(newMasterName.trim());
+    const keyToUse = newMasterKey.trim().toLowerCase().replace(/[^a-z0-9_]/g, '_') || cleanLabel.toLowerCase().replace(/[^a-z0-9_]/g, '_');
+
+    if (!keyToUse) {
+      showToast('❌ Please enter a valid Field Key');
+      return;
+    }
+
+    if (masters.some(m => m.key === keyToUse)) {
+      showToast(`❌ Master with key "${keyToUse}" already exists! Please use a unique Statement Master Name or key.`);
+      return;
+    }
+
+    // Determine initial formulation template rows
+    let initialRows: STGRowData[] = [];
+    if (newMasterSource === 'blank') {
+      initialRows = [{ variant: '', values: {} }];
+    } else {
+      const srcTmpl = templates[newMasterSource] || (masters.find(m => m.key === newMasterSource)?.default_rows) || [];
+      initialRows = JSON.parse(JSON.stringify(srcTmpl.length > 0 ? srcTmpl : [{ variant: '', values: {} }]));
+    }
+
+    // Determine configured columns
+    let initialCols: STGColumnDef[] = [];
+    if (newMasterColsSource === 'default') {
+      initialCols = JSON.parse(JSON.stringify(columns.length > 0 ? columns : defaultColumns));
+    } else {
+      const srcMaster = masters.find(m => m.key === newMasterColsSource);
+      const srcCols = srcMaster?.custom_columns || columns;
+      initialCols = JSON.parse(JSON.stringify(srcCols.length > 0 ? srcCols : defaultColumns));
+    }
+
+    const newMaster: STGMasterDef = {
+      key: keyToUse,
+      label: cleanLabel,
+      variant: newMasterVariant.trim().toUpperCase() || cleanLabel.split(' ')[0],
+      description: newMasterDescription.trim(),
+      sort_order: masters.length + 1,
+      default_rows: initialRows,
+      rows: initialRows.map(r => ({ variant: r.variant || r.values.variant || '', values: r.values })),
+      custom_columns: initialCols,
+    };
+
+    setSaving(true);
+    const updatedMasters = [...masters, newMaster];
+
+    try {
+      const res = await fetch('/api/ts/masters', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ masters: updatedMasters }),
+      });
+
+      if (res.ok) {
+        setMasters(updatedMasters);
+        setTemplates(prev => ({
+          ...prev,
+          [keyToUse]: initialRows,
+        }));
+        setIsNewMasterModalOpen(false);
+        setActiveMasterKey(keyToUse);
+        setRows(initialRows);
+        setColumns(initialCols);
+        showToast(`✅ Created new Statement Master "${newMaster.label}" with initial formulation template & configured columns!`);
+      } else {
+        showToast('❌ Failed to create statement master');
+      }
+    } catch (err) {
+      console.error('Error creating statement master:', err);
+      showToast('❌ Server error creating statement master');
+    }
+    setSaving(false);
   };
 
   const showToast = (msg: string) => {
@@ -633,6 +756,7 @@ export default function STGDefaultFormulationsPage() {
             ...m,
             default_rows: rows,
             rows: rows.map(r => ({ variant: r.variant || r.values.variant || '', values: r.values })),
+            custom_columns: columns,
           };
         }
         return m;
@@ -679,7 +803,15 @@ export default function STGDefaultFormulationsPage() {
         title="Master Default Formulation Tables"
         subtitle="Manage default batch formulation templates & pre-defined formulas inherited by daily STG entries"
         actions={
-          <div style={{ display: 'flex', gap: 10 }}>
+          <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+            <button
+              type="button"
+              className="btn btn-primary btn-sm"
+              onClick={handleOpenNewMasterModal}
+              style={{ fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: 6 }}
+            >
+              ➕ Create New Preparation Chart Master
+            </button>
             <Link href="/dashboard/ts/manage-statements/columns" className="btn btn-secondary btn-sm" style={{ color: '#0369a1', borderColor: '#bae6fd', background: '#f0f9ff', fontWeight: 700 }}>
               ⚙️ STG Column Configuration
             </Link>
@@ -715,8 +847,18 @@ export default function STGDefaultFormulationsPage() {
 
         {/* Master Selector Tabs Bar */}
         <div className="card" style={{ marginBottom: 12, padding: '12px 18px', flexShrink: 0 }}>
-          <div style={{ fontWeight: 700, fontSize: '0.85rem', color: 'var(--text-secondary)', marginBottom: 8 }}>
-            Select Statement Master Name:
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+            <div style={{ fontWeight: 700, fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
+              Select Statement Master Name:
+            </div>
+            <button
+              type="button"
+              className="btn btn-primary btn-sm"
+              onClick={handleOpenNewMasterModal}
+              style={{ fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: 6, padding: '4px 10px', fontSize: '0.8rem' }}
+            >
+              ➕ Create New Preparation Chart Master
+            </button>
           </div>
           {loading ? (
             <div style={{ color: 'var(--text-muted)', fontSize: '0.8rem' }}><span className="spinner" /> Loading statement masters...</div>
@@ -1402,6 +1544,160 @@ export default function STGDefaultFormulationsPage() {
               <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, paddingTop: 10, borderTop: '1px solid var(--border)' }}>
                 <button type="button" className="btn btn-secondary btn-sm" onClick={() => setIsColModalOpen(false)}>Cancel</button>
                 <button type="submit" className="btn btn-primary btn-sm">{colModalEditingKey ? '💾 Update Column' : '➕ Save Column'}</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+      {/* Create New Master Modal */}
+      {isNewMasterModalOpen && (
+        <div style={{
+          position: 'fixed',
+          inset: 0,
+          background: 'rgba(0,0,0,0.5)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          zIndex: 1000,
+          backdropFilter: 'blur(3px)',
+        }}>
+          <div className="card" style={{
+            background: 'var(--surface)',
+            borderRadius: 12,
+            border: '1px solid var(--border)',
+            boxShadow: '0 20px 25px -5px rgba(0,0,0,0.1), 0 8px 10px -6px rgba(0,0,0,0.1)',
+            width: '100%',
+            maxWidth: 580,
+            overflow: 'hidden',
+          }}>
+            <div style={{ padding: '16px 20px', background: '#fffbeb', borderBottom: '1px solid #fde68a', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div>
+                <div style={{ fontWeight: 800, fontSize: '1.05rem', color: '#b45309', display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <span>➕ Create New Preparation Chart Master</span>
+                </div>
+                <div style={{ fontSize: '0.75rem', color: '#78350f', marginTop: 2 }}>
+                  Set up a new statement formulation table with its own Initial Formulation Template and Configured Columns
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsNewMasterModalOpen(false)}
+                style={{ background: 'none', border: 'none', fontSize: '1.1rem', color: '#b45309', cursor: 'pointer' }}
+              >
+                ✕
+              </button>
+            </div>
+
+            <form onSubmit={handleCreateNewMaster} style={{ padding: 20, display: 'flex', flexDirection: 'column', gap: 14 }}>
+              <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 12 }}>
+                <div>
+                  <label className="form-label" style={{ fontWeight: 600 }}>Statement Master Name <span style={{ color: '#dc2626' }}>*</span></label>
+                  <input
+                    type="text"
+                    className="form-input"
+                    placeholder="e.g. TENTATIVE WHOLE MILK, CURD STATEMENT"
+                    value={newMasterName}
+                    onChange={e => {
+                      setNewMasterName(e.target.value);
+                      if (!newMasterKeyManuallyEdited) {
+                        setNewMasterKey(e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, '_'));
+                      }
+                    }}
+                    required
+                  />
+                </div>
+
+                <div>
+                  <label className="form-label" style={{ fontWeight: 600 }}>Product Variant <span style={{ color: '#dc2626' }}>*</span></label>
+                  <input
+                    type="text"
+                    className="form-input"
+                    placeholder="e.g. WHOLE MILK, FCM, STD"
+                    value={newMasterVariant}
+                    onChange={e => setNewMasterVariant(e.target.value)}
+                    required
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="form-label" style={{ fontWeight: 600 }}>Field Key <span style={{ color: '#dc2626' }}>*</span></label>
+                <input
+                  type="text"
+                  className="form-input"
+                  placeholder="e.g. tentative_whole_milk, curd_statement"
+                  value={newMasterKey}
+                  onChange={e => {
+                    setNewMasterKey(e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, '_'));
+                    setNewMasterKeyManuallyEdited(true);
+                  }}
+                  required
+                  style={{ fontFamily: 'monospace', fontWeight: 600 }}
+                />
+                <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: 3 }}>
+                  Unique identifier used in database storage (lowercase letters, numbers, underscores)
+                </div>
+              </div>
+
+              <div>
+                <label className="form-label" style={{ fontWeight: 600 }}>Initial Formulation Template</label>
+                <select
+                  className="form-select"
+                  value={newMasterSource}
+                  onChange={e => setNewMasterSource(e.target.value)}
+                >
+                  <option value="blank">✨ Clean empty table (1 empty particular row)</option>
+                  {masters.map(m => (
+                    <option key={`new_src_${m.key}`} value={m.key}>
+                      📋 Copy initial formulation from "{m.label}" ({m.variant || 'DEFAULT'})
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="form-label" style={{ fontWeight: 600 }}>Configured Preparation Chart Columns</label>
+                <select
+                  className="form-select"
+                  value={newMasterColsSource}
+                  onChange={e => setNewMasterColsSource(e.target.value)}
+                >
+                  <option value="default">✨ Use standard columns (VARIANT, QTY (LTS), SP.GR, QTY (KG), FAT (%), SNF (%), KG FAT, KG SNF)</option>
+                  {masters.map(m => (
+                    <option key={`new_cols_src_${m.key}`} value={m.key}>
+                      📊 Copy configured columns from "{m.label}"
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="form-label" style={{ fontWeight: 600 }}>Description (Optional)</label>
+                <input
+                  type="text"
+                  className="form-input"
+                  placeholder="e.g. Formulation and receipt/disposal details for this statement"
+                  value={newMasterDescription}
+                  onChange={e => setNewMasterDescription(e.target.value)}
+                />
+              </div>
+
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, paddingTop: 12, borderTop: '1px solid var(--border)' }}>
+                <button
+                  type="button"
+                  className="btn btn-secondary btn-sm"
+                  onClick={() => setIsNewMasterModalOpen(false)}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="btn btn-primary btn-sm"
+                  disabled={saving}
+                  style={{ background: '#b45309', borderColor: '#b45309', fontWeight: 700 }}
+                >
+                  {saving ? 'Creating Master...' : '➕ Create Master Template'}
+                </button>
               </div>
             </form>
           </div>
