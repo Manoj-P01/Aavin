@@ -92,6 +92,19 @@ export default function MasterDefaultStockStatementPage() {
   const [selectedCell, setSelectedCell] = useState<SelectedCellInfo | null>(null);
   const [focusedCell, setFocusedCell] = useState<{ rowType: StatementRowType; rowIndex?: number; colKey: string } | null>(null);
   const [isColEditing, setIsColEditing] = useState<boolean>(false);
+  const [viewDecimals, setViewDecimals] = useState<number | 'auto'>('auto');
+
+  const formatDisplayVal = (val: number | string, decimals: number | 'auto'): string => {
+    if (val === '' || val === undefined || val === null) {
+      return decimals === 'auto' ? '0.00' : decimals === 0 ? '0' : (0).toFixed(decimals);
+    }
+    const num = typeof val === 'number' ? val : parseFloat(val);
+    if (isNaN(num)) return typeof val === 'string' ? val : '0';
+    if (decimals === 'auto') {
+      return num.toFixed(2);
+    }
+    return num.toFixed(decimals);
+  };
 
   // Modal State for Save As Separate Master Template
   const [isSaveAsModalOpen, setIsSaveAsModalOpen] = useState<boolean>(false);
@@ -600,7 +613,7 @@ export default function MasterDefaultStockStatementPage() {
       address: excelAddress,
       colLabel: colDef ? colDef.label : colKey,
       rowLabel,
-      value: calcVal !== 0 ? calcVal.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : (rawVal || '0.00'),
+      value: calcVal !== 0 ? formatDisplayVal(calcVal, viewDecimals) : (rawVal || formatDisplayVal(0, viewDecimals)),
       formulaText: rawVal || '',
     };
   }, [
@@ -612,6 +625,7 @@ export default function MasterDefaultStockStatementPage() {
     productColumns,
     summaryFormulas,
     calculatedRows,
+    viewDecimals,
     getDefaultTotalReceiptsFormula,
     getDefaultTotalAvailableFormula,
     getDefaultTotalDisposalsFormula,
@@ -1367,6 +1381,56 @@ export default function MasterDefaultStockStatementPage() {
               >
                 ➕ Add Disposal Row
               </button>
+
+              {/* Decimal Precision View Selector */}
+              <div
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  backgroundColor: '#ffffff',
+                  border: '1px solid #cbd5e1',
+                  borderRadius: 6,
+                  padding: '2px 4px',
+                  gap: 2,
+                  marginLeft: 4,
+                  boxShadow: '0 1px 2px rgba(0,0,0,0.04)',
+                }}
+                title="Toggle decimal precision across all template cells and totals"
+              >
+                <span style={{ fontSize: '0.7rem', fontWeight: 700, color: '#475569', padding: '0 4px', display: 'flex', alignItems: 'center', gap: 3 }}>
+                  🔢 View:
+                </span>
+                {([
+                  { key: 'auto', label: 'Auto' },
+                  { key: 0, label: '.0 Whole' },
+                  { key: 1, label: '.1 Dec' },
+                  { key: 2, label: '.2 Decs' },
+                  { key: 3, label: '.3 Decs' },
+                ] as const).map(opt => {
+                  const active = viewDecimals === opt.key;
+                  return (
+                    <button
+                      key={String(opt.key)}
+                      type="button"
+                      onClick={() => setViewDecimals(opt.key)}
+                      style={{
+                        border: active ? '1px solid #0284c7' : '1px solid transparent',
+                        borderRadius: 4,
+                        padding: '3px 8px',
+                        fontSize: '0.74rem',
+                        fontWeight: active ? 700 : 500,
+                        backgroundColor: active ? '#0284c7' : 'transparent',
+                        color: active ? '#ffffff' : '#64748b',
+                        cursor: 'pointer',
+                        boxShadow: active ? '0 1px 2px rgba(2,132,199,0.2)' : 'none',
+                        transition: 'all 0.15s ease',
+                      }}
+                    >
+                      {opt.label}
+                    </button>
+                  );
+                })}
+              </div>
             </div>
           </div>
 
@@ -1589,8 +1653,8 @@ export default function MasterDefaultStockStatementPage() {
                         const displayVal = isFocused
                           ? rawVal
                           : isFormula
-                            ? (computedVal !== 0 ? computedVal.toFixed(2) : '0.00')
-                            : (rawVal !== '' && !isNaN(parseFloat(rawVal)) ? parseFloat(rawVal).toFixed(2) : (rawVal || '0.00'));
+                            ? (computedVal !== 0 ? formatDisplayVal(computedVal, viewDecimals) : formatDisplayVal(0, viewDecimals))
+                            : (rawVal !== '' && !isNaN(parseFloat(rawVal)) ? formatDisplayVal(parseFloat(rawVal), viewDecimals) : (rawVal || formatDisplayVal(0, viewDecimals)));
 
                         return (
                           <td
@@ -1644,14 +1708,14 @@ export default function MasterDefaultStockStatementPage() {
                                 fontFamily: 'var(--font-numbers)',
                                 outline: 'none',
                               }}
-                              placeholder="0.00"
+                              placeholder={formatDisplayVal(0, viewDecimals)}
                             />
                           </td>
                         );
                       })}
 
                       <td style={{ textAlign: 'right', padding: '6px 12px', fontWeight: 800, color: '#0369a1', background: '#e0f2fe' }}>
-                        {getHorizontalSum(calculatedRows.obValues).toFixed(2)}
+                        {formatDisplayVal(getHorizontalSum(calculatedRows.obValues), viewDecimals)}
                       </td>
                       <td style={{ textAlign: 'center', padding: '4px' }}>
                         <button
@@ -1740,8 +1804,8 @@ export default function MasterDefaultStockStatementPage() {
                           const displayVal = isFocused
                             ? rawVal
                             : isFormula
-                              ? (computedVal !== 0 ? computedVal.toFixed(2) : '0.00')
-                              : (rawVal !== '' && !isNaN(parseFloat(rawVal)) ? parseFloat(rawVal).toFixed(2) : (rawVal || '0.00'));
+                              ? (computedVal !== 0 ? formatDisplayVal(computedVal, viewDecimals) : formatDisplayVal(0, viewDecimals))
+                              : (rawVal !== '' && !isNaN(parseFloat(rawVal)) ? formatDisplayVal(parseFloat(rawVal), viewDecimals) : (rawVal || formatDisplayVal(0, viewDecimals)));
 
                           return (
                             <td
@@ -1795,14 +1859,14 @@ export default function MasterDefaultStockStatementPage() {
                                   fontFamily: 'var(--font-numbers)',
                                   outline: 'none',
                                 }}
-                                placeholder="0.00"
+                                placeholder={formatDisplayVal(0, viewDecimals)}
                               />
                             </td>
                           );
                         })}
 
                         <td style={{ textAlign: 'right', padding: '6px 12px', fontWeight: 700, color: '#166534', background: '#f0fdf4' }}>
-                          {getHorizontalSum(calculatedRows.receiptValues[rIdx] || {}).toFixed(2)}
+                          {formatDisplayVal(getHorizontalSum(calculatedRows.receiptValues[rIdx] || {}), viewDecimals)}
                         </td>
 
                         <td style={{ textAlign: 'center', padding: '4px' }}>
@@ -1866,7 +1930,7 @@ export default function MasterDefaultStockStatementPage() {
                       const computedVal = calculatedRows.totalReceiptsValues[col.key] || 0;
                       const displayVal = isFocused
                         ? rawVal
-                        : (computedVal !== 0 ? computedVal.toFixed(2) : '0.00');
+                        : (computedVal !== 0 ? formatDisplayVal(computedVal, viewDecimals) : formatDisplayVal(0, viewDecimals));
 
                       return (
                         <td
@@ -1923,7 +1987,7 @@ export default function MasterDefaultStockStatementPage() {
                       );
                     })}
                     <td style={{ textAlign: 'right', padding: '6px 12px', color: '#166534', background: '#bbf7d0', fontWeight: 800 }}>
-                      {getHorizontalSum(calculatedRows.totalReceiptsValues).toFixed(2)}
+                      {formatDisplayVal(getHorizontalSum(calculatedRows.totalReceiptsValues), viewDecimals)}
                     </td>
                     <td style={{ textAlign: 'center', padding: '4px' }}>
                       <button
@@ -1958,7 +2022,7 @@ export default function MasterDefaultStockStatementPage() {
                       const computedVal = calculatedRows.totalAvailableValues[col.key] || 0;
                       const displayVal = isFocused
                         ? rawVal
-                        : (computedVal !== 0 ? computedVal.toFixed(2) : '0.00');
+                        : (computedVal !== 0 ? formatDisplayVal(computedVal, viewDecimals) : formatDisplayVal(0, viewDecimals));
 
                       return (
                         <td
@@ -2015,7 +2079,7 @@ export default function MasterDefaultStockStatementPage() {
                       );
                     })}
                     <td style={{ textAlign: 'right', padding: '6px 12px', color: '#14532d', background: '#86efac', fontWeight: 800 }}>
-                      {getHorizontalSum(calculatedRows.totalAvailableValues).toFixed(2)}
+                      {formatDisplayVal(getHorizontalSum(calculatedRows.totalAvailableValues), viewDecimals)}
                     </td>
                     <td style={{ textAlign: 'center', padding: '4px' }}>
                       <button
@@ -2103,8 +2167,8 @@ export default function MasterDefaultStockStatementPage() {
                           const displayVal = isFocused
                             ? rawVal
                             : isFormula
-                              ? (computedVal !== 0 ? computedVal.toFixed(2) : '0.00')
-                              : (rawVal !== '' && !isNaN(parseFloat(rawVal)) ? parseFloat(rawVal).toFixed(2) : (rawVal || '0.00'));
+                              ? (computedVal !== 0 ? formatDisplayVal(computedVal, viewDecimals) : formatDisplayVal(0, viewDecimals))
+                              : (rawVal !== '' && !isNaN(parseFloat(rawVal)) ? formatDisplayVal(parseFloat(rawVal), viewDecimals) : (rawVal || formatDisplayVal(0, viewDecimals)));
 
                           return (
                             <td
@@ -2158,14 +2222,14 @@ export default function MasterDefaultStockStatementPage() {
                                   fontFamily: 'var(--font-numbers)',
                                   outline: 'none',
                                 }}
-                                placeholder="0.00"
+                                placeholder={formatDisplayVal(0, viewDecimals)}
                               />
                             </td>
                           );
                         })}
 
                         <td style={{ textAlign: 'right', padding: '6px 12px', fontWeight: 700, color: '#c2410c', background: '#fff7ed' }}>
-                          {getHorizontalSum(calculatedRows.disposalValues[dIdx] || {}).toFixed(2)}
+                          {formatDisplayVal(getHorizontalSum(calculatedRows.disposalValues[dIdx] || {}), viewDecimals)}
                         </td>
 
                         <td style={{ textAlign: 'center', padding: '4px' }}>
@@ -2229,7 +2293,7 @@ export default function MasterDefaultStockStatementPage() {
                       const computedVal = calculatedRows.totalDisposalsValues[col.key] || 0;
                       const displayVal = isFocused
                         ? rawVal
-                        : (computedVal !== 0 ? computedVal.toFixed(2) : '0.00');
+                        : (computedVal !== 0 ? formatDisplayVal(computedVal, viewDecimals) : formatDisplayVal(0, viewDecimals));
 
                       return (
                         <td
@@ -2286,7 +2350,7 @@ export default function MasterDefaultStockStatementPage() {
                       );
                     })}
                     <td style={{ textAlign: 'right', padding: '6px 12px', color: '#9a3412', background: '#fed7aa', fontWeight: 800 }}>
-                      {getHorizontalSum(calculatedRows.totalDisposalsValues).toFixed(2)}
+                      {formatDisplayVal(getHorizontalSum(calculatedRows.totalDisposalsValues), viewDecimals)}
                     </td>
                     <td style={{ textAlign: 'center', padding: '4px' }}>
                       <button
@@ -2321,7 +2385,7 @@ export default function MasterDefaultStockStatementPage() {
                       const computedVal = calculatedRows.closingBalanceValues[col.key] || 0;
                       const displayVal = isFocused
                         ? rawVal
-                        : (computedVal !== 0 ? computedVal.toFixed(2) : '0.00');
+                        : (computedVal !== 0 ? formatDisplayVal(computedVal, viewDecimals) : formatDisplayVal(0, viewDecimals));
 
                       return (
                         <td
@@ -2378,7 +2442,7 @@ export default function MasterDefaultStockStatementPage() {
                       );
                     })}
                     <td style={{ textAlign: 'right', padding: '8px 12px', color: '#5b21b6', background: '#ede9fe', fontWeight: 900 }}>
-                      {getHorizontalSum(calculatedRows.closingBalanceValues).toFixed(2)}
+                      {formatDisplayVal(getHorizontalSum(calculatedRows.closingBalanceValues), viewDecimals)}
                     </td>
                     <td style={{ textAlign: 'center', padding: '4px' }}>
                       <button

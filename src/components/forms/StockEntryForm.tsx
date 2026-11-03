@@ -145,6 +145,28 @@ export default function StockEntryForm({
   }, []);
   // Active/focused cursor row tracking and keyboard navigation
   const [focusedRowIdx, setFocusedRowIdx] = useState<number | null>(null);
+  const [focusedColKey, setFocusedColKey] = useState<string | null>(null);
+  const [viewDecimals, setViewDecimals] = useState<number | 'auto'>('auto');
+
+  const formatCellVal = (rawVal: string | undefined, decimals: number | 'auto'): string => {
+    if (rawVal === undefined || rawVal === null || rawVal.trim() === '') return '';
+    const num = parseFloat(rawVal);
+    if (isNaN(num)) return rawVal;
+    if (decimals === 'auto') return rawVal;
+    return num.toFixed(decimals);
+  };
+
+  const formatSummaryVal = (val: number, decimals: number | 'auto'): string => {
+    if (isNaN(val)) return '0';
+    if (val === 0) return decimals === 'auto' ? '0' : (0).toFixed(decimals);
+    if (decimals === 'auto') {
+      return val.toLocaleString('en-IN', { maximumFractionDigits: 3 });
+    }
+    return val.toLocaleString('en-IN', {
+      minimumFractionDigits: decimals,
+      maximumFractionDigits: decimals,
+    });
+  };
 
   const handleTableKeyDown = (
     e: React.KeyboardEvent<HTMLInputElement>,
@@ -1876,17 +1898,28 @@ export default function StockEntryForm({
                         (internalRules.length === 0 && col.key === 'dlt_milk')
                       );
                       const isReadOnly = (isBalanceSection && !obUnlocked) || (isMappedReceiptCell && !receiptsUnlocked);
+                      const isCellFocused = focusedRowIdx === i && focusedColKey === col.key;
+                      const displayVal = isCellFocused
+                        ? (r.values[col.key] || '')
+                        : formatCellVal(r.values[col.key], viewDecimals);
 
                       return (
                         <td key={col.key}>
                           <input
                             id={`stock-input-${i}-${col.key}`}
-                            type="number"
+                            type={isCellFocused ? 'number' : (viewDecimals === 'auto' ? 'number' : 'text')}
                             step="any"
+                            inputMode="decimal"
                             placeholder="0"
-                            value={r.values[col.key] || ''}
+                            value={displayVal}
                             onChange={e => updateCell(i, col.key, e.target.value)}
-                            onFocus={() => setFocusedRowIdx(i)}
+                            onFocus={() => {
+                              setFocusedRowIdx(i);
+                              setFocusedColKey(col.key);
+                            }}
+                            onBlur={() => {
+                              setFocusedColKey(prev => (prev === col.key ? null : prev));
+                            }}
                             onKeyDown={e => handleTableKeyDown(e, i, col.key)}
                             title={isMappedReceiptCell ? (receiptsUnlocked ? 'Unlocked for manual edit' : 'Auto-calculated from Disposals row total. Click ✏️ Edit Mapped Receipts to unlock.') : undefined}
                             style={{
@@ -1907,7 +1940,7 @@ export default function StockEntryForm({
                         type="text"
                         value={(() => {
                           const total = columns.reduce((sum, col) => sum + (parseFloat(r.values[col.key] || '0') || 0), 0);
-                          return total === 0 ? '' : total.toLocaleString('en-IN', { maximumFractionDigits: 3 });
+                          return total === 0 ? '' : formatSummaryVal(total, viewDecimals);
                         })()}
                         disabled
                         style={{
@@ -1984,14 +2017,14 @@ export default function StockEntryForm({
                   const val = getSectionSum('OB', col.key);
                   return (
                     <td key={col.key} style={{ textAlign: 'center', fontSize: '0.8rem', padding: '8px 4px', fontFamily: 'var(--font-numbers)' }}>
-                      {val === 0 ? '0' : val.toLocaleString('en-IN', { maximumFractionDigits: 3 })}
+                      {formatSummaryVal(val, viewDecimals)}
                     </td>
                   );
                 })}
                 <td style={{ textAlign: 'center', fontSize: '0.8rem', padding: '8px 4px', fontFamily: 'var(--font-numbers)', fontWeight: 700 }}>
                   {(() => {
                     const rowSum = columns.reduce((sum, col) => sum + getSectionSum('OB', col.key), 0);
-                    return rowSum === 0 ? '0' : rowSum.toLocaleString('en-IN', { maximumFractionDigits: 3 });
+                    return formatSummaryVal(rowSum, viewDecimals);
                   })()}
                 </td>
                 <td></td>
@@ -2003,14 +2036,14 @@ export default function StockEntryForm({
                   const val = getSectionSum('RECEIPT', col.key);
                   return (
                     <td key={col.key} style={{ textAlign: 'center', fontSize: '0.8rem', padding: '8px 4px', fontFamily: 'var(--font-numbers)' }}>
-                      {val === 0 ? '0' : val.toLocaleString('en-IN', { maximumFractionDigits: 3 })}
+                      {formatSummaryVal(val, viewDecimals)}
                     </td>
                   );
                 })}
                 <td style={{ textAlign: 'center', fontSize: '0.8rem', padding: '8px 4px', fontFamily: 'var(--font-numbers)', fontWeight: 700 }}>
                   {(() => {
                     const rowSum = columns.reduce((sum, col) => sum + getSectionSum('RECEIPT', col.key), 0);
-                    return rowSum === 0 ? '0' : rowSum.toLocaleString('en-IN', { maximumFractionDigits: 3 });
+                    return formatSummaryVal(rowSum, viewDecimals);
                   })()}
                 </td>
                 <td></td>
@@ -2024,14 +2057,14 @@ export default function StockEntryForm({
                   const val = obVal + recVal;
                   return (
                     <td key={col.key} style={{ textAlign: 'center', fontSize: '0.8rem', fontWeight: 700, padding: '8px 4px', fontFamily: 'var(--font-numbers)' }}>
-                      {val === 0 ? '0' : val.toLocaleString('en-IN', { maximumFractionDigits: 3 })}
+                      {formatSummaryVal(val, viewDecimals)}
                     </td>
                   );
                 })}
                 <td style={{ textAlign: 'center', fontSize: '0.8rem', padding: '8px 4px', fontFamily: 'var(--font-numbers)', fontWeight: 700 }}>
                   {(() => {
                     const rowSum = columns.reduce((sum, col) => sum + (getSectionSum('OB', col.key) + getSectionSum('RECEIPT', col.key)), 0);
-                    return rowSum === 0 ? '0' : rowSum.toLocaleString('en-IN', { maximumFractionDigits: 3 });
+                    return formatSummaryVal(rowSum, viewDecimals);
                   })()}
                 </td>
                 <td></td>
@@ -2043,14 +2076,14 @@ export default function StockEntryForm({
                   const val = getSectionSum('DISPOSAL', col.key);
                   return (
                     <td key={col.key} style={{ textAlign: 'center', fontSize: '0.8rem', padding: '8px 4px', fontFamily: 'var(--font-numbers)' }}>
-                      {val === 0 ? '0' : val.toLocaleString('en-IN', { maximumFractionDigits: 3 })}
+                      {formatSummaryVal(val, viewDecimals)}
                     </td>
                   );
                 })}
                 <td style={{ textAlign: 'center', fontSize: '0.8rem', padding: '8px 4px', fontFamily: 'var(--font-numbers)', fontWeight: 700 }}>
                   {(() => {
                     const rowSum = columns.reduce((sum, col) => sum + getSectionSum('DISPOSAL', col.key), 0);
-                    return rowSum === 0 ? '0' : rowSum.toLocaleString('en-IN', { maximumFractionDigits: 3 });
+                    return formatSummaryVal(rowSum, viewDecimals);
                   })()}
                 </td>
                 <td></td>
@@ -2065,7 +2098,7 @@ export default function StockEntryForm({
                   const val = obVal + recVal - dispVal;
                   return (
                     <td key={col.key} style={{ textAlign: 'center', fontSize: '0.8rem', fontWeight: 700, padding: '8px 4px', color: val < 0 ? '#ef4444' : 'inherit', fontFamily: 'var(--font-numbers)' }}>
-                      {val === 0 ? '0' : val.toLocaleString('en-IN', { maximumFractionDigits: 3 })}
+                      {formatSummaryVal(val, viewDecimals)}
                     </td>
                   );
                 })}
@@ -2077,7 +2110,7 @@ export default function StockEntryForm({
                       const dispVal = getSectionSum('DISPOSAL', col.key);
                       return sum + (obVal + recVal - dispVal);
                     }, 0);
-                    return rowSum === 0 ? '0' : rowSum.toLocaleString('en-IN', { maximumFractionDigits: 3 });
+                    return formatSummaryVal(rowSum, viewDecimals);
                   })()}
                 </td>
                 <td></td>
@@ -2515,6 +2548,55 @@ export default function StockEntryForm({
                 >
                   📥 Excel
                 </button>
+
+                {/* Decimal View Precision Selector */}
+                <div
+                  style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    backgroundColor: '#f8fafc',
+                    border: '1px solid #cbd5e1',
+                    borderRadius: 6,
+                    padding: '2px 4px',
+                    gap: 2,
+                    marginLeft: 4,
+                  }}
+                  title="Toggle decimal precision across all cells and totals in the statement"
+                >
+                  <span style={{ fontSize: '0.7rem', fontWeight: 700, color: '#475569', padding: '0 4px', display: 'flex', alignItems: 'center', gap: 3 }}>
+                    🔢 View:
+                  </span>
+                  {([
+                    { key: 'auto', label: 'Auto' },
+                    { key: 0, label: '.0 Whole' },
+                    { key: 1, label: '.1 Dec' },
+                    { key: 2, label: '.2 Decs' },
+                    { key: 3, label: '.3 Decs' },
+                  ] as const).map(opt => {
+                    const active = viewDecimals === opt.key;
+                    return (
+                      <button
+                        key={String(opt.key)}
+                        type="button"
+                        onClick={() => setViewDecimals(opt.key)}
+                        style={{
+                          border: active ? '1px solid #0284c7' : '1px solid transparent',
+                          borderRadius: 4,
+                          padding: '2px 7px',
+                          fontSize: '0.72rem',
+                          fontWeight: active ? 700 : 500,
+                          backgroundColor: active ? '#0284c7' : 'transparent',
+                          color: active ? '#ffffff' : '#64748b',
+                          cursor: 'pointer',
+                          boxShadow: active ? '0 1px 2px rgba(2,132,199,0.2)' : 'none',
+                          transition: 'all 0.15s ease',
+                        }}
+                      >
+                        {opt.label}
+                      </button>
+                    );
+                  })}
+                </div>
               </div>
             </div>
             <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
