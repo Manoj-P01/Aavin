@@ -35,13 +35,12 @@ export async function GET(req: NextRequest) {
         if (Array.isArray(entryJson.rows) && entryJson.rows.length > 0) {
           entryJson.rows.forEach((inner: any, iIdx: number) => {
             unpackedRows.push({
-              id: r.id,
+              id: `${r.id}_${iIdx}`,
               entry_id: r.entry_id,
               row_type: inner.row_type || r.row_type,
               row_label: inner.row_label || r.row_label,
               values: inner.values || {},
               sort_order: inner.sort_order ?? (r.sort_order * 100 + iIdx),
-              entry_json: r.entry_json,
               ...(inner.values || {}),
             });
           });
@@ -126,13 +125,12 @@ export async function GET(req: NextRequest) {
       if (Array.isArray(entryJson.rows) && entryJson.rows.length > 0) {
         entryJson.rows.forEach((inner: any, iIdx: number) => {
           unpackedRows.push({
-            id: r.id,
+            id: `${r.id}_${iIdx}`,
             entry_id: r.entry_id,
             row_type: inner.row_type || r.row_type,
             row_label: inner.row_label || r.row_label,
             values: inner.values || {},
             sort_order: inner.sort_order ?? (r.sort_order * 100 + iIdx),
-            entry_json: r.entry_json,
             ...(inner.values || {}),
           });
         });
@@ -284,10 +282,18 @@ export async function POST(req: NextRequest) {
         updated_by: actorUsername,
       };
 
-      // Set section column totals on the traditional numeric columns
+      // Standard physical numeric columns in Postgres stock_rows table
+      const STANDARD_STOCK_DB_COLS = new Set([
+        'wh_milk', 'dlt_milk', 'fc_milk', 'std_milk', 'toned_curd', 'dtm', 'skim_milk', 'cream', 'butter_milk', 'r_con', 'smp', 'water'
+      ]);
+
+      // Set section column totals ONLY on actual physical numeric columns of stock_rows
       finalCols.forEach(colKey => {
-        const sumVal = innerRows.reduce((acc, row) => acc + (row.values[colKey] || 0), 0);
-        sectionObj[colKey] = sumVal;
+        const normKey = colKey.trim().replace(/\.+/g, '_').replace(/_+/g, '_').toLowerCase();
+        if (STANDARD_STOCK_DB_COLS.has(normKey)) {
+          const sumVal = innerRows.reduce((acc, row) => acc + (row.values[normKey] || row.values[colKey] || 0), 0);
+          sectionObj[normKey] = sumVal;
+        }
       });
 
       rowsToInsert.push(sectionObj);
@@ -304,17 +310,17 @@ export async function POST(req: NextRequest) {
           const targetNorm = colKey.toLowerCase().replace(/[^a-z0-9]/g, '');
           let numVal = 0;
 
-          if (s[colKey] !== undefined && s[colKey] !== null && s[colKey] !== '') {
+          if (s.summary_data?.[colKey] !== undefined && s.summary_data?.[colKey] !== null) {
+            const num = typeof s.summary_data[colKey] === 'number' ? s.summary_data[colKey] : parseFloat(String(s.summary_data[colKey]));
+            if (!isNaN(num)) numVal = num;
+          } else if (s.summary_data?.[normKey] !== undefined && s.summary_data?.[normKey] !== null) {
+            const num = typeof s.summary_data[normKey] === 'number' ? s.summary_data[normKey] : parseFloat(String(s.summary_data[normKey]));
+            if (!isNaN(num)) numVal = num;
+          } else if (s[colKey] !== undefined && s[colKey] !== null && s[colKey] !== '') {
             const num = typeof s[colKey] === 'number' ? s[colKey] : parseFloat(String(s[colKey]));
             if (!isNaN(num)) numVal = num;
           } else if (s[normKey] !== undefined && s[normKey] !== null && s[normKey] !== '') {
             const num = typeof s[normKey] === 'number' ? s[normKey] : parseFloat(String(s[normKey]));
-            if (!isNaN(num)) numVal = num;
-          } else if (summaryDataObj[colKey] !== undefined && summaryDataObj[colKey] !== null) {
-            const num = typeof summaryDataObj[colKey] === 'number' ? summaryDataObj[colKey] : parseFloat(String(summaryDataObj[colKey]));
-            if (!isNaN(num)) numVal = num;
-          } else if (summaryDataObj[normKey] !== undefined && summaryDataObj[normKey] !== null) {
-            const num = typeof summaryDataObj[normKey] === 'number' ? summaryDataObj[normKey] : parseFloat(String(summaryDataObj[normKey]));
             if (!isNaN(num)) numVal = num;
           } else if (targetNorm) {
             for (const [sk, sv] of Object.entries(s)) {
@@ -356,12 +362,20 @@ export async function POST(req: NextRequest) {
 
         (stock_rows || []).forEach((r: any) => {
           let numVal = 0;
-          if (r[colKey] !== undefined && r[colKey] !== null && r[colKey] !== '') {
+          if (r.values && (r.values[colKey] !== undefined || r.values[normKey] !== undefined)) {
+            const raw = r.values[colKey] ?? r.values[normKey];
+            const num = typeof raw === 'number' ? raw : parseFloat(String(raw));
+            if (!isNaN(num)) numVal = num;
+          } else if (r[colKey] !== undefined && r[colKey] !== null && r[colKey] !== '') {
             const num = typeof r[colKey] === 'number' ? r[colKey] : parseFloat(String(r[colKey]));
             if (!isNaN(num)) numVal = num;
+          } else if (r[normKey] !== undefined && r[normKey] !== null && r[normKey] !== '') {
+            const num = typeof r[normKey] === 'number' ? r[normKey] : parseFloat(String(r[normKey]));
+            if (!isNaN(num)) numVal = num;
           } else if (targetNorm) {
-            for (const [rk, rv] of Object.entries(r)) {
-              if (rv === undefined || rv === null || rv === '') continue;
+            const searchSource = r.values && Object.keys(r.values).length > 0 ? r.values : r;
+            for (const [rk, rv] of Object.entries(searchSource)) {
+              if (rv === undefined || rv === null || rv === '' || typeof rv === 'object') continue;
               if (rk.toLowerCase().replace(/[^a-z0-9]/g, '') === targetNorm) {
                 const num = typeof rv === 'number' ? rv : parseFloat(String(rv));
                 if (!isNaN(num)) {
@@ -406,31 +420,56 @@ export async function POST(req: NextRequest) {
     ]);
 
     if (rowsToInsert.length > 0) {
-      let currentRows = rowsToInsert;
-      let inserted = false;
-      let attempts = 0;
+      const STANDARD_STOCK_DB_COLS = new Set([
+        'wh_milk', 'dlt_milk', 'fc_milk', 'std_milk', 'toned_curd', 'dtm', 'skim_milk', 'cream', 'butter_milk', 'r_con', 'smp', 'water'
+      ]);
 
-      while (!inserted && attempts < 10) {
-        attempts++;
-        const { error: insertErr } = await supabase.from('stock_rows').insert(currentRows);
-        if (!insertErr) {
-          inserted = true;
-          break;
-        }
+      const { error: insertErr } = await supabase.from('stock_rows').insert(rowsToInsert);
 
-        const match = insertErr.message?.match(/Could not find the ['"]([^'"]+)['"] column of ['"]stock_rows['"]/i);
-        if (match && match[1]) {
-          const missingCol = match[1];
-          if (missingCol === 'entry_json') {
-            console.warn("⚠️ Column 'entry_json' does not exist on Postgres table stock_rows. Please run migration 014_stock_rows_entry_json.sql in your Supabase SQL editor: ALTER TABLE stock_rows ADD COLUMN IF NOT EXISTS entry_json jsonb DEFAULT '{}'::jsonb;");
-          } else {
-            console.warn(`Column '${missingCol}' does not exist on Postgres table stock_rows. Stripping column property and retrying insert...`);
-          }
-          currentRows = currentRows.map((r: any) => {
-            const copy = { ...r };
-            delete copy[missingCol];
-            return copy;
+      if (insertErr) {
+        const errMsg = String(insertErr.message || '').toLowerCase();
+        const isEntryJsonMissing = errMsg.includes('entry_json') || 
+                                   String((insertErr as any).details || '').toLowerCase().includes('entry_json') ||
+                                   String((insertErr as any).hint || '').toLowerCase().includes('entry_json');
+
+        if (isEntryJsonMissing) {
+          console.warn("⚠️ Column 'entry_json' does not exist on table 'stock_rows'. Falling back to saving individual stock rows directly. Please run migration 014_stock_rows_entry_json.sql in your Supabase SQL Editor: ALTER TABLE stock_rows ADD COLUMN IF NOT EXISTS entry_json jsonb DEFAULT '{}'::jsonb;");
+
+          const fallbackRows = (stock_rows || []).map((r: any, i: number) => {
+            const rowObj: any = {
+              entry_id,
+              row_type: r.row_type,
+              row_label: r.row_label,
+              sort_order: r.sort_order ?? i,
+              created_by: actorUsername,
+              updated_by: actorUsername,
+            };
+
+            finalCols.forEach(colKey => {
+              const normKey = colKey.trim().replace(/\.+/g, '_').replace(/_+/g, '_').toLowerCase();
+              if (STANDARD_STOCK_DB_COLS.has(normKey)) {
+                let numVal = 0;
+                if (r.values && (r.values[normKey] !== undefined || r.values[colKey] !== undefined)) {
+                  const raw = r.values[normKey] ?? r.values[colKey];
+                  const parsed = typeof raw === 'number' ? raw : parseFloat(String(raw));
+                  if (!isNaN(parsed) && parsed !== 0) numVal = parsed;
+                } else if (r[normKey] !== undefined || r[colKey] !== undefined) {
+                  const raw = r[normKey] ?? r[colKey];
+                  const parsed = typeof raw === 'number' ? raw : parseFloat(String(raw));
+                  if (!isNaN(parsed) && parsed !== 0) numVal = parsed;
+                }
+                rowObj[normKey] = numVal;
+              }
+            });
+
+            return rowObj;
           });
+
+          const { error: fallbackErr } = await supabase.from('stock_rows').insert(fallbackRows);
+          if (fallbackErr) {
+            console.error('Failed to insert fallback stock_rows in Supabase:', fallbackErr);
+            throw new Error(`Failed to insert stock rows: ${fallbackErr.message}`);
+          }
         } else {
           console.error('Failed to insert stock_rows in Supabase:', insertErr);
           throw new Error(`Failed to insert stock rows: ${insertErr.message}`);

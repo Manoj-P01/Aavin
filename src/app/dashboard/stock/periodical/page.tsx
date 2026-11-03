@@ -294,7 +294,8 @@ export default function PeriodicalSummaryReportPage() {
           const unpacked: any[] = [];
           rawPayload.forEach((r: any) => {
             const entryJson = typeof r.entry_json === 'string' ? JSON.parse(r.entry_json) : (r.entry_json || {});
-            if (Array.isArray(entryJson.rows) && entryJson.rows.length > 0) {
+            const isSectionParent = ['Opening Balance', 'Receipts', 'Disposals'].includes(r.row_label) && Array.isArray(entryJson?.rows);
+            if (isSectionParent && entryJson.rows.length > 0) {
               entryJson.rows.forEach((inner: any) => {
                 unpacked.push({
                   ...inner,

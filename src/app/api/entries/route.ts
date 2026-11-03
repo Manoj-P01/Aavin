@@ -118,13 +118,12 @@ export async function GET(req: NextRequest) {
           if (Array.isArray(entryJson.rows) && entryJson.rows.length > 0) {
             entryJson.rows.forEach((inner: any, iIdx: number) => {
               rowsMap[r.entry_id].push({
-                id: r.id,
+                id: `${r.id}_${iIdx}`,
                 entry_id: r.entry_id,
                 row_type: inner.row_type || r.row_type,
                 row_label: inner.row_label || r.row_label,
                 values: inner.values || {},
                 sort_order: inner.sort_order ?? (r.sort_order * 100 + iIdx),
-                entry_json: r.entry_json,
                 ...(inner.values || {}),
               });
             });

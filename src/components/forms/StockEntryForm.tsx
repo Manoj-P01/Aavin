@@ -618,16 +618,16 @@ export default function StockEntryForm({
           const effectiveDbRows: any[] = [];
           (dbRows || []).forEach((r: any) => {
             const entryJson = typeof r.entry_json === 'string' ? JSON.parse(r.entry_json) : (r.entry_json || {});
-            if (Array.isArray(entryJson.rows) && entryJson.rows.length > 0) {
+            const isSectionParent = ['Opening Balance', 'Receipts', 'Disposals'].includes(r.row_label) && Array.isArray(entryJson?.rows);
+            if (isSectionParent && entryJson.rows.length > 0) {
               entryJson.rows.forEach((inner: any, iIdx: number) => {
                 effectiveDbRows.push({
-                  id: r.id,
+                  id: `${r.id}_${iIdx}`,
                   entry_id: r.entry_id,
                   row_type: inner.row_type || r.row_type,
                   row_label: inner.row_label || r.row_label,
                   values: inner.values || {},
                   sort_order: inner.sort_order ?? (r.sort_order * 100 + iIdx),
-                  entry_json: r.entry_json,
                   ...(inner.values || {}),
                 });
               });
@@ -659,15 +659,16 @@ export default function StockEntryForm({
 
               let val = 0;
               const normKey = col.key.trim().replace(/\.+/g, '_').replace(/_+/g, '_').toLowerCase();
-              const direct = r[col.key] ?? r[normKey];
+              const direct = r.values?.[col.key] ?? r.values?.[normKey] ?? r[col.key] ?? r[normKey];
               if (direct !== undefined && direct !== null && direct !== '') {
                 const num = parseFloat(String(direct));
                 if (!isNaN(num)) val = num;
               }
 
               if (val === 0 && targetNorm) {
-                for (const [rk, rv] of Object.entries(r)) {
-                  if (rv === undefined || rv === null || rv === '') continue;
+                const searchSource = r.values && Object.keys(r.values).length > 0 ? { ...r, ...r.values } : r;
+                for (const [rk, rv] of Object.entries(searchSource)) {
+                  if (rv === undefined || rv === null || rv === '' || typeof rv === 'object') continue;
                   if (rk.toLowerCase().replace(/[^a-z0-9]/g, '') === targetNorm) {
                     const num = parseFloat(String(rv));
                     if (!isNaN(num)) {
@@ -680,7 +681,7 @@ export default function StockEntryForm({
 
               if (val === 0 && rowVals && targetNorm) {
                 for (const [ck, cv] of Object.entries(rowVals)) {
-                  if (cv === undefined || cv === null || cv === '') continue;
+                  if (cv === undefined || cv === null || cv === '' || typeof cv === 'object') continue;
                   if (ck.toLowerCase().replace(/[^a-z0-9]/g, '') === targetNorm) {
                     const num = parseFloat(String(cv));
                     if (!isNaN(num)) {
@@ -846,16 +847,16 @@ export default function StockEntryForm({
           const sortedDbRows: any[] = [];
           rawDbRows.forEach((r: any) => {
             const entryJson = typeof r.entry_json === 'string' ? JSON.parse(r.entry_json) : (r.entry_json || {});
-            if (Array.isArray(entryJson.rows) && entryJson.rows.length > 0) {
+            const isSectionParent = ['Opening Balance', 'Receipts', 'Disposals'].includes(r.row_label) && Array.isArray(entryJson?.rows);
+            if (isSectionParent && entryJson.rows.length > 0) {
               entryJson.rows.forEach((inner: any, iIdx: number) => {
                 sortedDbRows.push({
-                  id: r.id,
+                  id: `${r.id}_${iIdx}`,
                   entry_id: r.entry_id,
                   row_type: inner.row_type || r.row_type,
                   row_label: inner.row_label || r.row_label,
                   values: inner.values || {},
                   sort_order: inner.sort_order ?? (r.sort_order * 100 + iIdx),
-                  entry_json: r.entry_json,
                   ...(inner.values || {}),
                 });
               });
@@ -881,8 +882,8 @@ export default function StockEntryForm({
 
                 let foundVal = '';
 
-                // Direct exact lookup first
-                const directVal = dbRow[col.key] ?? dbRow[normKey];
+                // Direct exact lookup first (checking dbRow.values, then dbRow root properties)
+                const directVal = dbRow.values?.[col.key] ?? dbRow.values?.[normKey] ?? dbRow[col.key] ?? dbRow[normKey];
                 if (directVal !== undefined && directVal !== null && directVal !== '') {
                   const numVal = typeof directVal === 'number' ? directVal : parseFloat(String(directVal));
                   if (!isNaN(numVal) && numVal !== 0) {
@@ -892,8 +893,9 @@ export default function StockEntryForm({
 
                 // Generic alphanumeric normalized lookup
                 if (!foundVal && targetNorm) {
-                  for (const [rk, rv] of Object.entries(dbRow)) {
-                    if (rv === undefined || rv === null || rv === '') continue;
+                  const searchSource = dbRow.values && Object.keys(dbRow.values).length > 0 ? { ...dbRow, ...dbRow.values } : dbRow;
+                  for (const [rk, rv] of Object.entries(searchSource)) {
+                    if (rv === undefined || rv === null || rv === '' || typeof rv === 'object') continue;
                     if (rk.toLowerCase().replace(/[^a-z0-9]/g, '') === targetNorm) {
                       const numVal = typeof rv === 'number' ? rv : parseFloat(String(rv));
                       if (!isNaN(numVal) && numVal !== 0) {
@@ -907,7 +909,7 @@ export default function StockEntryForm({
                 // Custom metadata fallback check
                 if (!foundVal && customValsRow && targetNorm) {
                   for (const [ck, cv] of Object.entries(customValsRow)) {
-                    if (cv === undefined || cv === null || cv === '') continue;
+                    if (cv === undefined || cv === null || cv === '' || typeof cv === 'object') continue;
                     if (ck.toLowerCase().replace(/[^a-z0-9]/g, '') === targetNorm) {
                       const numVal = typeof cv === 'number' ? cv : parseFloat(String(cv));
                       if (!isNaN(numVal) && numVal !== 0) {
@@ -924,6 +926,15 @@ export default function StockEntryForm({
                   values[dotKey] = foundVal;
                 }
               });
+
+              // Merge any remaining explicit properties from dbRow.values
+              if (dbRow.values && typeof dbRow.values === 'object') {
+                Object.entries(dbRow.values).forEach(([colKey, val]) => {
+                  if (val !== undefined && val !== null && val !== '' && typeof val !== 'object') {
+                    values[colKey] = String(val);
+                  }
+                });
+              }
 
               if (customValsRow) {
                 Object.entries(customValsRow).forEach(([colKey, val]) => {
@@ -1578,7 +1589,7 @@ export default function StockEntryForm({
           row_type: r.row_type,
           row_label: r.row_label,
           sort_order: i,
-          values: r.values,
+          values: r.values || {},
         };
 
         columns.forEach(col => {
@@ -1595,7 +1606,7 @@ export default function StockEntryForm({
 
             if (numVal === 0 && targetNorm) {
               for (const [vk, vv] of Object.entries(r.values)) {
-                if (vv === undefined || vv === null || vv === '') continue;
+                if (vv === undefined || vv === null || vv === '' || typeof vv === 'object') continue;
                 if (vk.toLowerCase().replace(/[^a-z0-9]/g, '') === targetNorm) {
                   const parsed = typeof vv === 'number' ? vv : parseFloat(String(vv));
                   if (!isNaN(parsed) && parsed !== 0) {
@@ -1608,6 +1619,7 @@ export default function StockEntryForm({
           }
 
           rowObj[normKey] = numVal;
+          rowObj[col.key] = numVal;
         });
 
         return rowObj;

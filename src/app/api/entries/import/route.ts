@@ -377,7 +377,16 @@ export async function POST(req: NextRequest) {
           });
 
           if (rowsToInsert.length > 0) {
-            await supabase.from('stock_rows').insert(rowsToInsert);
+            const { error: insertErr } = await supabase.from('stock_rows').insert(rowsToInsert);
+            if (insertErr && String(insertErr.message || '').toLowerCase().includes('entry_json')) {
+              const fallbackRows = (stockRows || []).map((r: any, idx: number) => ({
+                entry_id: entryId,
+                row_type: r.row_type,
+                row_label: r.row_label,
+                sort_order: r.sort_order ?? idx,
+              }));
+              await supabase.from('stock_rows').insert(fallbackRows);
+            }
           }
         }
         importedCount++;
