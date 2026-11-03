@@ -15,6 +15,16 @@ interface ChartSidebarItem {
   description?: string;
 }
 
+interface FormMappingRow {
+  id: string;
+  sourceVariant: string;
+  sourceColKey: string;
+  targetRowLabel: string;
+  targetProductKey: string;
+  enabled: boolean;
+  description?: string;
+}
+
 export default function PrepToStockMappingsConfigPage() {
   const { confirm } = useConfirm();
   const [mappings, setMappings] = useState<PrepToStockMappingRule[]>([]);
@@ -32,19 +42,16 @@ export default function PrepToStockMappingsConfigPage() {
   const [saving, setSaving] = useState<boolean>(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
-  // Modal State for Adding / Editing a Mapping Rule
+  // Modal State for Adding / Editing Mapping Rules
   const [isRuleModalOpen, setIsRuleModalOpen] = useState<boolean>(false);
   const [editingRuleId, setEditingRuleId] = useState<string | null>(null);
 
-  // Form Fields inside Add/Edit Modal
+  // Form Master Scope (configured once at top)
   const [formSourceChartKey, setFormSourceChartKey] = useState<string>('*');
-  const [formSourceVariant, setFormSourceVariant] = useState<string>('');
-  const [formSourceColKey, setFormSourceColKey] = useState<string>('qty_lit');
   const [formTargetRowType, setFormTargetRowType] = useState<'RECEIPT' | 'DISPOSAL'>('RECEIPT');
-  const [formTargetRowLabel, setFormTargetRowLabel] = useState<string>('');
-  const [formTargetProductKey, setFormTargetProductKey] = useState<string>('');
-  const [formEnabled, setFormEnabled] = useState<boolean>(true);
-  const [formDescription, setFormDescription] = useState<string>('');
+
+  // Multi-Row Mappings inside of this Scope
+  const [formMappingRows, setFormMappingRows] = useState<FormMappingRow[]>([]);
 
   useEffect(() => {
     async function loadData() {
@@ -254,27 +261,154 @@ export default function PrepToStockMappingsConfigPage() {
     return getChartIngredients(formSourceChartKey);
   }, [formSourceChartKey, masters, templates, dbRawProducts]);
 
-  // Open modal to create a new rule
+  // Helper to find closest product match for a variant
+  const findBestProductMatch = (variant: string): string => {
+    if (!variant || productOptions.length === 0) return productOptions[0]?.key || '';
+    const vNorm = variant.toLowerCase().replace(/[\s._-]/g, '');
+    const exact = productOptions.find(p => {
+      const kNorm = p.key.toLowerCase().replace(/[\s._-]/g, '');
+      const lNorm = p.label.toLowerCase().replace(/[\s._-]/g, '');
+      return kNorm === vNorm || lNorm === vNorm;
+    });
+    if (exact) return exact.key;
+    const partial = productOptions.find(p => {
+      const kNorm = p.key.toLowerCase().replace(/[\s._-]/g, '');
+      const lNorm = p.label.toLowerCase().replace(/[\s._-]/g, '');
+      return kNorm.includes(vNorm) || vNorm.includes(kNorm) || lNorm.includes(vNorm) || vNorm.includes(lNorm);
+    });
+    return partial?.key || productOptions[0]?.key || '';
+  };
+
+  // Add a new row to formMappingRows
+  const handleAddMappingRow = (prefillVariant?: string) => {
+    const ingredients = getChartIngredients(formSourceChartKey);
+    const chosenVariant = prefillVariant || (ingredients.length > 0 ? ingredients[0] : '');
+    const defaultColKey = chartColumns.length > 0 ? (chartColumns.find(c => c.key === 'qty_lit')?.key || chartColumns[0].key) : 'qty_lit';
+    const availableRows = formTargetRowType === 'DISPOSAL' ? dbDisposalRows : dbReceiptRows;
+    const defaultRowLabel = availableRows.length > 0 ? availableRows[0] : '';
+    const defaultProdKey = findBestProductMatch(chosenVariant);
+
+    const newRow: FormMappingRow = {
+      id: `row_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+      sourceVariant: chosenVariant,
+      sourceColKey: defaultColKey,
+      targetRowLabel: defaultRowLabel,
+      targetProductKey: defaultProdKey,
+      enabled: true,
+    };
+    setFormMappingRows(prev => [...prev, newRow]);
+  };
+
+  // Duplicate an existing row in formMappingRows
+  const handleDuplicateMappingRow = (id: string) => {
+    const target = formMappingRows.find(r => r.id === id);
+    if (!target) return;
+    const cloned: FormMappingRow = {
+      ...target,
+      id: `row_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+    };
+    const idx = formMappingRows.findIndex(r => r.id === id);
+    setFormMappingRows(prev => {
+      const next = [...prev];
+      next.splice(idx + 1, 0, cloned);
+      return next;
+    });
+  };
+
+  // Remove a row from formMappingRows
+  const handleRemoveMappingRow = (id: string) => {
+    if (formMappingRows.length <= 1) return;
+    setFormMappingRows(prev => prev.filter(r => r.id !== id));
+  };
+
+  // Update a single property on a row
+  const handleUpdateMappingRow = (id: string, updates: Partial<FormMappingRow>) => {
+    setFormMappingRows(prev => prev.map(r => (r.id === id ? { ...r, ...updates } : r)));
+  };
+
+  // Auto-populate all chart ingredients into the mapping table
+  const handleMapAllChartIngredients = () => {
+    const ingredients = getChartIngredients(formSourceChartKey);
+    if (ingredients.length === 0) {
+      alert('No ingredients found for this preparation chart.');
+      return;
+    }
+
+    const defaultColKey = chartColumns.length > 0 ? (chartColumns.find(c => c.key === 'qty_lit')?.key || chartColumns[0].key) : 'qty_lit';
+    const availableRows = formTargetRowType === 'DISPOSAL' ? dbDisposalRows : dbReceiptRows;
+    const defaultRowLabel = availableRows.length > 0 ? availableRows[0] : '';
+
+    const newRows: FormMappingRow[] = ingredients.map((v, idx) => ({
+      id: `row_all_${idx}_${Date.now()}`,
+      sourceVariant: v,
+      sourceColKey: defaultColKey,
+      targetRowLabel: defaultRowLabel,
+      targetProductKey: findBestProductMatch(v),
+      enabled: true,
+    }));
+
+    setFormMappingRows(newRows);
+  };
+
+  // Handle switching source chart in modal
+  const handleSourceChartChange = (newChartKey: string) => {
+    setFormSourceChartKey(newChartKey);
+    const newIngredients = getChartIngredients(newChartKey);
+    const firstIngredient = newIngredients[0] || '';
+    setFormMappingRows(prev =>
+      prev.map(r => {
+        const stillValid = newIngredients.some(
+          v => v.toLowerCase().replace(/[\s._-]/g, '') === r.sourceVariant.toLowerCase().replace(/[\s._-]/g, '')
+        );
+        if (!stillValid && firstIngredient) {
+          return {
+            ...r,
+            sourceVariant: firstIngredient,
+            targetProductKey: findBestProductMatch(firstIngredient),
+          };
+        }
+        return r;
+      })
+    );
+  };
+
+  // Handle switching target stock section in modal
+  const handleTargetRowTypeChange = (newType: 'RECEIPT' | 'DISPOSAL') => {
+    setFormTargetRowType(newType);
+    const availableRows = newType === 'DISPOSAL' ? dbDisposalRows : dbReceiptRows;
+    const defaultLabel = availableRows.length > 0 ? availableRows[0] : '';
+    setFormMappingRows(prev =>
+      prev.map(r => ({
+        ...r,
+        targetRowLabel: defaultLabel,
+      }))
+    );
+  };
+
+  // Open modal to create a new rule (or batch of rules)
   const handleOpenAddRuleModal = (prefillVariant?: string) => {
     const targetChartKey = selectedChartKey || '*';
     const chartIngredients = getChartIngredients(targetChartKey);
     const chosenVariant = prefillVariant || (chartIngredients.length > 0 ? chartIngredients[0] : '');
 
-    const defaultProdKey = productOptions.length > 0 ? productOptions[0].key : '';
+    const defaultProdKey = findBestProductMatch(chosenVariant);
     const defaultRowLabel = dbReceiptRows.length > 0 ? dbReceiptRows[0] : '';
-    const defaultColKey = chartColumns.length > 0 ? chartColumns[0].key : 'qty_lit';
+    const defaultColKey = chartColumns.length > 0 ? (chartColumns.find(c => c.key === 'qty_lit')?.key || chartColumns[0].key) : 'qty_lit';
 
     setEditingRuleId(null);
     setFormSourceChartKey(targetChartKey);
-    setFormSourceVariant(chosenVariant);
-    setFormSourceColKey(defaultColKey);
     setFormTargetRowType('RECEIPT');
-    setFormTargetRowLabel(defaultRowLabel);
-    setFormTargetProductKey(defaultProdKey);
-    setFormEnabled(true);
 
-    const chartTitle = masters.find(m => m.key === targetChartKey)?.name || (targetChartKey === '*' ? 'All Charts' : targetChartKey);
-    setFormDescription(`${chartTitle} (${chosenVariant || 'Qty'}) ➔ Receipts: ${defaultRowLabel} (${defaultProdKey})`);
+    setFormMappingRows([
+      {
+        id: `row_${Date.now()}`,
+        sourceVariant: chosenVariant,
+        sourceColKey: defaultColKey,
+        targetRowLabel: defaultRowLabel,
+        targetProductKey: defaultProdKey,
+        enabled: true,
+      },
+    ]);
 
     setIsRuleModalOpen(true);
   };
@@ -283,70 +417,108 @@ export default function PrepToStockMappingsConfigPage() {
   const handleOpenEditRuleModal = (rule: PrepToStockMappingRule) => {
     setEditingRuleId(rule.id);
     setFormSourceChartKey(rule.sourceChartKey || '*');
-    setFormSourceVariant(rule.sourceVariant || '');
-    setFormSourceColKey(rule.sourceColKey || 'qty_lit');
     setFormTargetRowType(rule.targetRowType || 'RECEIPT');
-    setFormTargetRowLabel(rule.targetRowLabel || '');
-    setFormTargetProductKey(rule.targetProductKey || '');
-    setFormEnabled(rule.enabled !== false);
-    setFormDescription(rule.description || '');
+
+    setFormMappingRows([
+      {
+        id: rule.id,
+        sourceVariant: rule.sourceVariant || '',
+        sourceColKey: rule.sourceColKey || 'qty_lit',
+        targetRowLabel: rule.targetRowLabel || '',
+        targetProductKey: rule.targetProductKey || '',
+        enabled: rule.enabled !== false,
+        description: rule.description || '',
+      },
+    ]);
 
     setIsRuleModalOpen(true);
   };
 
-  // Auto-generate a readable description for the rule
-  const handleAutoGenerateDesc = () => {
-    const chartTitle = masters.find(m => m.key === formSourceChartKey)?.name || (formSourceChartKey === '*' ? 'All Charts' : formSourceChartKey);
-    const targetLabel = productOptions.find(p => p.key === formTargetProductKey)?.label || formTargetProductKey;
-    const desc = `${chartTitle} (${formSourceVariant || 'Variant'}) [${formSourceColKey}] ➔ ${formTargetRowType === 'RECEIPT' ? 'Receipts' : 'Disposals'}: ${formTargetRowLabel || 'Row'} (${targetLabel})`;
-    setFormDescription(desc);
-  };
-
-  // Save/Submit the rule in the modal
+  // Save/Submit the rules in the modal
   const handleSaveModalRule = (e: React.FormEvent) => {
     e.preventDefault();
 
-    if (!formSourceVariant.trim()) {
-      alert('Please select or specify a source product variant or ingredient.');
+    if (formMappingRows.length === 0) {
+      alert('Please configure at least one mapping row.');
       return;
     }
 
+    for (let i = 0; i < formMappingRows.length; i++) {
+      const row = formMappingRows[i];
+      if (!row.sourceVariant.trim()) {
+        alert(`Row #${i + 1}: Please select a Source Product Variant / Ingredient.`);
+        return;
+      }
+      if (!row.targetRowLabel.trim()) {
+        alert(`Row #${i + 1}: Please select a Target Particulars Row.`);
+        return;
+      }
+      if (!row.targetProductKey.trim()) {
+        alert(`Row #${i + 1}: Please select a Target Product Column.`);
+        return;
+      }
+    }
+
+    const chartTitle = masters.find(m => m.key === formSourceChartKey)?.name || (formSourceChartKey === '*' ? 'All Charts' : formSourceChartKey);
+    const sectionName = formTargetRowType === 'RECEIPT' ? 'Receipts' : 'Disposals';
+
     if (editingRuleId) {
-      // Update existing rule
-      setMappings(prev =>
-        prev.map(r =>
-          r.id === editingRuleId
-            ? {
-                ...r,
-                sourceChartKey: formSourceChartKey,
-                sourceVariant: formSourceVariant,
-                sourceColKey: formSourceColKey,
-                targetRowType: formTargetRowType,
-                targetRowLabel: formTargetRowLabel,
-                targetProductKey: formTargetProductKey,
-                enabled: formEnabled,
-                description: formDescription.trim(),
-              }
-            : r
-        )
-      );
-      showToast('✏️ Mapping rule updated in table. Remember to click "Save Rules to Database".');
-    } else {
-      // Create new rule
-      const newId = `rule_${Date.now()}`;
-      const newRule: PrepToStockMappingRule = {
-        id: newId,
+      // Single edit mode
+      const primaryRow = formMappingRows[0];
+      const prodLabel = productOptions.find(p => p.key === primaryRow.targetProductKey)?.label || primaryRow.targetProductKey;
+      const primaryDesc = primaryRow.description?.trim() || `${chartTitle} (${primaryRow.sourceVariant}) [${primaryRow.sourceColKey}] ➔ ${sectionName}: ${primaryRow.targetRowLabel} (${prodLabel})`;
+
+      const updatedRule: PrepToStockMappingRule = {
+        id: editingRuleId,
         sourceChartKey: formSourceChartKey,
-        sourceVariant: formSourceVariant,
-        sourceColKey: formSourceColKey,
+        sourceVariant: primaryRow.sourceVariant,
+        sourceColKey: primaryRow.sourceColKey,
         targetRowType: formTargetRowType,
-        targetRowLabel: formTargetRowLabel,
-        targetProductKey: formTargetProductKey,
-        enabled: formEnabled,
-        description: formDescription.trim(),
+        targetRowLabel: primaryRow.targetRowLabel,
+        targetProductKey: primaryRow.targetProductKey,
+        enabled: primaryRow.enabled !== false,
+        description: primaryDesc,
       };
-      setMappings(prev => [...prev, newRule]);
-      showToast('➕ New mapping rule added! Click "Save Rules to Database" to commit to DB.');
+
+      const extraRules: PrepToStockMappingRule[] = formMappingRows.slice(1).map((row, idx) => {
+        const extraLabel = productOptions.find(p => p.key === row.targetProductKey)?.label || row.targetProductKey;
+        return {
+          id: `rule_${Date.now()}_${idx}_${Math.random().toString(36).substring(2, 6)}`,
+          sourceChartKey: formSourceChartKey,
+          sourceVariant: row.sourceVariant,
+          sourceColKey: row.sourceColKey,
+          targetRowType: formTargetRowType,
+          targetRowLabel: row.targetRowLabel,
+          targetProductKey: row.targetProductKey,
+          enabled: row.enabled !== false,
+          description: row.description?.trim() || `${chartTitle} (${row.sourceVariant}) [${row.sourceColKey}] ➔ ${sectionName}: ${row.targetRowLabel} (${extraLabel})`,
+        };
+      });
+
+      setMappings(prev => [
+        ...prev.map(r => (r.id === editingRuleId ? updatedRule : r)),
+        ...extraRules,
+      ]);
+      showToast('✏️ Mapping rule updated in table! Remember to click "Save Rules to Database".');
+    } else {
+      // Multi-row add mode
+      const newRules: PrepToStockMappingRule[] = formMappingRows.map((row, idx) => {
+        const prodLabel = productOptions.find(p => p.key === row.targetProductKey)?.label || row.targetProductKey;
+        return {
+          id: `rule_${Date.now()}_${idx}_${Math.random().toString(36).substring(2, 6)}`,
+          sourceChartKey: formSourceChartKey,
+          sourceVariant: row.sourceVariant,
+          sourceColKey: row.sourceColKey,
+          targetRowType: formTargetRowType,
+          targetRowLabel: row.targetRowLabel,
+          targetProductKey: row.targetProductKey,
+          enabled: row.enabled !== false,
+          description: row.description?.trim() || `${chartTitle} (${row.sourceVariant}) [${row.sourceColKey}] ➔ ${sectionName}: ${row.targetRowLabel} (${prodLabel})`,
+        };
+      });
+
+      setMappings(prev => [...prev, ...newRules]);
+      showToast(`➕ Added ${newRules.length} mapping rule(s)! Remember to click "Save Rules to Database".`);
     }
 
     setIsRuleModalOpen(false);
@@ -893,7 +1065,7 @@ export default function PrepToStockMappingsConfigPage() {
             className="card animate-scale-up"
             style={{
               width: '100%',
-              maxWidth: 720,
+              maxWidth: 1060,
               maxHeight: '90vh',
               overflowY: 'auto',
               background: '#ffffff',
@@ -917,10 +1089,10 @@ export default function PrepToStockMappingsConfigPage() {
             >
               <div>
                 <div style={{ fontWeight: 800, fontSize: '1.1rem', color: '#0369a1', display: 'flex', alignItems: 'center', gap: 8 }}>
-                  <span>{editingRuleId ? '✏️ Edit Mapping Rule' : '➕ Add Mapping Rule'}</span>
+                  <span>{editingRuleId ? '✏️ Edit Mapping Rule' : '➕ Add Mapping Rules'}</span>
                 </div>
                 <div style={{ fontSize: '0.8rem', color: '#0c4a6e', marginTop: 3 }}>
-                  Map Stage 1 Preparation Chart batch quantities into Stage 2 Stock Statement Entry particulars
+                  Configure Stage 1 Preparation Chart batch quantities mapping into Stage 2 Stock Statement Entry particulars
                 </div>
               </div>
 
@@ -940,238 +1112,348 @@ export default function PrepToStockMappingsConfigPage() {
             </div>
 
             {/* Modal Body Form */}
-            <form onSubmit={handleSaveModalRule} style={{ padding: '20px 24px', display: 'flex', flexDirection: 'column', gap: 18 }}>
-              {/* Rule Name / Description with Auto-generate helper */}
-              <div className="form-group" style={{ margin: 0 }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
-                  <label className="form-label" style={{ fontWeight: 700, color: 'var(--text-primary)', margin: 0 }}>
-                    Rule Name / Description *
+            <form onSubmit={handleSaveModalRule} style={{ padding: '20px 24px', display: 'flex', flexDirection: 'column', gap: 16 }}>
+              {/* ── 1. MASTER SCOPE (Configured ONCE at Top) ── */}
+              <div
+                style={{
+                  background: 'linear-gradient(135deg, #f0f9ff 0%, #e0f2fe 100%)',
+                  borderRadius: 10,
+                  border: '1px solid #bae6fd',
+                  padding: '16px 20px',
+                  display: 'grid',
+                  gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))',
+                  gap: 16,
+                  boxShadow: '0 2px 4px rgba(3, 105, 161, 0.04)',
+                }}
+              >
+                {/* 1. Preparation Chart * */}
+                <div className="form-group" style={{ margin: 0 }}>
+                  <label className="form-label" style={{ fontWeight: 800, color: '#0369a1', fontSize: '0.84rem', display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <span>📋</span> Stage 1: Preparation Chart *
                   </label>
+                  <select
+                    className="form-select"
+                    value={formSourceChartKey}
+                    onChange={e => handleSourceChartChange(e.target.value)}
+                    style={{ fontWeight: 700, borderColor: '#7dd3fc', background: '#ffffff', color: '#0369a1' }}
+                  >
+                    <option value="*">⭐ All Preparation Charts (*)</option>
+                    {masters.map(m => (
+                      <option key={m.key} value={m.key}>
+                        {m.name} ({m.product_variant || 'DEFAULT'})
+                      </option>
+                    ))}
+                  </select>
+                  <div style={{ fontSize: '0.72rem', color: '#0369a1', marginTop: 3 }}>
+                    Ingredients for this chart will be mapped below
+                  </div>
+                </div>
+
+                {/* 2. Target Stock Section * */}
+                <div className="form-group" style={{ margin: 0 }}>
+                  <label className="form-label" style={{ fontWeight: 800, color: '#15803d', fontSize: '0.84rem', display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <span>📦</span> Stage 2: Target Stock Section *
+                  </label>
+                  <select
+                    className="form-select"
+                    value={formTargetRowType}
+                    onChange={e => handleTargetRowTypeChange(e.target.value as 'RECEIPT' | 'DISPOSAL')}
+                    style={{ fontWeight: 700, borderColor: '#86efac', background: '#ffffff', color: '#15803d' }}
+                  >
+                    <option value="RECEIPT">📥 Receipts Section</option>
+                    <option value="DISPOSAL">📤 Disposals Section</option>
+                  </select>
+                  <div style={{ fontSize: '0.72rem', color: '#15803d', marginTop: 3 }}>
+                    Particulars rows will load dynamically from <code>{formTargetRowType}</code>
+                  </div>
+                </div>
+              </div>
+
+              {/* ── 2. MAPPINGS CONTROL BAR ── */}
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 10 }}>
+                <div>
+                  <div style={{ fontWeight: 800, fontSize: '0.95rem', color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <span>🔀</span>
+                    <span>Inside Mapping Rows ({formMappingRows.length})</span>
+                  </div>
+                  <div style={{ fontSize: '0.76rem', color: 'var(--text-muted)' }}>
+                    Map each source variant & column directly into target particulars rows & product columns
+                  </div>
+                </div>
+
+                <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                  {!editingRuleId && (
+                    <button
+                      type="button"
+                      onClick={handleMapAllChartIngredients}
+                      className="btn btn-secondary btn-sm"
+                      style={{
+                        background: '#f0f9ff',
+                        borderColor: '#bae6fd',
+                        color: '#0369a1',
+                        fontWeight: 700,
+                        fontSize: '0.78rem',
+                        padding: '4px 10px',
+                      }}
+                      title="Automatically create a mapping row for every ingredient available in this chart"
+                    >
+                      ⚡ Map All Chart Ingredients ({modalAvailableVariants.length})
+                    </button>
+                  )}
+
                   <button
                     type="button"
-                    onClick={handleAutoGenerateDesc}
+                    onClick={() => handleAddMappingRow()}
+                    className="btn btn-primary btn-sm"
                     style={{
-                      background: 'none',
-                      border: 'none',
-                      color: 'var(--brand-primary)',
-                      fontSize: '0.75rem',
+                      background: '#0284c7',
+                      borderColor: '#0284c7',
                       fontWeight: 700,
-                      cursor: 'pointer',
-                      padding: 0,
+                      fontSize: '0.78rem',
+                      padding: '4px 12px',
                     }}
+                    title="Add another mapping row"
                   >
-                    ⚡ Auto-generate
+                    ➕ Add Row
                   </button>
                 </div>
-                <input
-                  type="text"
-                  className="form-input"
-                  placeholder="e.g. Delite Milk (SMP) ➔ Receipts: BMC's (DLT.Milk)"
-                  value={formDescription}
-                  onChange={e => setFormDescription(e.target.value)}
-                  required
-                  style={{ fontWeight: 600, fontSize: '0.9rem' }}
-                />
               </div>
 
-              {/* Side-by-Side: Stage 1 (Source) vs Stage 2 (Target) */}
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 16 }}>
-                {/* ── STAGE 1 SOURCE ── */}
-                <div style={{ background: '#f0f9ff', borderRadius: 10, border: '1px solid #bae6fd', padding: 16, display: 'flex', flexDirection: 'column', gap: 14 }}>
-                  <div style={{ fontWeight: 800, fontSize: '0.85rem', color: '#0369a1', textTransform: 'uppercase', letterSpacing: '0.04em', borderBottom: '1px solid #bae6fd', paddingBottom: 6 }}>
-                    Stage 1: Source (Preparation Chart)
-                  </div>
+              {/* ── 3. MAPPINGS TABLE ── */}
+              <div
+                style={{
+                  border: '1px solid var(--border)',
+                  borderRadius: 8,
+                  overflowX: 'auto',
+                  maxHeight: '420px',
+                  background: '#ffffff',
+                  boxShadow: 'inset 0 1px 3px rgba(0,0,0,0.02)',
+                }}
+              >
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.82rem', minWidth: 840 }}>
+                  <thead style={{ background: '#f8fafc', borderBottom: '1px solid var(--border)', position: 'sticky', top: 0, zIndex: 2 }}>
+                    <tr>
+                      <th style={{ padding: '8px 10px', textAlign: 'center', width: 40, color: 'var(--text-secondary)' }}>#</th>
+                      <th style={{ padding: '8px 10px', textAlign: 'left', minWidth: 200, color: 'var(--text-primary)' }}>
+                        Source Product Variant / Ingredient *
+                      </th>
+                      <th style={{ padding: '8px 10px', textAlign: 'left', width: 150, color: 'var(--text-primary)' }}>
+                        Source Quantity Column *
+                      </th>
+                      <th style={{ padding: '8px 10px', textAlign: 'left', minWidth: 200, color: 'var(--text-primary)' }}>
+                        Target Particulars Row *
+                      </th>
+                      <th style={{ padding: '8px 10px', textAlign: 'left', minWidth: 170, color: 'var(--text-primary)' }}>
+                        Target Product Column *
+                      </th>
+                      <th style={{ padding: '8px 10px', textAlign: 'center', width: 60, color: 'var(--text-primary)' }}>Active</th>
+                      <th style={{ padding: '8px 10px', textAlign: 'center', width: 75, color: 'var(--text-primary)' }}>Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {formMappingRows.map((row, rIdx) => {
+                      const availableParticulars = formTargetRowType === 'DISPOSAL' ? dbDisposalRows : dbReceiptRows;
+                      return (
+                        <tr
+                          key={row.id}
+                          style={{
+                            borderBottom: '1px solid var(--border)',
+                            background: rIdx % 2 === 0 ? '#ffffff' : '#fcfcfd',
+                          }}
+                        >
+                          {/* # */}
+                          <td style={{ textAlign: 'center', fontWeight: 700, color: 'var(--text-muted)' }}>
+                            {rIdx + 1}
+                          </td>
 
-                  {/* Chart Selection */}
-                  <div className="form-group" style={{ margin: 0 }}>
-                    <label className="form-label" style={{ fontWeight: 700, color: '#0c4a6e', fontSize: '0.82rem' }}>
-                      Preparation Chart *
-                    </label>
-                    <select
-                      className="form-select"
-                      value={formSourceChartKey}
-                      onChange={e => {
-                        const val = e.target.value;
-                        setFormSourceChartKey(val);
-                        if (val !== '*') {
-                          const m = masters.find(x => x.key === val);
-                          if (m?.product_variant) setFormSourceVariant(m.product_variant);
-                        }
-                      }}
-                    >
-                      <option value="*">⭐ All Preparation Charts (*)</option>
-                      {masters.map(m => (
-                        <option key={m.key} value={m.key}>
-                          {m.name} ({m.product_variant})
-                        </option>
-                      ))}
-                    </select>
-                  </div>
+                          {/* Source Product Variant / Ingredient */}
+                          <td style={{ padding: '6px 8px' }}>
+                            <select
+                              className="form-select"
+                              value={row.sourceVariant}
+                              onChange={e => {
+                                const v = e.target.value;
+                                handleUpdateMappingRow(row.id, {
+                                  sourceVariant: v,
+                                  targetProductKey: findBestProductMatch(v),
+                                });
+                              }}
+                              style={{ fontSize: '0.8rem', padding: '4px 8px', fontWeight: 700, color: '#0369a1' }}
+                              required
+                            >
+                              <option value="" disabled>-- Select Variant / Ingredient --</option>
+                              {modalAvailableVariants.map(v => (
+                                <option key={`opt_${row.id}_${v}`} value={v}>
+                                  {v}
+                                </option>
+                              ))}
+                              {row.sourceVariant &&
+                                !modalAvailableVariants.some(
+                                  v => v.toLowerCase().replace(/[\s._-]/g, '') === row.sourceVariant.toLowerCase().replace(/[\s._-]/g, '')
+                                ) && (
+                                <option value={row.sourceVariant}>{row.sourceVariant} (Custom)</option>
+                              )}
+                            </select>
+                          </td>
 
-                  {/* Variant / Ingredient Selection */}
-                  <div className="form-group" style={{ margin: 0 }}>
-                    <label className="form-label" style={{ fontWeight: 700, color: '#0c4a6e', fontSize: '0.82rem' }}>
-                      Source Product Variant / Ingredient *
-                    </label>
-                    <div style={{ display: 'flex', gap: 6 }}>
-                      <select
-                        className="form-select"
-                        value={formSourceVariant}
-                        onChange={e => setFormSourceVariant(e.target.value)}
-                        style={{ flex: 1 }}
-                      >
-                        {modalAvailableVariants.map(v => (
-                          <option key={`opt_${v}`} value={v}>
-                            {v}
-                          </option>
-                        ))}
-                        {formSourceVariant &&
-                          !modalAvailableVariants.some(
-                            v => v.toLowerCase().replace(/[\s._-]/g, '') === formSourceVariant.toLowerCase().replace(/[\s._-]/g, '')
-                          ) && (
-                          <option value={formSourceVariant}>{formSourceVariant} (Custom)</option>
-                        )}
-                      </select>
-                    </div>
-                    <div style={{ fontSize: '0.72rem', color: '#0284c7', marginTop: 4 }}>
-                      Loaded from formulation chart ingredients and variants
-                    </div>
-                  </div>
+                          {/* Source Quantity Column */}
+                          <td style={{ padding: '6px 8px' }}>
+                            <select
+                              className="form-select"
+                              value={row.sourceColKey}
+                              onChange={e => handleUpdateMappingRow(row.id, { sourceColKey: e.target.value })}
+                              style={{ fontSize: '0.8rem', padding: '4px 8px' }}
+                              required
+                            >
+                              {chartColumns.map(c => (
+                                <option key={`col_${row.id}_${c.key}`} value={c.key}>
+                                  {c.name} ({c.key})
+                                </option>
+                              ))}
+                              {chartColumns.length === 0 && (
+                                <>
+                                  <option value="qty_lit">Qty(Lit) / qty_lit</option>
+                                  <option value="qty_kg">Qty(Kg) / qty_kg</option>
+                                  <option value="kg_fat">Kg Fat / kg_fat</option>
+                                  <option value="kg_snf">Kg SNF / kg_snf</option>
+                                </>
+                              )}
+                            </select>
+                          </td>
 
-                  {/* Source Column */}
-                  <div className="form-group" style={{ margin: 0 }}>
-                    <label className="form-label" style={{ fontWeight: 700, color: '#0c4a6e', fontSize: '0.82rem' }}>
-                      Source Quantity Column *
-                    </label>
-                    <select
-                      className="form-select"
-                      value={formSourceColKey}
-                      onChange={e => setFormSourceColKey(e.target.value)}
-                    >
-                      {chartColumns.map(c => (
-                        <option key={c.key} value={c.key}>
-                          {c.name} ({c.key})
-                        </option>
-                      ))}
-                      {chartColumns.length === 0 && (
-                        <>
-                          <option value="qty_lit">Qty(Lit) / qty_lit</option>
-                          <option value="qty_kg">Qty(Kg) / qty_kg</option>
-                          <option value="kg_fat">Kg Fat / kg_fat</option>
-                          <option value="kg_snf">Kg SNF / kg_snf</option>
-                        </>
-                      )}
-                    </select>
-                  </div>
-                </div>
+                          {/* Target Particulars Row */}
+                          <td style={{ padding: '6px 8px' }}>
+                            <select
+                              className="form-select"
+                              value={row.targetRowLabel}
+                              onChange={e => handleUpdateMappingRow(row.id, { targetRowLabel: e.target.value })}
+                              style={{ fontSize: '0.8rem', padding: '4px 8px', fontWeight: 600 }}
+                              required
+                            >
+                              {availableParticulars.map(r => (
+                                <option key={`row_${row.id}_${r}`} value={r}>
+                                  {r}
+                                </option>
+                              ))}
+                              {row.targetRowLabel && !availableParticulars.includes(row.targetRowLabel) && (
+                                <option value={row.targetRowLabel}>{row.targetRowLabel}</option>
+                              )}
+                            </select>
+                          </td>
 
-                {/* ── STAGE 2 TARGET ── */}
-                <div style={{ background: '#f0fdf4', borderRadius: 10, border: '1px solid #86efac', padding: 16, display: 'flex', flexDirection: 'column', gap: 14 }}>
-                  <div style={{ fontWeight: 800, fontSize: '0.85rem', color: '#15803d', textTransform: 'uppercase', letterSpacing: '0.04em', borderBottom: '1px solid #86efac', paddingBottom: 6 }}>
-                    Stage 2: Target (Stock Statement Entry)
-                  </div>
+                          {/* Target Product Column */}
+                          <td style={{ padding: '6px 8px' }}>
+                            <select
+                              className="form-select"
+                              value={row.targetProductKey}
+                              onChange={e => handleUpdateMappingRow(row.id, { targetProductKey: e.target.value })}
+                              style={{ fontSize: '0.8rem', padding: '4px 8px', fontWeight: 600 }}
+                              required
+                            >
+                              {productOptions.map(p => (
+                                <option key={`prod_${row.id}_${p.key}`} value={p.key}>
+                                  {p.label} ({p.key})
+                                </option>
+                              ))}
+                            </select>
+                          </td>
 
-                  {/* Target Section: Receipts or Disposals */}
-                  <div className="form-group" style={{ margin: 0 }}>
-                    <label className="form-label" style={{ fontWeight: 700, color: '#14532d', fontSize: '0.82rem' }}>
-                      Target Stock Section *
-                    </label>
-                    <select
-                      className="form-select"
-                      value={formTargetRowType}
-                      onChange={e => {
-                        const val = e.target.value as 'RECEIPT' | 'DISPOSAL';
-                        setFormTargetRowType(val);
-                        const availableRows = val === 'DISPOSAL' ? dbDisposalRows : dbReceiptRows;
-                        if (availableRows.length > 0) {
-                          setFormTargetRowLabel(availableRows[0]);
-                        }
-                      }}
-                    >
-                      <option value="RECEIPT">📥 Receipts Section</option>
-                      <option value="DISPOSAL">📤 Disposals Section</option>
-                    </select>
-                  </div>
+                          {/* Status Active */}
+                          <td style={{ padding: '6px 8px', textAlign: 'center' }}>
+                            <input
+                              type="checkbox"
+                              checked={row.enabled !== false}
+                              onChange={e => handleUpdateMappingRow(row.id, { enabled: e.target.checked })}
+                              title={row.enabled !== false ? 'Active' : 'Disabled'}
+                              style={{ width: 16, height: 16, cursor: 'pointer' }}
+                            />
+                          </td>
 
-                  {/* Particulars Row */}
-                  <div className="form-group" style={{ margin: 0 }}>
-                    <label className="form-label" style={{ fontWeight: 700, color: '#14532d', fontSize: '0.82rem' }}>
-                      Target Particulars Row *
-                    </label>
-                    <select
-                      className="form-select"
-                      value={formTargetRowLabel}
-                      onChange={e => setFormTargetRowLabel(e.target.value)}
-                    >
-                      {(formTargetRowType === 'DISPOSAL' ? dbDisposalRows : dbReceiptRows).map(r => (
-                        <option key={`row_${r}`} value={r}>
-                          {r}
-                        </option>
-                      ))}
-                    </select>
-                    <div style={{ fontSize: '0.72rem', color: '#15803d', marginTop: 4 }}>
-                      From Database <code>particulars_master</code> ({formTargetRowType})
-                    </div>
-                  </div>
-
-                  {/* Target Product Column */}
-                  <div className="form-group" style={{ margin: 0 }}>
-                    <label className="form-label" style={{ fontWeight: 700, color: '#14532d', fontSize: '0.82rem' }}>
-                      Target Product Column *
-                    </label>
-                    <select
-                      className="form-select"
-                      value={formTargetProductKey}
-                      onChange={e => setFormTargetProductKey(e.target.value)}
-                    >
-                      {productOptions.map(p => (
-                        <option key={p.key} value={p.key}>
-                          {p.label} ({p.key})
-                        </option>
-                      ))}
-                    </select>
-                    <div style={{ fontSize: '0.72rem', color: '#15803d', marginTop: 4 }}>
-                      From Database <code>products_master</code>
-                    </div>
-                  </div>
-                </div>
+                          {/* Actions */}
+                          <td style={{ padding: '6px 8px', textAlign: 'center' }}>
+                            <div style={{ display: 'flex', gap: 4, justifyContent: 'center' }}>
+                              <button
+                                type="button"
+                                onClick={() => handleDuplicateMappingRow(row.id)}
+                                className="btn btn-secondary btn-xs"
+                                style={{ padding: '2px 6px', fontSize: '0.72rem' }}
+                                title="Duplicate this row"
+                              >
+                                📋
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handleRemoveMappingRow(row.id)}
+                                disabled={formMappingRows.length <= 1}
+                                className="btn btn-secondary btn-xs"
+                                style={{
+                                  padding: '2px 6px',
+                                  fontSize: '0.72rem',
+                                  color: formMappingRows.length <= 1 ? '#cbd5e1' : '#dc2626',
+                                  cursor: formMappingRows.length <= 1 ? 'not-allowed' : 'pointer',
+                                }}
+                                title="Remove this row"
+                              >
+                                ✕
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
               </div>
 
-              {/* Status Switch */}
-              <div style={{ padding: '12px 16px', background: '#f8fafc', borderRadius: 8, border: '1px solid var(--border)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                <div>
-                  <div style={{ fontWeight: 700, fontSize: '0.88rem', color: 'var(--text-primary)' }}>Rule Status</div>
-                  <div style={{ fontSize: '0.76rem', color: 'var(--text-muted)' }}>
-                    Active rules will automatically map batch quantities during Stock Statement Entry.
-                  </div>
+              {/* Bottom helper: Add another row & counts */}
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <button
+                  type="button"
+                  onClick={() => handleAddMappingRow()}
+                  className="btn btn-secondary btn-xs"
+                  style={{ fontWeight: 700, color: '#0369a1', background: '#f0f9ff', borderColor: '#bae6fd' }}
+                >
+                  ➕ Add Another Mapping Row
+                </button>
+
+                <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>
+                  Total Rows: <strong>{formMappingRows.length}</strong>
                 </div>
-                <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', fontWeight: 700, fontSize: '0.88rem' }}>
-                  <input
-                    type="checkbox"
-                    checked={formEnabled}
-                    onChange={e => setFormEnabled(e.target.checked)}
-                    style={{ width: 18, height: 18, cursor: 'pointer' }}
-                  />
-                  <span>{formEnabled ? 'Active' : 'Disabled'}</span>
-                </label>
               </div>
 
               {/* Modal Footer Buttons */}
-              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, marginTop: 6 }}>
-                <button
-                  type="button"
-                  className="btn btn-secondary btn-sm"
-                  onClick={() => setIsRuleModalOpen(false)}
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  className="btn btn-primary btn-sm"
-                  style={{ fontWeight: 700, background: '#0284c7', borderColor: '#0284c7' }}
-                >
-                  {editingRuleId ? '💾 Update Rule' : '➕ Add Rule'}
-                </button>
+              <div
+                style={{
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                  borderTop: '1px solid var(--border)',
+                  paddingTop: 14,
+                  marginTop: 4,
+                  flexWrap: 'wrap',
+                  gap: 10,
+                }}
+              >
+                <div style={{ fontSize: '0.8rem', color: '#0369a1' }}>
+                  Target: <strong>{masters.find(m => m.key === formSourceChartKey)?.name || (formSourceChartKey === '*' ? 'All Charts' : formSourceChartKey)}</strong> ➔ <strong>{formTargetRowType === 'RECEIPT' ? 'Receipts' : 'Disposals'}</strong>
+                </div>
+
+                <div style={{ display: 'flex', gap: 10 }}>
+                  <button
+                    type="button"
+                    className="btn btn-secondary btn-sm"
+                    onClick={() => setIsRuleModalOpen(false)}
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    className="btn btn-primary btn-sm"
+                    style={{ fontWeight: 700, background: '#0284c7', borderColor: '#0284c7', minWidth: 140 }}
+                  >
+                    {editingRuleId ? '💾 Update Rule' : `➕ Add ${formMappingRows.length} Rule(s)`}
+                  </button>
+                </div>
               </div>
             </form>
           </div>
