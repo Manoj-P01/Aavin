@@ -354,10 +354,22 @@ export async function POST(req: NextRequest) {
             const innerRows = matching.map((r: any, idx: number) => {
               const vals: Record<string, number> = {};
               Object.entries(r).forEach(([k, v]) => {
-                if (!['entry_id', 'row_type', 'row_label', 'sort_order'].includes(k)) {
-                  vals[k] = Number(v) || 0;
+                if (!['entry_id', 'row_type', 'row_label', 'sort_order', 'entry_json', 'values', 'id', 'created_at', 'updated_at', 'created_by', 'updated_by'].includes(k) && typeof v !== 'object') {
+                  const normK = k.trim().replace(/\.+/g, '_').replace(/_+/g, '_').toLowerCase();
+                  vals[normK] = Number(v) || 0;
                 }
               });
+
+              if (r.values && typeof r.values === 'object') {
+                Object.entries(r.values).forEach(([vk, vv]) => {
+                  const normVK = vk.trim().replace(/\.+/g, '_').replace(/_+/g, '_').toLowerCase();
+                  const num = Number(vv) || 0;
+                  if (vals[normVK] === undefined || (vals[normVK] === 0 && num !== 0)) {
+                    vals[normVK] = num;
+                  }
+                });
+              }
+
               return {
                 row_label: r.row_label || '',
                 values: vals,

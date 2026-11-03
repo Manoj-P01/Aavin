@@ -709,11 +709,10 @@ export default function StockEntryForm({
             const valStr = val === 0 ? '' : String(Math.round((val + Number.EPSILON) * 1000) / 1000);
 
             const normKey = col.key.trim().replace(/\.+/g, '_').replace(/_+/g, '_').toLowerCase();
-            const dotKey = normKey.replace(/_/g, '.');
-
             cb[col.key] = valStr;
-            cb[normKey] = valStr;
-            cb[dotKey] = valStr;
+            if (col.key !== normKey) {
+              cb[normKey] = valStr;
+            }
           });
           return cb;
         };
@@ -877,7 +876,6 @@ export default function StockEntryForm({
               const values: Record<string, string> = {};
               parsedCols.forEach(col => {
                 const normKey = col.key.trim().replace(/\.+/g, '_').replace(/_+/g, '_').toLowerCase();
-                const dotKey = normKey.replace(/_/g, '.');
                 const targetNorm = col.key.toLowerCase().replace(/[^a-z0-9]/g, '');
 
                 let foundVal = '';
@@ -922,16 +920,17 @@ export default function StockEntryForm({
 
                 if (foundVal) {
                   values[col.key] = foundVal;
-                  values[normKey] = foundVal;
-                  values[dotKey] = foundVal;
                 }
               });
 
-              // Merge any remaining explicit properties from dbRow.values
+              // Merge any remaining explicit properties from dbRow.values avoiding dot duplicates
               if (dbRow.values && typeof dbRow.values === 'object') {
                 Object.entries(dbRow.values).forEach(([colKey, val]) => {
                   if (val !== undefined && val !== null && val !== '' && typeof val !== 'object') {
-                    values[colKey] = String(val);
+                    const normK = colKey.trim().replace(/\.+/g, '_').replace(/_+/g, '_').toLowerCase();
+                    if (values[colKey] === undefined && values[normK] === undefined) {
+                      values[normK] = String(val);
+                    }
                   }
                 });
               }
@@ -1585,11 +1584,24 @@ export default function StockEntryForm({
 
       // 3. Map ALL columns dynamically to stock rows
       const stockRows = rows.map((r, i) => {
+        // Build clean normalized values object without duplicate dotted keys
+        const cleanValues: Record<string, string> = {};
+        if (r.values && typeof r.values === 'object') {
+          Object.entries(r.values).forEach(([k, v]) => {
+            const canonicalKey = k.trim().replace(/\.+/g, '_').replace(/_+/g, '_').toLowerCase();
+            if (v !== undefined && v !== null && v !== '') {
+              if (cleanValues[canonicalKey] === undefined || cleanValues[canonicalKey] === '0') {
+                cleanValues[canonicalKey] = String(v);
+              }
+            }
+          });
+        }
+
         const rowObj: Record<string, any> = {
           row_type: r.row_type,
           row_label: r.row_label,
           sort_order: i,
-          values: r.values || {},
+          values: cleanValues,
         };
 
         columns.forEach(col => {
@@ -1597,29 +1609,27 @@ export default function StockEntryForm({
           const targetNorm = col.key.toLowerCase().replace(/[^a-z0-9]/g, '');
 
           let numVal = 0;
-          if (r.values) {
-            const direct = r.values[col.key] ?? r.values[normKey];
-            if (direct !== undefined && direct !== null && direct !== '') {
-              const parsed = typeof direct === 'number' ? direct : parseFloat(String(direct));
-              if (!isNaN(parsed) && parsed !== 0) numVal = parsed;
-            }
+          if (cleanValues[normKey] !== undefined) {
+            const parsed = parseFloat(String(cleanValues[normKey]));
+            if (!isNaN(parsed) && parsed !== 0) numVal = parsed;
+          } else if (cleanValues[col.key] !== undefined) {
+            const parsed = parseFloat(String(cleanValues[col.key]));
+            if (!isNaN(parsed) && parsed !== 0) numVal = parsed;
+          }
 
-            if (numVal === 0 && targetNorm) {
-              for (const [vk, vv] of Object.entries(r.values)) {
-                if (vv === undefined || vv === null || vv === '' || typeof vv === 'object') continue;
-                if (vk.toLowerCase().replace(/[^a-z0-9]/g, '') === targetNorm) {
-                  const parsed = typeof vv === 'number' ? vv : parseFloat(String(vv));
-                  if (!isNaN(parsed) && parsed !== 0) {
-                    numVal = parsed;
-                    break;
-                  }
+          if (numVal === 0 && targetNorm) {
+            for (const [vk, vv] of Object.entries(cleanValues)) {
+              if (vk.toLowerCase().replace(/[^a-z0-9]/g, '') === targetNorm) {
+                const parsed = typeof vv === 'number' ? vv : parseFloat(String(vv));
+                if (!isNaN(parsed) && parsed !== 0) {
+                  numVal = parsed;
+                  break;
                 }
               }
             }
           }
 
           rowObj[normKey] = numVal;
-          rowObj[col.key] = numVal;
         });
 
         return rowObj;

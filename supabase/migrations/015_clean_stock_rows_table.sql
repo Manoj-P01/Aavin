@@ -47,3 +47,4 @@ COMMENT ON TABLE public.stock_rows IS 'Dynamic JSON store for Milk & Cream Stock
 -- DROP TRIGGER IF EXISTS trg_stock_rows_audit ON public.stock_rows;
 -- CREATE TRIGGER trg_stock_rows_audit BEFORE INSERT OR UPDATE ON public.stock_rows
 -- FOR EACH ROW EXECUTE FUNCTION fn_set_audit_fields();
+

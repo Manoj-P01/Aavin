@@ -210,17 +210,21 @@ export async function POST(req: NextRequest) {
       const innerRows = matchingItems.map((r: any, idx: number) => {
         const innerValues: Record<string, number> = {};
 
+        // 1. Populate configured product columns using canonical normalized keys (snake_case)
         finalCols.forEach(colKey => {
-          const normKey = colKey.trim().replace(/\.+/g, '_').replace(/_+/g, '_').toLowerCase();
-          const targetNorm = colKey.toLowerCase().replace(/[^a-z0-9]/g, '');
+          const normKey = normalizeColKey(colKey);
+          const targetNorm = normKey.replace(/[^a-z0-9]/g, '');
           let numVal = 0;
 
-          if (r.values && (r.values[colKey] !== undefined || r.values[normKey] !== undefined)) {
-            const raw = r.values[colKey] ?? r.values[normKey];
-            const parsed = typeof raw === 'number' ? raw : parseFloat(String(raw));
-            if (!isNaN(parsed) && parsed !== 0) numVal = parsed;
-          } else if (r[colKey] !== undefined || r[normKey] !== undefined) {
-            const raw = r[colKey] ?? r[normKey];
+          if (r.values) {
+            const raw = r.values[normKey] ?? r.values[colKey];
+            if (raw !== undefined && raw !== null && raw !== '') {
+              const parsed = typeof raw === 'number' ? raw : parseFloat(String(raw));
+              if (!isNaN(parsed) && parsed !== 0) numVal = parsed;
+            }
+          }
+          if (numVal === 0 && (r[normKey] !== undefined || r[colKey] !== undefined)) {
+            const raw = r[normKey] ?? r[colKey];
             const parsed = typeof raw === 'number' ? raw : parseFloat(String(raw));
             if (!isNaN(parsed) && parsed !== 0) numVal = parsed;
           }
@@ -228,8 +232,8 @@ export async function POST(req: NextRequest) {
           if (numVal === 0 && targetNorm) {
             const searchSource = r.values && Object.keys(r.values).length > 0 ? r.values : r;
             for (const [sk, sv] of Object.entries(searchSource)) {
-              if (sv === undefined || sv === null || sv === '') continue;
-              if (sk.toLowerCase().replace(/[^a-z0-9]/g, '') === targetNorm) {
+              if (sv === undefined || sv === null || sv === '' || typeof sv === 'object') continue;
+              if (normalizeColKey(sk).replace(/[^a-z0-9]/g, '') === targetNorm) {
                 const parsed = typeof sv === 'number' ? sv : parseFloat(String(sv));
                 if (!isNaN(parsed) && parsed !== 0) {
                   numVal = parsed;
@@ -239,15 +243,21 @@ export async function POST(req: NextRequest) {
             }
           }
 
-          innerValues[colKey] = numVal;
+          innerValues[normKey] = numVal;
         });
 
-        // Also capture any custom dynamic product columns in r.values
+        // 2. Also capture any custom dynamic product columns in r.values, strictly normalized to avoid duplicate keys
         if (r.values && typeof r.values === 'object') {
           Object.entries(r.values).forEach(([k, v]) => {
-            if (innerValues[k] === undefined && k !== 'row_type' && k !== 'row_label' && k !== 'sort_order') {
-              const parsed = typeof v === 'number' ? v : parseFloat(String(v));
-              innerValues[k] = isNaN(parsed) ? 0 : parsed;
+            if (k === 'row_type' || k === 'row_label' || k === 'sort_order') return;
+            const normK = normalizeColKey(k);
+            const parsed = typeof v === 'number' ? v : parseFloat(String(v));
+            const num = isNaN(parsed) ? 0 : parsed;
+
+            if (innerValues[normK] === undefined) {
+              innerValues[normK] = num;
+            } else if (innerValues[normK] === 0 && num !== 0) {
+              innerValues[normK] = num;
             }
           });
         }
