@@ -50,6 +50,27 @@ export async function GET(req: NextRequest) {
       .order('sort_order');
     if (rowsErr) throw rowsErr;
 
+    const effectiveRows: any[] = [];
+    (rows || []).forEach((r: any) => {
+      const entryJson = typeof r.entry_json === 'string' ? JSON.parse(r.entry_json) : (r.entry_json || {});
+      if (Array.isArray(entryJson.rows) && entryJson.rows.length > 0) {
+        entryJson.rows.forEach((inner: any, iIdx: number) => {
+          effectiveRows.push({
+            id: r.id,
+            entry_id: r.entry_id,
+            row_type: inner.row_type || r.row_type,
+            row_label: inner.row_label || r.row_label,
+            values: inner.values || {},
+            sort_order: inner.sort_order ?? (r.sort_order * 100 + iIdx),
+            entry_json: r.entry_json,
+            ...(inner.values || {}),
+          });
+        });
+      } else {
+        effectiveRows.push(r);
+      }
+    });
+
     // Dynamic product keys from products_master and standard defaults
     const defaultCols = ['wh_milk', 'dlt_milk', 'fc_milk', 'std_milk', 'dtm', 'skim_milk', 'cream', 'butter_milk', 'r_con', 'smp', 'water'];
 
@@ -72,7 +93,7 @@ export async function GET(req: NextRequest) {
     // Aggregate by row_type and row_label
     const aggregatedMap: Record<string, any> = {};
 
-    for (const r of rows) {
+    for (const r of effectiveRows) {
       const key = `${r.row_type}_${r.row_label}`;
       if (!aggregatedMap[key]) {
         const initObj: Record<string, any> = {

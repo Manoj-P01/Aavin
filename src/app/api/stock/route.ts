@@ -28,10 +28,33 @@ export async function GET(req: NextRequest) {
         supabase.from('stock_rows').select('*').eq('entry_id', entry_id).order('sort_order'),
         supabase.from('separation_details').select('*').eq('entry_id', entry_id).single(),
       ]);
+
+      const unpackedRows: any[] = [];
+      (rowsRes.data || []).forEach((r: any) => {
+        const entryJson = typeof r.entry_json === 'string' ? JSON.parse(r.entry_json) : (r.entry_json || {});
+        if (Array.isArray(entryJson.rows) && entryJson.rows.length > 0) {
+          entryJson.rows.forEach((inner: any, iIdx: number) => {
+            unpackedRows.push({
+              id: r.id,
+              entry_id: r.entry_id,
+              row_type: inner.row_type || r.row_type,
+              row_label: inner.row_label || r.row_label,
+              values: inner.values || {},
+              sort_order: inner.sort_order ?? (r.sort_order * 100 + iIdx),
+              entry_json: r.entry_json,
+              ...(inner.values || {}),
+            });
+          });
+        } else {
+          unpackedRows.push(r);
+        }
+      });
+
       return NextResponse.json({
         data: {
           entries: entryRes.data ? [entryRes.data] : [],
-          stock_rows: rowsRes.data || [],
+          stock_rows: unpackedRows,
+          raw_stock_rows: rowsRes.data || [],
           stock_summary_rows: summaryData,
           separation_details: sepRes.data || null
         },
@@ -97,10 +120,32 @@ export async function GET(req: NextRequest) {
       supabase.from('separation_details').select('*').in('entry_id', entryIds),
     ]);
 
+    const unpackedRows: any[] = [];
+    (rowsRes.data || []).forEach((r: any) => {
+      const entryJson = typeof r.entry_json === 'string' ? JSON.parse(r.entry_json) : (r.entry_json || {});
+      if (Array.isArray(entryJson.rows) && entryJson.rows.length > 0) {
+        entryJson.rows.forEach((inner: any, iIdx: number) => {
+          unpackedRows.push({
+            id: r.id,
+            entry_id: r.entry_id,
+            row_type: inner.row_type || r.row_type,
+            row_label: inner.row_label || r.row_label,
+            values: inner.values || {},
+            sort_order: inner.sort_order ?? (r.sort_order * 100 + iIdx),
+            entry_json: r.entry_json,
+            ...(inner.values || {}),
+          });
+        });
+      } else {
+        unpackedRows.push(r);
+      }
+    });
+
     return NextResponse.json({
       data: {
         entries,
-        stock_rows: rowsRes.data || [],
+        stock_rows: unpackedRows,
+        raw_stock_rows: rowsRes.data || [],
         stock_summary_rows: summaryData,
         separation_details: sepRes.data || [],
       },
@@ -143,42 +188,109 @@ export async function POST(req: NextRequest) {
       finalCols = ['wh_milk', 'dlt_milk', 'fc_milk', 'std_milk', 'dtm', 'skim_milk', 'cream', 'butter_milk', 'r_con', 'smp', 'water'];
     }
 
-    const rowsToInsert = (stock_rows || []).map((r: any, i: number) => {
-      const rowObj: any = {
+    // 1. Group rows by section type: OB, RECEIPT, DISPOSAL (and any custom row_types)
+    // Storing as JSON format in entry_json jsonb column per section row
+    const sectionTypes: Array<{ type: 'OB' | 'RECEIPT' | 'DISPOSAL'; label: string; order: number }> = [
+      { type: 'OB', label: 'Opening Balance', order: 0 },
+      { type: 'RECEIPT', label: 'Receipts', order: 1 },
+      { type: 'DISPOSAL', label: 'Disposals', order: 2 },
+    ];
+
+    const otherRowTypes = Array.from(new Set(
+      (stock_rows || []).map((r: any) => r.row_type).filter((t: string) => t && !['OB', 'RECEIPT', 'DISPOSAL'].includes(t))
+    ));
+    otherRowTypes.forEach((t, idx) => {
+      sectionTypes.push({ type: t as any, label: t, order: 3 + idx });
+    });
+
+    const rowsToInsert: any[] = [];
+
+    sectionTypes.forEach(sec => {
+      const matchingItems = (stock_rows || []).filter((r: any) => r.row_type === sec.type);
+      if (matchingItems.length === 0 && sec.type !== 'OB') return;
+
+      const innerRows = matchingItems.map((r: any, idx: number) => {
+        const innerValues: Record<string, number> = {};
+
+        finalCols.forEach(colKey => {
+          const normKey = colKey.trim().replace(/\.+/g, '_').replace(/_+/g, '_').toLowerCase();
+          const targetNorm = colKey.toLowerCase().replace(/[^a-z0-9]/g, '');
+          let numVal = 0;
+
+          if (r.values && (r.values[colKey] !== undefined || r.values[normKey] !== undefined)) {
+            const raw = r.values[colKey] ?? r.values[normKey];
+            const parsed = typeof raw === 'number' ? raw : parseFloat(String(raw));
+            if (!isNaN(parsed) && parsed !== 0) numVal = parsed;
+          } else if (r[colKey] !== undefined || r[normKey] !== undefined) {
+            const raw = r[colKey] ?? r[normKey];
+            const parsed = typeof raw === 'number' ? raw : parseFloat(String(raw));
+            if (!isNaN(parsed) && parsed !== 0) numVal = parsed;
+          }
+
+          if (numVal === 0 && targetNorm) {
+            const searchSource = r.values && Object.keys(r.values).length > 0 ? r.values : r;
+            for (const [sk, sv] of Object.entries(searchSource)) {
+              if (sv === undefined || sv === null || sv === '') continue;
+              if (sk.toLowerCase().replace(/[^a-z0-9]/g, '') === targetNorm) {
+                const parsed = typeof sv === 'number' ? sv : parseFloat(String(sv));
+                if (!isNaN(parsed) && parsed !== 0) {
+                  numVal = parsed;
+                  break;
+                }
+              }
+            }
+          }
+
+          innerValues[colKey] = numVal;
+        });
+
+        // Also capture any custom dynamic product columns in r.values
+        if (r.values && typeof r.values === 'object') {
+          Object.entries(r.values).forEach(([k, v]) => {
+            if (innerValues[k] === undefined && k !== 'row_type' && k !== 'row_label' && k !== 'sort_order') {
+              const parsed = typeof v === 'number' ? v : parseFloat(String(v));
+              innerValues[k] = isNaN(parsed) ? 0 : parsed;
+            }
+          });
+        }
+
+        return {
+          row_label: r.row_label || (sec.type === 'OB' ? 'Opening Balance' : ''),
+          values: innerValues,
+          sort_order: r.sort_order ?? idx,
+        };
+      });
+
+      // Default at least 1 row for OB if empty
+      if (sec.type === 'OB' && innerRows.length === 0) {
+        const emptyVals: Record<string, number> = {};
+        finalCols.forEach(k => { emptyVals[k] = 0; });
+        innerRows.push({
+          row_label: 'Opening Balance',
+          values: emptyVals,
+          sort_order: 0,
+        });
+      }
+
+      const sectionObj: any = {
         entry_id,
-        row_type: r.row_type,
-        row_label: r.row_label,
-        sort_order: r.sort_order ?? i,
+        row_type: sec.type,
+        row_label: sec.label,
+        sort_order: sec.order,
+        entry_json: {
+          rows: innerRows,
+        },
         created_by: actorUsername,
         updated_by: actorUsername,
       };
 
+      // Set section column totals on the traditional numeric columns
       finalCols.forEach(colKey => {
-        const targetNorm = colKey.toLowerCase().replace(/[^a-z0-9]/g, '');
-        let numVal = 0;
-
-        if (r[colKey] !== undefined && r[colKey] !== null && r[colKey] !== '') {
-          const num = typeof r[colKey] === 'number' ? r[colKey] : parseFloat(String(r[colKey]));
-          if (!isNaN(num) && num !== 0) numVal = num;
-        }
-
-        if (numVal === 0 && targetNorm) {
-          for (const [rk, rv] of Object.entries(r)) {
-            if (rv === undefined || rv === null || rv === '') continue;
-            if (rk.toLowerCase().replace(/[^a-z0-9]/g, '') === targetNorm) {
-              const num = typeof rv === 'number' ? rv : parseFloat(String(rv));
-              if (!isNaN(num) && num !== 0) {
-                numVal = num;
-                break;
-              }
-            }
-          }
-        }
-
-        rowObj[colKey] = numVal;
+        const sumVal = innerRows.reduce((acc, row) => acc + (row.values[colKey] || 0), 0);
+        sectionObj[colKey] = sumVal;
       });
 
-      return rowObj;
+      rowsToInsert.push(sectionObj);
     });
 
     // Prepare final summary rows (use provided or auto-compute from raw stock_rows)
@@ -309,7 +421,11 @@ export async function POST(req: NextRequest) {
         const match = insertErr.message?.match(/Could not find the ['"]([^'"]+)['"] column of ['"]stock_rows['"]/i);
         if (match && match[1]) {
           const missingCol = match[1];
-          console.warn(`Column '${missingCol}' does not exist on Postgres table stock_rows. Stripping column property and retrying insert...`);
+          if (missingCol === 'entry_json') {
+            console.warn("⚠️ Column 'entry_json' does not exist on Postgres table stock_rows. Please run migration 014_stock_rows_entry_json.sql in your Supabase SQL editor: ALTER TABLE stock_rows ADD COLUMN IF NOT EXISTS entry_json jsonb DEFAULT '{}'::jsonb;");
+          } else {
+            console.warn(`Column '${missingCol}' does not exist on Postgres table stock_rows. Stripping column property and retrying insert...`);
+          }
           currentRows = currentRows.map((r: any) => {
             const copy = { ...r };
             delete copy[missingCol];

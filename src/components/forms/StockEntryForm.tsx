@@ -615,6 +615,27 @@ export default function StockEntryForm({
 
         // Helper to compute Closing Balance from rows
         const calcClosingBalanceFromRows = (dbRows: any[], cols: any[], prevCustomValues: any = {}): Record<string, string> => {
+          const effectiveDbRows: any[] = [];
+          (dbRows || []).forEach((r: any) => {
+            const entryJson = typeof r.entry_json === 'string' ? JSON.parse(r.entry_json) : (r.entry_json || {});
+            if (Array.isArray(entryJson.rows) && entryJson.rows.length > 0) {
+              entryJson.rows.forEach((inner: any, iIdx: number) => {
+                effectiveDbRows.push({
+                  id: r.id,
+                  entry_id: r.entry_id,
+                  row_type: inner.row_type || r.row_type,
+                  row_label: inner.row_label || r.row_label,
+                  values: inner.values || {},
+                  sort_order: inner.sort_order ?? (r.sort_order * 100 + iIdx),
+                  entry_json: r.entry_json,
+                  ...(inner.values || {}),
+                });
+              });
+            } else {
+              effectiveDbRows.push(r);
+            }
+          });
+
           const obSum: Record<string, number> = {};
           const recSum: Record<string, number> = {};
           const dispSum: Record<string, number> = {};
@@ -628,7 +649,7 @@ export default function StockEntryForm({
             }
           });
 
-          dbRows.forEach((r: any) => {
+          effectiveDbRows.forEach((r: any) => {
             const label = (r.row_label || '').trim();
             const rowVals = prevCustomValues[label] || prevCustomValues[r.row_label];
 
@@ -821,7 +842,27 @@ export default function StockEntryForm({
           setColumnsUnique(parsedCols);
           setNotes(cleanNotes);
 
-          const sortedDbRows = [...(json.data.stock_rows || [])].sort((a: any, b: any) => (a.sort_order ?? 0) - (b.sort_order ?? 0));
+          const rawDbRows = [...(json.data.stock_rows || [])].sort((a: any, b: any) => (a.sort_order ?? 0) - (b.sort_order ?? 0));
+          const sortedDbRows: any[] = [];
+          rawDbRows.forEach((r: any) => {
+            const entryJson = typeof r.entry_json === 'string' ? JSON.parse(r.entry_json) : (r.entry_json || {});
+            if (Array.isArray(entryJson.rows) && entryJson.rows.length > 0) {
+              entryJson.rows.forEach((inner: any, iIdx: number) => {
+                sortedDbRows.push({
+                  id: r.id,
+                  entry_id: r.entry_id,
+                  row_type: inner.row_type || r.row_type,
+                  row_label: inner.row_label || r.row_label,
+                  values: inner.values || {},
+                  sort_order: inner.sort_order ?? (r.sort_order * 100 + iIdx),
+                  entry_json: r.entry_json,
+                  ...(inner.values || {}),
+                });
+              });
+            } else {
+              sortedDbRows.push(r);
+            }
+          });
 
           // Base template contains OB, Receipts, and Disposals
           const loadedRows = makeDefaultRows(receiptRowsConfig, disposalRowsConfig);
@@ -1537,6 +1578,7 @@ export default function StockEntryForm({
           row_type: r.row_type,
           row_label: r.row_label,
           sort_order: i,
+          values: r.values,
         };
 
         columns.forEach(col => {

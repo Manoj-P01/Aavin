@@ -67,6 +67,15 @@ export interface StockRow {
   entry_id: string;
   row_type: StockRowType;
   row_label: string;
+  entry_json?: {
+    rows: Array<{
+      row_label?: string;
+      values?: Record<string, number | string>;
+      sort_order?: number;
+      [key: string]: any;
+    }>;
+    [key: string]: any;
+  };
   wh_milk: number;
   dlt_milk: number;
   fc_milk: number;

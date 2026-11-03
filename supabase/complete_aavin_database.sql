@@ -269,6 +269,7 @@ CREATE TABLE IF NOT EXISTS stock_rows (
   entry_id     uuid NOT NULL REFERENCES entries(id) ON DELETE CASCADE,
   row_type     text NOT NULL CHECK (row_type IN ('OB','RECEIPT','DISPOSAL','PHYSICAL')),
   row_label    text NOT NULL,
+  entry_json   jsonb NOT NULL DEFAULT '{}'::jsonb,
   wh_milk      numeric(12,3) DEFAULT 0,
   dlt_milk     numeric(12,3) DEFAULT 0,
   fc_milk      numeric(12,3) DEFAULT 0,

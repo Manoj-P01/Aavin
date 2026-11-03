@@ -401,7 +401,23 @@ async function getStockEntriesForPeriod(startDate: string, endDate: string) {
   const rowsByEntryId: Record<string, StockRow[]> = {};
   (allRows || []).forEach((r: any) => {
     if (!rowsByEntryId[r.entry_id]) rowsByEntryId[r.entry_id] = [];
-    rowsByEntryId[r.entry_id].push(r);
+    const entryJson = typeof r.entry_json === 'string' ? JSON.parse(r.entry_json) : (r.entry_json || {});
+    if (Array.isArray(entryJson.rows) && entryJson.rows.length > 0) {
+      entryJson.rows.forEach((inner: any, iIdx: number) => {
+        rowsByEntryId[r.entry_id].push({
+          id: r.id,
+          entry_id: r.entry_id,
+          row_type: inner.row_type || r.row_type,
+          row_label: inner.row_label || r.row_label,
+          values: inner.values || {},
+          sort_order: inner.sort_order ?? (r.sort_order * 100 + iIdx),
+          entry_json: r.entry_json,
+          ...(inner.values || {}),
+        } as any);
+      });
+    } else {
+      rowsByEntryId[r.entry_id].push(r);
+    }
   });
 
   return entries.map((entry: any) => ({
@@ -554,7 +570,29 @@ export async function GET(req: NextRequest) {
           .select('*')
           .in('entry_id', stockEntryIds)
           .order('sort_order', { ascending: true });
-        if (stockRes.data) stockRowsData = stockRes.data as StockRow[];
+        if (stockRes.data) {
+          const unpacked: any[] = [];
+          stockRes.data.forEach((r: any) => {
+            const entryJson = typeof r.entry_json === 'string' ? JSON.parse(r.entry_json) : (r.entry_json || {});
+            if (Array.isArray(entryJson.rows) && entryJson.rows.length > 0) {
+              entryJson.rows.forEach((inner: any, iIdx: number) => {
+                unpacked.push({
+                  id: r.id,
+                  entry_id: r.entry_id,
+                  row_type: inner.row_type || r.row_type,
+                  row_label: inner.row_label || r.row_label,
+                  values: inner.values || {},
+                  sort_order: inner.sort_order ?? (r.sort_order * 100 + iIdx),
+                  entry_json: r.entry_json,
+                  ...(inner.values || {}),
+                });
+              });
+            } else {
+              unpacked.push(r);
+            }
+          });
+          stockRowsData = unpacked as StockRow[];
+        }
       }
     }
 
