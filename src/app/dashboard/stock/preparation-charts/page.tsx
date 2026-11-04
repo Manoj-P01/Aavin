@@ -29,6 +29,14 @@ export default function PreparationChartsDashboardPage({
   initialShift,
 }: PreparationChartsProps = {}) {
   const router = useRouter();
+  useEffect(() => {
+    if (!stepMode && typeof window !== 'undefined') {
+      const search = window.location.search;
+      const params = new URLSearchParams(search);
+      params.set('step', 'prep');
+      router.replace(`/dashboard/stock/new?${params.toString()}`);
+    }
+  }, [stepMode, router]);
   const { confirm, showWarning } = useConfirm();
 
   const [date, setDate] = useState<string>(() => initialDate || new Date().toISOString().split('T')[0]);
@@ -1857,15 +1865,13 @@ export default function PreparationChartsDashboardPage({
         title="Milk & Cream Preparation Charts"
         subtitle="Prepare, formulate & calculate batch parameters prior to Stock Statement Entry"
       >
-        {stepMode && (
-          <Step
-            items={DAILY_ENTRY_STEP_ITEMS}
-            flat={true}
-            activeStep={activeStep || 'prep'}
-            onStepClick={(key) => handleStepClick(key)}
-            style={{ marginBottom: 0, marginTop: 4 }}
-          />
-        )}
+        <Step
+          items={DAILY_ENTRY_STEP_ITEMS}
+          flat={true}
+          activeStep={activeStep || 'prep'}
+          onStepClick={(key) => handleStepClick(key)}
+          style={{ marginBottom: 0, marginTop: 4 }}
+        />
       </Header>
 
       <div className="page-body animate-fade-in">

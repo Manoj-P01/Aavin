@@ -20,13 +20,13 @@ const NAV_SECTIONS = [
       { href: '/dashboard/stock/preparation-charts/masters', icon: '📊', label: 'Chart Names Master' },
       { href: '/dashboard/stock/preparation-charts/defaults', icon: '⭐', label: 'Master Default Formulations' },
       { href: '/dashboard/stock/preparation-charts/columns', icon: '⚙️', label: 'Chart Columns Config' },
-      { href: '/dashboard/stock/preparation-charts', icon: '📋', label: 'Preparation Charts' },
+      { href: '/dashboard/stock/new?step=prep', icon: '📋', label: 'Preparation Charts' },
     ],
   },
   {
     label: 'Stock Statement',
     items: [
-      { href: '/dashboard/stock/new', icon: '📦', label: 'New Stock Statement Entry' },
+      { href: '/dashboard/stock/new?step=stock', icon: '📦', label: 'New Stock Statement Entry' },
       { href: '/dashboard/stock/defaults', icon: '⭐', label: 'Master Default Statement' },
       { href: '/dashboard/stock', icon: '📋', label: 'Stock Register' },
       { href: '/dashboard/stock/products', icon: '🥛', label: 'Products List' },
@@ -66,12 +66,21 @@ const NAV_SECTIONS = [
   },
 ];
 
-const checkItemActive = (href: string, pathname: string) => {
+const checkItemActive = (href: string, pathname: string, currentStep?: string | null) => {
   if (href === '/dashboard') return pathname === '/dashboard';
   
-  const hrefSegments = href.split('/');
+  const [baseHref, queryString] = href.split('?');
+  const hrefSegments = baseHref.split('/');
   const pathSegments = pathname.split('/');
   
+  if (baseHref === '/dashboard/stock/new') {
+    if (pathname !== '/dashboard/stock/new') return false;
+    const itemParams = new URLSearchParams(queryString || '');
+    const itemStep = itemParams.get('step') || 'stock';
+    const effectiveCurrentStep = currentStep || 'stock';
+    return itemStep === effectiveCurrentStep;
+  }
+
   if (href === '/dashboard/ts') {
     return pathSegments[1] === 'dashboard' && 
            pathSegments[2] === 'ts' && 
@@ -109,6 +118,20 @@ const getInitialSections = (currentPathname: string): Record<string, boolean> =>
 
 export default function Sidebar() {
   const pathname = usePathname();
+  const [currentStep, setCurrentStep] = useState<string | null>(null);
+
+  useEffect(() => {
+    const updateStep = () => {
+      if (typeof window !== 'undefined') {
+        const sp = new URLSearchParams(window.location.search);
+        setCurrentStep(sp.get('step'));
+      }
+    };
+    updateStep();
+    window.addEventListener('popstate', updateStep);
+    return () => window.removeEventListener('popstate', updateStep);
+  }, [pathname]);
+
   const { sidebarOpen, setSidebarOpen, setConfigOpen } = useSidebar();
   const { confirm } = useConfirm();
 
@@ -265,7 +288,7 @@ export default function Sidebar() {
                         );
                       }
                       const href = (item as any).href;
-                      const isActive = checkItemActive(href, pathname);
+                      const isActive = checkItemActive(href, pathname, currentStep);
                       return (
                         <li key={href}>
                           <Link

@@ -1259,78 +1259,123 @@ export default function STGEntryForm({
   const cb = activeBlockState.physical_count || {};
 
   return (
-    <div className="daily-entry-container" style={{ display: 'flex', flexDirection: 'column', height: '100%', overflowY: 'auto' }}>
+    <>
       <Header
         title="Solid Balance Details (STG) Entry"
-        subtitle="Manage independent Statement Masters, Receipts and Disposals with automated reconciliation matching Milk & Cream Stock Statement Entry."
-      />
+        subtitle={`Enter daily STG solid balance data (${reportMode === 'full_day' ? 'Full Day' : (shift === 'D' ? 'Day Shift' : 'Night Shift')})`}
+      >
+        <Step
+          items={DAILY_ENTRY_STEP_ITEMS}
+          flat={true}
+          activeStep={activeStep || 'stg'}
+          onStepClick={handleStepClick}
+          style={{ marginBottom: 0, marginTop: 4 }}
+        />
+      </Header>
 
-      <div style={{ padding: '16px 24px', display: 'flex', flexDirection: 'column', gap: 16 }}>
-        {/* Top Control Card */}
-        <div className="card" style={{ padding: '14px 20px', display: 'flex', flexDirection: 'column', gap: 12 }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12 }}>
-            {/* Date, Shift, and View Settings */}
-            <div style={{ display: 'flex', alignItems: 'center', gap: 14, flexWrap: 'wrap' }}>
-              <div>
-                <label style={{ display: 'block', fontSize: '0.72rem', fontWeight: 800, color: 'var(--text-secondary)', marginBottom: 2 }}>
-                  ENTRY DATE
-                </label>
-                <input
-                  type="date"
-                  className="form-input"
-                  value={entryDate}
-                  onChange={e => setEntryDate(e.target.value)}
-                  style={{ height: 32, fontWeight: 700, fontSize: '0.85rem' }}
-                />
-              </div>
-
-              <div>
-                <label style={{ display: 'block', fontSize: '0.72rem', fontWeight: 800, color: 'var(--text-secondary)', marginBottom: 2 }}>
-                  SHIFT
-                </label>
-                <select
-                  className="form-input"
-                  value={shift || ''}
-                  onChange={e => setShift(e.target.value ? (e.target.value as Shift) : null)}
-                  style={{ height: 32, fontWeight: 700, fontSize: '0.85rem' }}
+      <div className="form-container">
+        {/* Entry Details Header Card matching StockEntryForm & user screenshot */}
+        <div className="card" style={{ marginBottom: 20 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16, flexWrap: 'wrap', gap: 12 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+              <div className="section-title" style={{ margin: 0 }}>Entry Details</div>
+              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }} className="no-print">
+                <Link
+                  href={`/dashboard/ts/manage-statements/defaults?master=${encodeURIComponent(currentStatement?.key || activeBlock || 'wm')}`}
+                  className="btn btn-secondary btn-xs"
+                  style={{ borderColor: '#86efac', color: '#166534', backgroundColor: '#f0fdf4', fontSize: '0.75rem', padding: '4px 10px', fontWeight: 600 }}
+                  title="Configure Master Default Statements Template for Solid Balance Details (STG) Entry"
                 >
-                  <option value="">Full Day (Default)</option>
-                  <option value="D">Day Shift (D)</option>
-                  <option value="N">Night Shift (N)</option>
-                </select>
-              </div>
+                  ⭐ Master Default Statements
+                </Link>
+                <button
+                  type="button"
+                  className="btn btn-secondary btn-xs"
+                  style={{ borderColor: '#d97706', color: '#b45309', backgroundColor: '#fffbeb', fontSize: '0.75rem', padding: '4px 10px', fontWeight: 600 }}
+                  onClick={() => handleStepClick('stock')}
+                  title="Previous Stage: View Stock Statement Entry for selected Date & Shift"
+                >
+                  📦 Stock Statement Entry
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-secondary btn-xs"
+                  style={{ borderColor: '#0284c7', color: '#0284c7', backgroundColor: '#f0f9ff', fontSize: '0.75rem', padding: '4px 10px', fontWeight: 600 }}
+                  onClick={handleSyncFromStock}
+                  title="Auto-fill receipt quantities from saved Stock Statement"
+                >
+                  ⚡ Sync from Stock Statement
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-secondary btn-xs"
+                  onClick={() => setIsPrintModalOpen(true)}
+                  style={{ fontSize: '0.75rem', padding: '4px 10px' }}
+                >
+                  🖨️ Print
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-secondary btn-xs"
+                  style={{ borderColor: '#16a34a', color: '#16a34a', fontSize: '0.75rem', padding: '4px 10px', fontWeight: 600 }}
+                  onClick={handleExportExcel}
+                  disabled={exporting}
+                >
+                  📥 {exporting ? 'Exporting...' : 'Excel'}
+                </button>
 
-              {/* View Decimals Switcher */}
-              <div>
-                <label style={{ display: 'block', fontSize: '0.72rem', fontWeight: 800, color: 'var(--text-secondary)', marginBottom: 2 }}>
-                  DECIMALS VIEW
-                </label>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 4, background: '#f8fafc', padding: '2px 6px', borderRadius: 6, border: '1px solid var(--border)' }}>
-                  {(['auto', 0, 1, 2, 3] as const).map(dec => (
-                    <button
-                      key={`dec_btn_${dec}`}
-                      type="button"
-                      onClick={() => setViewDecimals(dec)}
-                      style={{
-                        background: viewDecimals === dec ? '#0284c7' : 'transparent',
-                        color: viewDecimals === dec ? '#ffffff' : '#475569',
-                        border: 'none',
-                        borderRadius: 4,
-                        padding: '2px 6px',
-                        fontSize: '0.7rem',
-                        fontWeight: 700,
-                        cursor: 'pointer',
-                      }}
-                    >
-                      {dec === 'auto' ? 'Auto' : `.${dec}`}
-                    </button>
-                  ))}
+                {/* Decimal View Precision Selector */}
+                <div
+                  style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    backgroundColor: '#f8fafc',
+                    border: '1px solid #cbd5e1',
+                    borderRadius: 6,
+                    padding: '2px 4px',
+                    gap: 2,
+                    marginLeft: 4,
+                  }}
+                  title="Toggle decimal precision across all cells and totals in the statement"
+                >
+                  <span style={{ fontSize: '0.7rem', fontWeight: 700, color: '#475569', padding: '0 4px', display: 'flex', alignItems: 'center', gap: 3 }}>
+                    🔢 View:
+                  </span>
+                  {([
+                    { key: 'auto', label: 'Auto' },
+                    { key: 0, label: '.0 Whole' },
+                    { key: 1, label: '.1 Dec' },
+                    { key: 2, label: '.2 Decs' },
+                    { key: 3, label: '.3 Decs' },
+                  ] as const).map(opt => {
+                    const active = viewDecimals === opt.key;
+                    return (
+                      <button
+                        key={String(opt.key)}
+                        type="button"
+                        onClick={() => setViewDecimals(opt.key)}
+                        style={{
+                          border: active ? '1px solid #0284c7' : '1px solid transparent',
+                          borderRadius: 4,
+                          padding: '2px 7px',
+                          fontSize: '0.72rem',
+                          fontWeight: active ? 700 : 500,
+                          backgroundColor: active ? '#0284c7' : 'transparent',
+                          color: active ? '#ffffff' : '#64748b',
+                          cursor: 'pointer',
+                          boxShadow: active ? '0 1px 2px rgba(2,132,199,0.2)' : 'none',
+                          transition: 'all 0.15s ease',
+                        }}
+                      >
+                        {opt.label}
+                      </button>
+                    );
+                  })}
                 </div>
               </div>
             </div>
 
-            {/* Right Action Buttons */}
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
               <button
                 type="button"
                 onClick={() => setIsCreateModalOpen(true)}
@@ -1339,8 +1384,8 @@ export default function STGEntryForm({
                   border: '1px solid #fcd34d',
                   color: '#b45309',
                   borderRadius: 6,
-                  padding: '6px 14px',
-                  fontSize: '0.82rem',
+                  padding: '4px 12px',
+                  fontSize: '0.78rem',
                   fontWeight: 800,
                   cursor: 'pointer',
                   display: 'flex',
@@ -1350,83 +1395,54 @@ export default function STGEntryForm({
               >
                 ➕ Create Statement Master
               </button>
-
-              <button
-                type="button"
-                onClick={handleExportExcel}
-                disabled={exporting}
-                style={{
-                  background: '#ffffff',
-                  border: '1px solid #16a34a',
-                  color: '#16a34a',
-                  borderRadius: 6,
-                  padding: '6px 14px',
-                  fontSize: '0.82rem',
-                  fontWeight: 700,
-                  cursor: exporting ? 'not-allowed' : 'pointer',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 6,
-                }}
-              >
-                📥 {exporting ? 'Exporting...' : 'Export Excel'}
-              </button>
-
-              <button
-                type="button"
-                onClick={() => setIsPrintModalOpen(true)}
-                style={{
-                  background: '#ffffff',
-                  border: '1px solid var(--border)',
-                  color: 'var(--text-primary)',
-                  borderRadius: 6,
-                  padding: '6px 14px',
-                  fontSize: '0.82rem',
-                  fontWeight: 700,
-                  cursor: 'pointer',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 6,
-                }}
-              >
-                🖨 Print / PDF
-              </button>
-
-              <button
-                type="button"
-                onClick={handleSave}
-                disabled={saving}
-                style={{
-                  background: '#16a34a',
-                  color: '#ffffff',
-                  border: 'none',
-                  borderRadius: 6,
-                  padding: '6px 18px',
-                  fontSize: '0.82rem',
-                  fontWeight: 800,
-                  cursor: saving ? 'not-allowed' : 'pointer',
-                  boxShadow: '0 2px 4px rgba(22, 163, 74, 0.25)',
-                }}
-              >
-                {saving ? '💾 Saving...' : '💾 Save Statement'}
-              </button>
             </div>
           </div>
 
-          {/* Notes Input */}
-          <div>
-            <input
-              type="text"
-              className="form-input"
-              value={notes}
-              placeholder="Notes / Remarks for this statement (optional)..."
-              onChange={e => setNotes(e.target.value)}
-              style={{ width: '100%', height: 30, fontSize: '0.82rem' }}
-            />
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 16 }}>
+            <div className="form-group">
+              <label className="form-label" style={{ fontWeight: 600 }}>Date *</label>
+              <input
+                type="date"
+                className="form-input"
+                value={entryDate}
+                onChange={e => {
+                  setEntryDate(e.target.value);
+                  if (onDateShiftChange) onDateShiftChange(e.target.value, shift);
+                }}
+              />
+            </div>
+
+            <div className="form-group">
+              <label className="form-label" style={{ fontWeight: 600 }}>Shift</label>
+              <select
+                className="form-input"
+                value={shift || ''}
+                onChange={e => {
+                  const val = e.target.value ? (e.target.value as Shift) : null;
+                  setShift(val);
+                  if (onDateShiftChange) onDateShiftChange(entryDate, val);
+                }}
+              >
+                <option value="">Full Day (Default)</option>
+                <option value="D">Day Shift (D)</option>
+                <option value="N">Night Shift (N)</option>
+              </select>
+            </div>
+
+            <div className="form-group">
+              <label className="form-label" style={{ fontWeight: 600 }}>Notes (optional)</label>
+              <input
+                type="text"
+                className="form-input"
+                placeholder="Shift notes, remarks, etc."
+                value={notes}
+                onChange={e => setNotes(e.target.value)}
+              />
+            </div>
           </div>
         </div>
 
-        {/* Statement Master Navigation Tabs Bar */}
+{/* Statement Master Navigation Tabs Bar */}
         <div className="card" style={{ padding: '12px 18px', display: 'flex', flexDirection: 'column', gap: 10 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -1930,9 +1946,45 @@ export default function STGEntryForm({
             </table>
           </div>
         </div>
+{/* Navigation & Action Buttons matching StockEntryForm */}
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 16, marginBottom: 40, flexWrap: 'wrap', gap: 12 }}>
+          <button
+            type="button"
+            className="btn btn-secondary"
+            onClick={() => handleStepClick('stock')}
+            style={{ display: 'flex', alignItems: 'center', gap: 6 }}
+          >
+            ⬅️ Previous Stage: Stock Statement Entry
+          </button>
+
+          <div style={{ display: 'flex', gap: 12 }}>
+            <button
+              type="button"
+              className="btn btn-primary"
+              onClick={handleSave}
+              disabled={saving}
+              style={{ display: 'flex', alignItems: 'center', gap: 6, background: '#16a34a', borderColor: '#16a34a' }}
+            >
+              {saving ? '💾 Saving...' : '💾 Save Solid Balance (STG) Details'}
+            </button>
+
+            <button
+              type="button"
+              className="btn btn-primary"
+              onClick={async () => {
+                await handleSave();
+                handleStepClick('ts');
+              }}
+              disabled={saving}
+              style={{ display: 'flex', alignItems: 'center', gap: 6, background: 'linear-gradient(135deg, #0284c7 0%, #0d9488 100%)', borderColor: '#0284c7' }}
+            >
+              Next: Proceed to TS Statement ➔
+            </button>
+          </div>
+        </div>
       </div>
 
-      {/* Modal: Create New Statement Master */}
+{/* Modal: Create New Statement Master */}
       {isCreateModalOpen && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
           <div className="card" style={{ width: '100%', maxWidth: 540, padding: 24, boxShadow: '0 25px 50px -12px rgba(0,0,0,0.25)' }}>
@@ -2327,6 +2379,6 @@ export default function STGEntryForm({
           </div>
         </div>
       )}
-    </div>
+    </>
   );
 }

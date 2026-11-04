@@ -208,11 +208,11 @@ export default function TSViewPage() {
               📦 Stock Statement
             </Link>
             {activeTab === 'STG' ? (
-              <Link href={`/dashboard/ts/new-stg?date=${date}&shift=${shift ?? 'null'}`} className="btn btn-primary btn-sm">
+              <Link href={`/dashboard/stock/new?step=stg&date=${date}&shift=${shift ?? 'null'}`} className="btn btn-primary btn-sm">
                 ✏️ Edit STG Entry
               </Link>
             ) : (
-              <Link href={`/dashboard/ts/new?date=${date}&shift=${shift ?? 'null'}`} className="btn btn-primary btn-sm">
+              <Link href={`/dashboard/stock/new?step=ts&date=${date}&shift=${shift ?? 'null'}`} className="btn btn-primary btn-sm">
                 ✏️ Edit TS Entry
               </Link>
             )}
@@ -232,9 +232,9 @@ export default function TSViewPage() {
             } else if (key === 'stock') {
               router.push(`/dashboard/stock/new?date=${date}&shift=${shift || 'F'}`);
             } else if (key === 'stg') {
-              router.push(`/dashboard/ts/new-stg?date=${date}&shift=${shift || 'F'}`);
+              router.push(`/dashboard/stock/new?step=stg&date=${date}&shift=${shift || 'F'}`);
             } else if (key === 'ts') {
-              router.push(`/dashboard/ts/new?date=${date}&shift=${shift || 'F'}`);
+              router.push(`/dashboard/stock/new?step=ts&date=${date}&shift=${shift || 'F'}`);
             }
           }}
           style={{ marginBottom: 0, marginTop: 4 }}
@@ -344,10 +344,10 @@ export default function TSViewPage() {
               <Link href={`/dashboard/stock/new?date=${date}&shift=${shift || 'F'}`} className="btn btn-primary">
                 📦 Create Stock Entry
               </Link>
-              <Link href={`/dashboard/ts/new-stg?date=${date}&shift=${shift || 'D'}`} className="btn btn-secondary">
+              <Link href={`/dashboard/stock/new?step=stg&date=${date}&shift=${shift || 'D'}`} className="btn btn-secondary">
                 ⚖️ Create STG Entry
               </Link>
-              <Link href={`/dashboard/ts/new?date=${date}`} className="btn btn-secondary">
+              <Link href={`/dashboard/stock/new?step=ts&date=${date}`} className="btn btn-secondary">
                 🧪 Create TS Entry
               </Link>
             </div>
@@ -389,7 +389,7 @@ export default function TSViewPage() {
           <button
             type="button"
             className="btn btn-secondary"
-            onClick={() => router.push(`/dashboard/ts/new?date=${date}&shift=${shift || 'F'}`)}
+            onClick={() => router.push(`/dashboard/stock/new?step=ts&date=${date}&shift=${shift || 'F'}`)}
             style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}
           >
             ← Back to TS Statement Entry

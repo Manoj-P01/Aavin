@@ -213,7 +213,7 @@ export default function StatementMastersConfigPage() {
             <Link href="/dashboard/ts/manage-statements/columns" className="btn btn-secondary btn-sm" style={{ color: '#0369a1', borderColor: '#bae6fd', background: '#f0f9ff', fontWeight: 700 }}>
               ⚙️ Column Configuration
             </Link>
-            <Link href="/dashboard/ts/new-stg" className="btn btn-secondary btn-sm">
+            <Link href="/dashboard/stock/new?step=stg" className="btn btn-secondary btn-sm">
               🧪 STG Entry
             </Link>
           </div>

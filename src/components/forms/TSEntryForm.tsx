@@ -802,7 +802,7 @@ export default function TSEntryForm({
                 if (onPrevStep) {
                   onPrevStep(entryDate, shift);
                 } else {
-                  router.push(`/dashboard/ts/new-stg?date=${entryDate}&shift=${shift || 'F'}`);
+                  router.push(`/dashboard/stock/new?step=stg&date=${entryDate}&shift=${shift || 'F'}`);
                 }
               }}
               disabled={mainSaving}

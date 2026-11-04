@@ -37,14 +37,14 @@ export default function StageStepper({
       title: 'Solid Balance (STG)',
       subtitle: 'Manual STG Receipts & CB',
       icon: '⚖️',
-      href: `/dashboard/ts/new-stg?date=${entryDate}&shift=${activeShift}`,
+      href: `/dashboard/stock/new?step=stg&date=${entryDate}&shift=${activeShift}`,
     },
     {
       id: 3,
       title: 'Total Solids (TS)',
       subtitle: 'TS Milk Rows & Norms',
       icon: '🧪',
-      href: `/dashboard/ts/new?date=${entryDate}&shift=${activeShift}`,
+      href: `/dashboard/stock/new?step=ts&date=${entryDate}&shift=${activeShift}`,
     },
     {
       id: 4,

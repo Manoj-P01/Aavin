@@ -367,7 +367,7 @@ export default function STGStatementMappingPage() {
             <Link href="/dashboard/stock/preparation-charts/mappings" className="btn btn-secondary btn-sm" style={{ display: 'flex', alignItems: 'center', gap: 6, color: '#0369a1', borderColor: '#bae6fd', background: '#f0f9ff', fontWeight: 700 }}>
               🔀 Stage 1 ➔ Stage 2 Rules
             </Link>
-            <Link href="/dashboard/ts/new-stg" className="btn btn-primary btn-sm">
+            <Link href="/dashboard/stock/new?step=stg" className="btn btn-primary btn-sm">
               ⚖️ Solid Balance Details (STG)
             </Link>
           </div>

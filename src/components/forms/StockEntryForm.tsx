@@ -2265,9 +2265,9 @@ export default function StockEntryForm({
         router.push(`/dashboard/stock/preparation-charts?date=${entryDate}&shift=${s}`);
       }
     } else if (key === 'stg') {
-      router.push(`/dashboard/ts/new-stg?date=${entryDate}&shift=${s}`);
+      router.push(`/dashboard/stock/new?step=stg&date=${entryDate}&shift=${s}`);
     } else if (key === 'ts') {
-      router.push(`/dashboard/ts/new?date=${entryDate}&shift=${s}`);
+      router.push(`/dashboard/stock/new?step=ts&date=${entryDate}&shift=${s}`);
     } else if (key === 'reports') {
       router.push(`/dashboard/ts/${entryDate}?shift=${s}`);
     }
@@ -2902,7 +2902,11 @@ export default function StockEntryForm({
                   className="btn btn-primary"
                   onClick={async () => {
                     await handleSave('stay');
-                    router.push(`/dashboard/ts/new-stg?date=${entryDate}${shift ? `&shift=${shift}` : ''}`);
+                    if (onStepChange) {
+                      onStepChange('stg');
+                    } else {
+                      router.push(`/dashboard/stock/new?step=stg&date=${entryDate}${shift ? `&shift=${shift}` : ''}`);
+                    }
                   }}
                   disabled={saving}
                   style={{ display: 'flex', alignItems: 'center', gap: 6, background: 'linear-gradient(135deg, #0284c7 0%, #0d9488 100%)', borderColor: '#0284c7' }}
