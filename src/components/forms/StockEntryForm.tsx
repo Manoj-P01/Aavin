@@ -98,6 +98,7 @@ export default function StockEntryForm({
   const [disposalRowsConfig, setDisposalRowsConfig] = useState<any[]>([]);
   const [obUnlocked, setObUnlocked] = useState(false);
   const [receiptsUnlocked, setReceiptsUnlocked] = useState(false);
+  const [disposalsUnlocked, setDisposalsUnlocked] = useState(false);
   const [internalRules, setInternalRules] = useState<any[]>([]);
 
   // Partition / Split Mapping Modal State
@@ -592,6 +593,8 @@ export default function StockEntryForm({
     setError('');
     setSuccess('');
     setObUnlocked(false);
+    setReceiptsUnlocked(false);
+    setDisposalsUnlocked(false);
     let active = true;
 
     async function loadData() {
@@ -1042,7 +1045,6 @@ export default function StockEntryForm({
           }
 
           setRows(loadedRows);
-          await syncFromPreparationCharts();
         }
       } catch (err) {
         console.error('Error loading existing stock data:', err);
@@ -1057,7 +1059,7 @@ export default function StockEntryForm({
     setRows(prev => {
       const next = [...prev];
       next[rowIdx] = { ...next[rowIdx], values: { ...next[rowIdx].values, [col]: val } };
-      return applyInternalMappings(next, internalRules);
+      return next;
     });
   };
 
@@ -1748,10 +1750,11 @@ export default function StockEntryForm({
                     const nextUnlocked = !receiptsUnlocked;
                     setReceiptsUnlocked(nextUnlocked);
                     if (nextUnlocked) {
-                      setSuccess('Mapped Receipt cells unlocked. You can now update receipt values manually.');
+                      setSuccess('Receipts unlocked. You can now update receipt values manually.');
                       setTimeout(() => setSuccess(''), 4000);
                     } else {
-                      setRows(prev => applyInternalMappings(prev, internalRules, true));
+                      setSuccess('Receipts locked. Manual changes are saved.');
+                      setTimeout(() => setSuccess(''), 4000);
                     }
                   }}
                   style={{
@@ -1770,13 +1773,27 @@ export default function StockEntryForm({
                     cursor: 'pointer',
                   }}
                 >
-                  {receiptsUnlocked ? '🔒 Lock Mapped Receipts' : '✏️ Edit Mapped Receipts'}
+                  {receiptsUnlocked ? '🔒 Lock Receipts' : '✏️ Edit Receipts'}
                 </button>
                 <button
                   type="button"
                   className="btn btn-secondary btn-sm no-print"
-                  onClick={() => setRows(prev => applyInternalMappings(prev, internalRules, true))}
-                  title="Recalculate mapped Receipts from Disposals row totals"
+                  onClick={async () => {
+                    const count = await syncFromPreparationCharts();
+                    if (count > 0) {
+                      setReceiptsUnlocked(true);
+                      await showSuccess(
+                        `Synced ${count} preparation formulation batch quantity(ies) into Stock Statement Entry! Receipts unlocked for editing.`,
+                        'Preparation Charts Synced'
+                      );
+                    } else {
+                      await showWarning(
+                        `No saved preparation charts data found for ${entryDate}. Please ensure preparation charts are saved for this date.`,
+                        'No Preparation Charts Found'
+                      );
+                    }
+                  }}
+                  title="Auto-fill receipt quantities from saved Preparation Charts"
                   style={{
                     padding: '4px 10px',
                     fontSize: '0.72rem',
@@ -1786,14 +1803,50 @@ export default function StockEntryForm({
                     alignItems: 'center',
                     gap: 4,
                     borderRadius: 4,
-                    border: '1px solid #10b981',
-                    background: 'rgba(16, 185, 129, 0.1)',
-                    color: '#059669',
+                    border: '1px solid #0284c7',
+                    background: 'rgba(14, 165, 233, 0.1)',
+                    color: '#0284c7',
                     fontWeight: 600,
                     cursor: 'pointer',
                   }}
                 >
-                  ⚡ Sync Mapped Receipts
+                  ⚡ Sync from Prep Charts
+                </button>
+              </div>
+            )}
+            {isDisposalsSection && (
+              <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                <button
+                  type="button"
+                  className="btn btn-secondary btn-sm no-print"
+                  onClick={() => {
+                    const nextUnlocked = !disposalsUnlocked;
+                    setDisposalsUnlocked(nextUnlocked);
+                    if (nextUnlocked) {
+                      setSuccess('Disposals unlocked. You can now update disposal values manually.');
+                      setTimeout(() => setSuccess(''), 4000);
+                    } else {
+                      setSuccess('Disposals locked. Manual changes are saved.');
+                      setTimeout(() => setSuccess(''), 4000);
+                    }
+                  }}
+                  style={{
+                    padding: '4px 10px',
+                    fontSize: '0.72rem',
+                    height: 24,
+                    lineHeight: 1,
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: 4,
+                    borderRadius: 4,
+                    border: '1px solid var(--border)',
+                    background: disposalsUnlocked ? 'rgba(239, 68, 68, 0.1)' : 'rgba(245, 158, 11, 0.15)',
+                    color: disposalsUnlocked ? '#ef4444' : '#b45309',
+                    fontWeight: 600,
+                    cursor: 'pointer',
+                  }}
+                >
+                  {disposalsUnlocked ? '🔒 Lock Disposals' : '✏️ Edit Disposals'}
                 </button>
               </div>
             )}
@@ -1957,15 +2010,25 @@ export default function StockEntryForm({
                       )}
                     </td>
                     {columns.map(col => {
-                      const isMappedReceiptCell = isReceiptsSection && (
-                        internalRules.some(rule => rule.enabled !== false && (rule.targetReceiptProductKey || rule.sourceProductKey) === col.key) ||
-                        (internalRules.length === 0 && col.key === 'dlt_milk')
-                      );
-                      const isReadOnly = (isBalanceSection && !obUnlocked) || (isMappedReceiptCell && !receiptsUnlocked);
+                      const isReadOnly = (isBalanceSection && !obUnlocked) ||
+                                         (isReceiptsSection && !receiptsUnlocked) ||
+                                         (isDisposalsSection && !disposalsUnlocked);
                       const isCellFocused = focusedRowIdx === i && focusedColKey === col.key;
                       const displayVal = isCellFocused
                         ? (r.values[col.key] || '')
                         : formatCellVal(r.values[col.key], viewDecimals);
+
+                      const cellTitle = isReadOnly
+                        ? (isBalanceSection
+                            ? 'Opening Balance locked. Click ✏️ Edit OB to unlock.'
+                            : isReceiptsSection
+                            ? 'Receipts locked. Click ✏️ Edit Receipts to edit manually, or ⚡ Sync from Prep Charts to sync.'
+                            : 'Disposals locked. Click ✏️ Edit Disposals to edit manually.')
+                        : (isBalanceSection
+                            ? 'Opening Balance unlocked for manual editing.'
+                            : isReceiptsSection
+                            ? 'Receipts unlocked for manual editing.'
+                            : 'Disposals unlocked for manual editing.');
 
                       return (
                         <td key={col.key}>
@@ -1985,12 +2048,12 @@ export default function StockEntryForm({
                               setFocusedColKey(prev => (prev === col.key ? null : prev));
                             }}
                             onKeyDown={e => handleTableKeyDown(e, i, col.key)}
-                            title={isMappedReceiptCell ? (receiptsUnlocked ? 'Unlocked for manual edit' : 'Auto-calculated from Disposals row total. Click ✏️ Edit Mapped Receipts to unlock.') : undefined}
+                            title={cellTitle}
                             style={{
                               fontFamily: 'var(--font-numbers)',
                               backgroundColor: isReadOnly ? '#f8fafc' : (isFocusedRow ? 'rgba(255, 255, 255, 0.8)' : 'transparent'),
-                              color: isReadOnly ? (isMappedReceiptCell ? '#047857' : '#64748b') : 'inherit',
-                              fontWeight: isMappedReceiptCell ? 700 : (isFocusedRow ? 600 : 'normal'),
+                              color: isReadOnly ? '#64748b' : 'inherit',
+                              fontWeight: isFocusedRow ? 600 : 'normal',
                               cursor: isReadOnly ? 'not-allowed' : 'text',
                             }}
                             readOnly={isReadOnly}
@@ -2581,8 +2644,9 @@ export default function StockEntryForm({
                   onClick={async () => {
                     const count = await syncFromPreparationCharts();
                     if (count > 0) {
+                      setReceiptsUnlocked(true);
                       await showSuccess(
-                        `Synced ${count} preparation formulation batch quantity(ies) into Stock Statement Entry Receipts!`,
+                        `Synced ${count} preparation formulation batch quantity(ies) into Stock Statement Entry! Receipts unlocked for editing.`,
                         'Preparation Charts Synced'
                       );
                     } else {
