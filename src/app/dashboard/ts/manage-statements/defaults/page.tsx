@@ -20,9 +20,12 @@ export interface STGColumnDef {
 export interface STGMasterDef {
   key: string;
   label: string;
+  name?: string;
   variant?: string;
   description?: string;
   is_split?: boolean;
+  receipt_rows?: any[];
+  disposal_rows?: any[];
   default_rows?: any[];
   rows?: any[];
   custom_columns?: STGColumnDef[];
@@ -32,6 +35,8 @@ export interface STGMasterDef {
 
 export interface STGRowData {
   variant: string;
+  row_type?: 'OB' | 'RECEIPT' | 'DISPOSAL';
+  side?: 'RECEIPT' | 'DISPOSAL';
   values: Record<string, any>;
 }
 
@@ -52,6 +57,7 @@ export default function STGDefaultFormulationsPage() {
   const [selectedCell, setSelectedCell] = useState<{ rowIndex: number; colKey: string } | null>(null);
   const [focusedCell, setFocusedCell] = useState<{ rowIndex: number; colKey: string } | null>(null);
   const [isColEditing, setIsColEditing] = useState<boolean>(false);
+  const [viewDecimals, setViewDecimals] = useState<number | 'auto'>('auto');
 
   // Modal State for Adding / Editing Columns
   const [isColModalOpen, setIsColModalOpen] = useState<boolean>(false);
@@ -75,6 +81,18 @@ export default function STGDefaultFormulationsPage() {
   const [newMasterDescription, setNewMasterDescription] = useState<string>('');
   const [newMasterSource, setNewMasterSource] = useState<string>('blank');
   const [newMasterColsSource, setNewMasterColsSource] = useState<string>('default');
+
+  // Fill handle state
+  const [fillDrag, setFillDrag] = useState<{ sourceRow: number; targetRow: number; colKey: string } | null>(null);
+
+  // Split into Receipt and Disposal rows
+  const receiptRows = useMemo(() => {
+    return rows.filter(r => r.row_type === 'RECEIPT' || r.side === 'RECEIPT');
+  }, [rows]);
+
+  const disposalRows = useMemo(() => {
+    return rows.filter(r => r.row_type === 'DISPOSAL' || r.side === 'DISPOSAL');
+  }, [rows]);
 
   // Fetch Configs & Templates from DB
   const loadData = useCallback(async () => {
@@ -102,8 +120,13 @@ export default function STGDefaultFormulationsPage() {
         loadedMasters.forEach(m => {
           if (Array.isArray(m.default_rows) && m.default_rows.length > 0) {
             tmplMap[m.key] = m.default_rows;
+          } else if (Array.isArray(m.receipt_rows) || Array.isArray(m.disposal_rows)) {
+            tmplMap[m.key] = [
+              ...(m.receipt_rows || []).map((r: any) => ({ ...r, row_type: 'RECEIPT', side: 'RECEIPT' })),
+              ...(m.disposal_rows || []).map((r: any) => ({ ...r, row_type: 'DISPOSAL', side: 'DISPOSAL' })),
+            ];
           } else if (Array.isArray(m.rows) && m.rows.length > 0) {
-            tmplMap[m.key] = m.rows.map(r => ({ variant: r.short_name || r.full_name || r.variant || '', values: r.values || {} }));
+            tmplMap[m.key] = m.rows.map(r => ({ variant: r.short_name || r.full_name || r.variant || '', values: r.values || {}, row_type: r.row_type || r.side || 'RECEIPT', side: r.side || r.row_type || 'RECEIPT' }));
           }
         });
         setTemplates(tmplMap);
@@ -140,13 +163,57 @@ export default function STGDefaultFormulationsPage() {
     const master = mastersList.find(m => m.key === masterKey);
     const existingTmpl = tmplMap[masterKey];
 
+    let loadedRows: STGRowData[] = [];
     if (existingTmpl && Array.isArray(existingTmpl) && existingTmpl.length > 0) {
-      setRows(JSON.parse(JSON.stringify(existingTmpl)));
+      loadedRows = JSON.parse(JSON.stringify(existingTmpl));
     } else if (master?.default_rows && master.default_rows.length > 0) {
-      setRows(JSON.parse(JSON.stringify(master.default_rows)));
+      loadedRows = JSON.parse(JSON.stringify(master.default_rows));
+    } else if (master?.receipt_rows || master?.disposal_rows) {
+      loadedRows = [
+        ...(master.receipt_rows || []).map((r: any) => ({ ...r, row_type: 'RECEIPT', side: 'RECEIPT' })),
+        ...(master.disposal_rows || []).map((r: any) => ({ ...r, row_type: 'DISPOSAL', side: 'DISPOSAL' })),
+      ];
     } else {
-      setRows([{ variant: '', values: {} }]);
+      loadedRows = [
+        { variant: 'Opening Balance', row_type: 'OB', side: 'RECEIPT', values: {} },
+        { variant: 'Receipt 1', row_type: 'RECEIPT', side: 'RECEIPT', values: {} },
+        { variant: 'Disposal 1', row_type: 'DISPOSAL', side: 'DISPOSAL', values: {} },
+      ];
     }
+
+    // Ensure rows have row_type and side
+    if (master && (master.receipt_rows || master.disposal_rows)) {
+      const recVariants = new Set((master.receipt_rows || []).map((r: any) => (r.variant || '').toLowerCase().trim()));
+      const dispVariants = new Set((master.disposal_rows || []).map((r: any) => (r.variant || '').toLowerCase().trim()));
+      loadedRows.forEach(r => {
+        if (!r.row_type && !r.side) {
+          const v = (r.variant || '').toLowerCase().trim();
+          if (recVariants.has(v)) {
+            r.row_type = 'RECEIPT';
+            r.side = 'RECEIPT';
+          } else if (dispVariants.has(v)) {
+            r.row_type = 'DISPOSAL';
+            r.side = 'DISPOSAL';
+          } else {
+            r.row_type = 'RECEIPT';
+            r.side = 'RECEIPT';
+          }
+        }
+      });
+    }
+
+    // Fallback if none tagged
+    const hasRec = loadedRows.some(r => r.row_type === 'RECEIPT' || r.side === 'RECEIPT');
+    const hasDisp = loadedRows.some(r => r.row_type === 'DISPOSAL' || r.side === 'DISPOSAL');
+    if (!hasRec && !hasDisp) {
+      const half = Math.ceil(loadedRows.length / 2);
+      loadedRows.forEach((r, idx) => {
+        r.row_type = idx < half ? 'RECEIPT' : 'DISPOSAL';
+        r.side = r.row_type;
+      });
+    }
+
+    setRows(loadedRows);
     setSelectedCell(null);
     setFocusedCell(null);
   };
@@ -196,10 +263,16 @@ export default function STGDefaultFormulationsPage() {
     // Determine initial formulation template rows
     let initialRows: STGRowData[] = [];
     if (newMasterSource === 'blank') {
-      initialRows = [{ variant: '', values: {} }];
+      initialRows = [
+        { variant: 'Receipt 1', row_type: 'RECEIPT', side: 'RECEIPT', values: {} },
+        { variant: 'Disposal 1', row_type: 'DISPOSAL', side: 'DISPOSAL', values: {} },
+      ];
     } else {
       const srcTmpl = templates[newMasterSource] || (masters.find(m => m.key === newMasterSource)?.default_rows) || [];
-      initialRows = JSON.parse(JSON.stringify(srcTmpl.length > 0 ? srcTmpl : [{ variant: '', values: {} }]));
+      initialRows = JSON.parse(JSON.stringify(srcTmpl.length > 0 ? srcTmpl : [
+        { variant: 'Receipt 1', row_type: 'RECEIPT', side: 'RECEIPT', values: {} },
+        { variant: 'Disposal 1', row_type: 'DISPOSAL', side: 'DISPOSAL', values: {} },
+      ]));
     }
 
     // Determine configured columns
@@ -212,14 +285,19 @@ export default function STGDefaultFormulationsPage() {
       initialCols = JSON.parse(JSON.stringify(srcCols.length > 0 ? srcCols : defaultColumns));
     }
 
+    const recRows = initialRows.filter(r => r.row_type === 'RECEIPT' || r.side === 'RECEIPT');
+    const dispRows = initialRows.filter(r => r.row_type === 'DISPOSAL' || r.side === 'DISPOSAL');
+
     const newMaster: STGMasterDef = {
       key: keyToUse,
       label: cleanLabel,
       variant: newMasterVariant.trim().toUpperCase() || cleanLabel.split(' ')[0],
       description: newMasterDescription.trim(),
       sort_order: masters.length + 1,
+      receipt_rows: recRows,
+      disposal_rows: dispRows,
       default_rows: initialRows,
-      rows: initialRows.map(r => ({ variant: r.variant || r.values.variant || '', values: r.values })),
+      rows: initialRows.map(r => ({ variant: r.variant || r.values.variant || '', values: r.values, row_type: r.row_type, side: r.side })),
       custom_columns: initialCols,
     };
 
@@ -271,7 +349,10 @@ export default function STGDefaultFormulationsPage() {
 
   const formatNumberValue = (num: number, decimals?: number, colKey?: string): string => {
     if (isNaN(num)) return '-';
-    const dec = getStandardColumnDecimals(colKey || '', decimals);
+    let dec = getStandardColumnDecimals(colKey || '', decimals);
+    if (viewDecimals !== 'auto') {
+      dec = viewDecimals;
+    }
     return num.toLocaleString('en-IN', {
       minimumFractionDigits: dec,
       maximumFractionDigits: dec,
@@ -290,12 +371,10 @@ export default function STGDefaultFormulationsPage() {
     let expr = formulaInput.trim();
     if (expr.startsWith('=')) expr = expr.substring(1).trim();
     if (expr.startsWith('+')) expr = expr.substring(1).trim();
-
     if (!expr) return 0;
 
     const rowList = rowsContext || rows || [];
 
-    // Expand Excel Cell Range syntax like D2:D7 or SUM(D2:D7)
     expr = expr.replace(/(SUM|AVERAGE|AVG|MIN|MAX|COUNT)?\s*\(?\s*([A-Z]+)([0-9]+)\s*:\s*([A-Z]+)([0-9]+)\s*\)?/gi, (match, fnName, c1, r1, c2, r2) => {
       let col1Idx = 0, col2Idx = 0;
       const u1 = c1.toUpperCase();
@@ -326,7 +405,6 @@ export default function STGDefaultFormulationsPage() {
       return `${func}(${joined})`;
     });
 
-    // Replace Excel Cell References like A1, B1, C2, D1 with numeric values
     expr = expr.replace(/([A-Z]+)([0-9]+)/gi, (match, colLetters, rowNumStr) => {
       let colIdx = 0;
       const upperLetters = colLetters.toUpperCase();
@@ -349,9 +427,7 @@ export default function STGDefaultFormulationsPage() {
         targetVals = targetRow?.values || {};
       }
 
-      if (rawVal === undefined || rawVal === null || rawVal === '') {
-        return '0';
-      }
+      if (rawVal === undefined || rawVal === null || rawVal === '') return '0';
 
       if (typeof rawVal === 'string' && (rawVal.startsWith('=') || rawVal.startsWith('=+'))) {
         const evaluatedTarget = evaluateExcelFormula(rawVal, targetRowIdx, targetVals, rowList, depth + 1);
@@ -368,7 +444,6 @@ export default function STGDefaultFormulationsPage() {
       return isNaN(numVal) ? '0' : String(numVal);
     });
 
-    // Replace column key identifiers
     columns.forEach(col => {
       if (expr.includes(col.key)) {
         const rawVal = rowVals[col.key];
@@ -378,8 +453,8 @@ export default function STGDefaultFormulationsPage() {
     });
 
     try {
-      let cleanExpr = expr.replace(/[^0-9.\-+\/*%() ,a-zA-Z]/g, '').trim();
-      cleanExpr = cleanExpr.replace(/[\-+\/*%,]+$/g, '').trim();
+      let cleanExpr = expr.replace(/[^0-9.\-+/*%() ,a-zA-Z]/g, '').trim();
+      cleanExpr = cleanExpr.replace(/[\-+/*%,]+$/g, '').trim();
       if (!cleanExpr) return 0;
 
       let openCount = 0;
@@ -387,9 +462,7 @@ export default function STGDefaultFormulationsPage() {
         if (cleanExpr[i] === '(') openCount++;
         else if (cleanExpr[i] === ')') openCount--;
       }
-      if (openCount > 0) {
-        cleanExpr += ')'.repeat(openCount);
-      }
+      if (openCount > 0) cleanExpr += ')'.repeat(openCount);
 
       const evaluator = Function(
         'SUM', 'AVERAGE', 'AVG', 'MIN', 'MAX', 'COUNT', 'ROUND', 'ABS',
@@ -417,24 +490,24 @@ export default function STGDefaultFormulationsPage() {
     }
   };
 
-  const computeCell = (col: STGColumnDef, rowVals: Record<string, any>, rowIndex: number = 0, rowsContext?: STGRowData[]) => {
+  const computeCell = (
+    col: STGColumnDef,
+    rowVals: Record<string, any>,
+    rowIndex: number = 0,
+    rowsContext?: STGRowData[]
+  ) => {
     const rList = rowsContext || rows || [];
     const cellVal = rowVals ? rowVals[col.key] : undefined;
 
-    if (cellVal !== undefined && cellVal !== '' && cellVal !== null) {
-      if (typeof cellVal === 'string' && (cellVal.startsWith('=') || cellVal.startsWith('=+'))) {
-        return evaluateExcelFormula(cellVal, rowIndex, rowVals, rList);
-      }
-      if (typeof cellVal === 'number') return cellVal;
-      const numVal = parseFloat(String(cellVal));
-      if (!isNaN(numVal)) return numVal;
-      return cellVal;
+    if (cellVal !== undefined && typeof cellVal === 'string' && (cellVal.startsWith('=') || cellVal.startsWith('=+'))) {
+      return evaluateExcelFormula(cellVal, rowIndex, rowVals, rList);
     }
 
     if (col.type === 'calculated') {
-      if (col.formula) {
-        return evaluateExcelFormula(`= ${col.formula}`, rowIndex, rowVals, rList);
+      if (col.formula && typeof col.formula === 'string' && (col.formula.startsWith('=') || col.formula.startsWith('=+'))) {
+        return evaluateExcelFormula(col.formula, rowIndex, rowVals, rList);
       }
+
       const qtyLitVal = rowVals ? rowVals.qty_lts : undefined;
       const spGrVal = rowVals ? rowVals.sp_gr : undefined;
 
@@ -520,8 +593,8 @@ export default function STGDefaultFormulationsPage() {
       formulaText = rawVal !== '' ? (String(rawVal).startsWith('=') ? String(rawVal) : `= ${rawVal}`) : '';
     }
 
-    const formattedValDisplay = typeof computedVal === 'number'
-      ? (computedVal !== 0 ? formatNumberValue(computedVal, col.decimals, col.key) : '0')
+    const valueStr = typeof computedVal === 'number'
+      ? formatNumberValue(computedVal, col.decimals, col.key)
       : (computedVal || '-');
 
     return {
@@ -529,102 +602,121 @@ export default function STGDefaultFormulationsPage() {
       colName: col.name,
       isCalculated: col.type === 'calculated',
       formulaText,
-      value: formattedValDisplay
+      value: valueStr,
     };
-  }, [selectedCell, columns, rows]);
+  }, [selectedCell, columns, rows, viewDecimals]);
 
-  const handleCellChange = (rowIndex: number, colKey: string, rawVal: any) => {
+  const handleCellChange = (rowIndex: number, colKey: string, val: string) => {
     setRows(prev => {
-      const next = [...prev];
-      const targetRow = { ...next[rowIndex] };
-      const targetVals = { ...targetRow.values, [colKey]: rawVal };
-      targetRow.values = targetVals;
-      const col = columns.find(c => c.key === colKey);
-      if (col?.type === 'text') {
-        targetRow.variant = rawVal;
+      const copy = [...prev];
+      if (!copy[rowIndex]) return prev;
+      const updatedRow = { ...copy[rowIndex], values: { ...copy[rowIndex].values } };
+      if (colKey === 'variant') {
+        updatedRow.variant = val;
       }
-      next[rowIndex] = targetRow;
-      return next;
+      updatedRow.values[colKey] = val;
+      copy[rowIndex] = updatedRow;
+      return copy;
     });
   };
 
-  // Excel Drag-to-Fill state & mouse listeners
-  const [fillDrag, setFillDrag] = useState<{
-    sourceRow: number;
-    targetRow: number;
-    colKey: string;
-  } | null>(null);
+  const handleAddReceiptRow = () => {
+    setRows(prev => [
+      ...prev,
+      { variant: '', row_type: 'RECEIPT', side: 'RECEIPT', values: {} }
+    ]);
+  };
 
+  const handleAddDisposalRow = () => {
+    setRows(prev => [
+      ...prev,
+      { variant: '', row_type: 'DISPOSAL', side: 'DISPOSAL', values: {} }
+    ]);
+  };
+
+  const handleMoveRow = (fromGlobalIdx: number, direction: 'UP' | 'DOWN', rowType: 'RECEIPT' | 'DISPOSAL') => {
+    const list = rowType === 'RECEIPT' ? receiptRows : disposalRows;
+    const currentListIdx = list.findIndex(r => r === rows[fromGlobalIdx]);
+    if (currentListIdx === -1) return;
+    if (direction === 'UP' && currentListIdx === 0) return;
+    if (direction === 'DOWN' && currentListIdx === list.length - 1) return;
+
+    const targetListIdx = direction === 'UP' ? currentListIdx - 1 : currentListIdx + 1;
+    const targetItem = list[targetListIdx];
+    const targetGlobalIdx = rows.findIndex(r => r === targetItem);
+    if (targetGlobalIdx === -1) return;
+
+    setRows(prev => {
+      const copy = [...prev];
+      const temp = copy[fromGlobalIdx];
+      copy[fromGlobalIdx] = copy[targetGlobalIdx];
+      copy[targetGlobalIdx] = temp;
+      return copy;
+    });
+  };
+
+  const handleDeleteRow = (globalIdx: number) => {
+    setRows(prev => prev.filter((_, idx) => idx !== globalIdx));
+  };
+
+  // Drag-fill start handler
   const handleFillDragStart = (e: React.MouseEvent, rowIndex: number, colKey: string) => {
     e.stopPropagation();
     e.preventDefault();
-    setFillDrag({
-      sourceRow: rowIndex,
-      targetRow: rowIndex,
-      colKey,
-    });
-  };
+    setFillDrag({ sourceRow: rowIndex, targetRow: rowIndex, colKey });
 
-  useEffect(() => {
-    if (!fillDrag) return;
-
-    const handleMouseMove = (e: MouseEvent) => {
-      const elem = document.elementFromPoint(e.clientX, e.clientY);
-      const rowElem = elem?.closest('[data-row-index]');
-      if (rowElem) {
-        const rawIdx = rowElem.getAttribute('data-row-index');
-        if (rawIdx !== null) {
-          const rIdx = parseInt(rawIdx, 10);
-          if (!isNaN(rIdx)) {
-            setFillDrag(prev => prev ? { ...prev, targetRow: rIdx } : null);
-          }
+    const handleMouseMove = (moveEv: MouseEvent) => {
+      const elem = document.elementFromPoint(moveEv.clientX, moveEv.clientY);
+      const cellElem = elem?.closest('td[data-row-index]');
+      if (cellElem) {
+        const hoverRowIdx = parseInt(cellElem.getAttribute('data-row-index') || '-1', 10);
+        if (hoverRowIdx >= 0) {
+          setFillDrag(prev => prev ? { ...prev, targetRow: hoverRowIdx } : null);
         }
       }
     };
 
     const handleMouseUp = () => {
-      if (fillDrag) {
-        const { sourceRow, targetRow, colKey } = fillDrag;
-        if (sourceRow !== targetRow) {
-          const minRow = Math.min(sourceRow, targetRow);
-          const maxRow = Math.max(sourceRow, targetRow);
+      document.removeEventListener('mousemove', handleMouseMove);
+      document.removeEventListener('mouseup', handleMouseUp);
+      setFillDrag(curr => {
+        if (!curr || curr.sourceRow === curr.targetRow) return null;
+        const { sourceRow, targetRow, colKey } = curr;
+        const sourceRowObj = rows[sourceRow];
+        const sourceVal = sourceRowObj?.values?.[colKey] ?? '';
 
-          setRows(prev => {
-            const next = [...prev];
-            const sourceVal = prev[sourceRow]?.values?.[colKey];
-            for (let r = minRow; r <= maxRow; r++) {
-              if (r === sourceRow) continue;
-              const rData = { ...next[r] };
-              const vals = { ...rData.values };
-              let valToSet: any = sourceVal;
-              if (typeof sourceVal === 'string' && (sourceVal.startsWith('=') || sourceVal.startsWith('+'))) {
-                valToSet = adjustFormulaRowOffset(sourceVal, sourceRow, r);
-              }
-              vals[colKey] = valToSet;
-              rData.values = vals;
-              const col = columns.find(c => c.key === colKey);
-              if (col?.type === 'text') rData.variant = valToSet;
-              next[r] = rData;
+        setRows(prev => {
+          const copy = [...prev];
+          const start = Math.min(sourceRow, targetRow);
+          const end = Math.max(sourceRow, targetRow);
+          for (let r = start; r <= end; r++) {
+            if (r === sourceRow) continue;
+            let finalVal = sourceVal;
+            if (typeof sourceVal === 'string' && (sourceVal.startsWith('=') || sourceVal.startsWith('+'))) {
+              finalVal = adjustFormulaRowOffset(sourceVal, sourceRow, r);
             }
-            return next;
-          });
-        }
-      }
-      setFillDrag(null);
+            copy[r] = {
+              ...copy[r],
+              values: {
+                ...(copy[r]?.values || {}),
+                [colKey]: finalVal,
+              },
+            };
+          }
+          return copy;
+        });
+        return null;
+      });
     };
 
-    window.addEventListener('mousemove', handleMouseMove);
-    window.addEventListener('mouseup', handleMouseUp);
-    return () => {
-      window.removeEventListener('mousemove', handleMouseMove);
-      window.removeEventListener('mouseup', handleMouseUp);
-    };
-  }, [fillDrag, columns]);
+    document.addEventListener('mousemove', handleMouseMove);
+    document.addEventListener('mouseup', handleMouseUp);
+  };
 
-  // Column Actions
-  const handleOpenAddColumn = (insertIdx?: number) => {
+  // Add / Edit Column Modal Handlers
+  const handleOpenAddColumn = (insertAtIdx?: number) => {
     setColModalEditingKey(null);
-    setColModalInsertIdx(insertIdx !== undefined ? insertIdx : columns.length);
+    setColModalInsertIdx(insertAtIdx !== undefined ? insertAtIdx : null);
     setFormColKey('');
     setColKeyManuallyEdited(false);
     setFormColName('');
@@ -636,7 +728,6 @@ export default function STGDefaultFormulationsPage() {
   };
 
   const handleOpenEditColumn = (col: STGColumnDef) => {
-    setColModalInsertIdx(null);
     setColModalEditingKey(col.key);
     setFormColKey(col.key);
     setColKeyManuallyEdited(true);
@@ -650,72 +741,77 @@ export default function STGDefaultFormulationsPage() {
 
   const handleSaveColumnModal = (e: React.FormEvent) => {
     e.preventDefault();
-
     if (!formColName.trim()) {
-      alert('Please enter a Column Name');
+      showToast('❌ Please enter a Column Name');
       return;
     }
 
-    const keyToUse = formColKey.trim().toLowerCase().replace(/[^a-z0-9_]/g, '_') || formColName.trim().toLowerCase().replace(/[^a-z0-9_]/g, '_');
+    const keyToUse = formColKey.trim().toLowerCase().replace(/[^a-z0-9_]/g, '_');
     if (!keyToUse) {
-      alert('Please enter a Field Key');
+      showToast('❌ Please enter a valid Field Key');
       return;
     }
 
-    const newCol: STGColumnDef = {
-      key: keyToUse,
-      name: formColName.trim(),
-      type: formColType,
-      formula: formColType === 'calculated' ? formColFormula.trim() : undefined,
-      unit: formColUnit.trim(),
-      decimals: formColDecimals !== undefined ? formColDecimals : undefined,
-      sort_order: colModalEditingKey
-        ? (columns.find(c => c.key === colModalEditingKey)?.sort_order || columns.length + 1)
-        : (colModalInsertIdx !== null ? colModalInsertIdx + 1 : columns.length + 1),
-      is_active: true,
-    };
-
-    let updatedCols: STGColumnDef[];
-    if (colModalEditingKey) {
-      const oldKey = colModalEditingKey;
-      if (keyToUse !== oldKey && columns.some(c => c.key === keyToUse)) {
-        alert(`Column key "${keyToUse}" already exists! Please use a unique Field Key.`);
-        return;
-      }
-      updatedCols = columns.map(c => (c.key === oldKey ? newCol : c));
-
-      // If key was updated, migrate row.values across all rows
-      if (keyToUse !== oldKey) {
-        setRows(prev =>
-          prev.map(row => {
-            const nextVals = { ...row.values };
-            if (oldKey in nextVals) {
-              nextVals[keyToUse] = nextVals[oldKey];
-              delete nextVals[oldKey];
-            }
-            return { ...row, values: nextVals };
-          })
-        );
-      }
-    } else {
-      if (columns.some(c => c.key === newCol.key)) {
-        alert(`Column key "${newCol.key}" already exists! Please use a unique Field Key.`);
-        return;
-      }
-      updatedCols = [...columns];
-      const insertIdx = colModalInsertIdx !== null ? colModalInsertIdx : columns.length;
-      updatedCols.splice(insertIdx, 0, newCol);
+    if (!colModalEditingKey && columns.some(c => c.key === keyToUse)) {
+      showToast(`❌ Column key "${keyToUse}" already exists! Please use a unique Field Key.`);
+      return;
     }
 
-    const reindexedCols = updatedCols.map((c, i) => ({ ...c, sort_order: i + 1 }));
-    setColumns(reindexedCols);
+    if (colModalEditingKey) {
+      setColumns(prev => prev.map(c => c.key === colModalEditingKey ? {
+        ...c,
+        key: keyToUse,
+        name: formColName.trim(),
+        type: formColType,
+        formula: formColType === 'calculated' ? formColFormula.trim() : undefined,
+        unit: formColUnit.trim() || undefined,
+        decimals: formColDecimals,
+      } : c));
+
+      if (colModalEditingKey !== keyToUse) {
+        setRows(prev => prev.map(r => {
+          const vals = { ...r.values };
+          if (vals[colModalEditingKey] !== undefined) {
+            vals[keyToUse] = vals[colModalEditingKey];
+            delete vals[colModalEditingKey];
+          }
+          return { ...r, values: vals };
+        }));
+      }
+      showToast(`Updated column "${formColName}"`);
+    } else {
+      const newCol: STGColumnDef = {
+        key: keyToUse,
+        name: formColName.trim(),
+        type: formColType,
+        formula: formColType === 'calculated' ? formColFormula.trim() : undefined,
+        unit: formColUnit.trim() || undefined,
+        decimals: formColDecimals,
+        sort_order: columns.length + 1,
+        is_active: true,
+      };
+
+      if (colModalInsertIdx !== null && colModalInsertIdx >= 0) {
+        setColumns(prev => {
+          const copy = [...prev];
+          copy.splice(colModalInsertIdx, 0, newCol);
+          return copy.map((c, i) => ({ ...c, sort_order: i + 1 }));
+        });
+      } else {
+        setColumns(prev => [...prev, newCol]);
+      }
+      showToast(`Added new column "${newCol.name}" with key "${newCol.key}"`);
+    }
+
     setIsColModalOpen(false);
-    showToast(colModalEditingKey ? `Updated column "${newCol.name}" locally. Click "⭐ Save Master Default Table" to save to database.` : `Inserted column "${newCol.name}" locally. Click "⭐ Save Master Default Table" to save to database.`);
   };
 
-  const handleDeleteColumnInline = async (key: string, colIdx: number) => {
-    if (columns.length <= 1) {
-      await showWarning('Cannot delete the last remaining column.', 'Cannot Delete Column');
+  const handleDeleteColumn = async (key: string) => {
+    const colIdx = columns.findIndex(c => c.key === key);
+    if (colIdx === -1) return;
+
+    if (['variant', 'qty_lts', 'sp_gr', 'qty_kg', 'fat_pct', 'snf_pct', 'kg_fat', 'kg_snf'].includes(key)) {
+      showWarning(`Column "${columns[colIdx]?.name}" is a core formulation column and cannot be deleted.`);
       return;
     }
 
@@ -747,15 +843,19 @@ export default function STGDefaultFormulationsPage() {
   const handleSaveDefaultTemplate = async () => {
     if (!activeMasterKey) return;
     setSaving(true);
-    const masterDef = masters.find(m => m.key === activeMasterKey);
 
     try {
+      const recRows = rows.filter(r => r.row_type === 'RECEIPT' || r.side === 'RECEIPT');
+      const dispRows = rows.filter(r => r.row_type === 'DISPOSAL' || r.side === 'DISPOSAL');
+
       const updatedMasters = masters.map(m => {
         if (m.key === activeMasterKey) {
           return {
             ...m,
+            receipt_rows: recRows,
+            disposal_rows: dispRows,
             default_rows: rows,
-            rows: rows.map(r => ({ variant: r.variant || r.values.variant || '', values: r.values })),
+            rows: rows.map(r => ({ variant: r.variant || r.values.variant || '', values: r.values, row_type: r.row_type || r.side, side: r.side || r.row_type })),
             custom_columns: columns,
           };
         }
@@ -781,416 +881,174 @@ export default function STGDefaultFormulationsPage() {
           ...prev,
           [activeMasterKey]: rows,
         }));
-        showToast(`⭐ Saved Master Default formulation table and columns for "${masterDef?.label || activeMasterKey}" in database! All un-entered daily STG entries will inherit these defaults.`);
+        showToast('✅ Master Default Formulation Table & columns saved successfully to database!');
       } else {
-        showToast('❌ Failed to save default master template');
+        showToast('❌ Failed to save default formulation table');
       }
     } catch (err) {
-      console.error('Save master template error:', err);
-      showToast('❌ Server error saving master template');
+      console.error('Save error:', err);
+      showToast('❌ Server error saving default formulation table');
     }
     setSaving(false);
   };
 
-  const activeMaster = useMemo(() => {
-    if (!activeMasterKey) return null;
-    return masters.find(m => m.key === activeMasterKey) || null;
-  }, [masters, activeMasterKey]);
+  // Calculation of totals
+  const totalReceipts = useMemo(() => {
+    const totals: Record<string, number> = {};
+    columns.forEach(col => {
+      if (col.type !== 'text') {
+        const sum = receiptRows.reduce((acc, row) => {
+          const globalIdx = rows.findIndex(r => r === row);
+          const computed = computeCell(col, row.values, globalIdx, rows);
+          const num = typeof computed === 'number' ? computed : parseFloat(String(computed || 0));
+          return acc + (isNaN(num) ? 0 : num);
+        }, 0);
+        totals[col.key] = sum;
+      }
+    });
+    return totals;
+  }, [columns, receiptRows, rows]);
 
-  return (
-    <>
-      <Header
-        title="Master Default Formulation Tables"
-        subtitle="Manage default batch formulation templates & pre-defined formulas inherited by daily STG entries"
-        actions={
-          <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
-            <button
-              type="button"
-              className="btn btn-primary btn-sm"
-              onClick={handleOpenNewMasterModal}
-              style={{ fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: 6 }}
-            >
-              ➕ Create New Preparation Chart Master
-            </button>
-            <Link href="/dashboard/ts/manage-statements/columns" className="btn btn-secondary btn-sm" style={{ color: '#0369a1', borderColor: '#bae6fd', background: '#f0f9ff', fontWeight: 700 }}>
-              ⚙️ STG Column Configuration
-            </Link>
-            <Link href="/dashboard/ts/manage-statements" className="btn btn-secondary btn-sm">
-              ← Statement Master Names
-            </Link>
+  const totalDisposals = useMemo(() => {
+    const totals: Record<string, number> = {};
+    columns.forEach(col => {
+      if (col.type !== 'text') {
+        const sum = disposalRows.reduce((acc, row) => {
+          const globalIdx = rows.findIndex(r => r === row);
+          const computed = computeCell(col, row.values, globalIdx, rows);
+          const num = typeof computed === 'number' ? computed : parseFloat(String(computed || 0));
+          return acc + (isNaN(num) ? 0 : num);
+        }, 0);
+        totals[col.key] = sum;
+      }
+    });
+    return totals;
+  }, [columns, disposalRows, rows]);
+
+  // Render a specific table section (Receipts or Disposals)
+  const renderRowTable = (
+    sectionType: 'RECEIPT' | 'DISPOSAL',
+    sectionTitle: string,
+    sectionList: STGRowData[],
+    bgColor: string,
+    accentColor: string,
+    handleAddFn: () => void
+  ) => {
+    return (
+      <div style={{ marginBottom: 24, border: `1px solid ${accentColor}40`, borderRadius: 8, overflow: 'hidden', background: '#ffffff', boxShadow: '0 1px 3px rgba(0,0,0,0.05)' }}>
+        {/* Section Header */}
+        <div style={{ background: bgColor, padding: '10px 16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: `1px solid ${accentColor}40` }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <span style={{ fontWeight: 800, fontSize: '0.95rem', color: accentColor }}>
+              {sectionType === 'RECEIPT' ? '📥' : '📤'} {sectionTitle}
+            </span>
+            <span style={{ background: '#ffffff', border: `1px solid ${accentColor}60`, color: accentColor, borderRadius: 12, padding: '1px 8px', fontSize: '0.72rem', fontWeight: 800 }}>
+              {sectionList.length} rows
+            </span>
           </div>
-        }
-      />
 
-      <div className="page-body animate-fade-in" style={{ display: 'flex', flexDirection: 'column', height: 'calc(100vh - 120px)', overflow: 'hidden' }}>
-        {toastMessage && (
-          <div
+          <button
+            type="button"
+            onClick={handleAddFn}
             style={{
-              padding: '12px 18px',
-              borderRadius: 8,
-              background: toastMessage.includes('❌') ? '#fef2f2' : '#f0fdf4',
-              border: toastMessage.includes('❌') ? '1px solid #fca5a5' : '1px solid #86efac',
-              color: toastMessage.includes('❌') ? '#991b1b' : '#166534',
+              background: accentColor,
+              color: '#ffffff',
+              border: 'none',
+              borderRadius: 6,
+              padding: '5px 12px',
+              fontSize: '0.78rem',
               fontWeight: 700,
-              fontSize: '0.85rem',
-              marginBottom: 12,
+              cursor: 'pointer',
               display: 'flex',
               alignItems: 'center',
-              justifyContent: 'space-between',
-              flexShrink: 0,
+              gap: 4,
             }}
           >
-            <span>{toastMessage}</span>
-            <button type="button" onClick={() => setToastMessage(null)} style={{ background: 'none', border: 'none', cursor: 'pointer' }}>✕</button>
-          </div>
-        )}
-
-        {/* Master Selector Tabs Bar */}
-        <div className="card" style={{ marginBottom: 12, padding: '12px 18px', flexShrink: 0 }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
-            <div style={{ fontWeight: 700, fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
-              Select Statement Master Name:
-            </div>
-            <button
-              type="button"
-              className="btn btn-primary btn-sm"
-              onClick={handleOpenNewMasterModal}
-              style={{ fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: 6, padding: '4px 10px', fontSize: '0.8rem' }}
-            >
-              ➕ Create New Preparation Chart Master
-            </button>
-          </div>
-          {loading ? (
-            <div style={{ color: 'var(--text-muted)', fontSize: '0.8rem' }}><span className="spinner" /> Loading statement masters...</div>
-          ) : masters.length === 0 ? (
-            <div style={{ color: 'var(--text-muted)', fontSize: '0.8rem' }}>
-              No statement masters found. <Link href="/dashboard/ts/manage-statements" style={{ color: 'var(--brand-primary)' }}>Create statement masters first.</Link>
-            </div>
-          ) : (
-            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-              {masters.map(m => {
-                const isSelected = m.key === activeMasterKey;
-                return (
-                  <button
-                    key={`default_tab_${m.key}`}
-                    type="button"
-                    onClick={() => handleSwitchMaster(m.key)}
-                    style={{
-                      padding: '8px 16px',
-                      borderRadius: 8,
-                      fontSize: '0.85rem',
-                      fontWeight: 700,
-                      background: isSelected ? '#b45309' : '#f1f5f9',
-                      color: isSelected ? '#ffffff' : '#475569',
-                      border: isSelected ? '1px solid #b45309' : '1px solid #cbd5e1',
-                      cursor: 'pointer',
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: 6,
-                    }}
-                  >
-                    <span>📋 {m.label.replace(/\s*-\s*RECEIPT AND DISPOSAL STATEMENT$/i, '')}</span>
-                    {m.variant && <span style={{ fontSize: '0.72rem', opacity: 0.85 }}>({m.variant})</span>}
-                  </button>
-                );
-              })}
-            </div>
-          )}
+            ➕ Add {sectionType === 'RECEIPT' ? 'Receipt' : 'Disposal'} Row
+          </button>
         </div>
 
-        {/* Main formulation Table Card */}
-        {activeMasterKey && activeMaster && (
-          <div className="card" style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', minHeight: 0 }}>
-            {/* Table Header Bar */}
-            <div style={{ padding: '12px 18px', background: '#fffbeb', borderBottom: '1px solid #fde68a', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexShrink: 0 }}>
-              <div>
-                <div style={{ fontWeight: 800, fontSize: '1.05rem', color: '#b45309', display: 'flex', alignItems: 'center', gap: 8 }}>
-                  <span>⭐ Default Master Template for {activeMaster?.label}</span>
-                </div>
-                <div style={{ fontSize: '0.78rem', color: '#78350f', marginTop: 2 }}>
-                  Formulas and values saved here will automatically populate on all un-entered daily STG entries.
-                </div>
-              </div>
-
-              <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                <button
-                  type="button"
-                  onClick={() => setIsColEditing(prev => !prev)}
-                  style={{
-                    background: isColEditing ? '#e0f2fe' : '#ffffff',
-                    border: isColEditing ? '1px solid #0284c7' : '1px solid #cbd5e1',
-                    color: isColEditing ? '#0369a1' : '#475569',
-                    borderRadius: 6,
-                    padding: '5px 12px',
-                    fontSize: '0.8rem',
-                    fontWeight: 700,
-                    cursor: 'pointer',
-                  }}
-                >
-                  {isColEditing ? '⚙️ Done Editing Columns' : '✏️ Edit Table Columns'}
-                </button>
-
-                {isColEditing && (
-                  <button
-                    type="button"
-                    onClick={() => handleOpenAddColumn()}
-                    style={{ background: '#f0f9ff', border: '1px dashed #0284c7', color: '#0284c7', borderRadius: 6, padding: '5px 12px', fontSize: '0.8rem', fontWeight: 700, cursor: 'pointer' }}
-                  >
-                    ➕ Add Column
-                  </button>
-                )}
-
-                <button
-                  type="button"
-                  onClick={() => {
-                    setRows(prev => [
-                      ...prev,
-                      { variant: '', values: {} }
-                    ]);
-                  }}
-                  style={{ background: '#f0f9ff', border: '1px solid #bae6fd', color: '#0284c7', borderRadius: 6, padding: '5px 12px', fontSize: '0.8rem', fontWeight: 700, cursor: 'pointer' }}
-                >
-                  ➕ Add Particular Row
-                </button>
-              </div>
-            </div>
-
-            {/* Excel Formula Bar */}
-            <div
-              style={{
-                padding: '8px 16px',
-                background: '#fffbeb',
-                borderBottom: '1px solid #fde68a',
-                display: 'flex',
-                alignItems: 'center',
-                gap: 12,
-                flexShrink: 0,
-              }}
-            >
-              {/* Active Cell Address Box */}
-              <div
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 6,
-                  background: '#ffffff',
-                  padding: '3px 10px',
-                  borderRadius: 6,
-                  border: '1px solid #fcd34d',
-                  fontWeight: 800,
-                  fontSize: '0.85rem',
-                  color: '#b45309',
-                  fontFamily: 'monospace',
-                  minWidth: 65,
-                  justifyContent: 'center',
-                }}
-              >
-                <span>{activeCellDetails.address}</span>
-              </div>
-
-              <div
-                style={{
-                  fontWeight: 900,
-                  fontSize: '1.05rem',
-                  color: '#b45309',
-                  fontStyle: 'italic',
-                  fontFamily: 'serif',
-                  userSelect: 'none',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 4,
-                }}
-                title="Excel Formula Indicator"
-              >
-                <span>ƒx</span>
-              </div>
-
-              <div style={{ height: 20, width: 1, background: '#fcd34d' }} />
-
-              {/* Active Column Name & Formula Input */}
-              <div style={{ flex: 1, display: 'flex', alignItems: 'center', gap: 10, minWidth: 260 }}>
-                {activeCellDetails.colName && (
-                  <span
+        {/* Section Table */}
+        <div style={{ overflowX: 'auto' }}>
+          <table className="inline-table" style={{ width: '100%', minWidth: 700, margin: 0 }}>
+            <thead>
+              <tr style={{ background: '#f8fafc', borderBottom: '1px solid var(--border)' }}>
+                <th style={{ width: 44, textAlign: 'center', fontSize: '0.75rem', color: '#64748b' }}>#</th>
+                <th style={{ width: 220, textAlign: 'left', fontSize: '0.78rem', color: 'var(--text-primary)', fontWeight: 800 }}>
+                  {sectionType === 'RECEIPT' ? 'Receipt Particular' : 'Disposal Particular'}
+                </th>
+                {columns.filter(c => c.key !== 'variant').map((col, cIdx) => (
+                  <th
+                    key={`col_th_${sectionType}_${col.key}`}
                     style={{
-                      fontSize: '0.75rem',
-                      fontWeight: 700,
-                      background: '#fef3c7',
-                      color: '#b45309',
-                      padding: '2px 8px',
-                      borderRadius: 4,
-                      whiteSpace: 'nowrap',
+                      textAlign: col.type === 'text' ? 'left' : 'right',
+                      background: col.type === 'calculated' ? '#e0f2fe' : '#f8fafc',
+                      color: col.type === 'calculated' ? '#0369a1' : 'var(--text-primary)',
+                      padding: '8px 10px',
+                      fontSize: '0.78rem',
+                      minWidth: 105,
                     }}
                   >
-                    {activeCellDetails.colName}
-                  </span>
-                )}
-                <input
-                  type="text"
-                  className="form-input"
-                  disabled={!selectedCell}
-                  value={activeCellDetails.formulaText}
-                  onKeyDown={e => {
-                    if (e.key === 'Enter') {
-                      (e.target as HTMLInputElement).blur();
-                    }
-                  }}
-                  onChange={e => {
-                    if (!selectedCell) return;
-                    handleCellChange(selectedCell.rowIndex, selectedCell.colKey, e.target.value);
-                  }}
-                  placeholder={selectedCell ? "Enter default value or formula e.g. =+B1*A1" : "Click any cell in the table below to inspect or enter default formula"}
-                  style={{
-                    fontFamily: 'monospace',
-                    fontWeight: 700,
-                    fontSize: '0.85rem',
-                    background: '#ffffff',
-                    color: activeCellDetails.formulaText.startsWith('=') ? '#b45309' : 'var(--text-primary)',
-                    borderColor: selectedCell ? '#b45309' : 'var(--border)',
-                    height: 30,
-                  }}
-                />
-              </div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 2 }}>
+                      <span style={{ fontSize: '0.65rem', color: '#0284c7', fontWeight: 800, fontFamily: 'monospace' }}>
+                        {getExcelColName(cIdx + 1)}
+                      </span>
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: col.type === 'text' ? 'flex-start' : 'space-between', gap: 4 }}>
+                      <span>{col.name} {col.unit ? `(${col.unit})` : ''}</span>
+                    </div>
+                  </th>
+                ))}
+                <th style={{ width: 110, textAlign: 'center', fontSize: '0.75rem' }}>Row Action</th>
+              </tr>
+            </thead>
+            <tbody>
+              {sectionList.length === 0 ? (
+                <tr>
+                  <td colSpan={columns.length + 1} style={{ textAlign: 'center', padding: '24px 12px', color: '#94a3b8', fontStyle: 'italic', fontSize: '0.85rem' }}>
+                    No {sectionTitle.toLowerCase()} added yet. Click "+ Add {sectionType === 'RECEIPT' ? 'Receipt' : 'Disposal'} Row" above.
+                  </td>
+                </tr>
+              ) : (
+                sectionList.map((row, listIdx) => {
+                  const globalIdx = rows.findIndex(r => r === row);
+                  if (globalIdx === -1) return null;
 
-              {/* Computed Value Result Badge */}
-              {selectedCell && (
-                <div
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: 6,
-                    padding: '3px 10px',
-                    borderRadius: 6,
-                    background: '#ffffff',
-                    border: '1px solid #fde68a',
-                    color: '#b45309',
-                    fontSize: '0.78rem',
-                    fontWeight: 700,
-                  }}
-                >
-                  <span style={{ color: '#78350f' }}>Value:</span>
-                  <span style={{ fontFamily: 'var(--font-numbers)', fontWeight: 800 }}>{activeCellDetails.value}</span>
-                </div>
-              )}
-            </div>
-
-            {/* Scrollable Table Viewport */}
-            <div style={{ overflow: 'auto', flex: 1, minHeight: 0 }}>
-              <table className="inline-table" style={{ width: '100%', minWidth: 700 }}>
-                <thead>
-                  <tr style={{ background: '#f1f5f9' }}>
-                    <th style={{ width: 40, textAlign: 'center' }}>#</th>
-                    {columns.map((col, cIdx) => (
-                      <th
-                        key={`m_col_${col.key}`}
-                        style={{
-                          textAlign: col.type === 'text' ? 'left' : 'right',
-                          background: col.type === 'calculated' ? '#e0f2fe' : '#f1f5f9',
-                          color: col.type === 'calculated' ? '#0369a1' : 'var(--text-primary)',
-                          padding: '8px 10px',
-                          fontSize: '0.82rem',
-                          minWidth: 110,
-                        }}
-                      >
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 3, gap: 4 }}>
-                          <span style={{ fontSize: '0.65rem', color: '#0284c7', fontWeight: 800, fontFamily: 'monospace' }}>
-                            {getExcelColName(cIdx)}
-                          </span>
-                          {isColEditing && (
-                            <div style={{ display: 'flex', gap: 2, alignItems: 'center' }}>
-                              <button
-                                type="button"
-                                onClick={() => handleOpenAddColumn(cIdx)}
-                                style={{ background: '#ffffff', border: '1px solid #bae6fd', color: '#0369a1', borderRadius: 3, padding: '1px 4px', fontSize: '0.65rem', fontWeight: 700, cursor: 'pointer' }}
-                                title="Insert Column to Left"
-                              >
-                                +L
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => handleOpenAddColumn(cIdx + 1)}
-                                style={{ background: '#ffffff', border: '1px solid #bae6fd', color: '#0369a1', borderRadius: 3, padding: '1px 4px', fontSize: '0.65rem', fontWeight: 700, cursor: 'pointer' }}
-                                title="Insert Column to Right"
-                              >
-                                +R
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => handleOpenEditColumn(col)}
-                                style={{ background: '#ffffff', border: '1px solid #cbd5e1', color: '#475569', borderRadius: 3, padding: '1px 4px', fontSize: '0.65rem', fontWeight: 700, cursor: 'pointer' }}
-                                title="Edit Column Details / Rename"
-                              >
-                                ✏️
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => handleDeleteColumnInline(col.key, cIdx)}
-                                style={{ background: '#fef2f2', border: '1px solid #fca5a5', color: '#dc2626', borderRadius: 3, padding: '1px 4px', fontSize: '0.65rem', fontWeight: 700, cursor: 'pointer' }}
-                                title="Delete Column"
-                              >
-                                ✕
-                              </button>
-                            </div>
-                          )}
-                        </div>
-                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: col.type === 'text' ? 'flex-start' : 'space-between', gap: 6 }}>
-                          <span>{col.name} {col.unit ? `(${col.unit})` : ''}</span>
-                          {col.type !== 'text' && (
-                            <select
-                              value={col.decimals !== undefined ? String(col.decimals) : ''}
-                              onChange={(e) => {
-                                const val = e.target.value !== '' ? parseInt(e.target.value, 10) : undefined;
-                                const updated = columns.map(c => c.key === col.key ? { ...c, decimals: val } : c);
-                                setColumns(updated);
-                              }}
-                              style={{
-                                fontSize: '0.68rem',
-                                padding: '1px 4px',
-                                height: 20,
-                                fontWeight: 700,
-                                color: '#0369a1',
-                                background: '#ffffff',
-                                border: '1px solid #bae6fd',
-                                borderRadius: 4,
-                                cursor: 'pointer',
-                              }}
-                              title={`Set required decimal places for column ${col.name}`}
-                            >
-                              <option value="">Auto ({getStandardColumnDecimals(col.key)})</option>
-                              <option value="0">.0 (Whole)</option>
-                              <option value="1">.1 Dec</option>
-                              <option value="2">.2 Decs</option>
-                              <option value="3">.3 Decs</option>
-                              <option value="4">.4 Decs</option>
-                            </select>
-                          )}
-                        </div>
-                      </th>
-                    ))}
-                    {isColEditing && (
-                      <th style={{ width: 120, textAlign: 'center' }}>
-                        <button
-                          type="button"
-                          onClick={() => handleOpenAddColumn()}
-                          style={{ background: '#f0f9ff', border: '1px dashed #0284c7', color: '#0284c7', borderRadius: 4, padding: '2px 8px', fontSize: '0.72rem', fontWeight: 700, cursor: 'pointer' }}
-                          title="Add New Column at End"
-                        >
-                          ➕ Column
-                        </button>
-                      </th>
-                    )}
-                    <th style={{ width: 110, textAlign: 'center' }}>Row Action</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {rows.map((row, rIdx) => (
-                    <tr key={`modal_row_${rIdx}`}>
-                      <td style={{ textAlign: 'center', fontWeight: 700, color: '#94a3b8', fontSize: '0.75rem' }}>
-                        {rIdx + 1}
+                  return (
+                    <tr key={`row_${sectionType}_${globalIdx}`} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                      <td style={{ textAlign: 'center', fontWeight: 700, color: '#94a3b8', fontSize: '0.75rem', background: '#fafafa' }}>
+                        {listIdx + 1}
                       </td>
-                      {columns.map((col, cIdx) => {
-                        const isCellSelected = selectedCell?.rowIndex === rIdx && selectedCell?.colKey === col.key;
-                        const isCellFocused = focusedCell?.rowIndex === rIdx && focusedCell?.colKey === col.key;
-                        const computedVal = computeCell(col, row.values || {}, rIdx, rows);
+
+                      {/* Particular / Variant Input */}
+                      <td style={{ padding: '4px 8px' }}>
+                        <input
+                          type="text"
+                          className="form-input"
+                          value={row.variant || row.values.variant || ''}
+                          placeholder={sectionType === 'RECEIPT' ? 'Enter Receipt Particular...' : 'Enter Disposal Particular...'}
+                          onChange={e => handleCellChange(globalIdx, 'variant', e.target.value)}
+                          onFocus={() => {
+                            setSelectedCell({ rowIndex: globalIdx, colKey: 'variant' });
+                            setFocusedCell({ rowIndex: globalIdx, colKey: 'variant' });
+                          }}
+                          onBlur={() => setFocusedCell(null)}
+                          style={{
+                            height: 28,
+                            fontSize: '0.82rem',
+                            fontWeight: 700,
+                            padding: '3px 8px',
+                            background: '#ffffff',
+                            borderColor: 'var(--border)',
+                          }}
+                        />
+                      </td>
+
+                      {/* Dynamic Columns */}
+                      {columns.filter(c => c.key !== 'variant').map((col) => {
+                        const isCellSelected = selectedCell?.rowIndex === globalIdx && selectedCell?.colKey === col.key;
+                        const isCellFocused = focusedCell?.rowIndex === globalIdx && focusedCell?.colKey === col.key;
+                        const computedVal = computeCell(col, row.values, globalIdx, rows);
 
                         if (col.type === 'calculated') {
                           const formattedCalc = typeof computedVal === 'number'
@@ -1199,8 +1057,8 @@ export default function STGDefaultFormulationsPage() {
 
                           return (
                             <td
-                              key={`m_cell_${rIdx}_${col.key}`}
-                              onClick={() => setSelectedCell({ rowIndex: rIdx, colKey: col.key })}
+                              key={`calc_cell_${globalIdx}_${col.key}`}
+                              onClick={() => setSelectedCell({ rowIndex: globalIdx, colKey: col.key })}
                               style={{
                                 textAlign: 'right',
                                 fontWeight: 700,
@@ -1210,8 +1068,10 @@ export default function STGDefaultFormulationsPage() {
                                 outline: isCellSelected ? '2px solid #0284c7' : 'none',
                                 outlineOffset: -2,
                                 cursor: 'pointer',
+                                fontSize: '0.82rem',
+                                padding: '4px 8px',
                               }}
-                              title={`Cell ${getExcelColName(cIdx)}${rIdx + 1} (${col.name}): Click to view formula`}
+                              title={`Cell ${col.name}: Click to view calculation`}
                             >
                               {formattedCalc}
                             </td>
@@ -1220,93 +1080,52 @@ export default function STGDefaultFormulationsPage() {
 
                         const rawVal = row.values?.[col.key];
                         const isFormula = typeof rawVal === 'string' && (rawVal.startsWith('=') || rawVal.startsWith('=+'));
-                        let displayVal = rawVal !== undefined ? rawVal : (col.type === 'text' ? row.variant : '');
+                        let displayVal = rawVal !== undefined ? rawVal : '';
                         if (isFormula && !isCellFocused) {
                           displayVal = typeof computedVal === 'number'
                             ? (computedVal !== 0 ? formatNumberValue(computedVal, col.decimals, col.key) : '-')
-                            : String(computedVal || '-');
-                        } else if (!isCellFocused && !isFormula && rawVal !== undefined && rawVal !== '' && col.type === 'number') {
-                          const numVal = typeof rawVal === 'number' ? rawVal : parseFloat(String(rawVal));
-                          if (!isNaN(numVal)) {
-                            displayVal = formatNumberValue(numVal, col.decimals, col.key);
-                          }
+                            : (computedVal || '-');
                         }
 
-                        const isDraggedInFillModal = !!(fillDrag && fillDrag.colKey === col.key &&
-                          rIdx >= Math.min(fillDrag.sourceRow, fillDrag.targetRow) &&
-                          rIdx <= Math.max(fillDrag.sourceRow, fillDrag.targetRow));
-
                         return (
-                          <td key={`m_cell_${rIdx}_${col.key}`} data-row-index={rIdx} style={{ position: 'relative' }}>
-                            {isFormula && (
-                              <div
-                                style={{
-                                  position: 'absolute',
-                                  top: 2,
-                                  left: 2,
-                                  width: 0,
-                                  height: 0,
-                                  borderStyle: 'solid',
-                                  borderWidth: '7px 7px 0 0',
-                                  borderColor: '#b45309 transparent transparent transparent',
-                                  pointerEvents: 'none',
-                                  zIndex: 5,
-                                }}
-                                title={`Default Formula Present: ${rawVal}`}
-                              />
-                            )}
+                          <td
+                            key={`val_cell_${globalIdx}_${col.key}`}
+                            data-row-index={globalIdx}
+                            style={{
+                              position: 'relative',
+                              padding: 2,
+                              background: isCellSelected ? '#fef3c7' : '#ffffff',
+                            }}
+                          >
                             <input
                               type="text"
                               className="form-input"
                               value={displayVal}
                               placeholder="-"
-                              title={isFormula ? `Default Formula: ${rawVal}` : undefined}
                               onFocus={() => {
-                                setSelectedCell({ rowIndex: rIdx, colKey: col.key });
-                                setFocusedCell({ rowIndex: rIdx, colKey: col.key });
+                                setSelectedCell({ rowIndex: globalIdx, colKey: col.key });
+                                setFocusedCell({ rowIndex: globalIdx, colKey: col.key });
                               }}
                               onBlur={() => setFocusedCell(null)}
-                              onClick={() => setSelectedCell({ rowIndex: rIdx, colKey: col.key })}
-                              onKeyDown={e => {
-                                if (e.key === 'Enter') {
-                                  (e.target as HTMLInputElement).blur();
-                                }
-                              }}
-                              onChange={e => handleCellChange(rIdx, col.key, e.target.value)}
+                              onClick={() => setSelectedCell({ rowIndex: globalIdx, colKey: col.key })}
+                              onChange={e => handleCellChange(globalIdx, col.key, e.target.value)}
                               style={{
-                                padding: isFormula ? '3px 6px 3px 10px' : '3px 6px',
+                                padding: '3px 6px',
                                 fontSize: '0.8rem',
                                 height: 28,
                                 textAlign: col.type === 'text' ? 'left' : 'right',
                                 fontFamily: col.type === 'text' ? 'inherit' : 'var(--font-numbers)',
                                 fontWeight: isFormula ? 800 : 700,
-                                background: isDraggedInFillModal
-                                  ? '#fef3c7'
-                                  : isCellSelected
-                                    ? '#fef3c7'
-                                    : isFormula
-                                      ? '#fffbeb'
-                                      : '#ffffff',
+                                background: isCellSelected ? '#fef3c7' : isFormula ? '#fffbeb' : '#ffffff',
                                 color: isFormula ? '#b45309' : 'var(--text-primary)',
-                                borderColor: isDraggedInFillModal
-                                  ? '#b45309'
-                                  : isCellSelected
-                                    ? '#b45309'
-                                    : isFormula
-                                      ? '#fcd34d'
-                                      : 'var(--border)',
-                                boxShadow: isDraggedInFillModal
-                                  ? '0 0 0 2px rgba(180, 83, 9, 0.45)'
-                                  : isCellSelected
-                                    ? '0 0 0 2px rgba(180, 83, 9, 0.25)'
-                                    : 'none',
+                                borderColor: isCellSelected ? '#b45309' : isFormula ? '#fcd34d' : 'var(--border)',
                               }}
                             />
 
                             {/* Excel Fill Handle Square */}
                             {isCellSelected && (
                               <div
-                                onMouseDown={e => handleFillDragStart(e, rIdx, col.key)}
+                                onMouseDown={e => handleFillDragStart(e, globalIdx, col.key)}
                                 style={{
                                   position: 'absolute',
                                   bottom: 2,
@@ -1319,40 +1138,28 @@ export default function STGDefaultFormulationsPage() {
                                   zIndex: 10,
                                   borderRadius: 1,
                                 }}
-                                title="Excel Fill Handle: Drag up or down to auto-fill default formula/values to adjacent cells with relative row adjustment"
+                                title="Excel Fill Handle: Drag up or down to auto-fill"
                               />
                             )}
                           </td>
                         );
                       })}
-                      {isColEditing && (
-                        <td style={{ textAlign: 'center', color: '#94a3b8', fontSize: '0.72rem' }}>
-                          —
-                        </td>
-                      )}
-                      <td style={{ textAlign: 'center' }}>
+
+                      {/* Row Action Buttons */}
+                      <td style={{ textAlign: 'center', background: '#fafafa' }}>
                         <div style={{ display: 'flex', gap: 4, justifyContent: 'center' }}>
                           <button
                             type="button"
-                            disabled={rIdx === 0}
-                            onClick={() => {
-                              if (rIdx === 0) return;
-                              setRows(prev => {
-                                const copy = [...prev];
-                                const temp = copy[rIdx];
-                                copy[rIdx] = copy[rIdx - 1];
-                                copy[rIdx - 1] = temp;
-                                return copy;
-                              });
-                            }}
+                            disabled={listIdx === 0}
+                            onClick={() => handleMoveRow(globalIdx, 'UP', sectionType)}
                             style={{
                               border: '1px solid var(--border)',
                               background: '#ffffff',
                               borderRadius: 4,
                               padding: '2px 6px',
                               fontSize: '0.72rem',
-                              cursor: rIdx === 0 ? 'not-allowed' : 'pointer',
-                              opacity: rIdx === 0 ? 0.4 : 1,
+                              cursor: listIdx === 0 ? 'not-allowed' : 'pointer',
+                              opacity: listIdx === 0 ? 0.3 : 1,
                             }}
                             title="Move Row Up"
                           >
@@ -1360,25 +1167,16 @@ export default function STGDefaultFormulationsPage() {
                           </button>
                           <button
                             type="button"
-                            disabled={rIdx === rows.length - 1}
-                            onClick={() => {
-                              if (rIdx === rows.length - 1) return;
-                              setRows(prev => {
-                                const copy = [...prev];
-                                const temp = copy[rIdx];
-                                copy[rIdx] = copy[rIdx + 1];
-                                copy[rIdx + 1] = temp;
-                                return copy;
-                              });
-                            }}
+                            disabled={listIdx === sectionList.length - 1}
+                            onClick={() => handleMoveRow(globalIdx, 'DOWN', sectionType)}
                             style={{
                               border: '1px solid var(--border)',
                               background: '#ffffff',
                               borderRadius: 4,
                               padding: '2px 6px',
                               fontSize: '0.72rem',
-                              cursor: rIdx === rows.length - 1 ? 'not-allowed' : 'pointer',
-                              opacity: rIdx === rows.length - 1 ? 0.4 : 1,
+                              cursor: listIdx === sectionList.length - 1 ? 'not-allowed' : 'pointer',
+                              opacity: listIdx === sectionList.length - 1 ? 0.3 : 1,
                             }}
                             title="Move Row Down"
                           >
@@ -1386,10 +1184,7 @@ export default function STGDefaultFormulationsPage() {
                           </button>
                           <button
                             type="button"
-                            onClick={() => {
-                              if (rows.length <= 1) return;
-                              setRows(prev => prev.filter((_, idx) => idx !== rIdx));
-                            }}
+                            onClick={() => handleDeleteRow(globalIdx)}
                             style={{
                               border: '1px solid #fca5a5',
                               background: '#fef2f2',
@@ -1406,283 +1201,601 @@ export default function STGDefaultFormulationsPage() {
                         </div>
                       </td>
                     </tr>
-                  ))}
+                  );
+                })
+              )}
+            </tbody>
+
+            {/* Subtotal Row */}
+            {sectionList.length > 0 && (
+              <tfoot>
+                <tr style={{ background: '#f8fafc', borderTop: '2px solid var(--border)' }}>
+                  <td style={{ textAlign: 'center', fontWeight: 800, fontSize: '0.75rem', color: '#64748b' }}>Σ</td>
+                  <td style={{ fontWeight: 800, fontSize: '0.82rem', color: accentColor, padding: '6px 8px' }}>
+                    Total {sectionTitle}
+                  </td>
+                  {columns.filter(c => c.key !== 'variant').map(col => {
+                    const totalVal = sectionType === 'RECEIPT' ? totalReceipts[col.key] : totalDisposals[col.key];
+                    return (
+                      <td
+                        key={`subtot_${sectionType}_${col.key}`}
+                        style={{
+                          textAlign: 'right',
+                          fontWeight: 800,
+                          fontSize: '0.82rem',
+                          color: accentColor,
+                          padding: '6px 8px',
+                          fontFamily: 'var(--font-numbers)',
+                          background: '#f1f5f9',
+                        }}
+                      >
+                        {totalVal !== undefined && totalVal !== 0 ? formatNumberValue(totalVal, col.decimals, col.key) : '-'}
+                      </td>
+                    );
+                  })}
+                  <td style={{ background: '#f8fafc' }} />
+                </tr>
+              </tfoot>
+            )}
+          </table>
+        </div>
+      </div>
+    );
+  };
+
+  return (
+    <div className="daily-entry-container" style={{ display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden' }}>
+      <Header
+        title="Master Default Formulation Tables (STG)"
+        subtitle="Configure independent Receipt Rows and Disposal Rows, calculation columns, and default values matching Master Default Stock Statements."
+      />
+
+      {toastMessage && (
+        <div style={{ position: 'fixed', top: 20, right: 20, zIndex: 9999, background: '#1e293b', color: '#ffffff', padding: '10px 18px', borderRadius: 8, boxShadow: '0 4px 12px rgba(0,0,0,0.15)', fontSize: '0.88rem', fontWeight: 600 }}>
+          {toastMessage}
+        </div>
+      )}
+
+      <div style={{ padding: '16px 24px', flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', gap: 12 }}>
+        {/* Top Control Bar */}
+        <div className="card" style={{ padding: '12px 18px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12, flexShrink: 0 }}>
+          {/* Master Switcher Dropdown */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+            <span style={{ fontWeight: 800, fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
+              STATEMENT MASTER:
+            </span>
+
+            <select
+              className="form-input"
+              value={activeMasterKey || ''}
+              onChange={e => handleSwitchMaster(e.target.value)}
+              disabled={loading || saving}
+              style={{ fontWeight: 800, fontSize: '0.88rem', color: '#b45309', background: '#fffbeb', borderColor: '#fde68a', minWidth: 260, height: 34 }}
+            >
+              {masters.map(m => (
+                <option key={m.key} value={m.key}>
+                  {cleanStatementLabel(m.label || m.name || m.key)}
+                </option>
+              ))}
+            </select>
+
+            <button
+              type="button"
+              onClick={handleOpenNewMasterModal}
+              style={{
+                background: '#fef3c7',
+                border: '1px solid #fcd34d',
+                color: '#b45309',
+                borderRadius: 6,
+                padding: '6px 14px',
+                fontSize: '0.82rem',
+                fontWeight: 800,
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                gap: 6,
+              }}
+              title="Create a Brand New Statement Master Template"
+            >
+              ➕ Create New Statement Master
+            </button>
+          </div>
+
+          {/* Right Toolbar Actions */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+            {/* View Decimals Switcher */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 4, background: '#f8fafc', padding: '2px 8px', borderRadius: 6, border: '1px solid var(--border)' }}>
+              <span style={{ fontSize: '0.72rem', fontWeight: 700, color: '#64748b' }}>Decimals:</span>
+              {(['auto', 0, 1, 2, 3] as const).map(dec => (
+                <button
+                  key={`dec_${dec}`}
+                  type="button"
+                  onClick={() => setViewDecimals(dec)}
+                  style={{
+                    background: viewDecimals === dec ? '#0284c7' : 'transparent',
+                    color: viewDecimals === dec ? '#ffffff' : '#475569',
+                    border: 'none',
+                    borderRadius: 4,
+                    padding: '2px 6px',
+                    fontSize: '0.7rem',
+                    fontWeight: 700,
+                    cursor: 'pointer',
+                  }}
+                >
+                  {dec === 'auto' ? 'Auto' : `.${dec}`}
+                </button>
+              ))}
+            </div>
+
+            <button
+              type="button"
+              onClick={() => handleOpenAddColumn()}
+              style={{ background: '#f0fdf4', border: '1px solid #86efac', color: '#166534', borderRadius: 6, padding: '5px 12px', fontSize: '0.8rem', fontWeight: 700, cursor: 'pointer' }}
+            >
+              ➕ Insert Column
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setIsColEditing(!isColEditing)}
+              style={{
+                background: isColEditing ? '#e0f2fe' : '#ffffff',
+                border: '1px solid #bae6fd',
+                color: '#0284c7',
+                borderRadius: 6,
+                padding: '5px 12px',
+                fontSize: '0.8rem',
+                fontWeight: 700,
+                cursor: 'pointer',
+              }}
+            >
+              {isColEditing ? '⚙️ Done Editing' : '✏️ Edit Columns'}
+            </button>
+
+            <button
+              type="button"
+              onClick={handleAddReceiptRow}
+              style={{ background: '#16a34a', border: 'none', color: '#ffffff', borderRadius: 6, padding: '5px 12px', fontSize: '0.8rem', fontWeight: 700, cursor: 'pointer' }}
+            >
+              ➕ Add Receipt Row
+            </button>
+
+            <button
+              type="button"
+              onClick={handleAddDisposalRow}
+              style={{ background: '#ea580c', border: 'none', color: '#ffffff', borderRadius: 6, padding: '5px 12px', fontSize: '0.8rem', fontWeight: 700, cursor: 'pointer' }}
+            >
+              ➕ Add Disposal Row
+            </button>
+          </div>
+        </div>
+
+        {/* Excel Formula Bar */}
+        <div
+          style={{
+            padding: '8px 16px',
+            background: '#fffbeb',
+            border: '1px solid #fde68a',
+            borderRadius: 8,
+            display: 'flex',
+            alignItems: 'center',
+            gap: 12,
+            flexShrink: 0,
+          }}
+        >
+          {/* Active Cell Address Box */}
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 6,
+              background: '#ffffff',
+              padding: '3px 10px',
+              borderRadius: 6,
+              border: '1px solid #fcd34d',
+              fontWeight: 800,
+              fontSize: '0.85rem',
+              color: '#b45309',
+              fontFamily: 'monospace',
+              minWidth: 65,
+              justifyContent: 'center',
+            }}
+          >
+            <span>{activeCellDetails.address}</span>
+          </div>
+
+          <div
+            style={{
+              fontWeight: 900,
+              fontSize: '1.05rem',
+              color: '#b45309',
+              fontStyle: 'italic',
+              fontFamily: 'serif',
+              userSelect: 'none',
+            }}
+          >
+            ƒx
+          </div>
+
+          <div style={{ height: 20, width: 1, background: '#fcd34d' }} />
+
+          {/* Active Column Name & Formula Input */}
+          <div style={{ flex: 1, display: 'flex', alignItems: 'center', gap: 10 }}>
+            {activeCellDetails.colName && (
+              <span
+                style={{
+                  fontSize: '0.75rem',
+                  fontWeight: 700,
+                  background: '#fef3c7',
+                  color: '#b45309',
+                  padding: '2px 8px',
+                  borderRadius: 4,
+                  whiteSpace: 'nowrap',
+                }}
+              >
+                {activeCellDetails.colName} {activeCellDetails.isCalculated ? '(Calculated)' : ''}
+              </span>
+            )}
+
+            <input
+              type="text"
+              className="form-input"
+              value={activeCellDetails.formulaText}
+              readOnly={activeCellDetails.isCalculated}
+              placeholder="Click any table cell to view or enter formulas/values..."
+              onChange={e => {
+                if (selectedCell && !activeCellDetails.isCalculated) {
+                  handleCellChange(selectedCell.rowIndex, selectedCell.colKey, e.target.value);
+                }
+              }}
+              style={{
+                flex: 1,
+                fontSize: '0.85rem',
+                fontFamily: 'var(--font-numbers)',
+                fontWeight: 700,
+                background: '#ffffff',
+                color: activeCellDetails.formulaText.startsWith('=') ? '#b45309' : 'var(--text-primary)',
+                borderColor: selectedCell ? '#b45309' : 'var(--border)',
+                height: 30,
+              }}
+            />
+          </div>
+
+          {selectedCell && (
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 6,
+                padding: '3px 10px',
+                borderRadius: 6,
+                background: '#ffffff',
+                border: '1px solid #fde68a',
+                color: '#b45309',
+                fontSize: '0.78rem',
+                fontWeight: 700,
+              }}
+            >
+              <span style={{ color: '#78350f' }}>Computed:</span>
+              <span style={{ fontFamily: 'var(--font-numbers)', fontWeight: 800 }}>{activeCellDetails.value}</span>
+            </div>
+          )}
+        </div>
+
+        {/* Main Content Area - Scrollable */}
+        <div style={{ flex: 1, overflowY: 'auto', paddingRight: 4 }}>
+          {/* Section 1: Receipts Table */}
+          {renderRowTable(
+            'RECEIPT',
+            'Receipts',
+            receiptRows,
+            '#f0fdf4',
+            '#166534',
+            handleAddReceiptRow
+          )}
+
+          {/* Section 2: Disposals Table */}
+          {renderRowTable(
+            'DISPOSAL',
+            'Disposals',
+            disposalRows,
+            '#fff7ed',
+            '#c2410c',
+            handleAddDisposalRow
+          )}
+
+          {/* Section 3: Reconciled Summary & Balance Rows */}
+          <div style={{ marginBottom: 20, border: '1px solid var(--border)', borderRadius: 8, overflow: 'hidden', background: '#ffffff', boxShadow: '0 1px 3px rgba(0,0,0,0.05)' }}>
+            <div style={{ background: '#f1f5f9', padding: '10px 16px', borderBottom: '1px solid var(--border)', fontWeight: 800, fontSize: '0.88rem', color: '#1e293b' }}>
+              ⚖️ Stock Balance & Reconciliation Summary (Auto-Computed)
+            </div>
+
+            <div style={{ overflowX: 'auto' }}>
+              <table className="inline-table" style={{ width: '100%', minWidth: 700, margin: 0 }}>
+                <thead>
+                  <tr style={{ background: '#f8fafc', borderBottom: '1px solid var(--border)' }}>
+                    <th style={{ width: 44, textAlign: 'center', fontSize: '0.75rem' }}>#</th>
+                    <th style={{ width: 220, textAlign: 'left', fontSize: '0.78rem', fontWeight: 800 }}>Summary Row</th>
+                    {columns.filter(c => c.key !== 'variant').map(col => (
+                      <th key={`sum_th_${col.key}`} style={{ textAlign: 'right', fontSize: '0.78rem', padding: '6px 10px' }}>
+                        {col.name}
+                      </th>
+                    ))}
+                    <th style={{ width: 110, textAlign: 'center', fontSize: '0.75rem' }}>Formula</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {/* Row 1: Total Receipts */}
+                  <tr style={{ borderBottom: '1px solid #f1f5f9', background: '#f0fdf4' }}>
+                    <td style={{ textAlign: 'center', fontWeight: 700, color: '#166534', fontSize: '0.75rem' }}>1</td>
+                    <td style={{ fontWeight: 800, color: '#166534', fontSize: '0.82rem', padding: '6px 8px' }}>
+                      Total Receipts (+)
+                    </td>
+                    {columns.filter(c => c.key !== 'variant').map(col => (
+                      <td key={`tr_${col.key}`} style={{ textAlign: 'right', fontWeight: 800, fontSize: '0.82rem', color: '#166534', padding: '6px 8px', fontFamily: 'var(--font-numbers)' }}>
+                        {totalReceipts[col.key] ? formatNumberValue(totalReceipts[col.key], col.decimals, col.key) : '-'}
+                      </td>
+                    ))}
+                    <td style={{ textAlign: 'center', fontSize: '0.72rem', color: '#166534', fontWeight: 700 }}>Σ Receipts</td>
+                  </tr>
+
+                  {/* Row 2: Total Disposals */}
+                  <tr style={{ borderBottom: '1px solid #f1f5f9', background: '#fff7ed' }}>
+                    <td style={{ textAlign: 'center', fontWeight: 700, color: '#c2410c', fontSize: '0.75rem' }}>2</td>
+                    <td style={{ fontWeight: 800, color: '#c2410c', fontSize: '0.82rem', padding: '6px 8px' }}>
+                      Total Disposals (-)
+                    </td>
+                    {columns.filter(c => c.key !== 'variant').map(col => (
+                      <td key={`td_${col.key}`} style={{ textAlign: 'right', fontWeight: 800, fontSize: '0.82rem', color: '#c2410c', padding: '6px 8px', fontFamily: 'var(--font-numbers)' }}>
+                        {totalDisposals[col.key] ? formatNumberValue(totalDisposals[col.key], col.decimals, col.key) : '-'}
+                      </td>
+                    ))}
+                    <td style={{ textAlign: 'center', fontSize: '0.72rem', color: '#c2410c', fontWeight: 700 }}>Σ Disposals</td>
+                  </tr>
+
+                  {/* Row 3: Net Balance (Receipts - Disposals) */}
+                  <tr style={{ borderBottom: '1px solid #f1f5f9', background: '#f8fafc' }}>
+                    <td style={{ textAlign: 'center', fontWeight: 700, color: '#0369a1', fontSize: '0.75rem' }}>3</td>
+                    <td style={{ fontWeight: 800, color: '#0369a1', fontSize: '0.82rem', padding: '6px 8px' }}>
+                      Closing Balance (=)
+                    </td>
+                    {columns.filter(c => c.key !== 'variant').map(col => {
+                      const net = (totalReceipts[col.key] || 0) - (totalDisposals[col.key] || 0);
+                      return (
+                        <td key={`net_${col.key}`} style={{ textAlign: 'right', fontWeight: 800, fontSize: '0.82rem', color: '#0369a1', padding: '6px 8px', fontFamily: 'var(--font-numbers)' }}>
+                          {net !== 0 ? formatNumberValue(net, col.decimals, col.key) : '-'}
+                        </td>
+                      );
+                    })}
+                    <td style={{ textAlign: 'center', fontSize: '0.72rem', color: '#0369a1', fontWeight: 700 }}>Receipts - Disposals</td>
+                  </tr>
                 </tbody>
               </table>
             </div>
-
-            {/* Bottom Footer Bar */}
-            <div style={{ padding: '12px 18px', background: '#f8fafc', borderTop: '1px solid var(--border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexShrink: 0 }}>
-              <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
-                ⭐ Changes saved here will be stored in database as the Master Default template.
-              </div>
-
-              <div style={{ display: 'flex', gap: 10 }}>
-                <Link href="/dashboard/ts/manage-statements" className="btn btn-secondary btn-sm">
-                  Cancel
-                </Link>
-                <button
-                  type="button"
-                  onClick={handleSaveDefaultTemplate}
-                  disabled={saving}
-                  style={{
-                    background: '#b45309',
-                    color: '#ffffff',
-                    border: 'none',
-                    borderRadius: 6,
-                    padding: '6px 18px',
-                    fontSize: '0.82rem',
-                    fontWeight: 700,
-                    cursor: saving ? 'not-allowed' : 'pointer',
-                    boxShadow: '0 2px 4px rgba(180,83,9,0.2)',
-                  }}
-                >
-                  {saving ? '💾 Saving Template...' : '⭐ Save Master Default Table'}
-                </button>
-              </div>
-            </div>
           </div>
-        )}
+        </div>
 
-        {!activeMasterKey && !loading && (
-          <div className="card" style={{ padding: 60, textAlign: 'center', color: 'var(--text-muted)' }}>
-            <div style={{ fontSize: '2rem', marginBottom: 12 }}>📊</div>
-            <div style={{ fontWeight: 700, fontSize: '1rem', marginBottom: 8 }}>No Statement Masters Found</div>
-            <div style={{ fontSize: '0.85rem' }}>
-              <Link href="/dashboard/ts/manage-statements" style={{ color: 'var(--brand-primary)' }}>Go to Statement Masters</Link> and create at least one master to get started.
-            </div>
+        {/* Bottom Footer Bar */}
+        <div style={{ padding: '12px 18px', background: '#f8fafc', borderTop: '1px solid var(--border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexShrink: 0 }}>
+          <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
+            ⭐ Changes saved here will be stored in database as the Master Default Formulation Table for <b>{activeMasterKey}</b>.
           </div>
-        )}
+
+          <div style={{ display: 'flex', gap: 10 }}>
+            <Link href="/dashboard/ts/manage-statements" className="btn btn-secondary btn-sm">
+              Cancel
+            </Link>
+            <button
+              type="button"
+              onClick={handleSaveDefaultTemplate}
+              disabled={saving}
+              style={{
+                background: '#b45309',
+                color: '#ffffff',
+                border: 'none',
+                borderRadius: 6,
+                padding: '6px 18px',
+                fontSize: '0.82rem',
+                fontWeight: 700,
+                cursor: saving ? 'not-allowed' : 'pointer',
+                boxShadow: '0 2px 4px rgba(180,83,9,0.2)',
+              }}
+            >
+              {saving ? '💾 Saving Template...' : '⭐ Save Master Default Table'}
+            </button>
+          </div>
+        </div>
       </div>
 
-      {/* Column Modal */}
+      {/* Modal: Insert / Edit Column */}
       {isColModalOpen && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,0.55)', backdropFilter: 'blur(4px)', zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
-          <div style={{ background: '#fff', borderRadius: 12, border: '1px solid var(--border)', boxShadow: '0 20px 25px -5px rgba(0,0,0,0.1)', width: '100%', maxWidth: 520, overflow: 'hidden' }}>
-            <div style={{ padding: '16px 20px', background: '#f8fafc', borderBottom: '1px solid var(--border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <div style={{ fontWeight: 700, fontSize: '1.05rem' }}>{colModalEditingKey ? '✏️ Edit STG Column' : '➕ Add STG Column'}</div>
-              <button type="button" onClick={() => setIsColModalOpen(false)} style={{ background: 'none', border: 'none', fontSize: '1.1rem', cursor: 'pointer' }}>✕</button>
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <div className="card" style={{ width: 440, padding: 24, boxShadow: '0 20px 25px -5px rgba(0,0,0,0.2)' }}>
+            <div style={{ fontWeight: 800, fontSize: '1.05rem', marginBottom: 16, color: '#1e293b' }}>
+              {colModalEditingKey ? '✏️ Edit Formulation Column' : '➕ Insert Formulation Column'}
             </div>
-            <form onSubmit={handleSaveColumnModal} style={{ padding: 20, display: 'flex', flexDirection: 'column', gap: 16 }}>
+
+            <form onSubmit={handleSaveColumnModal} style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
               <div>
-                <label className="form-label" style={{ fontWeight: 600 }}>Column Name <span style={{ color: '#dc2626' }}>*</span></label>
+                <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: 700, marginBottom: 4 }}>
+                  Column Name (Display Label) *
+                </label>
                 <input
                   type="text"
+                  required
                   className="form-input"
-                  placeholder="e.g. QTY (LTS), SP.GR, FAT (%)"
                   value={formColName}
+                  placeholder="e.g. SNF (Kg)"
                   onChange={e => {
                     setFormColName(e.target.value);
-                    if (!colModalEditingKey && !colKeyManuallyEdited) {
-                      setFormColKey(e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, '_'));
+                    if (!colKeyManuallyEdited && !colModalEditingKey) {
+                      setFormColKey(e.target.value.toLowerCase().replace(/[^a-z0-9]/g, '_').replace(/_+/g, '_'));
                     }
                   }}
-                  required
+                  style={{ width: '100%', height: 32 }}
                 />
               </div>
+
               <div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <label className="form-label" style={{ fontWeight: 600 }}>
-                    Field Key <span style={{ color: '#dc2626' }}>*</span>
-                  </label>
-                  {colModalEditingKey && (
-                    <span style={{ fontSize: '0.72rem', color: '#0369a1', fontWeight: 600 }}>
-                      Editable (updates key across column settings & row values)
-                    </span>
-                  )}
-                </div>
+                <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: 700, marginBottom: 4 }}>
+                  Field Key (Internal Database Key) *
+                </label>
                 <input
                   type="text"
-                  className="form-input"
-                  placeholder="e.g. qty_lts, sp_gr, fat_pct"
-                  value={formColKey}
-                  onChange={e => {
-                    setFormColKey(e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, '_'));
-                    setColKeyManuallyEdited(true);
-                  }}
                   required
-                  style={{ background: '#fff', fontFamily: 'monospace', fontWeight: 600 }}
+                  className="form-input"
+                  value={formColKey}
+                  placeholder="e.g. snf_kg"
+                  onChange={e => {
+                    setColKeyManuallyEdited(true);
+                    setFormColKey(e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, '_'));
+                  }}
+                  style={{ width: '100%', height: 32, fontFamily: 'monospace' }}
                 />
-                <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: 3 }}>
-                  Unique identifier used in formulas and database storage (lowercase letters, numbers, underscores)
-                </div>
               </div>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12 }}>
+
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
                 <div>
-                  <label className="form-label" style={{ fontWeight: 600 }}>Data Type</label>
-                  <select className="form-select" value={formColType} onChange={e => setFormColType(e.target.value as any)}>
+                  <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: 700, marginBottom: 4 }}>
+                    Type
+                  </label>
+                  <select
+                    className="form-input"
+                    value={formColType}
+                    onChange={e => setFormColType(e.target.value as any)}
+                    style={{ width: '100%', height: 32 }}
+                  >
                     <option value="number">Number (Input)</option>
-                    <option value="text">Text (Label)</option>
                     <option value="calculated">Calculated (Formula)</option>
+                    <option value="text">Text</option>
                   </select>
                 </div>
+
                 <div>
-                  <label className="form-label" style={{ fontWeight: 600 }}>Decimal Places</label>
-                  <select className="form-select" value={formColDecimals !== undefined ? String(formColDecimals) : ''}
-                    onChange={e => setFormColDecimals(e.target.value !== '' ? parseInt(e.target.value, 10) : undefined)}>
-                    <option value="">Auto / Default</option>
-                    <option value="0">0 – Whole Number</option>
-                    <option value="1">1 Decimal</option>
-                    <option value="2">2 Decimals</option>
-                    <option value="3">3 Decimals</option>
-                    <option value="4">4 Decimals</option>
+                  <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: 700, marginBottom: 4 }}>
+                    Decimals
+                  </label>
+                  <select
+                    className="form-input"
+                    value={formColDecimals !== undefined ? String(formColDecimals) : ''}
+                    onChange={e => setFormColDecimals(e.target.value !== '' ? parseInt(e.target.value, 10) : undefined)}
+                    style={{ width: '100%', height: 32 }}
+                  >
+                    <option value="">Auto</option>
+                    <option value="0">.0 (Whole)</option>
+                    <option value="1">.1 Dec</option>
+                    <option value="2">.2 Decs</option>
+                    <option value="3">.3 Decs</option>
+                    <option value="4">.4 Decs</option>
                   </select>
-                </div>
-                <div>
-                  <label className="form-label" style={{ fontWeight: 600 }}>Unit (Optional)</label>
-                  <input type="text" className="form-input" placeholder="e.g. Lts, Kg, %" value={formColUnit} onChange={e => setFormColUnit(e.target.value)} />
                 </div>
               </div>
+
               {formColType === 'calculated' && (
                 <div>
-                  <label className="form-label" style={{ fontWeight: 600 }}>Formula Expression</label>
-                  <input type="text" className="form-input" placeholder="e.g. qty_lts * sp_gr" value={formColFormula}
-                    onChange={e => setFormColFormula(e.target.value)} style={{ fontFamily: 'monospace' }} />
-                  <div style={{ fontSize: '0.72rem', color: '#0369a1', marginTop: 4 }}>Use field keys: <code>qty_lts * sp_gr</code> or <code>qty_kg * fat_pct / 100</code></div>
+                  <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: 700, marginBottom: 4 }}>
+                    Default Formula (Optional)
+                  </label>
+                  <input
+                    type="text"
+                    className="form-input"
+                    value={formColFormula}
+                    placeholder="e.g. qty_lts * sp_gr"
+                    onChange={e => setFormColFormula(e.target.value)}
+                    style={{ width: '100%', height: 32, fontFamily: 'monospace' }}
+                  />
                 </div>
               )}
-              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, paddingTop: 10, borderTop: '1px solid var(--border)' }}>
-                <button type="button" className="btn btn-secondary btn-sm" onClick={() => setIsColModalOpen(false)}>Cancel</button>
-                <button type="submit" className="btn btn-primary btn-sm">{colModalEditingKey ? '💾 Update Column' : '➕ Save Column'}</button>
+
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, marginTop: 8 }}>
+                <button
+                  type="button"
+                  className="btn btn-secondary btn-sm"
+                  onClick={() => setIsColModalOpen(false)}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="btn btn-primary btn-sm"
+                  style={{ background: '#0284c7', borderColor: '#0284c7' }}
+                >
+                  {colModalEditingKey ? 'Update Column' : 'Save Column'}
+                </button>
               </div>
             </form>
           </div>
         </div>
       )}
-      {/* Create New Master Modal */}
+
+      {/* Modal: Create New Statement Master */}
       {isNewMasterModalOpen && (
-        <div style={{
-          position: 'fixed',
-          inset: 0,
-          background: 'rgba(0,0,0,0.5)',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          zIndex: 1000,
-          backdropFilter: 'blur(3px)',
-        }}>
-          <div className="card" style={{
-            background: 'var(--surface)',
-            borderRadius: 12,
-            border: '1px solid var(--border)',
-            boxShadow: '0 20px 25px -5px rgba(0,0,0,0.1), 0 8px 10px -6px rgba(0,0,0,0.1)',
-            width: '100%',
-            maxWidth: 580,
-            overflow: 'hidden',
-          }}>
-            <div style={{ padding: '16px 20px', background: '#fffbeb', borderBottom: '1px solid #fde68a', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <div>
-                <div style={{ fontWeight: 800, fontSize: '1.05rem', color: '#b45309', display: 'flex', alignItems: 'center', gap: 6 }}>
-                  <span>➕ Create New Preparation Chart Master</span>
-                </div>
-                <div style={{ fontSize: '0.75rem', color: '#78350f', marginTop: 2 }}>
-                  Set up a new statement formulation table with its own Initial Formulation Template and Configured Columns
-                </div>
-              </div>
-              <button
-                type="button"
-                onClick={() => setIsNewMasterModalOpen(false)}
-                style={{ background: 'none', border: 'none', fontSize: '1.1rem', color: '#b45309', cursor: 'pointer' }}
-              >
-                ✕
-              </button>
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <div className="card" style={{ width: 500, padding: 24, boxShadow: '0 20px 25px -5px rgba(0,0,0,0.2)' }}>
+            <div style={{ fontWeight: 800, fontSize: '1.05rem', marginBottom: 16, color: '#b45309' }}>
+              ➕ Create New Statement Master Template
             </div>
 
-            <form onSubmit={handleCreateNewMaster} style={{ padding: 20, display: 'flex', flexDirection: 'column', gap: 14 }}>
-              <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 12 }}>
-                <div>
-                  <label className="form-label" style={{ fontWeight: 600 }}>Statement Master Name <span style={{ color: '#dc2626' }}>*</span></label>
-                  <input
-                    type="text"
-                    className="form-input"
-                    placeholder="e.g. TENTATIVE WHOLE MILK, CURD STATEMENT"
-                    value={newMasterName}
-                    onChange={e => {
-                      setNewMasterName(e.target.value);
-                      if (!newMasterKeyManuallyEdited) {
-                        setNewMasterKey(e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, '_'));
-                      }
-                    }}
-                    required
-                  />
-                </div>
-
-                <div>
-                  <label className="form-label" style={{ fontWeight: 600 }}>Product Variant <span style={{ color: '#dc2626' }}>*</span></label>
-                  <input
-                    type="text"
-                    className="form-input"
-                    placeholder="e.g. WHOLE MILK, FCM, STD"
-                    value={newMasterVariant}
-                    onChange={e => setNewMasterVariant(e.target.value)}
-                    required
-                  />
-                </div>
-              </div>
-
+            <form onSubmit={handleCreateNewMaster} style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
               <div>
-                <label className="form-label" style={{ fontWeight: 600 }}>Field Key <span style={{ color: '#dc2626' }}>*</span></label>
+                <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: 700, marginBottom: 4 }}>
+                  Statement Master Name *
+                </label>
                 <input
                   type="text"
-                  className="form-input"
-                  placeholder="e.g. tentative_whole_milk, curd_statement"
-                  value={newMasterKey}
-                  onChange={e => {
-                    setNewMasterKey(e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, '_'));
-                    setNewMasterKeyManuallyEdited(true);
-                  }}
                   required
-                  style={{ fontFamily: 'monospace', fontWeight: 600 }}
+                  className="form-input"
+                  value={newMasterName}
+                  placeholder="e.g. BUTTER MILK - RECEIPT AND DISPOSAL STATEMENT"
+                  onChange={e => {
+                    setNewMasterName(e.target.value);
+                    if (!newMasterKeyManuallyEdited) {
+                      const clean = cleanStatementLabel(e.target.value);
+                      setNewMasterKey(clean.toLowerCase().replace(/[^a-z0-9]/g, '_').replace(/_+/g, '_'));
+                    }
+                  }}
+                  style={{ width: '100%', height: 32 }}
                 />
-                <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: 3 }}>
-                  Unique identifier used in database storage (lowercase letters, numbers, underscores)
-                </div>
               </div>
 
               <div>
-                <label className="form-label" style={{ fontWeight: 600 }}>Initial Formulation Template</label>
+                <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: 700, marginBottom: 4 }}>
+                  Field Key (Unique Identifier) *
+                </label>
+                <input
+                  type="text"
+                  required
+                  className="form-input"
+                  value={newMasterKey}
+                  placeholder="e.g. butter_milk"
+                  onChange={e => {
+                    setNewMasterKeyManuallyEdited(true);
+                    setNewMasterKey(e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, '_'));
+                  }}
+                  style={{ width: '100%', height: 32, fontFamily: 'monospace' }}
+                />
+              </div>
+
+              <div>
+                <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: 700, marginBottom: 4 }}>
+                  Initial Formulation Template Source
+                </label>
                 <select
-                  className="form-select"
+                  className="form-input"
                   value={newMasterSource}
                   onChange={e => setNewMasterSource(e.target.value)}
+                  style={{ width: '100%', height: 32 }}
                 >
-                  <option value="blank">✨ Clean empty table (1 empty particular row)</option>
+                  <option value="blank">Blank Template (Start Fresh)</option>
                   {masters.map(m => (
-                    <option key={`new_src_${m.key}`} value={m.key}>
-                      📋 Copy initial formulation from "{m.label}" ({m.variant || 'DEFAULT'})
+                    <option key={m.key} value={m.key}>
+                      Clone from {m.label || m.name || m.key}
                     </option>
                   ))}
                 </select>
               </div>
 
-              <div>
-                <label className="form-label" style={{ fontWeight: 600 }}>Configured Preparation Chart Columns</label>
-                <select
-                  className="form-select"
-                  value={newMasterColsSource}
-                  onChange={e => setNewMasterColsSource(e.target.value)}
-                >
-                  <option value="default">✨ Use standard columns (VARIANT, QTY (LTS), SP.GR, QTY (KG), FAT (%), SNF (%), KG FAT, KG SNF)</option>
-                  {masters.map(m => (
-                    <option key={`new_cols_src_${m.key}`} value={m.key}>
-                      📊 Copy configured columns from "{m.label}"
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <div>
-                <label className="form-label" style={{ fontWeight: 600 }}>Description (Optional)</label>
-                <input
-                  type="text"
-                  className="form-input"
-                  placeholder="e.g. Formulation and receipt/disposal details for this statement"
-                  value={newMasterDescription}
-                  onChange={e => setNewMasterDescription(e.target.value)}
-                />
-              </div>
-
-              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, paddingTop: 12, borderTop: '1px solid var(--border)' }}>
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, marginTop: 8 }}>
                 <button
                   type="button"
                   className="btn btn-secondary btn-sm"
@@ -1693,16 +1806,15 @@ export default function STGDefaultFormulationsPage() {
                 <button
                   type="submit"
                   className="btn btn-primary btn-sm"
-                  disabled={saving}
-                  style={{ background: '#b45309', borderColor: '#b45309', fontWeight: 700 }}
+                  style={{ background: '#b45309', borderColor: '#b45309' }}
                 >
-                  {saving ? 'Creating Master...' : '➕ Create Master Template'}
+                  Create Master Template
                 </button>
               </div>
             </form>
           </div>
         </div>
       )}
-    </>
+    </div>
   );
 }
