@@ -1,20 +1,29 @@
 'use client';
 
-import STGEntryForm from '@/components/forms/STGEntryForm';
-import { Suspense, useState, useRef } from 'react';
+import { Suspense, useEffect } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
 
-export default function NewSTGPage() {
-  const [formActions, setFormActions] = useState<{ handleSave: () => void; saving: boolean } | null>(null);
-  const saveButtonRef = useRef<HTMLDivElement | null>(null);
+function RedirectToWizard() {
+  const router = useRouter();
+  const searchParams = useSearchParams();
+
+  useEffect(() => {
+    const params = new URLSearchParams(searchParams ? searchParams.toString() : '');
+    params.set('step', 'stg');
+    router.replace(`/dashboard/stock/new?${params.toString()}`);
+  }, [router, searchParams]);
 
   return (
-    <div className="page-body animate-fade-in" style={{ padding: '0 20px 20px 20px' }}>
-      <Suspense fallback={<div className="card" style={{ padding: 20 }}>Loading form...</div>}>
-        <STGEntryForm
-          onRegisterActions={setFormActions}
-          saveButtonRef={saveButtonRef}
-        />
-      </Suspense>
+    <div style={{ padding: 40, display: 'flex', alignItems: 'center', gap: 12 }}>
+      <span className="spinner" /> Loading Solid Balance Details (STG)...
     </div>
+  );
+}
+
+export default function NewSTGPage() {
+  return (
+    <Suspense fallback={<div style={{ padding: 40 }}><span className="spinner" /> Loading Solid Balance Details (STG)...</div>}>
+      <RedirectToWizard />
+    </Suspense>
   );
 }

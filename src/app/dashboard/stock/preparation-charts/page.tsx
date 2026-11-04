@@ -1811,9 +1811,9 @@ export default function PreparationChartsDashboardPage({
     } else if (stepKey === 'stock') {
       router.push(`/dashboard/stock/new?date=${date}&shift=${shift}&step=stock`);
     } else if (stepKey === 'stg') {
-      router.push(`/dashboard/ts/new-stg?date=${date}&shift=${shift}`);
+      router.push(`/dashboard/stock/new?date=${date}&shift=${shift}&step=stg`);
     } else if (stepKey === 'ts') {
-      router.push(`/dashboard/ts/new?date=${date}&shift=${shift}`);
+      router.push(`/dashboard/stock/new?date=${date}&shift=${shift}&step=ts`);
     } else if (stepKey === 'reports') {
       router.push(`/dashboard/ts/${date}?shift=${shift}`);
     }

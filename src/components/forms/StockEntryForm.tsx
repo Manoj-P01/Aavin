@@ -2747,7 +2747,11 @@ export default function StockEntryForm({
                     await handleSave('next');
                   } else {
                     await handleSave('stay');
-                    router.push(`/dashboard/ts/new-stg?date=${entryDate}${shift ? `&shift=${shift}` : ''}`);
+                    if (onStepChange) {
+                      onStepChange('stg');
+                    } else {
+                      router.push(`/dashboard/stock/new?step=stg&date=${entryDate}${shift ? `&shift=${shift}` : ''}`);
+                    }
                   }
                 }}
                 style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 16px', fontWeight: 600, background: 'linear-gradient(135deg, #0284c7 0%, #0d9488 100%)', borderColor: '#0284c7' }}

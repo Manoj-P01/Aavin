@@ -1,14 +1,29 @@
-import TSEntryForm from '@/components/forms/TSEntryForm';
-import { Suspense } from 'react';
+'use client';
 
-export const metadata = { title: 'Total Solids (TS) Statement | Aavin Dashboard' };
+import { Suspense, useEffect } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
+
+function RedirectToWizard() {
+  const router = useRouter();
+  const searchParams = useSearchParams();
+
+  useEffect(() => {
+    const params = new URLSearchParams(searchParams ? searchParams.toString() : '');
+    params.set('step', 'ts');
+    router.replace(`/dashboard/stock/new?${params.toString()}`);
+  }, [router, searchParams]);
+
+  return (
+    <div style={{ padding: 40, display: 'flex', alignItems: 'center', gap: 12 }}>
+      <span className="spinner" /> Loading Total Solids (TS) Statement...
+    </div>
+  );
+}
 
 export default function NewTSPage() {
   return (
-    <div className="page-body animate-fade-in" style={{ padding: '0 20px 20px 20px' }}>
-      <Suspense fallback={<div className="card" style={{ padding: 20 }}>Loading form...</div>}>
-        <TSEntryForm />
-      </Suspense>
-    </div>
+    <Suspense fallback={<div style={{ padding: 40 }}><span className="spinner" /> Loading Total Solids (TS) Statement...</div>}>
+      <RedirectToWizard />
+    </Suspense>
   );
 }

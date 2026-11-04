@@ -8,6 +8,7 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import Link from 'next/link';
 import Header from '@/components/layout/Header';
+import Step, { DAILY_ENTRY_STEP_ITEMS } from '@/components/ui/Step';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { fmtNum, cleanStatementLabel, getStandardColumnDecimals } from '@/lib/calculations';
 import { useConfirm } from '@/context/ConfirmContext';
@@ -104,6 +105,132 @@ export default function STGEntryForm({
   }, [initialShift]);
 
   const [notes, setNotes] = useState('');
+  const [reportMode, setReportMode] = useState<'full_day' | 'shift'>('full_day');
+
+  useEffect(() => {
+    try {
+      const savedMode = localStorage.getItem('aavin_report_mode');
+      if (savedMode === 'shift' || savedMode === 'full_day') {
+        setReportMode(savedMode);
+      }
+    } catch {}
+  }, []);
+
+  const handleStepClick = (key: string) => {
+    if (onDateShiftChange) {
+      onDateShiftChange(entryDate, shift);
+    }
+    if (onStepChange) {
+      onStepChange(key);
+      return;
+    }
+    const s = shift || 'F';
+    if (key === 'prep') {
+      if (onPrevStep) {
+        (onPrevStep as any)(entryDate, s);
+      } else {
+        router.push(`/dashboard/stock/new?step=prep&date=${entryDate}&shift=${s}`);
+      }
+    } else if (key === 'stock') {
+      router.push(`/dashboard/stock/new?step=stock&date=${entryDate}&shift=${s}`);
+    } else if (key === 'stg') {
+      router.push(`/dashboard/stock/new?step=stg&date=${entryDate}&shift=${s}`);
+    } else if (key === 'ts') {
+      if (onNextStep) {
+        (onNextStep as any)(entryDate, s);
+      } else {
+        router.push(`/dashboard/stock/new?step=ts&date=${entryDate}&shift=${s}`);
+      }
+    } else if (key === 'reports') {
+      router.push(`/dashboard/ts/${entryDate}?shift=${s}`);
+    }
+  };
+
+  const handleSyncFromStock = async () => {
+    try {
+      const s = shift || 'F';
+      const res = await fetch(`/api/stock?date=${entryDate}${shift ? `&shift=${shift}` : ''}`);
+      if (!res.ok) {
+        await showWarning(`No saved Stock Statement found for date ${entryDate}. Please save the Stock Statement first.`, 'No Stock Data');
+        return;
+      }
+      const json = await res.json();
+      const stockRows: any[] = json.data?.stock_rows || [];
+      if (!stockRows || stockRows.length === 0) {
+        await showWarning(`No stock rows found for ${entryDate}.`, 'Empty Stock Data');
+        return;
+      }
+
+      const targetColKeys = [activeBlock.toLowerCase()];
+      if (activeBlock.toUpperCase() === 'WM') targetColKeys.push('wh_milk', 'whole_milk', 'wm');
+      if (activeBlock.toUpperCase() === 'SSM') targetColKeys.push('skim_milk', 'ssm');
+      if (activeBlock.toUpperCase() === 'CREAM') targetColKeys.push('cream');
+      if (activeBlock.toUpperCase() === 'SMP') targetColKeys.push('smp');
+
+      let syncedCount = 0;
+      setBlocks(prev => {
+        const copy = { ...prev };
+        const currentBlockState = copy[activeBlock] || { rows: [], opening_balance: {}, physical_count: {} };
+        const nextRows = [...(currentBlockState.rows || [])];
+
+        const obRow = stockRows.find(r => r.row_type === 'OB');
+        if (obRow) {
+          for (const key of targetColKeys) {
+            const val = obRow.values?.[key] ?? obRow[key];
+            if (val !== undefined && val !== null && !isNaN(parseFloat(val))) {
+              const numVal = parseFloat(val);
+              if (numVal > 0) {
+                currentBlockState.opening_balance = {
+                  ...(currentBlockState.opening_balance || {}),
+                  qty_lts: String(numVal),
+                };
+                syncedCount++;
+                break;
+              }
+            }
+          }
+        }
+
+        nextRows.forEach(r => {
+          const rLabelNorm = (r.variant || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+          const matchingStockRow = stockRows.find(sr => {
+            if (r.row_type && sr.row_type && r.row_type !== sr.row_type) return false;
+            const srLabelNorm = (sr.row_label || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+            return srLabelNorm === rLabelNorm || srLabelNorm.includes(rLabelNorm) || rLabelNorm.includes(srLabelNorm);
+          });
+
+          if (matchingStockRow) {
+            for (const key of targetColKeys) {
+              const val = matchingStockRow.values?.[key] ?? matchingStockRow[key];
+              if (val !== undefined && val !== null && !isNaN(parseFloat(val))) {
+                const numVal = parseFloat(val);
+                if (numVal > 0) {
+                  r.values = { ...(r.values || {}), qty_lts: numVal };
+                  syncedCount++;
+                  break;
+                }
+              }
+            }
+          }
+        });
+
+        currentBlockState.rows = nextRows;
+        copy[activeBlock] = currentBlockState;
+        return copy;
+      });
+
+      setReceiptsUnlocked(true);
+      setDisposalsUnlocked(true);
+      if (syncedCount > 0) {
+        await showSuccess(`Synced ${syncedCount} quantity value(s) from Stock Statement into ${currentStatement?.label || activeBlock}! Receipts & Disposals unlocked for editing.`, 'Stock Statement Synced');
+      } else {
+        await showWarning(`Found Stock Statement for ${entryDate}, but no matching rows found for ${currentStatement?.label || activeBlock}. You can enter values manually.`, 'Sync Notice');
+      }
+    } catch (err) {
+      console.error(err);
+      await showError('Failed to sync from Stock Statement.', 'Sync Error');
+    }
+  };
   const [masters, setMasters] = useState<any[]>([]);
   const [statements, setStatements] = useState<Array<{ key: string; label: string; variant?: string }>>([]);
   const [enabledBlockKeys, setEnabledBlockKeys] = useState<string[]>([]);

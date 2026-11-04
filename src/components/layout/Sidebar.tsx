@@ -35,7 +35,7 @@ const NAV_SECTIONS = [
   {
     label: 'STG Entry',
     items: [
-      { href: '/dashboard/ts/new-stg', icon: '⚖️', label: 'New STG Entry' },
+      { href: '/dashboard/stock/new?step=stg', icon: '⚖️', label: 'New STG Entry' },
       { href: '/dashboard/ts/manage-statements', icon: '📊', label: 'Statement Master Names' },
       { href: '/dashboard/ts/manage-statements/defaults', icon: '⭐', label: 'Master Default Statements' },
       { href: '/dashboard/ts/manage-statements/columns', icon: '⚙️', label: 'Statement Columns Config' },
@@ -44,7 +44,7 @@ const NAV_SECTIONS = [
   {
     label: 'TS Entry',
     items: [
-      { href: '/dashboard/ts/new', icon: '🧪', label: 'New TS Entry' },
+      { href: '/dashboard/stock/new?step=ts', icon: '🧪', label: 'New TS Entry' },
       { href: '/dashboard/ts', icon: '📄', label: 'Total Solids (TS)' },
     ],
   },

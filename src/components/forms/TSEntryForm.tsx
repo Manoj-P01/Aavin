@@ -484,9 +484,9 @@ export default function TSEntryForm({
     } else if (key === 'stock') {
       router.push(`/dashboard/stock/new?date=${entryDate}&shift=${s}`);
     } else if (key === 'stg') {
-      router.push(`/dashboard/ts/new-stg?date=${entryDate}&shift=${s}`);
+      router.push(`/dashboard/stock/new?step=stg&date=${entryDate}&shift=${s}`);
     } else if (key === 'ts') {
-      router.push(`/dashboard/ts/new?date=${entryDate}&shift=${s}`);
+      router.push(`/dashboard/stock/new?step=ts&date=${entryDate}&shift=${s}`);
     } else if (key === 'reports') {
       router.push(`/dashboard/ts/${entryDate}?shift=${s}`);
     }
