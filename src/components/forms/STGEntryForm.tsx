@@ -1,6 +1,6 @@
 // ─────────────────────────────────────────────────────────────────────────────
 // Aavin Dashboard – NKL Solid Balance Details (STG) Entry Form
-// Sectioned view matching Milk & Cream Stock Statement Entry
+// Features separate master for each individual statement with inline statement creation
 // ─────────────────────────────────────────────────────────────────────────────
 
 'use client';
@@ -8,7 +8,6 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import Link from 'next/link';
 import Header from '@/components/layout/Header';
-import Step, { DAILY_ENTRY_STEP_ITEMS } from '@/components/ui/Step';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { fmtNum, cleanStatementLabel, getStandardColumnDecimals } from '@/lib/calculations';
 import { useConfirm } from '@/context/ConfirmContext';
@@ -105,6 +104,7 @@ export default function STGEntryForm({
   }, [initialShift]);
 
   const [notes, setNotes] = useState('');
+  const [masters, setMasters] = useState<any[]>([]);
   const [statements, setStatements] = useState<Array<{ key: string; label: string; variant?: string }>>([]);
   const [enabledBlockKeys, setEnabledBlockKeys] = useState<string[]>([]);
   const [activeBlock, setActiveBlock] = useState<string>('');
@@ -124,6 +124,21 @@ export default function STGEntryForm({
   // Print modal state
   const [isPrintModalOpen, setIsPrintModalOpen] = useState(false);
 
+  // Modal: Create New Statement Master
+  const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
+  const [newStmtName, setNewStmtName] = useState('');
+  const [newStmtKey, setNewStmtKey] = useState('');
+  const [newStmtKeyEdited, setNewStmtKeyEdited] = useState(false);
+  const [newStmtVariant, setNewStmtVariant] = useState('');
+  const [newStmtSource, setNewStmtSource] = useState('blank');
+  const [newStmtReceiptParticulars, setNewStmtReceiptParticulars] = useState('');
+  const [newStmtDisposalParticulars, setNewStmtDisposalParticulars] = useState('');
+
+  // Modal: Rename Active Statement Master
+  const [isRenameModalOpen, setIsRenameModalOpen] = useState(false);
+  const [renameValue, setRenameValue] = useState('');
+  const [renameVariant, setRenameVariant] = useState('');
+
   const availableStatements = useMemo(() => {
     return statements.filter(s => enabledBlockKeys.includes(s.key));
   }, [statements, enabledBlockKeys]);
@@ -137,18 +152,6 @@ export default function STGEntryForm({
       setActiveBlock(availableStatements[0].key);
     }
   }, [availableStatements, activeBlock]);
-
-  // Standard STG columns
-  const [stgColumns, setStgColumns] = useState<STGColumnDef[]>([
-    { key: 'variant', name: 'Particular / Variant', type: 'text', sort_order: 1 },
-    { key: 'qty_lts', name: 'Qty (Lts)', type: 'number', decimals: 0, sort_order: 2 },
-    { key: 'sp_gr', name: 'SP.G', type: 'number', decimals: 4, sort_order: 3 },
-    { key: 'qty_kg', name: 'Qty (Kg)', type: 'calculated', formula: 'qty_lts * sp_gr', decimals: 2, sort_order: 4 },
-    { key: 'fat_pct', name: 'Fat%', type: 'number', decimals: 2, sort_order: 5 },
-    { key: 'snf_pct', name: 'Snf%', type: 'number', decimals: 2, sort_order: 6 },
-    { key: 'kg_fat', name: 'Kg.Fat', type: 'calculated', formula: 'qty_kg * fat_pct / 100', decimals: 3, sort_order: 7 },
-    { key: 'kg_snf', name: 'Kg.Snf', type: 'calculated', formula: 'qty_kg * snf_pct / 100', decimals: 3, sort_order: 8 },
-  ]);
 
   const activeBlockState = useMemo(() => {
     if (!activeBlock || !blocks[activeBlock]) {
@@ -236,7 +239,7 @@ export default function STGEntryForm({
     };
   }, []);
 
-  // Fetch data
+  // Fetch statement masters and data
   useEffect(() => {
     if (!entryDate) return;
     let active = true;
@@ -248,6 +251,7 @@ export default function STGEntryForm({
         if (configRes.ok) {
           const configJson = await configRes.json();
           if (Array.isArray(configJson.masters) && configJson.masters.length > 0) {
+            setMasters(configJson.masters);
             globalStatements = configJson.masters.map((s: any) => ({
               ...s,
               label: cleanStatementLabel(s.label || s.name || s.key),
@@ -400,7 +404,180 @@ export default function STGEntryForm({
     return () => { active = false; };
   }, [entryDate, shift, populateBlockDefaultsFromMaster]);
 
-  // Cell change handlers
+  // Handle Create Statement Master from Modal
+  const handleCreateStatementMaster = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newStmtName.trim()) {
+      showWarning('Please enter a Statement Master Name');
+      return;
+    }
+
+    const cleanLabel = cleanStatementLabel(newStmtName.trim());
+    const keyToUse = newStmtKey.trim().toLowerCase().replace(/[^a-z0-9_]/g, '_') || cleanLabel.toLowerCase().replace(/[^a-z0-9_]/g, '_');
+
+    if (!keyToUse) {
+      showWarning('Please enter a valid Field Key');
+      return;
+    }
+
+    if (statements.some(s => s.key === keyToUse)) {
+      showWarning(`Statement Master with key "${keyToUse}" already exists! Please use a unique Statement Name or key.`);
+      return;
+    }
+
+    let initialReceipts: any[] = [];
+    let initialDisposals: any[] = [];
+
+    if (newStmtSource === 'blank') {
+      const customRecs = newStmtReceiptParticulars.split(/[\n,]+/).map(s => s.trim()).filter(Boolean);
+      const customDisps = newStmtDisposalParticulars.split(/[\n,]+/).map(s => s.trim()).filter(Boolean);
+
+      initialReceipts = customRecs.length > 0
+        ? customRecs.map(name => ({ variant: name, row_type: 'RECEIPT', side: 'RECEIPT', values: { variant: name } }))
+        : [{ variant: 'Receipt 1', row_type: 'RECEIPT', side: 'RECEIPT', values: { variant: 'Receipt 1' } }];
+
+      initialDisposals = customDisps.length > 0
+        ? customDisps.map(name => ({ variant: name, row_type: 'DISPOSAL', side: 'DISPOSAL', values: { variant: name } }))
+        : [{ variant: 'Disposal 1', row_type: 'DISPOSAL', side: 'DISPOSAL', values: { variant: 'Disposal 1' } }];
+    } else {
+      const srcMaster = masters.find(m => m.key === newStmtSource);
+      if (srcMaster) {
+        initialReceipts = JSON.parse(JSON.stringify(srcMaster.receipt_rows || []));
+        initialDisposals = JSON.parse(JSON.stringify(srcMaster.disposal_rows || []));
+      }
+    }
+
+    const allRows = [
+      ...initialReceipts.map(r => ({ ...r, row_type: 'RECEIPT', side: 'RECEIPT' })),
+      ...initialDisposals.map(d => ({ ...d, row_type: 'DISPOSAL', side: 'DISPOSAL' })),
+    ];
+
+    const newMasterObj = {
+      key: keyToUse,
+      label: cleanLabel,
+      name: cleanLabel,
+      variant: newStmtVariant.trim().toUpperCase() || cleanLabel.split(' ')[0],
+      product_variant: newStmtVariant.trim().toUpperCase() || cleanLabel.split(' ')[0],
+      sort_order: (masters.length || 0) + 1,
+      receipt_rows: initialReceipts,
+      disposal_rows: initialDisposals,
+      default_rows: allRows,
+      rows: allRows,
+      is_active: true,
+    };
+
+    try {
+      const updatedMasters = [...masters, newMasterObj];
+      const res = await fetch('/api/ts/masters', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ masters: updatedMasters }),
+      });
+
+      if (res.ok) {
+        setMasters(updatedMasters);
+        setStatements(prev => [...prev, { key: keyToUse, label: cleanLabel, variant: newMasterObj.variant }]);
+        setEnabledBlockKeys(prev => Array.from(new Set([...prev, keyToUse])));
+        setBlocks(prev => ({
+          ...prev,
+          [keyToUse]: {
+            rows: allRows,
+            opening_balance: { qty_lts: '', sp_gr: '', qty_kg: '', fat_pct: '', snf_pct: '', kg_fat: '', kg_snf: '' },
+            physical_count: { qty_lts: '', sp_gr: '', qty_kg: '', fat_pct: '', snf_pct: '', kg_fat: '', kg_snf: '' },
+            cmpdd_norm: '0.5'
+          }
+        }));
+        setActiveBlock(keyToUse);
+        setIsCreateModalOpen(false);
+        setNewStmtName('');
+        setNewStmtKey('');
+        setNewStmtKeyEdited(false);
+        setNewStmtVariant('');
+        setNewStmtReceiptParticulars('');
+        setNewStmtDisposalParticulars('');
+        showSuccess(`✅ Statement Master "${cleanLabel}" created successfully and activated!`);
+      } else {
+        showError('Failed to save statement master to database.');
+      }
+    } catch (err) {
+      showError('Network error creating statement master.');
+    }
+  };
+
+  // Handle Rename Statement Master
+  const handleRenameStatementMaster = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!renameValue.trim() || !activeBlock) return;
+    const cleanLabel = cleanStatementLabel(renameValue.trim());
+
+    try {
+      const updatedMasters = masters.map(m => {
+        if (m.key === activeBlock) {
+          return {
+            ...m,
+            label: cleanLabel,
+            name: cleanLabel,
+            variant: renameVariant.trim().toUpperCase() || m.variant,
+            product_variant: renameVariant.trim().toUpperCase() || m.product_variant,
+          };
+        }
+        return m;
+      });
+
+      const res = await fetch('/api/ts/masters', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ masters: updatedMasters }),
+      });
+
+      if (res.ok) {
+        setMasters(updatedMasters);
+        setStatements(prev => prev.map(s => s.key === activeBlock ? { ...s, label: cleanLabel, variant: renameVariant } : s));
+        setIsRenameModalOpen(false);
+        showSuccess(`Updated Statement Master to "${cleanLabel}"`);
+      } else {
+        showError('Failed to update Statement Master.');
+      }
+    } catch (err) {
+      showError('Network error updating Statement Master.');
+    }
+  };
+
+  // Handle Delete Active Statement
+  const handleDeleteActiveStatement = async () => {
+    if (!activeBlock) return;
+    const stmt = statements.find(s => s.key === activeBlock);
+    const isConfirmed = await confirm({
+      title: 'Delete Statement Master',
+      message: `Are you sure you want to delete "${stmt?.label || activeBlock}"? This will remove its master template definition and rows from this entry.`,
+      confirmText: 'Delete Statement Master',
+      cancelText: 'Cancel',
+      type: 'danger',
+    });
+    if (!isConfirmed) return;
+
+    try {
+      await fetch(`/api/ts/masters?key=${encodeURIComponent(activeBlock)}`, { method: 'DELETE' });
+      const remainingStmts = statements.filter(s => s.key !== activeBlock);
+      const remainingMasters = masters.filter(m => m.key !== activeBlock);
+      setMasters(remainingMasters);
+      setStatements(remainingStmts);
+      setEnabledBlockKeys(prev => prev.filter(k => k !== activeBlock));
+      setBlocks(prev => {
+        const copy = { ...prev };
+        delete copy[activeBlock];
+        return copy;
+      });
+      if (remainingStmts.length > 0) {
+        setActiveBlock(remainingStmts[0].key);
+      }
+      showSuccess('Statement Master removed successfully.');
+    } catch (err) {
+      showError('Error deleting Statement Master.');
+    }
+  };
+
+  // Particulars cell change handlers
   const handleParticularCellChange = (globalIdx: number, colKey: string, val: string) => {
     if (!activeBlock) return;
     setBlocks(prev => {
@@ -413,7 +590,6 @@ export default function STGEntryForm({
       }
       r.values[colKey] = val;
 
-      // Auto compute calculated columns
       if (['qty_lts', 'sp_gr', 'fat_pct', 'snf_pct'].includes(colKey)) {
         const qtyKg = computeCalculatedField('qty_kg', r.values);
         r.values.qty_kg = qtyKg !== 0 ? String(qtyKg) : '';
@@ -698,7 +874,6 @@ export default function STGEntryForm({
     setExporting(false);
   };
 
-  // Register actions with parent if requested
   const handleSaveRef = useRef(handleSave);
   handleSaveRef.current = handleSave;
 
@@ -960,14 +1135,14 @@ export default function STGEntryForm({
     <div className="daily-entry-container" style={{ display: 'flex', flexDirection: 'column', height: '100%', overflowY: 'auto' }}>
       <Header
         title="Solid Balance Details (STG) Entry"
-        subtitle="Manage Receipts and Disposals statement entry with automated reconciliation matching Milk & Cream Stock Statement Entry."
+        subtitle="Manage independent Statement Masters, Receipts and Disposals with automated reconciliation matching Milk & Cream Stock Statement Entry."
       />
 
       <div style={{ padding: '16px 24px', display: 'flex', flexDirection: 'column', gap: 16 }}>
         {/* Top Control Card */}
         <div className="card" style={{ padding: '14px 20px', display: 'flex', flexDirection: 'column', gap: 12 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12 }}>
-            {/* Date, Shift, and Notes */}
+            {/* Date, Shift, and View Settings */}
             <div style={{ display: 'flex', alignItems: 'center', gap: 14, flexWrap: 'wrap' }}>
               <div>
                 <label style={{ display: 'block', fontSize: '0.72rem', fontWeight: 800, color: 'var(--text-secondary)', marginBottom: 2 }}>
@@ -995,33 +1170,6 @@ export default function STGEntryForm({
                   <option value="">Full Day (Default)</option>
                   <option value="D">Day Shift (D)</option>
                   <option value="N">Night Shift (N)</option>
-                </select>
-              </div>
-
-              {/* Statement Master Dropdown */}
-              <div>
-                <label style={{ display: 'block', fontSize: '0.72rem', fontWeight: 800, color: '#b45309', marginBottom: 2 }}>
-                  STATEMENT MASTER
-                </label>
-                <select
-                  className="form-input"
-                  value={activeBlock}
-                  onChange={e => setActiveBlock(e.target.value)}
-                  style={{
-                    height: 32,
-                    fontWeight: 800,
-                    fontSize: '0.85rem',
-                    color: '#b45309',
-                    background: '#fffbeb',
-                    borderColor: '#fde68a',
-                    minWidth: 260,
-                  }}
-                >
-                  {availableStatements.map(s => (
-                    <option key={s.key} value={s.key}>
-                      {cleanStatementLabel(s.label || s.key)}
-                    </option>
-                  ))}
                 </select>
               </div>
 
@@ -1056,13 +1204,25 @@ export default function STGEntryForm({
 
             {/* Right Action Buttons */}
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-              <Link
-                href="/dashboard/ts/manage-statements/defaults"
-                className="btn btn-secondary btn-sm"
-                title="Open Master Default Formulation Tables"
+              <button
+                type="button"
+                onClick={() => setIsCreateModalOpen(true)}
+                style={{
+                  background: '#fef3c7',
+                  border: '1px solid #fcd34d',
+                  color: '#b45309',
+                  borderRadius: 6,
+                  padding: '6px 14px',
+                  fontSize: '0.82rem',
+                  fontWeight: 800,
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 6,
+                }}
               >
-                ⚙️ Master Defaults
-              </Link>
+                ➕ Create Statement Master
+              </button>
 
               <button
                 type="button"
@@ -1138,6 +1298,147 @@ export default function STGEntryForm({
             />
           </div>
         </div>
+
+        {/* Statement Master Navigation Tabs Bar */}
+        <div className="card" style={{ padding: '12px 18px', display: 'flex', flexDirection: 'column', gap: 10 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <span style={{ fontWeight: 800, fontSize: '0.85rem', color: '#1e293b' }}>
+                📋 INDIVIDUAL STATEMENT MASTERS ({availableStatements.length}):
+              </span>
+              <span style={{ fontSize: '0.75rem', color: '#64748b' }}>
+                (Each statement has its own separate master, receipts, and disposals)
+              </span>
+            </div>
+
+            <button
+              type="button"
+              onClick={() => setIsCreateModalOpen(true)}
+              style={{
+                background: '#0284c7',
+                color: '#ffffff',
+                border: 'none',
+                borderRadius: 6,
+                padding: '4px 12px',
+                fontSize: '0.78rem',
+                fontWeight: 800,
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                gap: 4,
+              }}
+            >
+              ➕ Create Statement Master
+            </button>
+          </div>
+
+          {/* Scrolling Tabs List */}
+          <div style={{ display: 'flex', gap: 8, overflowX: 'auto', paddingBottom: 4 }}>
+            {availableStatements.map(s => {
+              const isActive = s.key === activeBlock;
+              const count = (blocks[s.key]?.rows || []).length;
+
+              return (
+                <button
+                  key={`stmt_tab_${s.key}`}
+                  type="button"
+                  onClick={() => setActiveBlock(s.key)}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 6,
+                    padding: '6px 14px',
+                    borderRadius: 20,
+                    border: isActive ? '2px solid #0284c7' : '1px solid #cbd5e1',
+                    background: isActive ? '#0284c7' : '#ffffff',
+                    color: isActive ? '#ffffff' : '#334155',
+                    fontWeight: isActive ? 800 : 600,
+                    fontSize: '0.8rem',
+                    cursor: 'pointer',
+                    whiteSpace: 'nowrap',
+                    transition: 'all 0.15s ease',
+                    boxShadow: isActive ? '0 2px 4px rgba(2, 132, 199, 0.25)' : 'none',
+                  }}
+                >
+                  <span>{cleanStatementLabel(s.label || s.key)}</span>
+                  <span
+                    style={{
+                      background: isActive ? '#ffffff' : '#f1f5f9',
+                      color: isActive ? '#0284c7' : '#64748b',
+                      borderRadius: 10,
+                      padding: '1px 6px',
+                      fontSize: '0.68rem',
+                      fontWeight: 800,
+                    }}
+                  >
+                    {count}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* Active Statement Header & Actions Banner */}
+        {currentStatement && (
+          <div style={{ background: '#f8fafc', border: '1px solid #cbd5e1', borderRadius: 8, padding: '10px 16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 10 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              <span style={{ fontSize: '1.2rem' }}>📄</span>
+              <div>
+                <div style={{ fontWeight: 800, fontSize: '0.96rem', color: '#0f172a' }}>
+                  {cleanStatementLabel(currentStatement.label || currentStatement.key)}
+                </div>
+                <div style={{ fontSize: '0.74rem', color: '#64748b', fontFamily: 'monospace' }}>
+                  Master Key: <b>{currentStatement.key}</b>
+                </div>
+              </div>
+            </div>
+
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+              <Link
+                href={`/dashboard/ts/manage-statements/defaults?master=${encodeURIComponent(currentStatement.key)}`}
+                className="btn btn-secondary btn-sm"
+                style={{ fontSize: '0.75rem', fontWeight: 700 }}
+                title="Configure Master Default Formulation Table for this statement"
+              >
+                ⚙️ Master Defaults
+              </Link>
+
+              <button
+                type="button"
+                onClick={() => {
+                  setRenameValue(currentStatement.label || currentStatement.key);
+                  setRenameVariant(currentStatement.variant || '');
+                  setIsRenameModalOpen(true);
+                }}
+                className="btn btn-secondary btn-sm"
+                style={{ fontSize: '0.75rem', fontWeight: 700 }}
+              >
+                ✏️ Rename Master
+              </button>
+
+              {availableStatements.length > 1 && (
+                <button
+                  type="button"
+                  onClick={handleDeleteActiveStatement}
+                  style={{
+                    background: '#fef2f2',
+                    border: '1px solid #fca5a5',
+                    color: '#dc2626',
+                    borderRadius: 6,
+                    padding: '4px 10px',
+                    fontSize: '0.75rem',
+                    fontWeight: 700,
+                    cursor: 'pointer',
+                  }}
+                  title="Delete this Statement Master"
+                >
+                  🗑️ Delete Master
+                </button>
+              )}
+            </div>
+          </div>
+        )}
 
         {error && (
           <div style={{ background: '#fef2f2', border: '1px solid #fecaca', color: '#dc2626', padding: '10px 16px', borderRadius: 8, fontSize: '0.85rem', fontWeight: 600 }}>
@@ -1504,11 +1805,211 @@ export default function STGEntryForm({
         </div>
       </div>
 
+      {/* Modal: Create New Statement Master */}
+      {isCreateModalOpen && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
+          <div className="card" style={{ width: '100%', maxWidth: 540, padding: 24, boxShadow: '0 25px 50px -12px rgba(0,0,0,0.25)' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16, borderBottom: '1px solid var(--border)', paddingBottom: 10 }}>
+              <div style={{ fontWeight: 800, fontSize: '1.05rem', color: '#0284c7' }}>
+                ➕ Create New Statement Master
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsCreateModalOpen(false)}
+                style={{ background: 'transparent', border: 'none', fontSize: '1.1rem', cursor: 'pointer', color: '#64748b' }}
+              >
+                ✕
+              </button>
+            </div>
+
+            <form onSubmit={handleCreateStatementMaster} style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+              <div>
+                <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: 800, marginBottom: 4, color: 'var(--text-primary)' }}>
+                  Statement Master Name *
+                </label>
+                <input
+                  type="text"
+                  required
+                  className="form-input"
+                  value={newStmtName}
+                  placeholder="e.g. BUTTER MILK - RECEIPT AND DISPOSAL STATEMENT"
+                  onChange={e => {
+                    setNewStmtName(e.target.value);
+                    if (!newStmtKeyEdited) {
+                      const clean = cleanStatementLabel(e.target.value);
+                      setNewStmtKey(clean.toLowerCase().replace(/[^a-z0-9]/g, '_').replace(/_+/g, '_'));
+                    }
+                  }}
+                  style={{ width: '100%', height: 32 }}
+                />
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 0.8fr', gap: 12 }}>
+                <div>
+                  <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: 800, marginBottom: 4, color: 'var(--text-primary)' }}>
+                    Field Key (Unique Identifier) *
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    className="form-input"
+                    value={newStmtKey}
+                    placeholder="e.g. butter_milk"
+                    onChange={e => {
+                      setNewStmtKeyEdited(true);
+                      setNewStmtKey(e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, '_'));
+                    }}
+                    style={{ width: '100%', height: 32, fontFamily: 'monospace' }}
+                  />
+                </div>
+
+                <div>
+                  <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: 800, marginBottom: 4, color: 'var(--text-primary)' }}>
+                    Product Variant
+                  </label>
+                  <input
+                    type="text"
+                    className="form-input"
+                    value={newStmtVariant}
+                    placeholder="e.g. BUTTER MILK"
+                    onChange={e => setNewStmtVariant(e.target.value)}
+                    style={{ width: '100%', height: 32 }}
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: 800, marginBottom: 4, color: 'var(--text-primary)' }}>
+                  Master Template Source
+                </label>
+                <select
+                  className="form-input"
+                  value={newStmtSource}
+                  onChange={e => setNewStmtSource(e.target.value)}
+                  style={{ width: '100%', height: 32 }}
+                >
+                  <option value="blank">Blank Template (Start Fresh)</option>
+                  {masters.map(m => (
+                    <option key={m.key} value={m.key}>
+                      Clone from {m.label || m.name || m.key}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {newStmtSource === 'blank' && (
+                <>
+                  <div>
+                    <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: 800, marginBottom: 4, color: 'var(--text-primary)' }}>
+                      Initial Receipt Particulars (optional, separated by commas or lines)
+                    </label>
+                    <textarea
+                      className="form-input"
+                      rows={2}
+                      value={newStmtReceiptParticulars}
+                      placeholder="e.g. Butter Milk Receipt, Water Flush"
+                      onChange={e => setNewStmtReceiptParticulars(e.target.value)}
+                      style={{ width: '100%', fontSize: '0.8rem' }}
+                    />
+                  </div>
+
+                  <div>
+                    <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: 800, marginBottom: 4, color: 'var(--text-primary)' }}>
+                      Initial Disposal Particulars (optional, separated by commas or lines)
+                    </label>
+                    <textarea
+                      className="form-input"
+                      rows={2}
+                      value={newStmtDisposalParticulars}
+                      placeholder="e.g. To Sachet Packing, To Curd"
+                      onChange={e => setNewStmtDisposalParticulars(e.target.value)}
+                      style={{ width: '100%', fontSize: '0.8rem' }}
+                    />
+                  </div>
+                </>
+              )}
+
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, marginTop: 8, borderTop: '1px solid var(--border)', paddingTop: 12 }}>
+                <button
+                  type="button"
+                  className="btn btn-secondary btn-sm"
+                  onClick={() => setIsCreateModalOpen(false)}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="btn btn-primary btn-sm"
+                  style={{ background: '#0284c7', borderColor: '#0284c7' }}
+                >
+                  ➕ Create Statement Master
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Modal: Rename Active Statement Master */}
+      {isRenameModalOpen && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
+          <div className="card" style={{ width: '100%', maxWidth: 440, padding: 24, boxShadow: '0 25px 50px -12px rgba(0,0,0,0.25)' }}>
+            <div style={{ fontWeight: 800, fontSize: '1.05rem', color: '#0f172a', marginBottom: 14 }}>
+              ✏️ Rename Statement Master
+            </div>
+
+            <form onSubmit={handleRenameStatementMaster} style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+              <div>
+                <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: 800, marginBottom: 4 }}>
+                  Statement Master Display Label *
+                </label>
+                <input
+                  type="text"
+                  required
+                  className="form-input"
+                  value={renameValue}
+                  onChange={e => setRenameValue(e.target.value)}
+                  style={{ width: '100%', height: 32 }}
+                />
+              </div>
+
+              <div>
+                <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: 800, marginBottom: 4 }}>
+                  Product Variant (optional)
+                </label>
+                <input
+                  type="text"
+                  className="form-input"
+                  value={renameVariant}
+                  onChange={e => setRenameVariant(e.target.value)}
+                  style={{ width: '100%', height: 32 }}
+                />
+              </div>
+
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, marginTop: 8 }}>
+                <button
+                  type="button"
+                  className="btn btn-secondary btn-sm"
+                  onClick={() => setIsRenameModalOpen(false)}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="btn btn-primary btn-sm"
+                >
+                  Update Label
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
       {/* Side-by-side Plain Uncolored Print & PDF Modal */}
       {isPrintModalOpen && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
           <div style={{ background: '#ffffff', width: '95%', maxWidth: 1100, maxHeight: '92vh', overflowY: 'auto', padding: 24, borderRadius: 8, boxShadow: '0 25px 50px -12px rgba(0,0,0,0.25)' }}>
-            {/* Modal Controls */}
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16, borderBottom: '1px solid #e2e8f0', paddingBottom: 12 }}>
               <div style={{ fontWeight: 800, fontSize: '1rem', color: '#0f172a' }}>
                 🖨 Printable View (Exact Match with 01-05-2026-TS.xlsx Sheet STG - Pure White, No Color)
@@ -1544,7 +2045,6 @@ export default function STGEntryForm({
                 {cleanStatementLabel(currentStatement?.label || activeBlock)} - RECEIPT AND DISPOSAL STATEMENT
               </div>
 
-              {/* Side-by-side Table */}
               <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11, border: '1px solid #000' }}>
                 <thead>
                   <tr>
@@ -1575,7 +2075,6 @@ export default function STGEntryForm({
 
                     return (
                       <tr key={`print_row_${idx}`}>
-                        {/* Receipt Columns */}
                         <td style={{ border: '1px solid #000', padding: 3, textAlign: 'center' }}>{r ? idx + 1 : ''}</td>
                         <td style={{ border: '1px solid #000', padding: 3 }}>{r ? (r.variant || r.values.variant) : ''}</td>
                         <td style={{ border: '1px solid #000', padding: 3, textAlign: 'right' }}>{r?.values.qty_lts ? formatDisplayNum(r.values.qty_lts, 0) : ''}</td>
@@ -1586,7 +2085,6 @@ export default function STGEntryForm({
                         <td style={{ border: '1px solid #000', padding: 3, textAlign: 'right' }}>{r?.values.kg_fat ? formatDisplayNum(r.values.kg_fat, 3) : ''}</td>
                         <td style={{ border: '1px solid #000', padding: 3, textAlign: 'right' }}>{r?.values.kg_snf ? formatDisplayNum(r.values.kg_snf, 3) : ''}</td>
 
-                        {/* Disposal Columns */}
                         <td style={{ border: '1px solid #000', padding: 3, textAlign: 'center' }}>{d ? idx + 1 : ''}</td>
                         <td style={{ border: '1px solid #000', padding: 3 }}>{d ? (d.variant || d.values.variant) : ''}</td>
                         <td style={{ border: '1px solid #000', padding: 3, textAlign: 'right' }}>{d?.values.qty_lts ? formatDisplayNum(d.values.qty_lts, 0) : ''}</td>
@@ -1600,8 +2098,7 @@ export default function STGEntryForm({
                     );
                   })}
 
-                  {/* Staggered Totals Rows matching 01-05-2026-TS.xlsx Sheet STG */}
-                  {/* Row 1: Right = Total Disposal */}
+                  {/* Summary rows */}
                   <tr>
                     <td colSpan={9} style={{ border: 'none' }} />
                     <td colSpan={2} style={{ border: '1px solid #000', padding: 3, fontWeight: 'bold' }}>Total</td>
@@ -1614,7 +2111,6 @@ export default function STGEntryForm({
                     <td style={{ border: '1px solid #000', padding: 3, textAlign: 'right', fontWeight: 'bold' }}>{formatDisplayNum(totals.disp.snf, 3)}</td>
                   </tr>
 
-                  {/* Row 2: Right = CB */}
                   <tr>
                     <td colSpan={9} style={{ border: 'none' }} />
                     <td colSpan={2} style={{ border: '1px solid #000', padding: 3, fontWeight: 'bold' }}>CB</td>
@@ -1627,7 +2123,6 @@ export default function STGEntryForm({
                     <td style={{ border: '1px solid #000', padding: 3, textAlign: 'right', fontWeight: 'bold' }}>{formatDisplayNum(totals.cb.snf, 3)}</td>
                   </tr>
 
-                  {/* Row 3: Right = Grand Total */}
                   <tr>
                     <td colSpan={9} style={{ border: 'none' }} />
                     <td colSpan={2} style={{ border: '1px solid #000', padding: 3, fontWeight: 'bold' }}>Grand Total</td>
@@ -1640,7 +2135,6 @@ export default function STGEntryForm({
                     <td style={{ border: '1px solid #000', padding: 3, textAlign: 'right', fontWeight: 'bold' }}>{formatDisplayNum(totals.grandDisp.snf, 3)}</td>
                   </tr>
 
-                  {/* Row 4: Left = Total Receipt / Right = Loss/Gain */}
                   <tr>
                     <td colSpan={2} style={{ border: '1px solid #000', padding: 3, fontWeight: 'bold' }}>Total</td>
                     <td style={{ border: '1px solid #000', padding: 3, textAlign: 'right', fontWeight: 'bold' }}>{formatDisplayNum(totals.rec.lts, 0)}</td>
@@ -1661,7 +2155,6 @@ export default function STGEntryForm({
                     <td style={{ border: '1px solid #000', padding: 3, textAlign: 'right', fontWeight: 'bold' }}>{formatDisplayNum(totals.lossGain.snf, 3)}</td>
                   </tr>
 
-                  {/* Row 5: Left = OB / Right = Loss/Gain % */}
                   <tr>
                     <td colSpan={2} style={{ border: '1px solid #000', padding: 3, fontWeight: 'bold' }}>OB</td>
                     <td style={{ border: '1px solid #000', padding: 3, textAlign: 'right', fontWeight: 'bold' }}>{formatDisplayNum(totals.ob.lts, 0)}</td>
@@ -1682,7 +2175,6 @@ export default function STGEntryForm({
                     <td style={{ border: '1px solid #000', padding: 3, textAlign: 'right', fontWeight: 'bold' }}>{formatDisplayNum(totals.lossGainPct.snf, 4)}%</td>
                   </tr>
 
-                  {/* Row 6: Left = Grand Total / Right = CMPDD Norms % */}
                   <tr>
                     <td colSpan={2} style={{ border: '1px solid #000', padding: 3, fontWeight: 'bold' }}>Grand Total</td>
                     <td style={{ border: '1px solid #000', padding: 3, textAlign: 'right', fontWeight: 'bold' }}>{formatDisplayNum(totals.grandRec.lts, 0)}</td>

@@ -1,8 +1,9 @@
 'use client';
 
-import { useState, useEffect, useMemo, useCallback } from 'react';
+import { useState, useEffect, useMemo, useCallback, Suspense } from 'react';
 import Header from '@/components/layout/Header';
 import Link from 'next/link';
+import { useSearchParams } from 'next/navigation';
 import { getStandardColumnDecimals, cleanStatementLabel } from '@/lib/calculations';
 import { useConfirm } from '@/context/ConfirmContext';
 
@@ -40,8 +41,10 @@ export interface STGRowData {
   values: Record<string, any>;
 }
 
-export default function STGDefaultFormulationsPage() {
+function STGDefaultFormulationsContent() {
   const { confirm, showWarning } = useConfirm();
+  const searchParams = useSearchParams();
+  const paramMaster = searchParams?.get('master') || null;
   const [columns, setColumns] = useState<STGColumnDef[]>([]);
   const [defaultColumns, setDefaultColumns] = useState<STGColumnDef[]>([]);
   const [masters, setMasters] = useState<STGMasterDef[]>([]);
@@ -132,9 +135,11 @@ export default function STGDefaultFormulationsPage() {
         setTemplates(tmplMap);
 
         if (loadedMasters.length > 0) {
-          const initialKey = activeMasterKey && loadedMasters.some(m => m.key === activeMasterKey)
-            ? activeMasterKey
-            : loadedMasters[0].key;
+          const initialKey = (paramMaster && loadedMasters.some(m => m.key === paramMaster))
+            ? paramMaster
+            : (activeMasterKey && loadedMasters.some(m => m.key === activeMasterKey)
+              ? activeMasterKey
+              : loadedMasters[0].key);
           setActiveMasterKey(initialKey);
           const initialMaster = loadedMasters.find(m => m.key === initialKey);
           if (initialMaster?.custom_columns && initialMaster.custom_columns.length > 0) {
@@ -149,7 +154,7 @@ export default function STGDefaultFormulationsPage() {
       console.error('Failed to load STG defaults:', err);
     }
     setLoading(false);
-  }, [activeMasterKey]);
+  }, [activeMasterKey, paramMaster]);
 
   useEffect(() => {
     loadData();
@@ -1816,5 +1821,13 @@ export default function STGDefaultFormulationsPage() {
         </div>
       )}
     </div>
+  );
+}
+
+export default function STGDefaultFormulationsPage() {
+  return (
+    <Suspense fallback={<div className="p-8 text-center text-secondary">Loading Master Default Formulations...</div>}>
+      <STGDefaultFormulationsContent />
+    </Suspense>
   );
 }
