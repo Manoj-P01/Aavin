@@ -1392,9 +1392,28 @@ export default function STGEntryForm({
                   alignItems: 'center',
                   gap: 6,
                 }}
+                title="Create a Brand New Statement Master Template"
               >
                 ➕ Create Statement Master
               </button>
+              <Link
+                href="/dashboard/ts/manage-statements"
+                className="btn btn-secondary btn-xs"
+                style={{
+                  background: '#f0fdf4',
+                  border: '1px solid #86efac',
+                  color: '#166534',
+                  fontSize: '0.78rem',
+                  padding: '4px 12px',
+                  fontWeight: 800,
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 6,
+                }}
+                title="Manage Statement Master Names (Update, Delete, Insert)"
+              >
+                ⚙️ Statement Master Names
+              </Link>
             </div>
           </div>
 
@@ -1454,25 +1473,46 @@ export default function STGEntryForm({
               </span>
             </div>
 
-            <button
-              type="button"
-              onClick={() => setIsCreateModalOpen(true)}
-              style={{
-                background: '#0284c7',
-                color: '#ffffff',
-                border: 'none',
-                borderRadius: 6,
-                padding: '4px 12px',
-                fontSize: '0.78rem',
-                fontWeight: 800,
-                cursor: 'pointer',
-                display: 'flex',
-                alignItems: 'center',
-                gap: 4,
-              }}
-            >
-              ➕ Create Statement Master
-            </button>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              <button
+                type="button"
+                onClick={() => setIsCreateModalOpen(true)}
+                style={{
+                  background: '#0284c7',
+                  color: '#ffffff',
+                  border: 'none',
+                  borderRadius: 6,
+                  padding: '4px 12px',
+                  fontSize: '0.78rem',
+                  fontWeight: 800,
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 4,
+                }}
+                title="Create a Brand New Statement Master Template"
+              >
+                ➕ Create Statement Master
+              </button>
+              <Link
+                href="/dashboard/ts/manage-statements"
+                className="btn btn-secondary btn-xs"
+                style={{
+                  background: '#f0fdf4',
+                  border: '1px solid #86efac',
+                  color: '#166534',
+                  fontSize: '0.78rem',
+                  padding: '4px 12px',
+                  fontWeight: 800,
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 4,
+                }}
+                title="Manage Statement Master Names (Update, Delete, Insert)"
+              >
+                ⚙️ Statement Master Names
+              </Link>
+            </div>
           </div>
 
           {/* Scrolling Tabs List */}

@@ -75,6 +75,13 @@ function STGDefaultFormulationsContent() {
   const [formColUnit, setFormColUnit] = useState<string>('');
   const [formColDecimals, setFormColDecimals] = useState<number | undefined>(undefined);
 
+  // Modal State for Managing Statement Master Names (Update, Delete, Insert)
+  const [isManageMastersModalOpen, setIsManageMastersModalOpen] = useState<boolean>(false);
+  const [editingMasterKey, setEditingMasterKey] = useState<string | null>(null);
+  const [editMasterLabel, setEditMasterLabel] = useState<string>('');
+  const [editMasterVariant, setEditMasterVariant] = useState<string>('');
+  const [editMasterDescription, setEditMasterDescription] = useState<string>('');
+
   // Modal State for Creating a Brand New Statement Master Template
   const [isNewMasterModalOpen, setIsNewMasterModalOpen] = useState<boolean>(false);
   const [newMasterName, setNewMasterName] = useState<string>('');
@@ -243,6 +250,105 @@ function STGDefaultFormulationsContent() {
     setNewMasterSource('blank');
     setNewMasterColsSource('default');
     setIsNewMasterModalOpen(true);
+  };
+
+  const handleStartEditMaster = (m: STGMasterDef) => {
+    setEditingMasterKey(m.key);
+    setEditMasterLabel(cleanStatementLabel(m.label || m.name || m.key));
+    setEditMasterVariant(m.variant || (m as any).product_variant || '');
+    setEditMasterDescription(m.description || '');
+  };
+
+  const handleCancelEditMaster = () => {
+    setEditingMasterKey(null);
+  };
+
+  const handleSaveEditMaster = async () => {
+    if (!editingMasterKey || !editMasterLabel.trim()) {
+      showToast('❌ Please provide a valid Statement Master Name.');
+      return;
+    }
+    const cleanLabel = cleanStatementLabel(editMasterLabel.trim());
+    const updated = masters.map(m => {
+      if (m.key === editingMasterKey) {
+        return {
+          ...m,
+          label: cleanLabel,
+          name: cleanLabel,
+          variant: editMasterVariant.trim().toUpperCase() || cleanLabel.split(' ')[0],
+          description: editMasterDescription.trim(),
+        };
+      }
+      return m;
+    });
+
+    setSaving(true);
+    try {
+      const res = await fetch('/api/ts/masters', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ masters: updated }),
+      });
+      if (res.ok) {
+        setMasters(updated);
+        setEditingMasterKey(null);
+        showToast(`✅ Updated Statement Master "${cleanLabel}" successfully.`);
+      } else {
+        showToast('❌ Failed to update statement master.');
+      }
+    } catch (err) {
+      console.error('Update master error:', err);
+      showToast('❌ Error updating statement master.');
+    }
+    setSaving(false);
+  };
+
+  const handleDeleteMaster = async (key: string, name: string) => {
+    if (masters.length <= 1) {
+      showToast('❌ At least one Statement Master must remain.');
+      return;
+    }
+    const isConfirmed = await confirm({
+      title: 'Delete Statement Master',
+      message: `Are you sure you want to delete Statement Master "${name}"? This will delete the statement and its formulation table from the database.`,
+      confirmText: 'Delete Statement Master',
+      cancelText: 'Cancel',
+      type: 'warning',
+    });
+    if (!isConfirmed) return;
+
+    setSaving(true);
+    try {
+      const res = await fetch(`/api/ts/masters?key=${encodeURIComponent(key)}`, {
+        method: 'DELETE',
+      });
+      if (res.ok) {
+        const remaining = masters.filter(m => m.key !== key);
+        setMasters(remaining);
+        const nextTemplates = { ...templates };
+        delete nextTemplates[key];
+        setTemplates(nextTemplates);
+
+        if (activeMasterKey === key) {
+          const nextKey = remaining[0]?.key;
+          if (nextKey) {
+            handleSwitchMaster(nextKey);
+          }
+        }
+        showToast(`✅ Deleted statement master "${name}" successfully.`);
+      } else {
+        showToast('❌ Failed to delete statement master.');
+      }
+    } catch (err) {
+      console.error('Delete master error:', err);
+      showToast('❌ Error deleting statement master.');
+    }
+    setSaving(false);
+  };
+
+  const handleSelectAndClose = (masterKey: string) => {
+    handleSwitchMaster(masterKey);
+    setIsManageMastersModalOpen(false);
   };
 
   const handleCreateNewMaster = async (e: React.FormEvent) => {
@@ -1253,6 +1359,25 @@ function STGDefaultFormulationsContent() {
       <Header
         title="Master Default Formulation Tables (STG)"
         subtitle="Configure independent Receipt Rows and Disposal Rows, calculation columns, and default values matching Master Default Stock Statements."
+        actions={
+          <div style={{ display: 'flex', gap: 10 }}>
+            <button
+              type="button"
+              onClick={() => setIsManageMastersModalOpen(true)}
+              className="btn btn-secondary btn-sm"
+              style={{ color: '#166534', borderColor: '#86efac', background: '#f0fdf4', fontWeight: 700 }}
+              title="Show Statement Master Names with option to update, delete, and insert"
+            >
+              ⚙️ Statement Master Names ({masters.length})
+            </button>
+            <Link href="/dashboard/ts/manage-statements/columns" className="btn btn-secondary btn-sm" style={{ color: '#0369a1', borderColor: '#bae6fd', background: '#f0f9ff', fontWeight: 700 }}>
+              ⚙️ Column Configuration
+            </Link>
+            <Link href="/dashboard/stock/new?step=stg" className="btn btn-secondary btn-sm">
+              🧪 STG Entry
+            </Link>
+          </div>
+        }
       />
 
       {toastMessage && (
@@ -1303,6 +1428,27 @@ function STGDefaultFormulationsContent() {
               title="Create a Brand New Statement Master Template"
             >
               ➕ Create New Statement Master
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setIsManageMastersModalOpen(true)}
+              style={{
+                background: '#f0fdf4',
+                border: '1px solid #86efac',
+                color: '#166534',
+                borderRadius: 6,
+                padding: '6px 14px',
+                fontSize: '0.82rem',
+                fontWeight: 800,
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                gap: 6,
+              }}
+              title="Show Statement Master Names with option to update, delete, and insert"
+            >
+              ⚙️ Statement Master Names ({masters.length})
             </button>
           </div>
 
@@ -1733,9 +1879,240 @@ function STGDefaultFormulationsContent() {
         </div>
       )}
 
+      {/* Modal: Manage Statement Master Names (Update, Delete, Insert) */}
+      {isManageMastersModalOpen && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
+          <div className="card" style={{ width: '100%', maxWidth: 880, maxHeight: '90vh', display: 'flex', flexDirection: 'column', padding: 0, overflow: 'hidden', boxShadow: '0 25px 50px -12px rgba(0,0,0,0.25)' }}>
+            {/* Modal Header */}
+            <div style={{ padding: '16px 20px', background: 'linear-gradient(135deg, #fef3c7 0%, #fffbeb 100%)', borderBottom: '1px solid #fde68a', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexShrink: 0 }}>
+              <div>
+                <div style={{ fontWeight: 800, fontSize: '1.1rem', color: '#b45309', display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <span>📊 Statement Master Names</span>
+                  <span style={{ fontSize: '0.72rem', background: '#b45309', color: '#ffffff', padding: '2px 8px', borderRadius: 12, fontWeight: 700 }}>
+                    {masters.length} Masters
+                  </span>
+                </div>
+                <div style={{ fontSize: '0.78rem', color: '#92400e', marginTop: 2 }}>
+                  Update, Delete, or Insert Statement Master Names for STG Formulation Tables
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setIsManageMastersModalOpen(false);
+                  setEditingMasterKey(null);
+                }}
+                style={{ background: 'none', border: 'none', fontSize: '1.25rem', cursor: 'pointer', color: '#78350f', padding: '4px 8px' }}
+                title="Close"
+              >
+                ✕
+              </button>
+            </div>
+
+            {/* Modal Subheader / Actions Bar */}
+            <div style={{ padding: '12px 20px', background: '#f8fafc', borderBottom: '1px solid var(--border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 10, flexShrink: 0 }}>
+              <button
+                type="button"
+                onClick={() => {
+                  handleOpenNewMasterModal();
+                }}
+                className="btn btn-primary btn-sm"
+                style={{ background: '#b45309', borderColor: '#b45309', display: 'inline-flex', alignItems: 'center', gap: 6, fontWeight: 700 }}
+              >
+                ➕ Insert New Master Name
+              </button>
+
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
+                  Tip: Use <b>Edit</b> to rename, <b>Delete</b> to remove, or <b>View Table</b> to switch formulation.
+                </span>
+                <Link
+                  href="/dashboard/ts/manage-statements"
+                  className="btn btn-secondary btn-xs"
+                  style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontWeight: 700, color: '#0369a1', borderColor: '#bae6fd', background: '#f0f9ff' }}
+                >
+                  ⚙️ Full Management Page ➔
+                </Link>
+              </div>
+            </div>
+
+            {/* Modal Body / Table */}
+            <div style={{ padding: 20, overflowY: 'auto', flex: 1 }}>
+              <table className="inline-table" style={{ width: '100%', margin: 0, borderCollapse: 'collapse' }}>
+                <thead>
+                  <tr style={{ background: '#f1f5f9', borderBottom: '1px solid var(--border)' }}>
+                    <th style={{ width: 40, textAlign: 'center', fontSize: '0.75rem', color: '#64748b' }}>#</th>
+                    <th style={{ textAlign: 'left', fontSize: '0.78rem', color: 'var(--text-primary)', fontWeight: 800 }}>Statement Master Name</th>
+                    <th style={{ width: 140, textAlign: 'left', fontSize: '0.78rem', color: 'var(--text-primary)', fontWeight: 800 }}>Product / Variant</th>
+                    <th style={{ width: 130, textAlign: 'center', fontSize: '0.78rem', color: 'var(--text-primary)', fontWeight: 800 }}>Formulation Rows</th>
+                    <th style={{ width: 220, textAlign: 'center', fontSize: '0.78rem', color: 'var(--text-primary)', fontWeight: 800 }}>Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {masters.map((m, idx) => {
+                    const isEditing = editingMasterKey === m.key;
+                    const isActive = activeMasterKey === m.key;
+                    const totalRows = (m.receipt_rows?.length || 0) + (m.disposal_rows?.length || 0) || (templates[m.key]?.length || 0);
+
+                    if (isEditing) {
+                      return (
+                        <tr key={`edit_${m.key}`} style={{ background: '#fffbeb', borderBottom: '1px solid #fde68a' }}>
+                          <td style={{ textAlign: 'center', fontSize: '0.78rem', fontWeight: 700, color: '#b45309' }}>
+                            {idx + 1}
+                          </td>
+                          <td style={{ padding: '8px 10px' }}>
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                              <input
+                                type="text"
+                                className="form-input"
+                                value={editMasterLabel}
+                                onChange={e => setEditMasterLabel(e.target.value)}
+                                placeholder="Statement Master Name"
+                                style={{ width: '100%', height: 30, fontSize: '0.82rem', fontWeight: 700 }}
+                              />
+                              <input
+                                type="text"
+                                className="form-input"
+                                value={editMasterDescription}
+                                onChange={e => setEditMasterDescription(e.target.value)}
+                                placeholder="Description (optional)"
+                                style={{ width: '100%', height: 26, fontSize: '0.75rem' }}
+                              />
+                            </div>
+                          </td>
+                          <td style={{ padding: '8px 10px' }}>
+                            <input
+                              type="text"
+                              className="form-input"
+                              value={editMasterVariant}
+                              onChange={e => setEditMasterVariant(e.target.value)}
+                              placeholder="e.g. BUTTER MILK"
+                              style={{ width: '100%', height: 30, fontSize: '0.82rem', fontWeight: 600 }}
+                            />
+                          </td>
+                          <td style={{ textAlign: 'center', fontSize: '0.78rem', color: '#64748b' }}>
+                            {totalRows} rows
+                          </td>
+                          <td style={{ textAlign: 'center', padding: '8px 10px' }}>
+                            <div style={{ display: 'flex', justifyContent: 'center', gap: 6 }}>
+                              <button
+                                type="button"
+                                className="btn btn-primary btn-xs"
+                                onClick={handleSaveEditMaster}
+                                disabled={saving}
+                                style={{ background: '#16a34a', borderColor: '#16a34a', fontWeight: 700 }}
+                              >
+                                {saving ? 'Saving...' : '💾 Save'}
+                              </button>
+                              <button
+                                type="button"
+                                className="btn btn-secondary btn-xs"
+                                onClick={handleCancelEditMaster}
+                              >
+                                ✕ Cancel
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    }
+
+                    return (
+                      <tr
+                        key={m.key}
+                        style={{
+                          borderBottom: '1px solid var(--border)',
+                          background: isActive ? '#f0fdf4' : (idx % 2 === 0 ? '#ffffff' : '#f8fafc'),
+                        }}
+                      >
+                        <td style={{ textAlign: 'center', fontSize: '0.78rem', color: '#64748b', fontWeight: 600 }}>
+                          {idx + 1}
+                        </td>
+                        <td style={{ padding: '10px 12px' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                            <span style={{ fontWeight: 800, fontSize: '0.85rem', color: 'var(--text-primary)' }}>
+                              {cleanStatementLabel(m.label || m.name || m.key)}
+                            </span>
+                            {isActive && (
+                              <span style={{ background: '#dcfce7', color: '#166534', border: '1px solid #86efac', borderRadius: 10, padding: '1px 6px', fontSize: '0.68rem', fontWeight: 700 }}>
+                                Active
+                              </span>
+                            )}
+                          </div>
+                          <div style={{ fontSize: '0.72rem', color: '#64748b', fontFamily: 'monospace', marginTop: 2 }}>
+                            Key: {m.key} {m.description ? `• ${m.description}` : ''}
+                          </div>
+                        </td>
+                        <td style={{ padding: '10px 12px' }}>
+                          <span style={{ background: '#f1f5f9', border: '1px solid #cbd5e1', borderRadius: 4, padding: '2px 8px', fontSize: '0.75rem', fontWeight: 700, color: '#334155' }}>
+                            {m.variant || (m as any).product_variant || 'DEFAULT'}
+                          </span>
+                        </td>
+                        <td style={{ textAlign: 'center', fontSize: '0.78rem', color: '#475569', fontWeight: 600 }}>
+                          📥 {(m.receipt_rows?.length || 0)} / 📤 {(m.disposal_rows?.length || 0)}
+                        </td>
+                        <td style={{ textAlign: 'center', padding: '10px 12px' }}>
+                          <div style={{ display: 'flex', justifyContent: 'center', gap: 6, flexWrap: 'wrap' }}>
+                            <button
+                              type="button"
+                              className="btn btn-secondary btn-xs"
+                              onClick={() => handleSelectAndClose(m.key)}
+                              style={{ borderColor: '#0284c7', color: '#0284c7', background: '#f0f9ff', fontWeight: 700 }}
+                              title="Switch to this Statement Master formulation table"
+                            >
+                              👁️ View Table
+                            </button>
+                            <button
+                              type="button"
+                              className="btn btn-secondary btn-xs"
+                              onClick={() => handleStartEditMaster(m)}
+                              style={{ fontWeight: 700 }}
+                              title="Edit / Rename Statement Master Name"
+                            >
+                              ✏️ Edit
+                            </button>
+                            <button
+                              type="button"
+                              className="btn btn-secondary btn-xs"
+                              onClick={() => handleDeleteMaster(m.key, m.label || m.name || m.key)}
+                              disabled={masters.length <= 1}
+                              style={{ borderColor: '#fca5a5', color: '#dc2626', background: '#fef2f2', fontWeight: 700 }}
+                              title={masters.length <= 1 ? 'Cannot delete the only master' : 'Delete this Statement Master'}
+                            >
+                              🗑️ Delete
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+
+            {/* Modal Footer */}
+            <div style={{ padding: '12px 20px', background: '#f8fafc', borderTop: '1px solid var(--border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexShrink: 0 }}>
+              <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
+                Total Statement Masters: <b>{masters.length}</b>
+              </div>
+              <button
+                type="button"
+                className="btn btn-secondary btn-sm"
+                onClick={() => {
+                  setIsManageMastersModalOpen(false);
+                  setEditingMasterKey(null);
+                }}
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Modal: Create New Statement Master */}
       {isNewMasterModalOpen && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 1002, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
           <div className="card" style={{ width: 500, padding: 24, boxShadow: '0 20px 25px -5px rgba(0,0,0,0.2)' }}>
             <div style={{ fontWeight: 800, fontSize: '1.05rem', marginBottom: 16, color: '#b45309' }}>
               ➕ Create New Statement Master Template
