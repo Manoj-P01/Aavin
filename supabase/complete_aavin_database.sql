@@ -315,6 +315,25 @@ CREATE INDEX IF NOT EXISTS idx_stock_summary_rows_entry ON stock_summary_rows(en
 DROP TRIGGER IF EXISTS trg_stock_summary_rows_audit ON stock_summary_rows;
 CREATE TRIGGER trg_stock_summary_rows_audit BEFORE INSERT OR UPDATE ON stock_summary_rows FOR EACH ROW EXECUTE FUNCTION fn_set_audit_fields();
 
+-- STG Reconciliation Entries (Stock Balance & Reconciliation Summary JSON store)
+CREATE TABLE IF NOT EXISTS stg_reconciliation_entries (
+  id            uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+  entry_id      uuid REFERENCES entries(id) ON DELETE CASCADE,
+  statement_key text NOT NULL,
+  entry_date    date NOT NULL,
+  shift         text NOT NULL DEFAULT 'F',
+  summary_json  jsonb NOT NULL DEFAULT '{}'::jsonb,
+  created_by    text DEFAULT 'admin',
+  created_at    timestamptz NOT NULL DEFAULT now(),
+  updated_by    text DEFAULT 'admin',
+  updated_at    timestamptz NOT NULL DEFAULT now(),
+  CONSTRAINT stg_reconciliation_entries_stmt_date_shift_key UNIQUE (statement_key, entry_date, shift)
+);
+
+CREATE INDEX IF NOT EXISTS idx_stg_reconciliation_entries_lookup ON stg_reconciliation_entries (entry_date, shift, statement_key);
+DROP TRIGGER IF EXISTS trg_stg_reconciliation_entries_audit ON stg_reconciliation_entries;
+CREATE TRIGGER trg_stg_reconciliation_entries_audit BEFORE INSERT OR UPDATE ON stg_reconciliation_entries FOR EACH ROW EXECUTE FUNCTION fn_set_audit_fields();
+
 -- ─────────────────────────────────────────────────────────────
 -- 5. STORED PROCEDURES (SPs) AND FUNCTIONS
 -- ─────────────────────────────────────────────────────────────
@@ -551,6 +570,7 @@ ALTER TABLE ts_milk_rows              ENABLE ROW LEVEL SECURITY;
 ALTER TABLE stg_rows                  ENABLE ROW LEVEL SECURITY;
 ALTER TABLE stock_rows                ENABLE ROW LEVEL SECURITY;
 ALTER TABLE stock_summary_rows        ENABLE ROW LEVEL SECURITY;
+ALTER TABLE stg_reconciliation_entries ENABLE ROW LEVEL SECURITY;
 ALTER TABLE separation_details         ENABLE ROW LEVEL SECURITY;
 
 CREATE POLICY "Allow all users" ON users                     FOR ALL USING (true) WITH CHECK (true);
@@ -564,4 +584,5 @@ CREATE POLICY "Allow all ts_rows" ON ts_milk_rows              FOR ALL USING (tr
 CREATE POLICY "Allow all stg_rows" ON stg_rows                  FOR ALL USING (true) WITH CHECK (true);
 CREATE POLICY "Allow all stock_rows" ON stock_rows                FOR ALL USING (true) WITH CHECK (true);
 CREATE POLICY "Allow all stock_summary_rows" ON stock_summary_rows FOR ALL USING (true) WITH CHECK (true);
+CREATE POLICY "Allow all stg_reconciliation_entries" ON stg_reconciliation_entries FOR ALL USING (true) WITH CHECK (true);
 CREATE POLICY "Allow all separation" ON separation_details         FOR ALL USING (true) WITH CHECK (true);

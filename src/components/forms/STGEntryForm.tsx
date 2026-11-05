@@ -25,6 +25,258 @@ export interface STGColumnDef {
   is_active?: boolean;
 }
 
+export interface STGReconRow {
+  id: string;
+  label: string;
+  row_type?: string;
+  values: Record<string, any>;
+  is_formula?: boolean;
+  color_hint?: 'green' | 'blue' | 'orange' | 'yellow' | 'purple' | 'dark' | 'default';
+}
+
+export interface STGReconData {
+  columns: STGColumnDef[];
+  rows: STGReconRow[];
+}
+
+export const getDefaultReconColumns = (): STGColumnDef[] => [
+  { key: 'lts', name: 'Qty (Lts)', type: 'number', decimals: 0, sort_order: 1 },
+  { key: 'sp_gr', name: 'SP.G', type: 'number', decimals: 4, sort_order: 2 },
+  { key: 'kg', name: 'Qty (Kg)', type: 'calculated', decimals: 2, sort_order: 3 },
+  { key: 'fat_pct', name: 'Fat%', type: 'number', decimals: 2, sort_order: 4 },
+  { key: 'snf_pct', name: 'Snf%', type: 'number', decimals: 2, sort_order: 5 },
+  { key: 'kg_fat', name: 'Kg.Fat', type: 'calculated', decimals: 3, sort_order: 6 },
+  { key: 'kg_snf', name: 'Kg.Snf', type: 'calculated', decimals: 3, sort_order: 7 },
+  { key: 'note', name: 'Reconciled Note', type: 'text', sort_order: 8 },
+];
+
+export const getDefaultReconRows = (): STGReconRow[] => [
+  {
+    id: 'recon_row_1',
+    label: 'Total Receipts (+)',
+    row_type: 'TOTAL_RECEIPT',
+    is_formula: true,
+    color_hint: 'green',
+    values: {
+      lts: '=RECEIPTS.lts',
+      sp_gr: '—',
+      kg: '=RECEIPTS.kg',
+      fat_pct: '—',
+      snf_pct: '—',
+      kg_fat: '=RECEIPTS.kg_fat',
+      kg_snf: '=RECEIPTS.kg_snf',
+      note: 'Total of all Receipts',
+    },
+  },
+  {
+    id: 'recon_row_2',
+    label: 'Opening Balance (OB)',
+    row_type: 'OB',
+    is_formula: true,
+    color_hint: 'blue',
+    values: {
+      lts: '=OB.lts',
+      sp_gr: '=OB.sp_gr',
+      kg: '=OB.kg',
+      fat_pct: '=OB.fat_pct',
+      snf_pct: '=OB.snf_pct',
+      kg_fat: '=OB.kg_fat',
+      kg_snf: '=OB.kg_snf',
+      note: 'Beginning Inventory',
+    },
+  },
+  {
+    id: 'recon_row_3',
+    label: 'Grand Total Receipts (=)',
+    row_type: 'GRAND_TOTAL_RECEIPT',
+    is_formula: true,
+    color_hint: 'dark',
+    values: {
+      lts: '=R1+R2',
+      sp_gr: '—',
+      kg: '=R1+R2',
+      fat_pct: '—',
+      snf_pct: '—',
+      kg_fat: '=R1+R2',
+      kg_snf: '=R1+R2',
+      note: 'Total Receipts + OB',
+    },
+  },
+  {
+    id: 'recon_row_4',
+    label: 'Total Disposals (-)',
+    row_type: 'TOTAL_DISPOSAL',
+    is_formula: true,
+    color_hint: 'orange',
+    values: {
+      lts: '=DISPOSALS.lts',
+      sp_gr: '—',
+      kg: '=DISPOSALS.kg',
+      fat_pct: '—',
+      snf_pct: '—',
+      kg_fat: '=DISPOSALS.kg_fat',
+      kg_snf: '=DISPOSALS.kg_snf',
+      note: 'Total of all Disposals',
+    },
+  },
+  {
+    id: 'recon_row_5',
+    label: 'Closing Balance / Physical Count',
+    row_type: 'CB',
+    is_formula: true,
+    color_hint: 'yellow',
+    values: {
+      lts: '=CB.lts',
+      sp_gr: '=CB.sp_gr',
+      kg: '=CB.kg',
+      fat_pct: '=CB.fat_pct',
+      snf_pct: '=CB.snf_pct',
+      kg_fat: '=CB.kg_fat',
+      kg_snf: '=CB.kg_snf',
+      note: 'Physical stock at end of shift',
+    },
+  },
+  {
+    id: 'recon_row_6',
+    label: 'Grand Total Disposals (=)',
+    row_type: 'GRAND_TOTAL_DISPOSAL',
+    is_formula: true,
+    color_hint: 'dark',
+    values: {
+      lts: '=R4+R5',
+      sp_gr: '—',
+      kg: '=R4+R5',
+      fat_pct: '—',
+      snf_pct: '—',
+      kg_fat: '=R4+R5',
+      kg_snf: '=R4+R5',
+      note: 'Total Disposals + CB',
+    },
+  },
+  {
+    id: 'recon_row_7',
+    label: 'Operational Loss (-) / Gain (+)',
+    row_type: 'LOSS_GAIN',
+    is_formula: true,
+    color_hint: 'purple',
+    values: {
+      lts: '=R3-R6',
+      sp_gr: '—',
+      kg: '=R3-R6',
+      fat_pct: '—',
+      snf_pct: '—',
+      kg_fat: '=R3-R6',
+      kg_snf: '=R3-R6',
+      note: 'Grand Total Receipts - Grand Total Disposals',
+    },
+  },
+  {
+    id: 'recon_row_8',
+    label: 'Net Loss / Gain %',
+    row_type: 'LOSS_GAIN_PCT',
+    is_formula: true,
+    color_hint: 'purple',
+    values: {
+      lts: '=(R7/R3)*100',
+      sp_gr: '—',
+      kg: '=(R7/R3)*100',
+      fat_pct: '—',
+      snf_pct: '—',
+      kg_fat: '=(R7/R3)*100',
+      kg_snf: '=(R7/R3)*100',
+      note: 'Percentage loss/gain',
+    },
+  },
+];
+
+// Excel formula evaluator for Reconciliation Summary
+export const evaluateReconCellFormula = (
+  formulaStr: any,
+  colKey: string,
+  rIdx: number,
+  currentRows: STGReconRow[],
+  contextTotals: any,
+  depth: number = 0
+): number | string => {
+  if (depth > 10 || formulaStr === undefined || formulaStr === null || formulaStr === '') return 0;
+  let expr = String(formulaStr).trim();
+  if (expr === '—' || expr === '-') return '—';
+  if (!expr.startsWith('=')) {
+    const n = parseFloat(expr);
+    return isNaN(n) ? expr : n;
+  }
+  expr = expr.substring(1).trim();
+  if (expr.startsWith('+')) expr = expr.substring(1).trim();
+  if (!expr) return 0;
+
+  // Cross-references
+  expr = expr.replace(/\bRECEIPTS?\.([a-z_0-9]+)\b/gi, (_, key) => {
+    const k = key.toLowerCase();
+    if (k === 'lts' || k === 'qty_lts') return String(contextTotals.rec?.lts || 0);
+    if (k === 'kg' || k === 'qty_kg') return String(contextTotals.rec?.kg || 0);
+    if (k === 'fat' || k === 'kg_fat') return String(contextTotals.rec?.fat || 0);
+    if (k === 'snf' || k === 'kg_snf') return String(contextTotals.rec?.snf || 0);
+    return '0';
+  });
+
+  expr = expr.replace(/\bDISPOSALS?\.([a-z_0-9]+)\b/gi, (_, key) => {
+    const k = key.toLowerCase();
+    if (k === 'lts' || k === 'qty_lts') return String(contextTotals.disp?.lts || 0);
+    if (k === 'kg' || k === 'qty_kg') return String(contextTotals.disp?.kg || 0);
+    if (k === 'fat' || k === 'kg_fat') return String(contextTotals.disp?.fat || 0);
+    if (k === 'snf' || k === 'kg_snf') return String(contextTotals.disp?.snf || 0);
+    return '0';
+  });
+
+  expr = expr.replace(/\bOB\.([a-z_0-9]+)\b/gi, (_, key) => {
+    const k = key.toLowerCase();
+    if (k === 'lts' || k === 'qty_lts') return String(contextTotals.ob?.lts || 0);
+    if (k === 'kg' || k === 'qty_kg') return String(contextTotals.ob?.kg || 0);
+    if (k === 'fat' || k === 'kg_fat') return String(contextTotals.ob?.fat || 0);
+    if (k === 'snf' || k === 'kg_snf') return String(contextTotals.ob?.snf || 0);
+    if (k === 'fat_pct') return String(contextTotals.ob?.fat_pct || 0);
+    if (k === 'snf_pct') return String(contextTotals.ob?.snf_pct || 0);
+    if (k === 'sp_gr') return String(contextTotals.ob?.sp_gr || 0);
+    return '0';
+  });
+
+  expr = expr.replace(/\bCB\.([a-z_0-9]+)\b/gi, (_, key) => {
+    const k = key.toLowerCase();
+    if (k === 'lts' || k === 'qty_lts') return String(contextTotals.cb?.lts || 0);
+    if (k === 'kg' || k === 'qty_kg') return String(contextTotals.cb?.kg || 0);
+    if (k === 'fat' || k === 'kg_fat') return String(contextTotals.cb?.fat || 0);
+    if (k === 'snf' || k === 'kg_snf') return String(contextTotals.cb?.snf || 0);
+    if (k === 'fat_pct') return String(contextTotals.cb?.fat_pct || 0);
+    if (k === 'snf_pct') return String(contextTotals.cb?.snf_pct || 0);
+    if (k === 'sp_gr') return String(contextTotals.cb?.sp_gr || 0);
+    return '0';
+  });
+
+  // Row references: R1 or R1.kg
+  expr = expr.replace(/\bR([0-9]+)(?:\.([a-z_0-9]+))?\b/gi, (_, rowNum, targetColKey) => {
+    const targetRIdx = parseInt(rowNum, 10) - 1;
+    const targetRow = currentRows[targetRIdx];
+    if (!targetRow) return '0';
+    const cKey = (targetColKey || colKey).toLowerCase();
+    const rawVal = targetRow.values?.[cKey];
+    if (rawVal === undefined || rawVal === null || rawVal === '' || rawVal === '—' || rawVal === '-') return '0';
+    if (typeof rawVal === 'string' && rawVal.startsWith('=')) {
+      const evalSub = evaluateReconCellFormula(rawVal, cKey, targetRIdx, currentRows, contextTotals, depth + 1);
+      return String(typeof evalSub === 'number' ? evalSub : (parseFloat(String(evalSub)) || 0));
+    }
+    const num = typeof rawVal === 'number' ? rawVal : parseFloat(String(rawVal));
+    return isNaN(num) ? '0' : String(num);
+  });
+
+  try {
+    if (!/^[0-9+\-*\/().\s,eEMath.minmaxroundabsfloorceil]+$/.test(expr)) return 0;
+    const result = new Function('return (' + expr + ');')();
+    return typeof result === 'number' && !isNaN(result) && isFinite(result) ? result : 0;
+  } catch {
+    return 0;
+  }
+};
+
 export interface STGRowData {
   variant: string;
   row_type?: 'OB' | 'RECEIPT' | 'DISPOSAL';
@@ -266,6 +518,27 @@ export default function STGEntryForm({
   const [renameValue, setRenameValue] = useState('');
   const [renameVariant, setRenameVariant] = useState('');
 
+  // ⚖️ Stock Balance & Reconciliation Summary State (stored per statement_key)
+  const [reconciliations, setReconciliations] = useState<Record<string, STGReconData>>({});
+  const [editingReconCell, setEditingReconCell] = useState<{ rIdx: number; colKey: string } | null>(null);
+
+  // Modal: Add Custom Recon Row
+  const [isAddReconRowModalOpen, setIsAddReconRowModalOpen] = useState(false);
+  const [newReconRowLabel, setNewReconRowLabel] = useState('');
+  const [newReconRowType, setNewReconRowType] = useState('CUSTOM');
+  const [newReconRowColor, setNewReconRowColor] = useState<STGReconRow['color_hint']>('default');
+
+  // Modal: Add Custom Recon Column
+  const [isAddReconColModalOpen, setIsAddReconColModalOpen] = useState(false);
+  const [newReconColName, setNewReconColName] = useState('');
+  const [newReconColKey, setNewReconColKey] = useState('');
+  const [newReconColType, setNewReconColType] = useState<'number' | 'text' | 'calculated'>('number');
+  const [newReconColDecimals, setNewReconColDecimals] = useState<number>(2);
+  const [newReconColUnit, setNewReconColUnit] = useState('');
+
+  // Modal: Manage Recon Columns
+  const [isManageReconColsModalOpen, setIsManageReconColsModalOpen] = useState(false);
+
   const availableStatements = useMemo(() => {
     return statements.filter(s => enabledBlockKeys.includes(s.key));
   }, [statements, enabledBlockKeys]);
@@ -286,6 +559,283 @@ export default function STGEntryForm({
     }
     return blocks[activeBlock];
   }, [activeBlock, blocks]);
+
+  // Active Reconciliation Summary for currently selected statement
+  const activeRecon = useMemo<STGReconData>(() => {
+    if (activeBlock && reconciliations[activeBlock]) {
+      return reconciliations[activeBlock];
+    }
+    return {
+      columns: getDefaultReconColumns(),
+      rows: getDefaultReconRows(),
+    };
+  }, [activeBlock, reconciliations]);
+
+  const updateActiveRecon = useCallback((updater: (prev: STGReconData) => STGReconData) => {
+    if (!activeBlock) return;
+    setReconciliations(prev => {
+      const current = prev[activeBlock] || {
+        columns: getDefaultReconColumns(),
+        rows: getDefaultReconRows(),
+      };
+      return {
+        ...prev,
+        [activeBlock]: updater(current),
+      };
+    });
+  }, [activeBlock]);
+
+  // Reconciliation Handlers
+  const handleAddReconRowSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newReconRowLabel.trim()) return;
+    const newRow: STGReconRow = {
+      id: `recon_row_${Date.now()}`,
+      label: newReconRowLabel.trim(),
+      row_type: newReconRowType || 'CUSTOM',
+      color_hint: newReconRowColor || 'default',
+      values: {},
+      is_formula: false,
+    };
+    updateActiveRecon(prev => ({
+      ...prev,
+      rows: [...prev.rows, newRow],
+    }));
+    setIsAddReconRowModalOpen(false);
+    setNewReconRowLabel('');
+    setNewReconRowType('CUSTOM');
+    setNewReconRowColor('default');
+  };
+
+  const handleDeleteReconRow = async (rIdx: number) => {
+    const row = activeRecon.rows[rIdx];
+    const confirmed = await confirm({
+      title: 'Delete Reconciliation Row',
+      message: `Are you sure you want to delete row "${row.label}" from this reconciliation summary?`,
+      confirmText: 'Delete',
+      type: 'danger',
+    });
+    if (!confirmed) return;
+    updateActiveRecon(prev => ({
+      ...prev,
+      rows: prev.rows.filter((_, idx) => idx !== rIdx),
+    }));
+  };
+
+  const handleMoveReconRow = (rIdx: number, dir: 'up' | 'down') => {
+    const targetIdx = dir === 'up' ? rIdx - 1 : rIdx + 1;
+    if (targetIdx < 0 || targetIdx >= activeRecon.rows.length) return;
+    updateActiveRecon(prev => {
+      const nextRows = [...prev.rows];
+      const temp = nextRows[rIdx];
+      nextRows[rIdx] = nextRows[targetIdx];
+      nextRows[targetIdx] = temp;
+      return { ...prev, rows: nextRows };
+    });
+  };
+
+  const handleReconCellChange = (rIdx: number, colKey: string, val: any) => {
+    updateActiveRecon(prev => {
+      const nextRows = [...prev.rows];
+      const targetRow = { ...nextRows[rIdx], values: { ...(nextRows[rIdx]?.values || {}) } };
+      targetRow.values[colKey] = val;
+      nextRows[rIdx] = targetRow;
+
+      // Keep physical count in sync if user edits Closing Balance row directly
+      if (targetRow.row_type === 'CB' && ['lts', 'qty_lts', 'fat_pct', 'snf_pct', 'sp_gr'].includes(colKey)) {
+        const numVal = parseFloat(val);
+        if (!isNaN(numVal) && !String(val).startsWith('=')) {
+          const fieldMap: Record<string, keyof STGPhysicalCount> = {
+            lts: 'qty_lts',
+            qty_lts: 'qty_lts',
+            fat_pct: 'fat_pct',
+            snf_pct: 'snf_pct',
+            sp_gr: 'sp_gr',
+          };
+          const mappedField = fieldMap[colKey];
+          if (mappedField) {
+            handlePhysicalCountChange(mappedField, String(val));
+          }
+        }
+      }
+
+      return { ...prev, rows: nextRows };
+    });
+  };
+
+  const handleReconLabelChange = (rIdx: number, label: string) => {
+    updateActiveRecon(prev => {
+      const nextRows = [...prev.rows];
+      nextRows[rIdx] = { ...nextRows[rIdx], label };
+      return { ...prev, rows: nextRows };
+    });
+  };
+
+  const handleResetReconTemplate = async () => {
+    const confirmed = await confirm({
+      title: 'Reset to Standard Reconciliation Template',
+      message: 'This will reset the Stock Balance & Reconciliation Summary rows and formulas to the standard 8-row template matching the sample TS sheet. Continue?',
+      confirmText: 'Reset Template',
+      type: 'warning',
+    });
+    if (!confirmed) return;
+    updateActiveRecon(() => ({
+      columns: getDefaultReconColumns(),
+      rows: getDefaultReconRows(),
+    }));
+    await showSuccess('Standard Reconciliation Template loaded successfully!', 'Template Loaded');
+  };
+
+  const handleAddReconColumnSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newReconColName.trim()) return;
+    const key = newReconColKey.trim().toLowerCase().replace(/[^a-z0-9_]/g, '_') ||
+      newReconColName.trim().toLowerCase().replace(/[^a-z0-9_]/g, '_');
+    if (activeRecon.columns.some(c => c.key === key)) {
+      showWarning(`Column with key "${key}" already exists!`);
+      return;
+    }
+    const newCol: STGColumnDef = {
+      key,
+      name: newReconColName.trim(),
+      type: newReconColType,
+      decimals: newReconColDecimals,
+      unit: newReconColUnit.trim() || undefined,
+      sort_order: activeRecon.columns.length + 1,
+      is_active: true,
+    };
+    updateActiveRecon(prev => ({
+      ...prev,
+      columns: [...prev.columns, newCol],
+    }));
+    setIsAddReconColModalOpen(false);
+    setNewReconColName('');
+    setNewReconColKey('');
+    setNewReconColUnit('');
+    setNewReconColDecimals(2);
+  };
+
+  const handleDeleteReconColumn = async (colKey: string) => {
+    const col = activeRecon.columns.find(c => c.key === colKey);
+    const confirmed = await confirm({
+      title: 'Delete Reconciliation Column',
+      message: `Are you sure you want to delete column "${col?.name || colKey}"? All cell values for this column will be removed.`,
+      confirmText: 'Delete Column',
+      type: 'danger',
+    });
+    if (!confirmed) return;
+    updateActiveRecon(prev => ({
+      ...prev,
+      columns: prev.columns.filter(c => c.key !== colKey),
+      rows: prev.rows.map(r => {
+        const copyVals = { ...(r.values || {}) };
+        delete copyVals[colKey];
+        return { ...r, values: copyVals };
+      }),
+    }));
+  };
+
+  // 📋 Reusable Select Statement Widget matching PreparationChartsDashboardPage
+  const renderStatementSelectWidget = (idPrefix: string = 'stg') => (
+    <div
+      style={{
+        display: 'inline-flex',
+        alignItems: 'center',
+        gap: 8,
+        background: '#f0f9ff',
+        padding: '3px 10px',
+        borderRadius: 8,
+        border: '1px solid #bae6fd',
+      }}
+    >
+      <label
+        htmlFor={`${idPrefix}-statement-select`}
+        style={{
+          fontSize: '0.8rem',
+          fontWeight: 800,
+          color: '#0369a1',
+          whiteSpace: 'nowrap',
+          margin: 0,
+          display: 'flex',
+          alignItems: 'center',
+          gap: 5,
+          cursor: 'pointer',
+        }}
+      >
+        <span>📋</span> Select Statement:
+      </label>
+      <select
+        id={`${idPrefix}-statement-select`}
+        className="form-select"
+        value={activeBlock || ''}
+        onChange={e => setActiveBlock(e.target.value)}
+        disabled={availableStatements.length === 0}
+        style={{
+          fontSize: '0.82rem',
+          fontWeight: 700,
+          color: '#0369a1',
+          background: '#ffffff',
+          border: '1px solid #7dd3fc',
+          borderRadius: 6,
+          padding: '4px 10px',
+          cursor: 'pointer',
+          minWidth: 220,
+        }}
+      >
+        {availableStatements.map(s => (
+          <option key={s.key} value={s.key}>
+            {cleanStatementLabel(s.label || s.key)} {s.variant ? `(${s.variant})` : ''}
+          </option>
+        ))}
+      </select>
+      {availableStatements.length > 1 && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+          <button
+            type="button"
+            title="Previous Statement"
+            onClick={() => {
+              const idx = availableStatements.findIndex(s => s.key === activeBlock);
+              if (idx > 0) setActiveBlock(availableStatements[idx - 1].key);
+            }}
+            disabled={availableStatements.findIndex(s => s.key === activeBlock) === 0}
+            style={{
+              padding: '2px 8px',
+              border: '1px solid #bae6fd',
+              borderRadius: 4,
+              background: '#ffffff',
+              cursor: availableStatements.findIndex(s => s.key === activeBlock) === 0 ? 'not-allowed' : 'pointer',
+              color: '#0284c7',
+              fontWeight: 800,
+              fontSize: '0.8rem',
+            }}
+          >
+            ◀
+          </button>
+          <button
+            type="button"
+            title="Next Statement"
+            onClick={() => {
+              const idx = availableStatements.findIndex(s => s.key === activeBlock);
+              if (idx >= 0 && idx < availableStatements.length - 1) setActiveBlock(availableStatements[idx + 1].key);
+            }}
+            disabled={availableStatements.findIndex(s => s.key === activeBlock) === availableStatements.length - 1}
+            style={{
+              padding: '2px 8px',
+              border: '1px solid #bae6fd',
+              borderRadius: 4,
+              background: '#ffffff',
+              cursor: availableStatements.findIndex(s => s.key === activeBlock) === availableStatements.length - 1 ? 'not-allowed' : 'pointer',
+              color: '#0284c7',
+              fontWeight: 800,
+              fontSize: '0.8rem',
+            }}
+          >
+            ▶
+          </button>
+        </div>
+      )}
+    </div>
+  );
 
   const receiptRows = useMemo(() => {
     return (activeBlockState.rows || []).filter(r => r.row_type === 'RECEIPT' || r.side === 'RECEIPT');
@@ -520,6 +1070,19 @@ export default function STGEntryForm({
             }
 
             setBlocks(newBlocks);
+
+            // Load Reconciliation Summaries from dedicated table stg_reconciliation_entries
+            try {
+              const reconRes = await fetch(`/api/ts/reconciliation?date=${entryDate}&shift=${shift || 'F'}`);
+              if (reconRes.ok) {
+                const reconJson = await reconRes.json();
+                if (reconJson.data && typeof reconJson.data === 'object' && Object.keys(reconJson.data).length > 0) {
+                  setReconciliations(reconJson.data);
+                }
+              }
+            } catch (rErr) {
+              console.warn('Could not load reconciliation data:', rErr);
+            }
           }
         }
       } catch (e) {
@@ -886,7 +1449,7 @@ export default function STGEntryForm({
           entry_date: entryDate,
           shift,
           report_type: 'TS',
-          notes: `${notes}\n__METADATA__:${JSON.stringify({ custom_statements: statements, custom_blocks: blocks, enabled_blocks: enabledBlockKeys })}`,
+          notes: `${notes}\n__METADATA__:${JSON.stringify({ custom_statements: statements, custom_blocks: blocks, enabled_blocks: enabledBlockKeys, reconciliation: reconciliations })}`,
         }),
       });
 
@@ -967,6 +1530,22 @@ export default function STGEntryForm({
       if (!tsRes.ok) {
         const d = await tsRes.json();
         throw new Error(d.error || 'Failed to save STG statement data');
+      }
+
+      // Save reconciliation data strictly to dedicated table stg_reconciliation_entries
+      try {
+        await fetch('/api/ts/reconciliation', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            entry_id,
+            entry_date: entryDate,
+            shift: shift || 'F',
+            reconciliations,
+          }),
+        });
+      } catch (rSaveErr) {
+        console.warn('Reconciliation entries save notice:', rSaveErr);
       }
 
       showSuccess('STG Statement saved successfully!');
@@ -1288,6 +1867,7 @@ export default function STGEntryForm({
                 >
                   ⭐ Master Default Statements
                 </Link>
+                {renderStatementSelectWidget('top')}
                 <button
                   type="button"
                   className="btn btn-secondary btn-xs"
@@ -1464,13 +2044,14 @@ export default function STGEntryForm({
 {/* Statement Master Navigation Tabs Bar */}
         <div className="card" style={{ padding: '12px 18px', display: 'flex', flexDirection: 'column', gap: 10 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
               <span style={{ fontWeight: 800, fontSize: '0.85rem', color: '#1e293b' }}>
                 📋 INDIVIDUAL STATEMENT MASTERS ({availableStatements.length}):
               </span>
               <span style={{ fontSize: '0.75rem', color: '#64748b' }}>
                 (Each statement has its own separate master, receipts, and disposals)
               </span>
+              {renderStatementSelectWidget('bar')}
             </div>
 
             <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
@@ -1760,233 +2341,373 @@ export default function STGEntryForm({
         )}
 
         {/* Section 4: Stock Balance Reconciliation Card */}
-        <div className="card" style={{ padding: 0, overflow: 'hidden', border: '1px solid var(--border)' }}>
-          <div style={{ background: '#f8fafc', padding: '10px 16px', borderBottom: '1px solid var(--border)', fontWeight: 800, fontSize: '0.92rem', color: '#1e293b' }}>
-            ⚖️ Stock Balance & Reconciliation Summary (Matching Sample Sheet & Milk & Cream Stock Statement)
+        <div className="card" style={{ padding: 0, overflow: 'hidden', border: '1px solid var(--border)', marginBottom: 20 }}>
+          <div style={{ background: '#f8fafc', padding: '10px 16px', borderBottom: '1px solid var(--border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
+            <div>
+              <div style={{ fontWeight: 800, fontSize: '0.92rem', color: '#1e293b', display: 'flex', alignItems: 'center', gap: 6 }}>
+                <span>⚖️</span> Stock Balance & Reconciliation Summary (Matching Sample Sheet & Milk & Cream Stock Statement)
+              </div>
+              <div style={{ fontSize: '0.72rem', color: '#64748b', marginTop: 2 }}>
+                Dynamic Rows & Columns with Formula Support · Stored in table <code>stg_reconciliation_entries</code> as JSON
+              </div>
+            </div>
+
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+              <button
+                type="button"
+                onClick={() => setIsAddReconRowModalOpen(true)}
+                style={{
+                  background: '#0284c7',
+                  color: '#ffffff',
+                  border: 'none',
+                  borderRadius: 5,
+                  padding: '4px 10px',
+                  fontSize: '0.75rem',
+                  fontWeight: 700,
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 4,
+                }}
+                title="Add a custom row to this statement reconciliation summary"
+              >
+                ➕ Add Row
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setIsAddReconColModalOpen(true)}
+                style={{
+                  background: '#f0fdf4',
+                  border: '1px solid #86efac',
+                  color: '#166534',
+                  borderRadius: 5,
+                  padding: '4px 10px',
+                  fontSize: '0.75rem',
+                  fontWeight: 700,
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 4,
+                }}
+                title="Add a new column to this statement reconciliation summary"
+              >
+                ➕ Add Column
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setIsManageReconColsModalOpen(true)}
+                style={{
+                  background: '#f8fafc',
+                  border: '1px solid #cbd5e1',
+                  color: '#334155',
+                  borderRadius: 5,
+                  padding: '4px 10px',
+                  fontSize: '0.75rem',
+                  fontWeight: 700,
+                  cursor: 'pointer',
+                }}
+                title="Manage reconciliation columns (Rename, Decimals, Delete)"
+              >
+                ⚙️ Columns ({activeRecon.columns.length})
+              </button>
+
+              <button
+                type="button"
+                onClick={handleResetReconTemplate}
+                style={{
+                  background: '#fef3c7',
+                  border: '1px solid #fcd34d',
+                  color: '#b45309',
+                  borderRadius: 5,
+                  padding: '4px 10px',
+                  fontSize: '0.75rem',
+                  fontWeight: 700,
+                  cursor: 'pointer',
+                }}
+                title="Reset to standard 8-row reconciliation template with sample formulas"
+              >
+                ↺ Load Standard Template
+              </button>
+            </div>
           </div>
 
           <div style={{ overflowX: 'auto' }}>
-            <table className="inline-table" style={{ width: '100%', minWidth: 720, margin: 0 }}>
+            <table className="inline-table" style={{ width: '100%', minWidth: 800, margin: 0 }}>
               <thead>
                 <tr style={{ background: '#f1f5f9', borderBottom: '1px solid var(--border)' }}>
                   <th style={{ width: 44, textAlign: 'center', fontSize: '0.72rem' }}>#</th>
                   <th style={{ width: 240, textAlign: 'left', fontSize: '0.75rem', fontWeight: 800 }}>Reconciliation Item</th>
-                  <th style={{ textAlign: 'right', fontSize: '0.75rem' }}>Qty (Lts)</th>
-                  <th style={{ textAlign: 'right', fontSize: '0.75rem' }}>Qty (Kg)</th>
-                  <th style={{ textAlign: 'right', fontSize: '0.75rem' }}>Fat%</th>
-                  <th style={{ textAlign: 'right', fontSize: '0.75rem' }}>Snf%</th>
-                  <th style={{ textAlign: 'right', fontSize: '0.75rem' }}>SP.G</th>
-                  <th style={{ textAlign: 'right', fontSize: '0.75rem' }}>Kg.Fat</th>
-                  <th style={{ textAlign: 'right', fontSize: '0.75rem' }}>Kg.Snf</th>
-                  <th style={{ width: 140, textAlign: 'center', fontSize: '0.72rem' }}>Reconciled Note</th>
+                  {activeRecon.columns.map(col => (
+                    <th
+                      key={`recon_th_${col.key}`}
+                      style={{
+                        textAlign: col.type === 'text' ? 'left' : 'right',
+                        fontSize: '0.75rem',
+                        padding: '6px 8px',
+                        background: col.type === 'calculated' ? '#f0f9ff' : undefined,
+                        color: col.type === 'calculated' ? '#0369a1' : undefined,
+                      }}
+                      title={`Field Key: ${col.key} | Type: ${col.type}${col.decimals !== undefined ? ` | Dec: ${col.decimals}` : ''}`}
+                    >
+                      {col.name} {col.unit ? `(${col.unit})` : ''}
+                    </th>
+                  ))}
+                  <th style={{ width: 90, textAlign: 'center', fontSize: '0.72rem' }}>Actions</th>
                 </tr>
               </thead>
               <tbody>
-                {/* 1. Total Receipts */}
-                <tr style={{ borderBottom: '1px solid #f1f5f9', background: '#f0fdf4' }}>
-                  <td style={{ textAlign: 'center', fontWeight: 700, color: '#166534', fontSize: '0.75rem' }}>1</td>
-                  <td style={{ fontWeight: 800, color: '#166534', fontSize: '0.82rem', padding: '6px 8px' }}>
-                    Total Receipts (+)
-                  </td>
-                  <td style={{ textAlign: 'right', fontWeight: 800, fontFamily: 'var(--font-numbers)', color: '#166534' }}>{formatDisplayNum(totals.rec.lts, 0)}</td>
-                  <td style={{ textAlign: 'right', fontWeight: 800, fontFamily: 'var(--font-numbers)', color: '#166534' }}>{formatDisplayNum(totals.rec.kg, 2)}</td>
-                  <td style={{ textAlign: 'right' }}>—</td>
-                  <td style={{ textAlign: 'right' }}>—</td>
-                  <td style={{ textAlign: 'right' }}>—</td>
-                  <td style={{ textAlign: 'right', fontWeight: 800, fontFamily: 'var(--font-numbers)', color: '#166534' }}>{formatDisplayNum(totals.rec.fat, 3)}</td>
-                  <td style={{ textAlign: 'right', fontWeight: 800, fontFamily: 'var(--font-numbers)', color: '#166534' }}>{formatDisplayNum(totals.rec.snf, 3)}</td>
-                  <td style={{ textAlign: 'center', fontSize: '0.72rem', color: '#166534', fontWeight: 700 }}>Total of all Receipts</td>
-                </tr>
+                {activeRecon.rows.length === 0 ? (
+                  <tr>
+                    <td
+                      colSpan={activeRecon.columns.length + 2}
+                      style={{ textAlign: 'center', padding: '24px 12px', color: '#94a3b8', fontStyle: 'italic', fontSize: '0.82rem' }}
+                    >
+                      No reconciliation rows configured. Click "+ Add Row" or "Load Standard Template" to begin.
+                    </td>
+                  </tr>
+                ) : (
+                  activeRecon.rows.map((row, rIdx) => {
+                    const rowColor = row.color_hint || 'default';
+                    let bg = '#ffffff';
+                    let textColor = 'var(--text-primary)';
+                    let borderCol = '#f1f5f9';
+                    let fontWeight = 600;
 
-                {/* 2. Opening Balance */}
-                <tr style={{ borderBottom: '1px solid #f1f5f9', background: '#eff6ff' }}>
-                  <td style={{ textAlign: 'center', fontWeight: 700, color: '#1d4ed8', fontSize: '0.75rem' }}>2</td>
-                  <td style={{ fontWeight: 800, color: '#1d4ed8', fontSize: '0.82rem', padding: '6px 8px' }}>
-                    Opening Balance (OB)
-                  </td>
-                  <td style={{ textAlign: 'right', fontWeight: 800, fontFamily: 'var(--font-numbers)', color: '#1d4ed8' }}>{formatDisplayNum(totals.ob.lts, 0)}</td>
-                  <td style={{ textAlign: 'right', fontWeight: 800, fontFamily: 'var(--font-numbers)', color: '#1d4ed8' }}>{formatDisplayNum(totals.ob.kg, 2)}</td>
-                  <td style={{ textAlign: 'right', fontWeight: 700, fontFamily: 'var(--font-numbers)' }}>{formatDisplayNum(ob.fat_pct, 2)}</td>
-                  <td style={{ textAlign: 'right', fontWeight: 700, fontFamily: 'var(--font-numbers)' }}>{formatDisplayNum(ob.snf_pct, 2)}</td>
-                  <td style={{ textAlign: 'right', fontWeight: 700, fontFamily: 'var(--font-numbers)' }}>{formatDisplayNum(ob.sp_gr, 4)}</td>
-                  <td style={{ textAlign: 'right', fontWeight: 800, fontFamily: 'var(--font-numbers)', color: '#1d4ed8' }}>{formatDisplayNum(totals.ob.fat, 3)}</td>
-                  <td style={{ textAlign: 'right', fontWeight: 800, fontFamily: 'var(--font-numbers)', color: '#1d4ed8' }}>{formatDisplayNum(totals.ob.snf, 3)}</td>
-                  <td style={{ textAlign: 'center', fontSize: '0.72rem', color: '#1d4ed8', fontWeight: 700 }}>Beginning Inventory</td>
-                </tr>
+                    if (rowColor === 'green') {
+                      bg = '#f0fdf4';
+                      textColor = '#166534';
+                      borderCol = '#bbf7d0';
+                      fontWeight = 800;
+                    } else if (rowColor === 'blue') {
+                      bg = '#eff6ff';
+                      textColor = '#1d4ed8';
+                      borderCol = '#bfdbfe';
+                      fontWeight = 800;
+                    } else if (rowColor === 'orange') {
+                      bg = '#fff7ed';
+                      textColor = '#c2410c';
+                      borderCol = '#fed7aa';
+                      fontWeight = 800;
+                    } else if (rowColor === 'yellow') {
+                      bg = '#fefce8';
+                      textColor = '#854d0e';
+                      borderCol = '#fef08a';
+                      fontWeight = 800;
+                    } else if (rowColor === 'purple') {
+                      bg = '#faf5ff';
+                      textColor = '#6b21a8';
+                      borderCol = '#e9d5ff';
+                      fontWeight = 800;
+                    } else if (rowColor === 'dark') {
+                      bg = '#f8fafc';
+                      textColor = '#0f172a';
+                      borderCol = '#cbd5e1';
+                      fontWeight = 900;
+                    }
 
-                {/* 3. Grand Total Receipts */}
-                <tr style={{ borderBottom: '1px solid #e2e8f0', background: '#f8fafc' }}>
-                  <td style={{ textAlign: 'center', fontWeight: 800, color: '#0f172a', fontSize: '0.75rem' }}>3</td>
-                  <td style={{ fontWeight: 900, color: '#0f172a', fontSize: '0.82rem', padding: '6px 8px' }}>
-                    Grand Total Receipts (=)
-                  </td>
-                  <td style={{ textAlign: 'right', fontWeight: 900, fontFamily: 'var(--font-numbers)', color: '#0f172a' }}>{formatDisplayNum(totals.grandRec.lts, 0)}</td>
-                  <td style={{ textAlign: 'right', fontWeight: 900, fontFamily: 'var(--font-numbers)', color: '#0f172a' }}>{formatDisplayNum(totals.grandRec.kg, 2)}</td>
-                  <td style={{ textAlign: 'right' }}>—</td>
-                  <td style={{ textAlign: 'right' }}>—</td>
-                  <td style={{ textAlign: 'right' }}>—</td>
-                  <td style={{ textAlign: 'right', fontWeight: 900, fontFamily: 'var(--font-numbers)', color: '#0f172a' }}>{formatDisplayNum(totals.grandRec.fat, 3)}</td>
-                  <td style={{ textAlign: 'right', fontWeight: 900, fontFamily: 'var(--font-numbers)', color: '#0f172a' }}>{formatDisplayNum(totals.grandRec.snf, 3)}</td>
-                  <td style={{ textAlign: 'center', fontSize: '0.72rem', fontWeight: 800, color: '#0f172a' }}>Total Receipts + OB</td>
-                </tr>
+                    return (
+                      <tr
+                        key={`recon_row_${row.id || rIdx}`}
+                        style={{ borderBottom: `1px solid ${borderCol}`, background: bg }}
+                      >
+                        {/* Row Index */}
+                        <td style={{ textAlign: 'center', fontWeight: 700, color: textColor, fontSize: '0.75rem' }}>
+                          {rIdx + 1}
+                        </td>
 
-                {/* 4. Total Disposals */}
-                <tr style={{ borderBottom: '1px solid #f1f5f9', background: '#fff7ed' }}>
-                  <td style={{ textAlign: 'center', fontWeight: 700, color: '#c2410c', fontSize: '0.75rem' }}>4</td>
-                  <td style={{ fontWeight: 800, color: '#c2410c', fontSize: '0.82rem', padding: '6px 8px' }}>
-                    Total Disposals (-)
-                  </td>
-                  <td style={{ textAlign: 'right', fontWeight: 800, fontFamily: 'var(--font-numbers)', color: '#c2410c' }}>{formatDisplayNum(totals.disp.lts, 0)}</td>
-                  <td style={{ textAlign: 'right', fontWeight: 800, fontFamily: 'var(--font-numbers)', color: '#c2410c' }}>{formatDisplayNum(totals.disp.kg, 2)}</td>
-                  <td style={{ textAlign: 'right' }}>—</td>
-                  <td style={{ textAlign: 'right' }}>—</td>
-                  <td style={{ textAlign: 'right' }}>—</td>
-                  <td style={{ textAlign: 'right', fontWeight: 800, fontFamily: 'var(--font-numbers)', color: '#c2410c' }}>{formatDisplayNum(totals.disp.fat, 3)}</td>
-                  <td style={{ textAlign: 'right', fontWeight: 800, fontFamily: 'var(--font-numbers)', color: '#c2410c' }}>{formatDisplayNum(totals.disp.snf, 3)}</td>
-                  <td style={{ textAlign: 'center', fontSize: '0.72rem', color: '#c2410c', fontWeight: 700 }}>Total of all Disposals</td>
-                </tr>
+                        {/* Editable Row Label */}
+                        <td style={{ padding: '4px 8px' }}>
+                          <input
+                            type="text"
+                            className="form-input"
+                            value={row.label}
+                            onChange={e => handleReconLabelChange(rIdx, e.target.value)}
+                            placeholder="Reconciliation label..."
+                            style={{
+                              height: 28,
+                              fontSize: '0.82rem',
+                              fontWeight,
+                              color: textColor,
+                              background: 'transparent',
+                              border: '1px solid transparent',
+                              padding: '2px 6px',
+                            }}
+                            onFocus={e => (e.target.style.borderColor = '#0284c7')}
+                            onBlur={e => (e.target.style.borderColor = 'transparent')}
+                          />
+                        </td>
 
-                {/* 5. Closing Balance / Physical Count */}
-                <tr style={{ borderBottom: '1px solid #f1f5f9', background: '#fefce8' }}>
-                  <td style={{ textAlign: 'center', fontWeight: 700, color: '#854d0e', fontSize: '0.75rem' }}>5</td>
-                  <td style={{ fontWeight: 800, color: '#854d0e', fontSize: '0.82rem', padding: '6px 8px' }}>
-                    Closing Balance (CB)
-                  </td>
-                  <td style={{ padding: '2px 4px' }}>
-                    <input
-                      type="number"
-                      className="form-input"
-                      value={cb.qty_lts ?? ''}
-                      placeholder="0"
-                      onChange={e => handlePhysicalCountChange('qty_lts', e.target.value)}
-                      style={{ height: 28, fontSize: '0.82rem', textAlign: 'right', fontFamily: 'var(--font-numbers)', fontWeight: 800, color: '#854d0e' }}
-                    />
-                  </td>
-                  <td style={{ textAlign: 'right', fontWeight: 800, fontFamily: 'var(--font-numbers)', color: '#854d0e', padding: '6px 8px' }}>
-                    {cb.qty_kg ? formatDisplayNum(cb.qty_kg, 2) : '-'}
-                  </td>
-                  <td style={{ padding: '2px 4px' }}>
-                    <input
-                      type="number"
-                      step="any"
-                      className="form-input"
-                      value={cb.fat_pct ?? ''}
-                      placeholder="0"
-                      onChange={e => handlePhysicalCountChange('fat_pct', e.target.value)}
-                      style={{ height: 28, fontSize: '0.82rem', textAlign: 'right', fontFamily: 'var(--font-numbers)' }}
-                    />
-                  </td>
-                  <td style={{ padding: '2px 4px' }}>
-                    <input
-                      type="number"
-                      step="any"
-                      className="form-input"
-                      value={cb.snf_pct ?? ''}
-                      placeholder="0"
-                      onChange={e => handlePhysicalCountChange('snf_pct', e.target.value)}
-                      style={{ height: 28, fontSize: '0.82rem', textAlign: 'right', fontFamily: 'var(--font-numbers)' }}
-                    />
-                  </td>
-                  <td style={{ padding: '2px 4px' }}>
-                    <input
-                      type="number"
-                      step="any"
-                      className="form-input"
-                      value={cb.sp_gr ?? ''}
-                      placeholder="0"
-                      onChange={e => handlePhysicalCountChange('sp_gr', e.target.value)}
-                      style={{ height: 28, fontSize: '0.82rem', textAlign: 'right', fontFamily: 'var(--font-numbers)' }}
-                    />
-                  </td>
-                  <td style={{ textAlign: 'right', fontWeight: 800, fontFamily: 'var(--font-numbers)', color: '#854d0e', padding: '6px 8px' }}>
-                    {cb.kg_fat ? formatDisplayNum(cb.kg_fat, 3) : '-'}
-                  </td>
-                  <td style={{ textAlign: 'right', fontWeight: 800, fontFamily: 'var(--font-numbers)', color: '#854d0e', padding: '6px 8px' }}>
-                    {cb.kg_snf ? formatDisplayNum(cb.kg_snf, 3) : '-'}
-                  </td>
-                  <td style={{ textAlign: 'center', fontSize: '0.72rem', color: '#854d0e', fontWeight: 700 }}>Physical Stock Count</td>
-                </tr>
+                        {/* Columns */}
+                        {activeRecon.columns.map(col => {
+                          const rawVal = row.values?.[col.key];
+                          const isFormula = typeof rawVal === 'string' && (rawVal.startsWith('=') || rawVal.startsWith('=+'));
+                          const isEditing = editingReconCell?.rIdx === rIdx && editingReconCell?.colKey === col.key;
+                          const computedVal = isFormula
+                            ? evaluateReconCellFormula(rawVal, col.key, rIdx, activeRecon.rows, totals)
+                            : (col.type === 'calculated'
+                              ? computeCalculatedField(col.key, row.values || {})
+                              : rawVal);
 
-                {/* 6. Grand Total Disposals */}
-                <tr style={{ borderBottom: '1px solid #e2e8f0', background: '#f8fafc' }}>
-                  <td style={{ textAlign: 'center', fontWeight: 800, color: '#0f172a', fontSize: '0.75rem' }}>6</td>
-                  <td style={{ fontWeight: 900, color: '#0f172a', fontSize: '0.82rem', padding: '6px 8px' }}>
-                    Grand Total Disposals (=)
-                  </td>
-                  <td style={{ textAlign: 'right', fontWeight: 900, fontFamily: 'var(--font-numbers)', color: '#0f172a' }}>{formatDisplayNum(totals.grandDisp.lts, 0)}</td>
-                  <td style={{ textAlign: 'right', fontWeight: 900, fontFamily: 'var(--font-numbers)', color: '#0f172a' }}>{formatDisplayNum(totals.grandDisp.kg, 2)}</td>
-                  <td style={{ textAlign: 'right' }}>—</td>
-                  <td style={{ textAlign: 'right' }}>—</td>
-                  <td style={{ textAlign: 'right' }}>—</td>
-                  <td style={{ textAlign: 'right', fontWeight: 900, fontFamily: 'var(--font-numbers)', color: '#0f172a' }}>{formatDisplayNum(totals.grandDisp.fat, 3)}</td>
-                  <td style={{ textAlign: 'right', fontWeight: 900, fontFamily: 'var(--font-numbers)', color: '#0f172a' }}>{formatDisplayNum(totals.grandDisp.snf, 3)}</td>
-                  <td style={{ textAlign: 'center', fontSize: '0.72rem', fontWeight: 800, color: '#0f172a' }}>Disposals + CB</td>
-                </tr>
+                          let displayStr = '—';
+                          if (rawVal !== undefined && rawVal !== null && rawVal !== '') {
+                            if (col.type === 'text') {
+                              displayStr = String(rawVal);
+                            } else if (typeof computedVal === 'number') {
+                              displayStr = formatDisplayNum(computedVal, col.decimals, col.key);
+                              if (row.row_type === 'LOSS_GAIN_PCT' || row.label.includes('%')) {
+                                displayStr += '%';
+                              }
+                            } else {
+                              displayStr = String(computedVal || '—');
+                            }
+                          } else if (col.type === 'text') {
+                            displayStr = '';
+                          }
 
-                {/* 7. Loss / Gain */}
-                <tr style={{ borderBottom: '1px solid #f1f5f9', background: totals.lossGain.fat >= 0 ? '#f0fdf4' : '#fef2f2' }}>
-                  <td style={{ textAlign: 'center', fontWeight: 800, fontSize: '0.75rem' }}>7</td>
-                  <td style={{ fontWeight: 800, color: totals.lossGain.fat >= 0 ? '#166534' : '#dc2626', fontSize: '0.82rem', padding: '6px 8px' }}>
-                    Loss / Gain
-                  </td>
-                  <td style={{ textAlign: 'right', fontWeight: 800, fontFamily: 'var(--font-numbers)' }}>{formatDisplayNum(totals.lossGain.lts, 0)}</td>
-                  <td style={{ textAlign: 'right', fontWeight: 800, fontFamily: 'var(--font-numbers)' }}>{formatDisplayNum(totals.lossGain.kg, 2)}</td>
-                  <td style={{ textAlign: 'right' }}>—</td>
-                  <td style={{ textAlign: 'right' }}>—</td>
-                  <td style={{ textAlign: 'right' }}>—</td>
-                  <td style={{ textAlign: 'right', fontWeight: 800, fontFamily: 'var(--font-numbers)', color: totals.lossGain.fat >= 0 ? '#166534' : '#dc2626' }}>
-                    {formatDisplayNum(totals.lossGain.fat, 3)}
-                  </td>
-                  <td style={{ textAlign: 'right', fontWeight: 800, fontFamily: 'var(--font-numbers)', color: totals.lossGain.snf >= 0 ? '#166534' : '#dc2626' }}>
-                    {formatDisplayNum(totals.lossGain.snf, 3)}
-                  </td>
-                  <td style={{ textAlign: 'center', fontSize: '0.72rem', fontWeight: 800 }}>Variance</td>
-                </tr>
+                          return (
+                            <td
+                              key={`cell_${rIdx}_${col.key}`}
+                              style={{
+                                padding: '2px 4px',
+                                textAlign: col.type === 'text' ? 'left' : 'right',
+                                cursor: 'pointer',
+                                position: 'relative',
+                              }}
+                              onClick={() => {
+                                if (!isEditing) setEditingReconCell({ rIdx, colKey: col.key });
+                              }}
+                              title={isFormula ? `Formula: ${rawVal} (Click to edit)` : 'Click to edit cell'}
+                            >
+                              {isEditing ? (
+                                <input
+                                  autoFocus
+                                  type="text"
+                                  className="form-input"
+                                  value={rawVal ?? ''}
+                                  placeholder={col.type === 'text' ? 'Text or =formula' : '0 or =formula'}
+                                  onChange={e => handleReconCellChange(rIdx, col.key, e.target.value)}
+                                  onBlur={() => setEditingReconCell(null)}
+                                  onKeyDown={e => {
+                                    if (e.key === 'Enter' || e.key === 'Escape') {
+                                      setEditingReconCell(null);
+                                    }
+                                  }}
+                                  style={{
+                                    height: 28,
+                                    fontSize: '0.8rem',
+                                    fontWeight: 700,
+                                    textAlign: col.type === 'text' ? 'left' : 'right',
+                                    fontFamily: col.type === 'text' ? 'inherit' : 'var(--font-numbers)',
+                                    background: '#ffffff',
+                                    borderColor: '#0284c7',
+                                    boxShadow: '0 0 0 2px rgba(2, 132, 199, 0.2)',
+                                  }}
+                                />
+                              ) : (
+                                <div
+                                  style={{
+                                    padding: '4px 6px',
+                                    borderRadius: 4,
+                                    fontWeight,
+                                    color: textColor,
+                                    fontFamily: col.type === 'text' ? 'inherit' : 'var(--font-numbers)',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: col.type === 'text' ? 'flex-start' : 'flex-end',
+                                    gap: 4,
+                                    minHeight: 26,
+                                  }}
+                                >
+                                  {isFormula && (
+                                    <span
+                                      style={{
+                                        fontSize: '0.65rem',
+                                        fontWeight: 800,
+                                        color: '#0284c7',
+                                        background: '#e0f2fe',
+                                        padding: '1px 3px',
+                                        borderRadius: 3,
+                                        fontFamily: 'monospace',
+                                      }}
+                                      title={`Formula: ${rawVal}`}
+                                    >
+                                      fx
+                                    </span>
+                                  )}
+                                  <span>{displayStr}</span>
+                                </div>
+                              )}
+                            </td>
+                          );
+                        })}
 
-                {/* 8. Loss / Gain % */}
-                <tr style={{ borderBottom: '1px solid #f1f5f9', background: '#fafafa' }}>
-                  <td style={{ textAlign: 'center', fontWeight: 700, color: '#64748b', fontSize: '0.75rem' }}>8</td>
-                  <td style={{ fontWeight: 800, color: '#475569', fontSize: '0.82rem', padding: '6px 8px' }}>
-                    Loss / Gain %
-                  </td>
-                  <td style={{ textAlign: 'right' }}>—</td>
-                  <td style={{ textAlign: 'right' }}>—</td>
-                  <td style={{ textAlign: 'right' }}>—</td>
-                  <td style={{ textAlign: 'right' }}>—</td>
-                  <td style={{ textAlign: 'right' }}>—</td>
-                  <td style={{ textAlign: 'right', fontWeight: 800, fontFamily: 'var(--font-numbers)', color: totals.lossGainPct.fat > totals.norm ? '#dc2626' : '#166534' }}>
-                    {formatDisplayNum(totals.lossGainPct.fat, 3)}%
-                  </td>
-                  <td style={{ textAlign: 'right', fontWeight: 800, fontFamily: 'var(--font-numbers)', color: totals.lossGainPct.snf > totals.norm ? '#dc2626' : '#166534' }}>
-                    {formatDisplayNum(totals.lossGainPct.snf, 3)}%
-                  </td>
-                  <td style={{ textAlign: 'center', fontSize: '0.72rem', fontWeight: 700, color: '#64748b' }}>Loss % vs Grand Total</td>
-                </tr>
-
-                {/* 9. CMPDD Norms % */}
-                <tr style={{ background: '#f8fafc' }}>
-                  <td style={{ textAlign: 'center', fontWeight: 700, color: '#64748b', fontSize: '0.75rem' }}>9</td>
-                  <td style={{ fontWeight: 800, color: '#475569', fontSize: '0.82rem', padding: '6px 8px' }}>
-                    CMPDD Norms %
-                  </td>
-                  <td style={{ textAlign: 'right' }}>—</td>
-                  <td style={{ textAlign: 'right' }}>—</td>
-                  <td style={{ textAlign: 'right' }}>—</td>
-                  <td style={{ textAlign: 'right' }}>—</td>
-                  <td style={{ textAlign: 'right' }}>—</td>
-                  <td style={{ textAlign: 'right', fontWeight: 800, fontFamily: 'var(--font-numbers)', color: '#475569' }}>
-                    {totals.norm}%
-                  </td>
-                  <td style={{ textAlign: 'right', fontWeight: 800, fontFamily: 'var(--font-numbers)', color: '#475569' }}>
-                    {totals.norm}%
-                  </td>
-                  <td style={{ textAlign: 'center', fontSize: '0.72rem', fontWeight: 700, color: '#64748b' }}>Permitted Norm</td>
-                </tr>
+                        {/* Actions */}
+                        <td style={{ textAlign: 'center', padding: '2px 4px' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 2 }}>
+                            <button
+                              type="button"
+                              onClick={() => handleMoveReconRow(rIdx, 'up')}
+                              disabled={rIdx === 0}
+                              style={{
+                                padding: '2px 5px',
+                                border: '1px solid #cbd5e1',
+                                background: '#ffffff',
+                                borderRadius: 3,
+                                fontSize: '0.7rem',
+                                cursor: rIdx === 0 ? 'not-allowed' : 'pointer',
+                                opacity: rIdx === 0 ? 0.3 : 1,
+                              }}
+                              title="Move Row Up"
+                            >
+                              ↑
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleMoveReconRow(rIdx, 'down')}
+                              disabled={rIdx === activeRecon.rows.length - 1}
+                              style={{
+                                padding: '2px 5px',
+                                border: '1px solid #cbd5e1',
+                                background: '#ffffff',
+                                borderRadius: 3,
+                                fontSize: '0.7rem',
+                                cursor: rIdx === activeRecon.rows.length - 1 ? 'not-allowed' : 'pointer',
+                                opacity: rIdx === activeRecon.rows.length - 1 ? 0.3 : 1,
+                              }}
+                              title="Move Row Down"
+                            >
+                              ↓
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleDeleteReconRow(rIdx)}
+                              style={{
+                                padding: '2px 5px',
+                                border: '1px solid #fecaca',
+                                background: '#fef2f2',
+                                color: '#dc2626',
+                                borderRadius: 3,
+                                fontSize: '0.7rem',
+                                cursor: 'pointer',
+                              }}
+                              title="Delete Row"
+                            >
+                              🗑️
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })
+                )}
               </tbody>
             </table>
           </div>
         </div>
-{/* Navigation & Action Buttons matching StockEntryForm */}
+
+        {/* Navigation & Action Buttons matching StockEntryForm */}
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 16, marginBottom: 40, flexWrap: 'wrap', gap: 12 }}>
           <button
             type="button"
@@ -2221,6 +2942,337 @@ export default function STGEntryForm({
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Modal: Add Custom Recon Row */}
+      {isAddReconRowModalOpen && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
+          <div className="card" style={{ width: '100%', maxWidth: 440, padding: 20, boxShadow: '0 25px 50px -12px rgba(0,0,0,0.25)' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14, borderBottom: '1px solid var(--border)', paddingBottom: 8 }}>
+              <div style={{ fontWeight: 800, fontSize: '1rem', color: '#0284c7' }}>
+                ➕ Add Reconciliation Row
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsAddReconRowModalOpen(false)}
+                style={{ background: 'transparent', border: 'none', fontSize: '1.1rem', cursor: 'pointer', color: '#64748b' }}
+              >
+                ✕
+              </button>
+            </div>
+
+            <form onSubmit={handleAddReconRowSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+              <div>
+                <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: 800, marginBottom: 4 }}>
+                  Row Label / Item Name *
+                </label>
+                <input
+                  autoFocus
+                  type="text"
+                  required
+                  className="form-input"
+                  value={newReconRowLabel}
+                  onChange={e => setNewReconRowLabel(e.target.value)}
+                  placeholder="e.g. Sampling Loss, Return Milk, Pipe Line Stock..."
+                  style={{ width: '100%', height: 32 }}
+                />
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+                <div>
+                  <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: 800, marginBottom: 4 }}>
+                    Row Type
+                  </label>
+                  <select
+                    className="form-select"
+                    value={newReconRowType}
+                    onChange={e => setNewReconRowType(e.target.value)}
+                    style={{ width: '100%', height: 32 }}
+                  >
+                    <option value="CUSTOM">Custom Row</option>
+                    <option value="RECEIPT_TOTAL">Receipt Total</option>
+                    <option value="DISPOSAL_TOTAL">Disposal Total</option>
+                    <option value="LOSS_GAIN">Loss / Gain</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: 800, marginBottom: 4 }}>
+                    Highlight Color
+                  </label>
+                  <select
+                    className="form-select"
+                    value={newReconRowColor}
+                    onChange={e => setNewReconRowColor(e.target.value as any)}
+                    style={{ width: '100%', height: 32 }}
+                  >
+                    <option value="default">Default (White)</option>
+                    <option value="green">Green (Receipts)</option>
+                    <option value="blue">Blue (OB)</option>
+                    <option value="orange">Orange (Disposals)</option>
+                    <option value="yellow">Yellow (CB)</option>
+                    <option value="purple">Purple (Loss/Gain)</option>
+                    <option value="dark">Dark (Grand Totals)</option>
+                  </select>
+                </div>
+              </div>
+
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 8 }}>
+                <button
+                  type="button"
+                  className="btn btn-secondary btn-sm"
+                  onClick={() => setIsAddReconRowModalOpen(false)}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="btn btn-primary btn-sm"
+                  style={{ background: '#0284c7', borderColor: '#0284c7' }}
+                >
+                  Add Row
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Modal: Add Custom Recon Column */}
+      {isAddReconColModalOpen && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
+          <div className="card" style={{ width: '100%', maxWidth: 460, padding: 20, boxShadow: '0 25px 50px -12px rgba(0,0,0,0.25)' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14, borderBottom: '1px solid var(--border)', paddingBottom: 8 }}>
+              <div style={{ fontWeight: 800, fontSize: '1rem', color: '#16a34a' }}>
+                ➕ Add Reconciliation Column
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsAddReconColModalOpen(false)}
+                style={{ background: 'transparent', border: 'none', fontSize: '1.1rem', cursor: 'pointer', color: '#64748b' }}
+              >
+                ✕
+              </button>
+            </div>
+
+            <form onSubmit={handleAddReconColumnSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+              <div>
+                <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: 800, marginBottom: 4 }}>
+                  Column Display Name *
+                </label>
+                <input
+                  autoFocus
+                  type="text"
+                  required
+                  className="form-input"
+                  value={newReconColName}
+                  onChange={e => {
+                    setNewReconColName(e.target.value);
+                    setNewReconColKey(e.target.value.toLowerCase().replace(/[^a-z0-9]/g, '_').replace(/_+/g, '_'));
+                  }}
+                  placeholder="e.g. Difference (Kg), TS Solids, Remarks..."
+                  style={{ width: '100%', height: 32 }}
+                />
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 0.8fr', gap: 10 }}>
+                <div>
+                  <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: 800, marginBottom: 4 }}>
+                    Field Key *
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    className="form-input"
+                    value={newReconColKey}
+                    onChange={e => setNewReconColKey(e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, '_'))}
+                    placeholder="e.g. diff_kg"
+                    style={{ width: '100%', height: 32, fontFamily: 'monospace' }}
+                  />
+                </div>
+
+                <div>
+                  <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: 800, marginBottom: 4 }}>
+                    Type
+                  </label>
+                  <select
+                    className="form-select"
+                    value={newReconColType}
+                    onChange={e => setNewReconColType(e.target.value as any)}
+                    style={{ width: '100%', height: 32 }}
+                  >
+                    <option value="number">Number</option>
+                    <option value="calculated">Calculated</option>
+                    <option value="text">Text</option>
+                  </select>
+                </div>
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+                <div>
+                  <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: 800, marginBottom: 4 }}>
+                    Decimals
+                  </label>
+                  <input
+                    type="number"
+                    min="0"
+                    max="6"
+                    className="form-input"
+                    value={newReconColDecimals}
+                    onChange={e => setNewReconColDecimals(parseInt(e.target.value, 10) || 0)}
+                    style={{ width: '100%', height: 32 }}
+                  />
+                </div>
+
+                <div>
+                  <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: 800, marginBottom: 4 }}>
+                    Unit (optional)
+                  </label>
+                  <input
+                    type="text"
+                    className="form-input"
+                    value={newReconColUnit}
+                    onChange={e => setNewReconColUnit(e.target.value)}
+                    placeholder="e.g. Kg, Lts, %"
+                    style={{ width: '100%', height: 32 }}
+                  />
+                </div>
+              </div>
+
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 8 }}>
+                <button
+                  type="button"
+                  className="btn btn-secondary btn-sm"
+                  onClick={() => setIsAddReconColModalOpen(false)}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="btn btn-primary btn-sm"
+                  style={{ background: '#16a34a', borderColor: '#16a34a' }}
+                >
+                  Add Column
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Modal: Manage Recon Columns */}
+      {isManageReconColsModalOpen && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
+          <div className="card" style={{ width: '100%', maxWidth: 540, padding: 20, boxShadow: '0 25px 50px -12px rgba(0,0,0,0.25)' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14, borderBottom: '1px solid var(--border)', paddingBottom: 8 }}>
+              <div style={{ fontWeight: 800, fontSize: '1rem', color: '#334155' }}>
+                ⚙️ Manage Reconciliation Columns ({activeRecon.columns.length})
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsManageReconColsModalOpen(false)}
+                style={{ background: 'transparent', border: 'none', fontSize: '1.1rem', cursor: 'pointer', color: '#64748b' }}
+              >
+                ✕
+              </button>
+            </div>
+
+            <div style={{ maxHeight: 360, overflowY: 'auto', marginBottom: 16 }}>
+              <table className="inline-table" style={{ width: '100%' }}>
+                <thead>
+                  <tr style={{ background: '#f8fafc' }}>
+                    <th style={{ width: 30 }}>#</th>
+                    <th style={{ textAlign: 'left' }}>Column Name</th>
+                    <th>Key</th>
+                    <th>Type</th>
+                    <th>Dec</th>
+                    <th style={{ width: 50, textAlign: 'center' }}>Action</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {activeRecon.columns.map((col, idx) => (
+                    <tr key={`manage_col_${col.key}`}>
+                      <td style={{ textAlign: 'center', fontSize: '0.72rem', color: '#94a3b8' }}>{idx + 1}</td>
+                      <td>
+                        <input
+                          type="text"
+                          className="form-input"
+                          value={col.name}
+                          onChange={e => {
+                            const val = e.target.value;
+                            updateActiveRecon(prev => ({
+                              ...prev,
+                              columns: prev.columns.map(c => c.key === col.key ? { ...c, name: val } : c),
+                            }));
+                          }}
+                          style={{ height: 26, fontSize: '0.78rem', fontWeight: 700 }}
+                        />
+                      </td>
+                      <td style={{ fontSize: '0.72rem', fontFamily: 'monospace', color: '#64748b' }}>{col.key}</td>
+                      <td style={{ fontSize: '0.72rem', color: '#64748b' }}>{col.type}</td>
+                      <td>
+                        <input
+                          type="number"
+                          min="0"
+                          max="6"
+                          className="form-input"
+                          value={col.decimals ?? 2}
+                          onChange={e => {
+                            const dec = parseInt(e.target.value, 10) || 0;
+                            updateActiveRecon(prev => ({
+                              ...prev,
+                              columns: prev.columns.map(c => c.key === col.key ? { ...c, decimals: dec } : c),
+                            }));
+                          }}
+                          style={{ height: 26, width: 48, fontSize: '0.78rem', textAlign: 'center' }}
+                        />
+                      </td>
+                      <td style={{ textAlign: 'center' }}>
+                        <button
+                          type="button"
+                          onClick={() => handleDeleteReconColumn(col.key)}
+                          disabled={activeRecon.columns.length <= 1}
+                          style={{
+                            background: '#fef2f2',
+                            border: '1px solid #fca5a5',
+                            color: '#dc2626',
+                            borderRadius: 4,
+                            padding: '2px 6px',
+                            fontSize: '0.7rem',
+                            cursor: 'pointer',
+                          }}
+                          title="Delete column"
+                        >
+                          🗑️
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <button
+                type="button"
+                onClick={() => {
+                  setIsManageReconColsModalOpen(false);
+                  setIsAddReconColModalOpen(true);
+                }}
+                className="btn btn-secondary btn-sm"
+              >
+                ➕ Add New Column
+              </button>
+              <button
+                type="button"
+                onClick={() => setIsManageReconColsModalOpen(false)}
+                className="btn btn-primary btn-sm"
+              >
+                Done
+              </button>
+            </div>
           </div>
         </div>
       )}
