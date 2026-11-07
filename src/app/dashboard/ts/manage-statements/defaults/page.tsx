@@ -349,8 +349,7 @@ function STGDefaultFormulationsContent() {
   const [formColKey, setFormColKey] = useState<string>('');
   const [colKeyManuallyEdited, setColKeyManuallyEdited] = useState<boolean>(false);
   const [formColName, setFormColName] = useState<string>('');
-  const [formColType, setFormColType] = useState<'number' | 'text' | 'calculated'>('number');
-  const [formColFormula, setFormColFormula] = useState<string>('');
+  const [formColType, setFormColType] = useState<'number' | 'text'>('number');
   const [formColUnit, setFormColUnit] = useState<string>('');
   const [formColDecimals, setFormColDecimals] = useState<number | undefined>(undefined);
 
@@ -561,7 +560,7 @@ function STGDefaultFormulationsContent() {
       return evaluateExcelFormula(cellVal, rowIndex, rowVals, rowList, colList);
     }
 
-    if (col.type === 'calculated') {
+    if (col.type === 'calculated' || ((col.key === 'qty_kg' || col.key === 'kg' || col.key === 'kg_fat' || col.key === 'kg_snf') && (cellVal === undefined || cellVal === ''))) {
       if (col.formula && typeof col.formula === 'string' && (col.formula.startsWith('=') || col.formula.startsWith('=+'))) {
         return evaluateExcelFormula(col.formula, rowIndex, rowVals, rowList, colList);
       }
@@ -1222,7 +1221,6 @@ function STGDefaultFormulationsContent() {
     setColKeyManuallyEdited(false);
     setFormColName('');
     setFormColType('number');
-    setFormColFormula('');
     setFormColUnit('');
     setFormColDecimals(undefined);
     setIsColModalOpen(true);
@@ -1234,8 +1232,7 @@ function STGDefaultFormulationsContent() {
     setFormColKey(col.key);
     setColKeyManuallyEdited(true);
     setFormColName(col.name);
-    setFormColType(col.type);
-    setFormColFormula(col.formula || '');
+    setFormColType(col.type === 'text' ? 'text' : 'number');
     setFormColUnit(col.unit || '');
     setFormColDecimals(col.decimals);
     setIsColModalOpen(true);
@@ -1260,7 +1257,7 @@ function STGDefaultFormulationsContent() {
       key: keyToUse,
       name: formColName.trim(),
       type: formColType,
-      formula: formColType === 'calculated' ? formColFormula.trim() : undefined,
+      formula: undefined,
       unit: formColUnit.trim() || undefined,
       decimals: formColDecimals,
       sort_order: colModalEditingKey
@@ -2740,9 +2737,9 @@ function STGDefaultFormulationsContent() {
                     <th style={{ width: 44, textAlign: 'center', fontSize: '0.75rem' }}>#</th>
                     <th style={{ textAlign: 'left', fontSize: '0.78rem', fontWeight: 800 }}>Column Name</th>
                     <th style={{ textAlign: 'left', fontSize: '0.78rem', fontWeight: 700 }}>Field Key</th>
-                    <th style={{ textAlign: 'center', fontSize: '0.75rem', width: 100 }}>Type</th>
-                    <th style={{ textAlign: 'left', fontSize: '0.75rem' }}>Formula / Unit</th>
-                    <th style={{ textAlign: 'center', fontSize: '0.75rem', width: 70 }}>Decimals</th>
+                    <th style={{ textAlign: 'center', fontSize: '0.75rem', width: 90 }}>Type</th>
+                    <th style={{ textAlign: 'left', fontSize: '0.75rem', width: 90 }}>Unit</th>
+                    <th style={{ textAlign: 'center', fontSize: '0.75rem', width: 80 }}>Decimals</th>
                     <th style={{ width: 140, textAlign: 'center', fontSize: '0.75rem' }}>Actions</th>
                   </tr>
                 </thead>
@@ -2764,14 +2761,14 @@ function STGDefaultFormulationsContent() {
                           fontWeight: 800,
                           padding: '1px 6px',
                           borderRadius: 4,
-                          background: col.type === 'calculated' ? '#e0f2fe' : col.type === 'number' ? '#f0fdf4' : '#f8fafc',
-                          color: col.type === 'calculated' ? '#0369a1' : col.type === 'number' ? '#166534' : '#475569',
+                          background: col.type === 'text' ? '#f8fafc' : '#f0fdf4',
+                          color: col.type === 'text' ? '#475569' : '#166534',
                         }}>
-                          {col.type}
+                          {col.type === 'text' ? 'TEXT' : 'NUMERIC'}
                         </span>
                       </td>
                       <td style={{ fontSize: '0.75rem', color: '#64748b' }}>
-                        {col.formula ? `Formula: ${col.formula}` : (col.unit ? `Unit: ${col.unit}` : '—')}
+                        {col.unit || '—'}
                       </td>
                       <td style={{ textAlign: 'center', fontSize: '0.78rem', fontFamily: 'var(--font-numbers)' }}>
                         {col.decimals !== undefined ? col.decimals : 'Auto'}
@@ -2901,33 +2898,16 @@ function STGDefaultFormulationsContent() {
                 </label>
                 <select
                   className="form-select"
-                  value={formColType}
+                  value={formColType === 'text' ? 'text' : 'number'}
                   onChange={e => setFormColType(e.target.value as any)}
                 >
-                  <option value="number">Numeric (User-entered value)</option>
-                  <option value="calculated">Calculated (Excel Formula)</option>
+                  <option value="number">Numeric</option>
                   <option value="text">Text / Particular</option>
                 </select>
+                <span style={{ fontSize: '0.72rem', color: '#64748b', display: 'block', marginTop: 4 }}>
+                  Formulas (=...) are entered directly into Statement Master cells and computed live.
+                </span>
               </div>
-
-              {formColType === 'calculated' && (
-                <div>
-                  <label className="form-label" style={{ fontSize: '0.8rem', fontWeight: 700 }}>
-                    Calculation Formula
-                  </label>
-                  <input
-                    type="text"
-                    className="form-input"
-                    value={formColFormula}
-                    placeholder="e.g. qty_lts * sp_gr or =qty_kg * fat_pct / 100"
-                    onChange={e => setFormColFormula(e.target.value)}
-                    style={{ fontFamily: 'monospace' }}
-                  />
-                  <span style={{ fontSize: '0.72rem', color: '#64748b', display: 'block', marginTop: 4 }}>
-                    Use column field keys (e.g. <code>qty_lts * sp_gr</code> or <code>qty_kg * fat_pct / 100</code>).
-                  </span>
-                </div>
-              )}
 
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
                 <div>
