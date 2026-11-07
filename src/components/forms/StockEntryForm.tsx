@@ -1223,9 +1223,18 @@ export default function StockEntryForm({
           return normLabel === normParticular || normLabel.includes(normParticular) || normParticular.includes(normLabel);
         });
 
-        if (!stockRow) return;
+        if (!stockRow && stockSection !== 'CB') return;
 
-        const valNum = parseFloat(stockRow.values[stockProductKey] || stockRow.values[col?.key || ''] || '0') || 0;
+        let valNum = 0;
+        if (stockSection === 'CB') {
+          const targetKey = col?.key || stockProductKey;
+          const obVal = getSectionSum('OB', targetKey);
+          const recVal = getSectionSum('RECEIPT', targetKey);
+          const dispVal = getSectionSum('DISPOSAL', targetKey);
+          valNum = obVal + recVal - dispVal;
+        } else {
+          valNum = parseFloat(stockRow?.values[stockProductKey] || stockRow?.values[col?.key || ''] || '0') || 0;
+        }
         if (!valNum || isNaN(valNum)) return;
 
         if (!blocksData[stgBlockKey]) {

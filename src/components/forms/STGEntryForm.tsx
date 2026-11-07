@@ -1000,6 +1000,7 @@ export default function STGEntryForm({
         if (itemRule) {
           const matchingStockRow = stockRows.find(sr => {
             if (itemRule.stockSection && sr.row_type && itemRule.stockSection !== sr.row_type) return false;
+            if (itemRule.stockSection === 'CB' && sr.row_type === 'CB') return true;
             const srLabel = (sr.row_label || '').trim().toLowerCase();
             const targetPart = (itemRule.stockParticular || '').trim().toLowerCase();
             return srLabel === targetPart || srLabel.replace(/[^a-z0-9]/g, '') === targetPart.replace(/[^a-z0-9]/g, '');
@@ -1090,7 +1091,38 @@ export default function STGEntryForm({
         return;
       }
       const json = await res.json();
-      const stockRows: any[] = json.data?.stock_rows || [];
+      const rawStockRows: any[] = json.data?.stock_rows || [];
+      const summaryRows: any[] = (json.data?.stock_summary_rows || []).map((sr: any) => ({
+        row_type: sr.summary_type || 'CB',
+        row_label: sr.row_label || (sr.summary_type === 'CB' ? 'Closing Balance' : sr.summary_type),
+        values: sr.summary_data || {},
+        ...(sr.summary_data || {}),
+      }));
+
+      // Calculate Closing Balance row if not explicitly present in summaryRows
+      const hasCB = summaryRows.some((sr: any) => sr.row_type === 'CB');
+      if (!hasCB && rawStockRows.length > 0) {
+        const cbValues: Record<string, any> = {};
+        rawStockRows.forEach((r: any) => {
+          const rVals = r.values || {};
+          Object.entries(rVals).forEach(([k, v]) => {
+            const num = parseFloat(String(v)) || 0;
+            if (r.row_type === 'OB' || r.row_type === 'RECEIPT') {
+              cbValues[k] = (cbValues[k] || 0) + num;
+            } else if (r.row_type === 'DISPOSAL') {
+              cbValues[k] = (cbValues[k] || 0) - num;
+            }
+          });
+        });
+        summaryRows.push({
+          row_type: 'CB',
+          row_label: 'Closing Balance',
+          values: cbValues,
+          ...cbValues,
+        });
+      }
+
+      const stockRows: any[] = [...rawStockRows, ...summaryRows];
       if (!stockRows || stockRows.length === 0) {
         await showWarning(`No stock rows found for ${entryDate}.`, 'Empty Stock Data');
         return;

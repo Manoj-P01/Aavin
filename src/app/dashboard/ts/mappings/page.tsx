@@ -16,7 +16,7 @@ export interface MappingRule {
   sourceStage: 'STAGE_1' | 'STAGE_2'; // STAGE_1 = Prep Charts, STAGE_2 = Stock Entry
   stockProductKey: string; // Stock product key OR Prep chart master key
   stockProductLabel: string;
-  stockSection: 'OB' | 'RECEIPT' | 'DISPOSAL';
+  stockSection: 'OB' | 'RECEIPT' | 'DISPOSAL' | 'CB';
   stockParticular: string; // Variant name for STAGE_1, or Particular name for STAGE_2
   sourceVariant?: string;
   sourceField?: 'qty_lts' | 'qty_kg' | 'fat_pct' | 'snf_pct' | 'kg_fat' | 'kg_snf' | 'sp_gr';
@@ -26,6 +26,23 @@ export interface MappingRule {
   stgItemName: string;
   stgTargetField: 'qty_lts' | 'qty_kg' | 'fat_pct' | 'snf_pct' | 'kg_fat' | 'kg_snf';
 }
+
+const extractRowName = (r: any): string => {
+  if (!r) return '';
+  if (typeof r === 'string') return r.trim();
+  const name =
+    r.variant ||
+    r.label ||
+    r.item_name ||
+    r.name ||
+    r.values?.variant ||
+    r.values?.VARIANT ||
+    r.values?.label ||
+    r.values?.particular ||
+    r.values?.name ||
+    '';
+  return String(name).trim();
+};
 
 export default function STGStatementMappingPage() {
   const [mappings, setMappings] = useState<MappingRule[]>([]);
@@ -44,6 +61,9 @@ export default function STGStatementMappingPage() {
     ob_rows?: any[];
     receipt_rows?: any[];
     disposal_rows?: any[];
+    reconciliation_rows?: any[];
+    default_rows?: any[];
+    rows?: any[];
   }>>([]);
 
   const [loading, setLoading] = useState(true);
@@ -60,13 +80,13 @@ export default function STGStatementMappingPage() {
 
   const [formSourceStage, setFormSourceStage] = useState<'STAGE_1' | 'STAGE_2'>('STAGE_1');
   const [formStockProductKey, setFormStockProductKey] = useState<string>('delite_prep');
-  const [formStockSection, setFormStockSection] = useState<'OB' | 'RECEIPT' | 'DISPOSAL'>('RECEIPT');
+  const [formStockSection, setFormStockSection] = useState<'OB' | 'RECEIPT' | 'DISPOSAL' | 'CB'>('RECEIPT');
   const [formStockParticular, setFormStockParticular] = useState<string>('DELITE');
   const [formSourceField, setFormSourceField] = useState<'qty_lts' | 'qty_kg' | 'fat_pct' | 'snf_pct' | 'kg_fat' | 'kg_snf' | 'sp_gr'>('qty_lts');
 
-  const [formStgBlockKey, setFormStgBlockKey] = useState<string>('WM');
+  const [formStgBlockKey, setFormStgBlockKey] = useState<string>('wh_milk');
   const [formStgSection, setFormStgSection] = useState<'OB' | 'RECEIPT' | 'DISPOSAL' | 'CB'>('RECEIPT');
-  const [formStgItemName, setFormStgItemName] = useState<string>('Receipt');
+  const [formStgItemName, setFormStgItemName] = useState<string>('');
   const [formStgTargetField, setFormStgTargetField] = useState<'qty_lts' | 'qty_kg' | 'fat_pct' | 'snf_pct' | 'kg_fat' | 'kg_snf'>('qty_lts');
 
   const { confirm } = useConfirm();
@@ -124,13 +144,49 @@ export default function STGStatementMappingPage() {
           const json = await stgConfigRes.json();
           if (Array.isArray(json.masters) && json.masters.length > 0) {
             if (active) {
-              setStgStatements(json.masters.map((m: any) => ({
-                key: m.key,
-                label: m.label || m.name || m.key,
-                ob_rows: m.ob_rows || [],
-                receipt_rows: m.receipt_rows || [],
-                disposal_rows: m.disposal_rows || [],
-              })));
+              const mastersList = json.masters.map((m: any) => {
+                let ob = Array.isArray(m.ob_rows) && m.ob_rows.length > 0 ? m.ob_rows : [];
+                if (ob.length === 0) {
+                  ob = (m.default_rows || m.rows || []).filter((r: any) =>
+                    r.row_type === 'OB' || (r.variant || '').toLowerCase().includes('opening')
+                  );
+                }
+                if (ob.length === 0) {
+                  ob = [{ variant: 'Opening Balance' }];
+                }
+
+                let rec = Array.isArray(m.receipt_rows) && m.receipt_rows.length > 0 ? m.receipt_rows : [];
+                if (rec.length === 0) {
+                  rec = (m.default_rows || m.rows || []).filter((r: any) =>
+                    (r.row_type === 'RECEIPT' || r.side === 'RECEIPT') && r.row_type !== 'OB' && !(r.variant || '').toLowerCase().includes('opening')
+                  );
+                }
+
+                let disp = Array.isArray(m.disposal_rows) && m.disposal_rows.length > 0 ? m.disposal_rows : [];
+                if (disp.length === 0) {
+                  disp = (m.default_rows || m.rows || []).filter((r: any) =>
+                    r.row_type === 'DISPOSAL' || r.side === 'DISPOSAL'
+                  );
+                }
+
+                const recon = Array.isArray(m.reconciliation_rows) ? m.reconciliation_rows : [];
+
+                return {
+                  key: m.key,
+                  label: m.label || m.name || m.key,
+                  ob_rows: ob,
+                  receipt_rows: rec,
+                  disposal_rows: disp,
+                  reconciliation_rows: recon,
+                };
+              });
+
+              setStgStatements(mastersList);
+              if (mastersList.length > 0) {
+                setFormStgBlockKey(prev => {
+                  return mastersList.some((s: any) => s.key === prev) ? prev : mastersList[0].key;
+                });
+              }
             }
           }
         }
@@ -214,6 +270,9 @@ export default function STGStatementMappingPage() {
     if (formStockSection === 'OB') {
       return ['Opening Balance'];
     }
+    if (formStockSection === 'CB') {
+      return ['Closing Balance', 'CB', 'Physical Count', 'Physical Balance', 'Book Balance'];
+    }
     const sourceList = formStockSection === 'RECEIPT' ? receiptRows : disposalRows;
     let labels = sourceList.map(r => (r.full_name || r.short_name || '').trim()).filter(Boolean);
     if (labels.length === 0) {
@@ -224,29 +283,31 @@ export default function STGStatementMappingPage() {
     return Array.from(new Set(labels));
   }, [formStockSection, receiptRows, disposalRows]);
 
-  // Dynamically compute available STG particulars for selected STG statement and section
+  // Dynamically compute available STG particulars for selected STG statement and section from Master Default Formulation Tables
   const availableStgItemNames = useMemo(() => {
     const stmt = stgStatements.find(s => s.key === formStgBlockKey);
     if (!stmt) return [];
+
+    let rawList: any[] = [];
     if (formStgSection === 'OB') {
-      const obRows = (stmt as any).ob_rows || [];
-      const list = obRows.map((r: any) => r.variant || r.item_name || r.name).filter(Boolean);
-      return list.length > 0 ? list : ['Opening Balance', 'OB'];
+      rawList = (stmt as any).ob_rows || [];
+    } else if (formStgSection === 'RECEIPT') {
+      rawList = (stmt as any).receipt_rows || [];
+    } else if (formStgSection === 'DISPOSAL') {
+      rawList = (stmt as any).disposal_rows || [];
+    } else if (formStgSection === 'CB') {
+      const reconRows = (stmt as any).reconciliation_rows || [];
+      const reconList = reconRows.map(extractRowName).filter(Boolean);
+      return Array.from(new Set([...reconList, 'Closing Balance', 'CB', 'Physical Count', 'Physical Balance']));
     }
-    if (formStgSection === 'RECEIPT') {
-      const recs = (stmt as any).receipt_rows || [];
-      const list = recs.map((r: any) => r.variant || r.item_name || r.name).filter(Boolean);
-      return list.length > 0 ? list : ['Receipt'];
-    }
-    if (formStgSection === 'DISPOSAL') {
-      const disps = (stmt as any).disposal_rows || [];
-      const list = disps.map((r: any) => r.variant || r.item_name || r.name).filter(Boolean);
-      return list.length > 0 ? list : ['Disposal'];
-    }
-    if (formStgSection === 'CB') {
-      return ['Closing Balance', 'CB', 'Physical Count'];
-    }
-    return [];
+
+    const list = rawList.map(extractRowName).filter(Boolean);
+    if (list.length > 0) return Array.from(new Set(list));
+
+    if (formStgSection === 'OB') return ['Opening Balance', 'OB'];
+    if (formStgSection === 'RECEIPT') return ['Receipt'];
+    if (formStgSection === 'DISPOSAL') return ['Disposal'];
+    return ['Closing Balance', 'CB'];
   }, [formStgBlockKey, formStgSection, stgStatements]);
 
   // Save STG Mappings to API
@@ -309,10 +370,15 @@ export default function STGStatementMappingPage() {
     setFormStockParticular(defaultParticular);
     setFormSourceField('qty_lts');
 
-    const targetKey = stgStatements[0]?.key || 'WM';
+    const targetKey = (stgStatements.length > 0 && stgStatements.some(s => s.key === formStgBlockKey))
+      ? formStgBlockKey
+      : (stgStatements[0]?.key || 'wh_milk');
     setFormStgBlockKey(targetKey);
     setFormStgSection('RECEIPT');
-    setFormStgItemName('Receipt');
+
+    const targetStmt = stgStatements.find(s => s.key === targetKey);
+    const firstRec = targetStmt?.receipt_rows?.[0] ? extractRowName(targetStmt.receipt_rows[0]) : 'Receipt';
+    setFormStgItemName(firstRec);
     setFormStgTargetField('qty_lts');
     setIsEditing(true);
   };
@@ -643,11 +709,13 @@ export default function STGStatementMappingPage() {
                             className="form-select"
                             value={formStockSection}
                             onChange={e => {
-                              const sec = e.target.value as 'OB' | 'RECEIPT' | 'DISPOSAL';
+                              const sec = e.target.value as 'OB' | 'RECEIPT' | 'DISPOSAL' | 'CB';
                               setFormStockSection(sec);
                               setIsCustomParticular(false);
                               if (sec === 'OB') {
                                 setFormStockParticular('Opening Balance');
+                              } else if (sec === 'CB') {
+                                setFormStockParticular('Closing Balance');
                               } else if (sec === 'RECEIPT') {
                                 const first = receiptRows[0]?.full_name || receiptRows[0]?.short_name || 'Receipts';
                                 setFormStockParticular(first);
@@ -661,6 +729,7 @@ export default function STGStatementMappingPage() {
                             <option value="OB">Opening Balance (OB)</option>
                             <option value="RECEIPT">Receipts</option>
                             <option value="DISPOSAL">Disposals</option>
+                            <option value="CB">Closing Balance (CB)</option>
                           </select>
                         </div>
 
@@ -756,7 +825,23 @@ export default function STGStatementMappingPage() {
                       <select
                         className="form-select"
                         value={formStgBlockKey}
-                        onChange={e => setFormStgBlockKey(e.target.value)}
+                        onChange={e => {
+                          const newKey = e.target.value;
+                          setFormStgBlockKey(newKey);
+                          setIsCustomStgItem(false);
+                          const stmt = stgStatements.find(s => s.key === newKey);
+                          if (stmt) {
+                            let list: any[] = [];
+                            if (formStgSection === 'OB') list = (stmt as any).ob_rows || [];
+                            else if (formStgSection === 'RECEIPT') list = (stmt as any).receipt_rows || [];
+                            else if (formStgSection === 'DISPOSAL') list = (stmt as any).disposal_rows || [];
+                            else if (formStgSection === 'CB') list = (stmt as any).reconciliation_rows || [];
+                            const names = list.map(extractRowName).filter(Boolean);
+                            if (names.length > 0) {
+                              setFormStgItemName(names[0]);
+                            }
+                          }
+                        }}
                         style={{ width: '100%' }}
                       >
                         {stgStatements.map(s => (
@@ -774,10 +859,23 @@ export default function STGStatementMappingPage() {
                           const sec = e.target.value as 'OB' | 'RECEIPT' | 'DISPOSAL' | 'CB';
                           setFormStgSection(sec);
                           setIsCustomStgItem(false);
-                          if (sec === 'OB') setFormStgItemName('OB');
-                          else if (sec === 'CB') setFormStgItemName('CB');
-                          else if (sec === 'RECEIPT') setFormStgItemName('Receipt');
-                          else setFormStgItemName('Disposal');
+                          const stmt = stgStatements.find(s => s.key === formStgBlockKey);
+                          if (stmt) {
+                            let list: any[] = [];
+                            if (sec === 'OB') list = (stmt as any).ob_rows || [];
+                            else if (sec === 'RECEIPT') list = (stmt as any).receipt_rows || [];
+                            else if (sec === 'DISPOSAL') list = (stmt as any).disposal_rows || [];
+                            else if (sec === 'CB') list = (stmt as any).reconciliation_rows || [];
+                            const names = list.map(extractRowName).filter(Boolean);
+                            if (names.length > 0) {
+                              setFormStgItemName(names[0]);
+                            } else {
+                              if (sec === 'OB') setFormStgItemName('Opening Balance');
+                              else if (sec === 'CB') setFormStgItemName('Closing Balance');
+                              else if (sec === 'RECEIPT') setFormStgItemName('Receipt');
+                              else setFormStgItemName('Disposal');
+                            }
+                          }
                         }}
                         style={{ width: '100%' }}
                       >
@@ -977,7 +1075,7 @@ export default function STGStatementMappingPage() {
                             </span>
 
                             <span style={{ fontSize: '0.85rem', fontWeight: 700, color: isStage1 ? '#0369a1' : 'var(--text-secondary)' }}>
-                              Variant: "{m.stockParticular}"
+                              {isStage1 ? 'Variant' : `Section: ${m.stockSection || 'RECEIPT'} | Particular`}: "{m.stockParticular}"
                             </span>
 
                             {m.sourceField && (
