@@ -185,6 +185,100 @@ export interface STGBlockState {
   physical_count?: STGPhysicalCount;
 }
 
+// Safe formula computation
+export const computeCalculatedField = (colKey: string, vals: Record<string, any>): number => {
+  const qtyLit = parseFloat(vals.qty_lts) || 0;
+  const spGr = parseFloat(vals.sp_gr) || 0;
+  const qtyKg = vals.qty_kg !== undefined && vals.qty_kg !== '' ? parseFloat(vals.qty_kg) : (spGr > 0 ? qtyLit * spGr : qtyLit);
+  const fatPct = parseFloat(vals.fat_pct) || 0;
+  const snfPct = parseFloat(vals.snf_pct) || 0;
+
+  if (colKey === 'qty_kg') return qtyKg;
+  if (colKey === 'kg_fat') return (qtyKg * fatPct) / 100;
+  if (colKey === 'kg_snf') return (qtyKg * snfPct) / 100;
+  return 0;
+};
+
+// Candidate stock keys resolver for intelligent matching fallback
+export const resolveStockCandidateKeys = (stmtKey: string, stmtLabel: string = ''): string[] => {
+  const normKey = (stmtKey + ' ' + stmtLabel).toLowerCase().replace(/[^a-z0-9]/g, ' ');
+  const tokens = normKey.split(/\s+/).filter(Boolean);
+  const keys: string[] = [];
+
+  const has = (...terms: string[]) => terms.some(t => tokens.includes(t) || normKey.includes(t));
+
+  if (has('wh', 'wm', 'whole', 'tentative whole milk', 'whole milk')) {
+    keys.push('wh.milk', 'wh_milk', 'whole_milk', 'wm');
+  }
+  if (has('delite', 'dlt')) {
+    keys.push('dlt.milk', 'dlt_milk', 'delite', 'delite_milk', 'dlt');
+  }
+  if (has('fc', 'fcm', 'full cream')) {
+    keys.push('fc.milk', 'fc_milk', 'fcm', 'fc', 'full_cream_milk');
+  }
+  if (has('std', 'standard', 'standardised')) {
+    keys.push('std.milk', 'std_milk', 'std', 'standardised_milk');
+  }
+  if (has('cream', 'crm')) {
+    keys.push('cream', 'crm');
+  }
+  if (has('skim', 'skimmed', 'ssm')) {
+    keys.push('skim_milk', 'skimmed_milk', 'ssm', 'skim.milk', 'skim');
+  }
+  if (has('smp')) {
+    keys.push('smp');
+  }
+  if (has('curd', 'tm')) {
+    keys.push('curd', 'tm_milk', 'tm.milk', 'toned_milk');
+  }
+
+  keys.push(stmtKey.toLowerCase());
+  return Array.from(new Set(keys));
+};
+
+// Populate block defaults from statement master
+export const populateBlockDefaultsFromMaster = (stmtMaster: any): STGBlockState => {
+  const rows: STGRowData[] = [];
+  if (Array.isArray(stmtMaster.receipt_rows) && stmtMaster.receipt_rows.length > 0) {
+    stmtMaster.receipt_rows.forEach((r: any) => {
+      const name = r.variant || r.short_name || r.full_name || 'Particular';
+      rows.push({ variant: name, row_type: 'RECEIPT', side: 'RECEIPT', values: { variant: name, ...(r.values || {}) } });
+    });
+  }
+  if (Array.isArray(stmtMaster.disposal_rows) && stmtMaster.disposal_rows.length > 0) {
+    stmtMaster.disposal_rows.forEach((d: any) => {
+      const name = d.variant || d.short_name || d.full_name || 'Particular';
+      rows.push({ variant: name, row_type: 'DISPOSAL', side: 'DISPOSAL', values: { variant: name, ...(d.values || {}) } });
+    });
+  }
+
+  if (rows.length === 0 && Array.isArray(stmtMaster.default_rows) && stmtMaster.default_rows.length > 0) {
+    stmtMaster.default_rows.forEach((r: any) => {
+      const name = r.variant || r.short_name || r.full_name || 'Particular';
+      rows.push({
+        variant: name,
+        row_type: r.row_type || r.side || 'RECEIPT',
+        side: r.side || r.row_type || 'RECEIPT',
+        values: { variant: name, ...(r.values || {}) }
+      });
+    });
+  }
+
+  if (rows.length === 0) {
+    rows.push(
+      { variant: 'Receipt 1', row_type: 'RECEIPT', side: 'RECEIPT', values: { variant: 'Receipt 1' } },
+      { variant: 'Disposal 1', row_type: 'DISPOSAL', side: 'DISPOSAL', values: { variant: 'Disposal 1' } }
+    );
+  }
+
+  return {
+    rows,
+    opening_balance: { qty_lts: '', sp_gr: '', qty_kg: '', fat_pct: '', snf_pct: '', kg_fat: '', kg_snf: '' },
+    physical_count: { qty_lts: '', sp_gr: '', qty_kg: '', fat_pct: '', snf_pct: '', kg_fat: '', kg_snf: '' },
+    cmpdd_norm: '0.5'
+  };
+};
+
 export interface STGEntryFormProps {
   onRegisterActions?: (actions: { handleSave: () => void; saving: boolean }) => void;
   saveButtonRef?: React.RefObject<HTMLDivElement | null>;
@@ -746,63 +840,6 @@ export default function STGEntryForm({
     });
   };
 
-  // Safe formula computation
-  const computeCalculatedField = (colKey: string, vals: Record<string, any>) => {
-    const qtyLit = parseFloat(vals.qty_lts) || 0;
-    const spGr = parseFloat(vals.sp_gr) || 0;
-    const qtyKg = vals.qty_kg !== undefined && vals.qty_kg !== '' ? parseFloat(vals.qty_kg) : (spGr > 0 ? qtyLit * spGr : qtyLit);
-    const fatPct = parseFloat(vals.fat_pct) || 0;
-    const snfPct = parseFloat(vals.snf_pct) || 0;
-
-    if (colKey === 'qty_kg') return qtyKg;
-    if (colKey === 'kg_fat') return (qtyKg * fatPct) / 100;
-    if (colKey === 'kg_snf') return (qtyKg * snfPct) / 100;
-    return 0;
-  };
-
-  // Populate block defaults from statement master
-  const populateBlockDefaultsFromMaster = useCallback((stmtMaster: any): STGBlockState => {
-    const rows: STGRowData[] = [];
-    if (Array.isArray(stmtMaster.receipt_rows) && stmtMaster.receipt_rows.length > 0) {
-      stmtMaster.receipt_rows.forEach((r: any) => {
-        const name = r.variant || r.short_name || r.full_name || 'Particular';
-        rows.push({ variant: name, row_type: 'RECEIPT', side: 'RECEIPT', values: { variant: name, ...(r.values || {}) } });
-      });
-    }
-    if (Array.isArray(stmtMaster.disposal_rows) && stmtMaster.disposal_rows.length > 0) {
-      stmtMaster.disposal_rows.forEach((d: any) => {
-        const name = d.variant || d.short_name || d.full_name || 'Particular';
-        rows.push({ variant: name, row_type: 'DISPOSAL', side: 'DISPOSAL', values: { variant: name, ...(d.values || {}) } });
-      });
-    }
-
-    if (rows.length === 0 && Array.isArray(stmtMaster.default_rows) && stmtMaster.default_rows.length > 0) {
-      stmtMaster.default_rows.forEach((r: any) => {
-        const name = r.variant || r.short_name || r.full_name || 'Particular';
-        rows.push({
-          variant: name,
-          row_type: r.row_type || r.side || 'RECEIPT',
-          side: r.side || r.row_type || 'RECEIPT',
-          values: { variant: name, ...(r.values || {}) }
-        });
-      });
-    }
-
-    if (rows.length === 0) {
-      rows.push(
-        { variant: 'Receipt 1', row_type: 'RECEIPT', side: 'RECEIPT', values: { variant: 'Receipt 1' } },
-        { variant: 'Disposal 1', row_type: 'DISPOSAL', side: 'DISPOSAL', values: { variant: 'Disposal 1' } }
-      );
-    }
-
-    return {
-      rows,
-      opening_balance: { qty_lts: '', sp_gr: '', qty_kg: '', fat_pct: '', snf_pct: '', kg_fat: '', kg_snf: '' },
-      physical_count: { qty_lts: '', sp_gr: '', qty_kg: '', fat_pct: '', snf_pct: '', kg_fat: '', kg_snf: '' },
-      cmpdd_norm: '0.5'
-    };
-  }, []);
-
   // Helper to dynamically get configured columns for OB, Receipts, or Disposals for any statement master
   const getSectionColumnsForMaster = useCallback((stmtKey: string, section: 'ob' | 'receipt' | 'disposal') => {
     const master = masters.find(m => m.key === stmtKey);
@@ -836,43 +873,6 @@ export default function STGEntryForm({
       { key: 'kg_snf', name: 'Kg.Snf', type: 'calculated', decimals: 3 },
     ];
   }, [masters]);
-
-  // Candidate stock keys resolver for intelligent matching fallback
-  const resolveStockCandidateKeys = (stmtKey: string, stmtLabel: string = ''): string[] => {
-    const normKey = (stmtKey + ' ' + stmtLabel).toLowerCase().replace(/[^a-z0-9]/g, ' ');
-    const tokens = normKey.split(/\s+/).filter(Boolean);
-    const keys: string[] = [];
-
-    const has = (...terms: string[]) => terms.some(t => tokens.includes(t) || normKey.includes(t));
-
-    if (has('wh', 'wm', 'whole', 'tentative whole milk', 'whole milk')) {
-      keys.push('wh.milk', 'wh_milk', 'whole_milk', 'wm');
-    }
-    if (has('delite', 'dlt')) {
-      keys.push('dlt.milk', 'dlt_milk', 'delite', 'delite_milk', 'dlt');
-    }
-    if (has('fc', 'fcm', 'full cream')) {
-      keys.push('fc.milk', 'fc_milk', 'fcm', 'fc', 'full_cream_milk');
-    }
-    if (has('std', 'standard', 'standardised')) {
-      keys.push('std.milk', 'std_milk', 'std', 'standardised_milk');
-    }
-    if (has('cream', 'crm')) {
-      keys.push('cream', 'crm');
-    }
-    if (has('skim', 'skimmed', 'ssm')) {
-      keys.push('skim_milk', 'skimmed_milk', 'ssm', 'skim.milk', 'skim');
-    }
-    if (has('smp')) {
-      keys.push('smp');
-    }
-    if (has('curd', 'tm')) {
-      keys.push('curd', 'tm_milk', 'tm.milk', 'toned_milk');
-    }
-
-    keys.push(stmtKey.toLowerCase());
-    return Array.from(new Set(keys));
-  };
 
   // Sync stock values from Stock Statement and Mapping Rules into blocks
   const syncStockValuesToBlocks = useCallback((
@@ -1060,7 +1060,7 @@ export default function STGEntryForm({
     });
 
     return { updatedBlocks: copy, syncedCount };
-  }, [computeCalculatedField]);
+  }, []);
 
   // Handle Sync From Stock button click
   const handleSyncFromStock = async () => {
@@ -1113,14 +1113,30 @@ export default function STGEntryForm({
     }
   };
 
+  const lastLoadedRef = useRef<string>('');
+
   // Fetch statement masters and data
   useEffect(() => {
     if (!entryDate) return;
+    const currentKey = `${entryDate}_${shift || 'F'}`;
+    if (lastLoadedRef.current === currentKey) return;
+    lastLoadedRef.current = currentKey;
+
     let active = true;
 
     async function loadData() {
       try {
-        const configRes = await fetch('/api/ts/masters');
+        const s = shift ? `&shift=${shift}` : '';
+        const [configRes, stgRes, mapRes, stockRes, reconRes] = await Promise.all([
+          fetch('/api/ts/masters'),
+          fetch(`/api/ts?date=${entryDate}${s}`),
+          fetch('/api/entries?report_type=STOCK_MAPPING'),
+          fetch(`/api/stock?date=${entryDate}${s}`),
+          fetch(`/api/ts/reconciliation?date=${entryDate}&shift=${shift || 'F'}`),
+        ]);
+
+        if (!active) return;
+
         let globalStatements: any[] = [];
         if (configRes.ok) {
           const configJson = await configRes.json();
@@ -1133,9 +1149,30 @@ export default function STGEntryForm({
           }
         }
 
-        const res = await fetch(`/api/ts?date=${entryDate}${shift ? `&shift=${shift}` : ''}`);
-        if (res.ok) {
-          const data = await res.json();
+        let loadedRules: any[] = [];
+        if (mapRes.ok) {
+          const mapJson = await mapRes.json();
+          const entries: any[] = mapJson.data || [];
+          const entry = entries.find((e: any) => {
+            if (!e.notes) return false;
+            try { return Array.isArray(JSON.parse(e.notes)); } catch { return false; }
+          }) || entries[0];
+          if (entry && entry.notes) {
+            try {
+              loadedRules = JSON.parse(entry.notes);
+              setMappingRules(loadedRules);
+            } catch {}
+          }
+        }
+
+        let stockRows: any[] = [];
+        if (stockRes.ok) {
+          const stockJson = await stockRes.json();
+          stockRows = stockJson.data?.stock_rows || [];
+        }
+
+        if (stgRes.ok) {
+          const data = await stgRes.json();
           if (active && data.data) {
             let todayCustomStatements: any[] = [];
             let customBlocksState: Record<string, any> = {};
@@ -1266,57 +1303,26 @@ export default function STGEntryForm({
               });
             }
 
-            // Load STG statement mapping rules & auto-sync from Stock Statement if opening balance is not yet filled
-            try {
-              let loadedRules: any[] = [];
-              const mapRes = await fetch('/api/entries?report_type=STOCK_MAPPING');
-              if (mapRes.ok) {
-                const mapJson = await mapRes.json();
-                const entries: any[] = mapJson.data || [];
-                const entry = entries.find((e: any) => {
-                  if (!e.notes) return false;
-                  try { return Array.isArray(JSON.parse(e.notes)); } catch { return false; }
-                }) || entries[0];
-                if (entry && entry.notes) {
-                  try {
-                    loadedRules = JSON.parse(entry.notes);
-                    if (active) setMappingRules(loadedRules);
-                  } catch {}
-                }
+            // Auto-sync from stock if opening balance is not yet saved
+            if (stockRows.length > 0) {
+              const needsSync = combinedStatements.some(s => {
+                const obLts = newBlocks[s.key]?.opening_balance?.qty_lts;
+                return obLts === undefined || obLts === null || obLts === '' || obLts === '0';
+              });
+              if (needsSync) {
+                const { updatedBlocks } = syncStockValuesToBlocks(stockRows, loadedRules, combinedStatements, newBlocks);
+                newBlocks = updatedBlocks;
               }
-
-              const stockRes = await fetch(`/api/stock?date=${entryDate}${shift ? `&shift=${shift}` : ''}`);
-              if (stockRes.ok) {
-                const stockJson = await stockRes.json();
-                const stockRows: any[] = stockJson.data?.stock_rows || [];
-                if (stockRows.length > 0) {
-                  const needsSync = combinedStatements.some(s => {
-                    const obLts = newBlocks[s.key]?.opening_balance?.qty_lts;
-                    return obLts === undefined || obLts === null || obLts === '' || obLts === '0';
-                  });
-                  if (needsSync) {
-                    const { updatedBlocks } = syncStockValuesToBlocks(stockRows, loadedRules, combinedStatements, newBlocks);
-                    newBlocks = updatedBlocks;
-                  }
-                }
-              }
-            } catch (syncErr) {
-              console.warn('Auto-sync from stock on load skipped:', syncErr);
             }
 
             setBlocks(newBlocks);
 
             // Load Reconciliation Summaries from dedicated table stg_reconciliation_entries
-            try {
-              const reconRes = await fetch(`/api/ts/reconciliation?date=${entryDate}&shift=${shift || 'F'}`);
-              if (reconRes.ok) {
-                const reconJson = await reconRes.json();
-                if (reconJson.data && typeof reconJson.data === 'object' && Object.keys(reconJson.data).length > 0) {
-                  setReconciliations(reconJson.data);
-                }
+            if (reconRes.ok) {
+              const reconJson = await reconRes.json();
+              if (reconJson.data && typeof reconJson.data === 'object' && Object.keys(reconJson.data).length > 0) {
+                setReconciliations(reconJson.data);
               }
-            } catch (rErr) {
-              console.warn('Could not load reconciliation data:', rErr);
             }
           }
         }
@@ -1327,7 +1333,7 @@ export default function STGEntryForm({
 
     loadData();
     return () => { active = false; };
-  }, [entryDate, shift, populateBlockDefaultsFromMaster, syncStockValuesToBlocks]);
+  }, [entryDate, shift]);
 
   // Handle Create Statement Master from Modal
   const handleCreateStatementMaster = async (e: React.FormEvent) => {
