@@ -24,7 +24,7 @@ export interface MappingRule {
   stgBlockLabel: string;
   stgSection: 'OB' | 'RECEIPT' | 'DISPOSAL' | 'CB';
   stgItemName: string;
-  stgTargetField: 'qty_lts' | 'qty_kg' | 'fat_pct' | 'snf_pct' | 'kg_fat' | 'kg_snf';
+  stgTargetField: string;
 }
 
 const extractRowName = (r: any): string => {
@@ -70,9 +70,14 @@ export default function STGStatementMappingPage() {
 
   const [receiptRows, setReceiptRows] = useState<Array<{ full_name: string; short_name: string }>>([]);
   const [disposalRows, setDisposalRows] = useState<Array<{ full_name: string; short_name: string }>>([]);
+  const [stgColumns, setStgColumns] = useState<Array<{ key: string; name: string }>>([]);
   const [stgStatements, setStgStatements] = useState<Array<{
     key: string;
     label: string;
+    ob_columns?: any[];
+    receipt_columns?: any[];
+    disposal_columns?: any[];
+    recon_columns?: any[];
     ob_rows?: any[];
     receipt_rows?: any[];
     disposal_rows?: any[];
@@ -100,9 +105,9 @@ export default function STGStatementMappingPage() {
   const [formSourceField, setFormSourceField] = useState<'qty_lts' | 'qty_kg' | 'fat_pct' | 'snf_pct' | 'kg_fat' | 'kg_snf' | 'sp_gr'>('qty_lts');
 
   const [formStgBlockKey, setFormStgBlockKey] = useState<string>('');
-  const [formStgSection, setFormStgSection] = useState<'OB' | 'RECEIPT' | 'DISPOSAL' | 'CB'>('RECEIPT');
+  const [formStgTargetField, setFormStgTargetField] = useState<string>('');
+  const [formStgSection, setFormStgSection] = useState<'OB' | 'RECEIPT' | 'DISPOSAL' | 'CB' | ''>('');
   const [formStgItemName, setFormStgItemName] = useState<string>('');
-  const [formStgTargetField, setFormStgTargetField] = useState<'qty_lts' | 'qty_kg' | 'fat_pct' | 'snf_pct' | 'kg_fat' | 'kg_snf'>('qty_lts');
 
   const { confirm } = useConfirm();
 
@@ -164,6 +169,10 @@ export default function STGStatementMappingPage() {
               const mastersList = json.masters.map((m: any) => ({
                 key: m.key,
                 label: m.label || m.name || m.key,
+                ob_columns: Array.isArray(m.ob_columns) ? m.ob_columns : [],
+                receipt_columns: Array.isArray(m.receipt_columns) ? m.receipt_columns : [],
+                disposal_columns: Array.isArray(m.disposal_columns) ? m.disposal_columns : [],
+                recon_columns: Array.isArray(m.recon_columns) ? m.recon_columns : [],
                 ob_rows: Array.isArray(m.ob_rows) && m.ob_rows.length > 0 ? m.ob_rows : (m.rows || m.default_rows || []).filter((r: any) => r.row_type === 'OB'),
                 receipt_rows: Array.isArray(m.receipt_rows) && m.receipt_rows.length > 0 ? m.receipt_rows : (m.rows || m.default_rows || []).filter((r: any) => (r.row_type === 'RECEIPT' || r.side === 'RECEIPT') && r.row_type !== 'OB'),
                 disposal_rows: Array.isArray(m.disposal_rows) && m.disposal_rows.length > 0 ? m.disposal_rows : (m.rows || m.default_rows || []).filter((r: any) => r.row_type === 'DISPOSAL' || r.side === 'DISPOSAL'),
@@ -180,7 +189,21 @@ export default function STGStatementMappingPage() {
           }
         }
 
-        // 4. Load STG Statement Mappings
+        // 4. Load configured STG columns from DB
+        try {
+          const colsRes = await fetch('/api/ts/columns');
+          if (colsRes.ok) {
+            const colJson = await colsRes.json();
+            if (Array.isArray(colJson.columns) && active) {
+              setStgColumns(colJson.columns.map((c: any) => ({
+                key: c.key,
+                name: c.name || c.label || c.key,
+              })));
+            }
+          }
+        } catch { }
+
+        // 5. Load STG Statement Mappings
         const mapRes = await fetch('/api/entries?report_type=STOCK_MAPPING');
         if (mapRes.ok) {
           const json = await mapRes.json();
@@ -267,8 +290,58 @@ export default function STGStatementMappingPage() {
     return Array.from(new Set(labels));
   }, [formStockSection, receiptRows, disposalRows]);
 
+  // Dynamically compute available target columns (fields) for STG statement
+  const availableStgTargetFields = useMemo(() => {
+    const map = new Map<string, string>();
+    const IGNORED = new Set(['variant', 'particular', 'label', 'name', 'item_name', 'id', '#']);
+
+    const addCol = (c: any) => {
+      const k = (c?.key || '').trim().toLowerCase();
+      if (k && !IGNORED.has(k)) {
+        if (!map.has(c.key)) {
+          map.set(c.key, c.name || c.label || c.key);
+        }
+      }
+    };
+
+    const stmt = stgStatements.find(s => s.key === formStgBlockKey);
+    if (stmt) {
+      if (formStgSection === 'OB' && stmt.ob_columns?.length) {
+        stmt.ob_columns.forEach(addCol);
+      } else if (formStgSection === 'RECEIPT' && stmt.receipt_columns?.length) {
+        stmt.receipt_columns.forEach(addCol);
+      } else if (formStgSection === 'DISPOSAL' && stmt.disposal_columns?.length) {
+        stmt.disposal_columns.forEach(addCol);
+      } else if (formStgSection === 'CB' && stmt.recon_columns?.length) {
+        stmt.recon_columns.forEach(addCol);
+      } else {
+        (stmt.receipt_columns || []).forEach(addCol);
+        (stmt.disposal_columns || []).forEach(addCol);
+        (stmt.ob_columns || []).forEach(addCol);
+        (stmt.recon_columns || []).forEach(addCol);
+      }
+    }
+
+    // Add global columns from /api/ts/columns
+    stgColumns.forEach(addCol);
+
+    // Standard fallback columns
+    if (map.size === 0) {
+      map.set('qty_lts', 'Qty (Lts)');
+      map.set('qty_kg', 'Qty (Kg)');
+      map.set('fat_pct', 'Fat %');
+      map.set('snf_pct', 'SNF %');
+      map.set('sp_gr', 'SP.G');
+      map.set('kg_fat', 'Kg Fat');
+      map.set('kg_snf', 'Kg SNF');
+    }
+
+    return Array.from(map.entries()).map(([key, name]) => ({ key, name }));
+  }, [formStgBlockKey, formStgSection, stgStatements, stgColumns]);
+
   // Dynamically compute available STG particulars for selected STG statement and section strictly from saved rows from table
   const availableStgItemNames = useMemo<string[]>(() => {
+    if (!formStgSection) return [];
     const stmt = stgStatements.find(s => s.key === formStgBlockKey);
     let rawList: any[] = [];
     if (stmt) {
@@ -349,15 +422,9 @@ export default function STGStatementMappingPage() {
       ? formStgBlockKey
       : (stgStatements[0]?.key || '');
     setFormStgBlockKey(targetKey);
-    setFormStgSection('RECEIPT');
+    setFormStgTargetField('');
+    setFormStgSection('');
     setFormStgItemName('');
-    setFormStgTargetField('qty_lts');
-
-    const targetStmt = stgStatements.find(s => s.key === targetKey);
-    const recRows = (targetStmt?.receipt_rows || []).map(extractRowName).filter(Boolean);
-    if (recRows.length === 0) {
-      setIsCustomStgItem(true);
-    }
 
     setIsEditing(true);
   };
@@ -372,11 +439,11 @@ export default function STGStatementMappingPage() {
     setFormSourceField(rule.sourceField || 'qty_lts');
 
     setFormStgBlockKey(rule.stgBlockKey || '');
-    setFormStgSection(rule.stgSection || 'RECEIPT');
+    setFormStgTargetField(rule.stgTargetField || '');
+    setFormStgSection((rule.stgSection || '') as any);
 
     const chosenItem = (rule.stgItemName || '').trim();
     setFormStgItemName(chosenItem);
-    setFormStgTargetField(rule.stgTargetField || 'qty_lts');
 
     // Look up saved rows from table for this statement block and section
     const targetStmt = stgStatements.find(s => s.key === rule.stgBlockKey);
@@ -413,8 +480,16 @@ export default function STGStatementMappingPage() {
       setError('Please select an STG statement master block.');
       return;
     }
+    if (!formStgTargetField) {
+      setError('Please select an STG target field (column).');
+      return;
+    }
+    if (!formStgSection) {
+      setError('Please select an STG target section (table name).');
+      return;
+    }
     if (!formStgItemName.trim()) {
-      setError('Please select or enter an STG item / particular.');
+      setError('Please select or enter an STG item / particular (row value).');
       return;
     }
 
@@ -439,7 +514,7 @@ export default function STGStatementMappingPage() {
       sourceField: formSourceField,
       stgBlockKey: formStgBlockKey,
       stgBlockLabel: stgLabel,
-      stgSection: formStgSection,
+      stgSection: formStgSection as 'OB' | 'RECEIPT' | 'DISPOSAL' | 'CB',
       stgItemName: formStgItemName.trim(),
       stgTargetField: formStgTargetField,
     };
@@ -835,9 +910,12 @@ export default function STGStatementMappingPage() {
                   <div style={{ fontWeight: 700, color: '#10b981', marginBottom: 12, fontSize: '0.9rem' }}>
                     ⚖️ Target Solid Balance (STG)
                   </div>
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                    {/* 1. STG Statement Master Block */}
                     <div>
-                      <label className="form-label" style={{ fontSize: '0.75rem', marginBottom: 4 }}>STG Statement Master Block</label>
+                      <label className="form-label" style={{ fontSize: '0.75rem', marginBottom: 4, fontWeight: 700 }}>
+                        1. STG Statement Master Block *
+                      </label>
                       <select
                         className="form-select"
                         value={formStgBlockKey}
@@ -846,29 +924,49 @@ export default function STGStatementMappingPage() {
                           setFormStgBlockKey(newKey);
                           setFormStgItemName('');
                           setIsCustomStgItem(false);
-                          const stmt = stgStatements.find(s => s.key === newKey);
-                          let list: any[] = [];
-                          if (formStgSection === 'OB') list = (stmt as any)?.ob_rows || [];
-                          else if (formStgSection === 'RECEIPT') list = (stmt as any)?.receipt_rows || [];
-                          else if (formStgSection === 'DISPOSAL') list = (stmt as any)?.disposal_rows || [];
-                          else if (formStgSection === 'CB') list = (stmt as any)?.reconciliation_rows || [];
-                          const names = list.map(extractRowName).filter(Boolean);
-                          if (names.length === 0) {
-                            setIsCustomStgItem(true);
-                          }
                         }}
                         style={{ width: '100%' }}
                         required
                       >
-                        <option value="" disabled>-- Select Statement Master --</option>
+                        <option value="" disabled>-- Select Statement Master Block --</option>
                         {stgStatements.map(s => (
                           <option key={s.key} value={s.key}>{s.key} - {s.label}</option>
                         ))}
                       </select>
                     </div>
 
+                    {/* 2. STG Target Field (Column) - First select Target Field */}
                     <div>
-                      <label className="form-label" style={{ fontSize: '0.75rem', marginBottom: 4 }}>STG Target Section</label>
+                      <label className="form-label" style={{ fontSize: '0.75rem', marginBottom: 4, fontWeight: 700 }}>
+                        2. STG Target Field (Column) *
+                      </label>
+                      <select
+                        className="form-select"
+                        value={formStgTargetField}
+                        onChange={e => {
+                          setFormStgTargetField(e.target.value);
+                        }}
+                        style={{ width: '100%', fontWeight: 700, color: '#047857' }}
+                        disabled={!formStgBlockKey}
+                        required
+                      >
+                        <option value="" disabled>-- Select STG Target Column (Field) --</option>
+                        {availableStgTargetFields.map(col => (
+                          <option key={col.key} value={col.key}>{col.name} ({col.key})</option>
+                        ))}
+                      </select>
+                      {!formStgBlockKey && (
+                        <div style={{ fontSize: '0.7rem', color: '#64748b', marginTop: 2 }}>
+                          Please select an STG Statement Master Block above first
+                        </div>
+                      )}
+                    </div>
+
+                    {/* 3. STG Target Section (Table Name) - Then only select Target Section */}
+                    <div>
+                      <label className="form-label" style={{ fontSize: '0.75rem', marginBottom: 4, fontWeight: 700 }}>
+                        3. STG Target Section (Table Name) *
+                      </label>
                       <select
                         className="form-select"
                         value={formStgSection}
@@ -888,109 +986,109 @@ export default function STGStatementMappingPage() {
                             setIsCustomStgItem(true);
                           }
                         }}
-                        style={{ width: '100%' }}
+                        style={{ width: '100%', fontWeight: 600 }}
+                        disabled={!formStgTargetField}
+                        required
                       >
+                        <option value="" disabled>-- Select Target Table Name (Section) --</option>
                         <option value="OB">Opening Balance (OB)</option>
                         <option value="RECEIPT">Receipts</option>
                         <option value="DISPOSAL">Disposals</option>
-                        <option value="CB">Physical Count / Closing (CB)</option>
+                        <option value="CB">Closing Balance (CB)</option>
                       </select>
+                      {!formStgTargetField && formStgBlockKey && (
+                        <div style={{ fontSize: '0.7rem', color: '#d97706', marginTop: 2, fontWeight: 600 }}>
+                          ⚠️ Please select STG Target Field (Column) above first
+                        </div>
+                      )}
                     </div>
 
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-                      <div>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
-                          <label className="form-label" style={{ fontSize: '0.75rem', margin: 0 }}>STG Item / Particular *</label>
-                          {availableStgItemNames.length > 0 && (
-                            <button
-                              type="button"
-                              onClick={() => setIsCustomStgItem(!isCustomStgItem)}
-                              style={{
-                                background: 'none',
-                                border: 'none',
-                                color: '#10b981',
-                                fontSize: '0.72rem',
-                                fontWeight: 700,
-                                cursor: 'pointer',
-                                padding: 0,
-                              }}
-                            >
-                              {isCustomStgItem ? '📋 Dropdown' : '✏️ Custom'}
-                            </button>
-                          )}
-                        </div>
-
-                        {!isCustomStgItem && availableStgItemNames.length > 0 ? (
-                          <select
-                            className="form-select"
-                            value={formStgItemName}
-                            onChange={e => {
-                              if (e.target.value === '__custom__') {
-                                setIsCustomStgItem(true);
-                              } else {
-                                setFormStgItemName(e.target.value);
-                              }
+                    {/* 4. STG Item / Particular * (Row Value) */}
+                    <div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+                        <label className="form-label" style={{ fontSize: '0.75rem', margin: 0, fontWeight: 700 }}>
+                          4. STG Item / Particular * (Row Value)
+                        </label>
+                        {availableStgItemNames.length > 0 && formStgSection && (
+                          <button
+                            type="button"
+                            onClick={() => setIsCustomStgItem(!isCustomStgItem)}
+                            style={{
+                              background: 'none',
+                              border: 'none',
+                              color: '#10b981',
+                              fontSize: '0.72rem',
+                              fontWeight: 700,
+                              cursor: 'pointer',
+                              padding: 0,
                             }}
-                            style={{ width: '100%', fontWeight: 700, color: '#047857' }}
-                            required
                           >
-                            <option value="" disabled>-- Select STG Particular --</option>
-                            {availableStgItemNames.map((item: string) => (
-                              <option key={item} value={item}>{item}</option>
-                            ))}
-                            {formStgItemName && !availableStgItemNames.includes(formStgItemName) && (
-                              <option value={formStgItemName}>{formStgItemName} (Custom / Saved)</option>
-                            )}
-                            <option value="__custom__">➕ Type Custom Item...</option>
-                          </select>
-                        ) : (
-                          <div style={{ display: 'flex', gap: 6 }}>
-                            <input
-                              type="text"
-                              className="form-input"
-                              value={formStgItemName}
-                              onChange={e => setFormStgItemName(e.target.value)}
-                              placeholder="Enter STG particular / item name..."
-                              style={{ width: '100%', fontWeight: 700 }}
-                              required
-                              autoFocus={isCustomStgItem}
-                            />
-                            {availableStgItemNames.length > 0 && (
-                              <button
-                                type="button"
-                                className="btn btn-secondary btn-xs"
-                                onClick={() => {
-                                  setIsCustomStgItem(false);
-                                  if (!availableStgItemNames.includes(formStgItemName)) {
-                                    setFormStgItemName(availableStgItemNames[0] || '');
-                                  }
-                                }}
-                                title="Return to predefined dropdown"
-                                style={{ fontSize: '0.72rem', whiteSpace: 'nowrap' }}
-                              >
-                                Dropdown
-                              </button>
-                            )}
-                          </div>
+                            {isCustomStgItem ? '📋 Dropdown' : '✏️ Custom'}
+                          </button>
                         )}
                       </div>
 
-                      <div>
-                        <label className="form-label" style={{ fontSize: '0.75rem', marginBottom: 4 }}>STG Target Field</label>
+                      {!formStgSection ? (
+                        <input
+                          type="text"
+                          className="form-input"
+                          placeholder="Select Target Table Name above first..."
+                          disabled
+                          style={{ width: '100%', background: '#f8fafc', color: '#94a3b8' }}
+                        />
+                      ) : !isCustomStgItem && availableStgItemNames.length > 0 ? (
                         <select
                           className="form-select"
-                          value={formStgTargetField}
-                          onChange={e => setFormStgTargetField(e.target.value as any)}
-                          style={{ width: '100%' }}
+                          value={formStgItemName}
+                          onChange={e => {
+                            if (e.target.value === '__custom__') {
+                              setIsCustomStgItem(true);
+                            } else {
+                              setFormStgItemName(e.target.value);
+                            }
+                          }}
+                          style={{ width: '100%', fontWeight: 700, color: '#047857' }}
+                          required
                         >
-                          <option value="qty_lts">Qty (Lts)</option>
-                          <option value="qty_kg">Qty (Kg)</option>
-                          <option value="fat_pct">Fat %</option>
-                          <option value="snf_pct">SNF %</option>
-                          <option value="kg_fat">Kg Fat</option>
-                          <option value="kg_snf">Kg SNF</option>
+                          <option value="" disabled>-- Select Row Value ({formStgSection === 'OB' ? 'Opening Balance' : formStgSection === 'RECEIPT' ? 'Receipts' : formStgSection === 'DISPOSAL' ? 'Disposals' : 'Closing Balance'}) --</option>
+                          {availableStgItemNames.map((item: string) => (
+                            <option key={item} value={item}>{item}</option>
+                          ))}
+                          {formStgItemName && !availableStgItemNames.includes(formStgItemName) && (
+                            <option value={formStgItemName}>{formStgItemName} (Custom / Saved)</option>
+                          )}
+                          <option value="__custom__">➕ Type Custom Item...</option>
                         </select>
-                      </div>
+                      ) : (
+                        <div style={{ display: 'flex', gap: 6 }}>
+                          <input
+                            type="text"
+                            className="form-input"
+                            value={formStgItemName}
+                            onChange={e => setFormStgItemName(e.target.value)}
+                            placeholder="Enter STG row value / particular name..."
+                            style={{ width: '100%', fontWeight: 700 }}
+                            required
+                            autoFocus={isCustomStgItem}
+                          />
+                          {availableStgItemNames.length > 0 && (
+                            <button
+                              type="button"
+                              className="btn btn-secondary btn-xs"
+                              onClick={() => {
+                                setIsCustomStgItem(false);
+                                if (!availableStgItemNames.includes(formStgItemName)) {
+                                  setFormStgItemName(availableStgItemNames[0] || '');
+                                }
+                              }}
+                              title="Return to predefined dropdown"
+                              style={{ fontSize: '0.72rem', whiteSpace: 'nowrap' }}
+                            >
+                              Dropdown
+                            </button>
+                          )}
+                        </div>
+                      )}
                     </div>
                   </div>
                 </div>
@@ -1109,17 +1207,17 @@ export default function STGStatementMappingPage() {
                               </span>
                               {m.stgBlockLabel}
                             </div>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
-                              <span>
-                                Section: <strong>{m.stgSection}</strong>
-                              </span>
-                              <span>•</span>
-                              <span>
-                                Item: <strong>"{m.stgItemName}"</strong>
-                              </span>
-                              <span>•</span>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: '0.8rem', color: 'var(--text-secondary)', flexWrap: 'wrap' }}>
                               <span style={{ color: '#059669', fontWeight: 700, background: '#d1fae5', padding: '1px 6px', borderRadius: 4 }}>
-                                Target: {m.stgTargetField}
+                                Target Column: {m.stgTargetField}
+                              </span>
+                              <span>•</span>
+                              <span>
+                                Table: <strong>{m.stgSection === 'OB' ? 'Opening Balance (OB)' : m.stgSection === 'RECEIPT' ? 'Receipts' : m.stgSection === 'DISPOSAL' ? 'Disposals' : 'Closing Balance (CB)'}</strong>
+                              </span>
+                              <span>•</span>
+                              <span>
+                                Row: <strong>"{m.stgItemName}"</strong>
                               </span>
                             </div>
                           </div>
