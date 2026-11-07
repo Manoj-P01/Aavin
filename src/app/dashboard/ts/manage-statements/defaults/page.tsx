@@ -104,168 +104,7 @@ export const getDefaultReconColumns = (): STGColumnDef[] => [
   { key: 'note', name: 'Note / Description', type: 'text', sort_order: 9 },
 ];
 
-export const getDefaultReconRows = (): STGReconRow[] => [
-  {
-    id: 'recon_row_1',
-    label: 'Total Receipts (+)',
-    row_type: 'TOTAL_RECEIPT',
-    is_formula: true,
-    color_hint: 'green',
-    values: {
-      label: 'Total Receipts (+)',
-      qty_lts: '=RECEIPTS.lts',
-      lts: '=RECEIPTS.lts',
-      sp_gr: '—',
-      qty_kg: '=RECEIPTS.kg',
-      kg: '=RECEIPTS.kg',
-      fat_pct: '—',
-      snf_pct: '—',
-      kg_fat: '=RECEIPTS.kg_fat',
-      kg_snf: '=RECEIPTS.kg_snf',
-      note: 'Total of all Receipts',
-    },
-  },
-  {
-    id: 'recon_row_2',
-    label: 'Opening Balance (OB)',
-    row_type: 'OB',
-    is_formula: true,
-    color_hint: 'blue',
-    values: {
-      label: 'Opening Balance (OB)',
-      qty_lts: '=OB.lts',
-      lts: '=OB.lts',
-      sp_gr: '=OB.sp_gr',
-      qty_kg: '=OB.kg',
-      kg: '=OB.kg',
-      fat_pct: '=OB.fat_pct',
-      snf_pct: '=OB.snf_pct',
-      kg_fat: '=OB.kg_fat',
-      kg_snf: '=OB.kg_snf',
-      note: 'Beginning Inventory',
-    },
-  },
-  {
-    id: 'recon_row_3',
-    label: 'Grand Total Receipts (=)',
-    row_type: 'GRAND_TOTAL_RECEIPT',
-    is_formula: true,
-    color_hint: 'dark',
-    values: {
-      label: 'Grand Total Receipts (=)',
-      qty_lts: '=R1+R2',
-      lts: '=R1+R2',
-      sp_gr: '—',
-      qty_kg: '=R1+R2',
-      kg: '=R1+R2',
-      fat_pct: '—',
-      snf_pct: '—',
-      kg_fat: '=R1+R2',
-      kg_snf: '=R1+R2',
-      note: 'Total Receipts + OB',
-    },
-  },
-  {
-    id: 'recon_row_4',
-    label: 'Total Disposals (-)',
-    row_type: 'TOTAL_DISPOSAL',
-    is_formula: true,
-    color_hint: 'orange',
-    values: {
-      label: 'Total Disposals (-)',
-      qty_lts: '=DISPOSALS.lts',
-      lts: '=DISPOSALS.lts',
-      sp_gr: '—',
-      qty_kg: '=DISPOSALS.kg',
-      kg: '=DISPOSALS.kg',
-      fat_pct: '—',
-      snf_pct: '—',
-      kg_fat: '=DISPOSALS.kg_fat',
-      kg_snf: '=DISPOSALS.kg_snf',
-      note: 'Total of all Disposals',
-    },
-  },
-  {
-    id: 'recon_row_5',
-    label: 'Closing Balance / Physical Count',
-    row_type: 'CB',
-    is_formula: true,
-    color_hint: 'yellow',
-    values: {
-      label: 'Closing Balance / Physical Count',
-      qty_lts: '=CB.lts',
-      lts: '=CB.lts',
-      sp_gr: '=CB.sp_gr',
-      qty_kg: '=CB.kg',
-      kg: '=CB.kg',
-      fat_pct: '=CB.fat_pct',
-      snf_pct: '=CB.snf_pct',
-      kg_fat: '=CB.kg_fat',
-      kg_snf: '=CB.kg_snf',
-      note: 'Physical stock at end of shift',
-    },
-  },
-  {
-    id: 'recon_row_6',
-    label: 'Grand Total Disposals (=)',
-    row_type: 'GRAND_TOTAL_DISPOSAL',
-    is_formula: true,
-    color_hint: 'dark',
-    values: {
-      label: 'Grand Total Disposals (=)',
-      qty_lts: '=R4+R5',
-      lts: '=R4+R5',
-      sp_gr: '—',
-      qty_kg: '=R4+R5',
-      kg: '=R4+R5',
-      fat_pct: '—',
-      snf_pct: '—',
-      kg_fat: '=R4+R5',
-      kg_snf: '=R4+R5',
-      note: 'Total Disposals + CB',
-    },
-  },
-  {
-    id: 'recon_row_7',
-    label: 'Operational Loss (-) / Gain (+)',
-    row_type: 'LOSS_GAIN',
-    is_formula: true,
-    color_hint: 'purple',
-    values: {
-      label: 'Operational Loss (-) / Gain (+)',
-      qty_lts: '=R3-R6',
-      lts: '=R3-R6',
-      sp_gr: '—',
-      qty_kg: '=R3-R6',
-      kg: '=R3-R6',
-      fat_pct: '—',
-      snf_pct: '—',
-      kg_fat: '=R3-R6',
-      kg_snf: '=R3-R6',
-      note: 'Grand Total Receipts - Grand Total Disposals',
-    },
-  },
-  {
-    id: 'recon_row_8',
-    label: 'Net Loss / Gain %',
-    row_type: 'LOSS_GAIN_PCT',
-    is_formula: true,
-    color_hint: 'purple',
-    values: {
-      label: 'Net Loss / Gain %',
-      qty_lts: '=(R7/R3)*100',
-      lts: '=(R7/R3)*100',
-      sp_gr: '—',
-      qty_kg: '=(R7/R3)*100',
-      kg: '=(R7/R3)*100',
-      fat_pct: '—',
-      snf_pct: '—',
-      kg_fat: '=(R7/R3)*100',
-      kg_snf: '=(R7/R3)*100',
-      note: 'Operational variance percentage',
-    },
-  },
-];
+export const getDefaultReconRows = (): STGReconRow[] => [];
 
 // Helper to ensure Column A (Particular or Label) exists in a column list
 const ensureParticularColumn = (cols: STGColumnDef[], defaultName: string, keyName: string = 'variant'): STGColumnDef[] => {
@@ -708,12 +547,40 @@ function STGDefaultFormulationsContent() {
       return String(rec - disp);
     });
 
-    // Row references: R1, R2 or R1.kg, R2.lts
+    // Cross-references to individual rows from other sections: OB1.col, REC1.col, DISP1.col or OB1.B, REC1.C
+    expr = expr.replace(/\b(OB|REC|DISP)([0-9]+)(?:\.([a-z_0-9]+))?\b/gi, (_, secPrefix, rowNum, targetColKey) => {
+      const rIdx = parseInt(rowNum, 10) - 1;
+      const upperSec = secPrefix.toUpperCase();
+      const targetRowList = upperSec === 'OB' ? obRows : upperSec === 'REC' ? receiptRows : disposalRows;
+      const targetColList = upperSec === 'OB' ? obColumns : upperSec === 'REC' ? receiptColumns : disposalColumns;
+      const targetRow = targetRowList[rIdx];
+      if (!targetRow) return '0';
+      let cKey = (targetColKey || colKey).toLowerCase();
+      if (targetColKey && /^[a-z]{1,2}$/i.test(targetColKey)) {
+        let colIndex = 0;
+        const upper = targetColKey.toUpperCase();
+        for (let i = 0; i < upper.length; i++) colIndex = colIndex * 26 + (upper.charCodeAt(i) - 64);
+        colIndex -= 1;
+        if (targetColList[colIndex]) cKey = targetColList[colIndex].key;
+      }
+      const rawVal = targetRow.values?.[cKey] ?? (cKey === 'variant' ? targetRow.variant : 0);
+      const num = typeof rawVal === 'number' ? rawVal : parseFloat(String(rawVal));
+      return isNaN(num) ? '0' : String(num);
+    });
+
+    // Row references: R1, R2 or R1.kg, R2.lts or R1.B, R1.C
     expr = expr.replace(/\bR([0-9]+)(?:\.([a-z_0-9]+))?\b/gi, (_, rowNum, targetColKey) => {
       const targetRIdx = parseInt(rowNum, 10) - 1;
       const targetRow = reconList[targetRIdx];
       if (!targetRow) return '0';
-      const cKey = (targetColKey || colKey).toLowerCase();
+      let cKey = (targetColKey || colKey).toLowerCase();
+      if (targetColKey && /^[a-z]{1,2}$/i.test(targetColKey)) {
+        let colIndex = 0;
+        const upper = targetColKey.toUpperCase();
+        for (let i = 0; i < upper.length; i++) colIndex = colIndex * 26 + (upper.charCodeAt(i) - 64);
+        colIndex -= 1;
+        if (reconColumns[colIndex]) cKey = reconColumns[colIndex].key;
+      }
       let rawVal = targetRow.values?.[cKey];
       if (rawVal === undefined) {
         if (cKey === 'qty_lts') rawVal = targetRow.values?.['lts'];
@@ -722,6 +589,25 @@ function STGDefaultFormulationsContent() {
         else if (cKey === 'kg') rawVal = targetRow.values?.['qty_kg'];
         else if (cKey === 'label') rawVal = targetRow.label;
       }
+      if (rawVal === undefined || rawVal === null || rawVal === '' || rawVal === '—' || rawVal === '-') return '0';
+      if (typeof rawVal === 'string' && (rawVal.startsWith('=') || rawVal.startsWith('=+'))) {
+        const evalSub = evaluateReconFormula(rawVal, cKey, targetRIdx, reconList, obTots, recTotals, dispTotals, depth + 1);
+        return String(typeof evalSub === 'number' ? evalSub : (parseFloat(String(evalSub)) || 0));
+      }
+      const num = typeof rawVal === 'number' ? rawVal : parseFloat(String(rawVal));
+      return isNaN(num) ? '0' : String(num);
+    });
+
+    // Cell references like B1, C2 within Reconciliation table (single uppercase letter followed by row number)
+    expr = expr.replace(/\b([A-Z])([1-9][0-9]*)\b/g, (match, colLetter, rowNumStr) => {
+      const colIdx = colLetter.toUpperCase().charCodeAt(0) - 65;
+      const targetRIdx = parseInt(rowNumStr, 10) - 1;
+      const targetRow = reconList[targetRIdx];
+      const targetCol = reconColumns[colIdx];
+      if (!targetRow || !targetCol) return match;
+      const cKey = targetCol.key;
+      let rawVal = targetRow.values?.[cKey];
+      if (rawVal === undefined && cKey === 'label') rawVal = targetRow.label;
       if (rawVal === undefined || rawVal === null || rawVal === '' || rawVal === '—' || rawVal === '-') return '0';
       if (typeof rawVal === 'string' && (rawVal.startsWith('=') || rawVal.startsWith('=+'))) {
         const evalSub = evaluateReconFormula(rawVal, cKey, targetRIdx, reconList, obTots, recTotals, dispTotals, depth + 1);
@@ -1187,17 +1073,18 @@ function STGDefaultFormulationsContent() {
     });
   };
 
-  const handleResetReconTemplate = async () => {
+  const handleClearAllReconRows = async () => {
     const ok = await confirm({
-      title: 'Reset Reconciliation Summary Template',
-      message: 'Reset reconciliation summary rows to the standard 8-row formulation template? Any custom formulas will be replaced.',
-      confirmText: 'Reset to Standard',
+      title: 'Clear Reconciliation Rows',
+      message: 'Are you sure you want to delete all reconciliation summary rows for this statement? All rows can be created custom by you.',
+      confirmText: 'Clear All',
       cancelText: 'Cancel',
-      type: 'warning',
+      type: 'danger',
     });
     if (!ok) return;
-    setReconRows(getDefaultReconRows());
-    showToast('Reset reconciliation summary to standard template.');
+    setReconRows([]);
+    if (selectedCell?.section === 'RECON') setSelectedCell(null);
+    showToast('Cleared all reconciliation summary rows.');
   };
 
   // Column Management Handlers for each section
@@ -2349,24 +2236,26 @@ function STGDefaultFormulationsContent() {
                   {editingColsSections.RECON ? '⚙️ Done Editing' : '✏️ Edit Columns'}
                 </button>
 
-                {/* Reset Standard Template */}
-                <button
-                  type="button"
-                  onClick={handleResetReconTemplate}
-                  style={{
-                    background: '#ffffff',
-                    color: '#475569',
-                    border: '1px solid #cbd5e1',
-                    borderRadius: 6,
-                    padding: '5px 10px',
-                    fontSize: '0.78rem',
-                    fontWeight: 700,
-                    cursor: 'pointer',
-                  }}
-                  title="Reset to default 8 standard reconciliation formula rows"
-                >
-                  ↺ Load Standard Template
-                </button>
+                {/* Clear Rows if any exist */}
+                {reconRows.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={handleClearAllReconRows}
+                    style={{
+                      background: '#ffffff',
+                      color: '#dc2626',
+                      border: '1px solid #fca5a5',
+                      borderRadius: 6,
+                      padding: '5px 10px',
+                      fontSize: '0.78rem',
+                      fontWeight: 700,
+                      cursor: 'pointer',
+                    }}
+                    title="Delete all reconciliation rows to start fresh"
+                  >
+                    🗑️ Clear Rows
+                  </button>
+                )}
 
                 {/* Add Recon Row */}
                 <button
@@ -2471,7 +2360,7 @@ function STGDefaultFormulationsContent() {
                   {reconRows.length === 0 ? (
                     <tr>
                       <td colSpan={reconColumns.length + 3} style={{ textAlign: 'center', padding: '24px 12px', color: '#94a3b8', fontStyle: 'italic', fontSize: '0.85rem' }}>
-                        No reconciliation rows configured yet. Click "➕ Add Reconciliation Row" or "↺ Load Standard Template" above.
+                        No predefined reconciliation rows. Click "➕ Add Reconciliation Row" above to create custom summary rows and formulas.
                       </td>
                     </tr>
                   ) : (

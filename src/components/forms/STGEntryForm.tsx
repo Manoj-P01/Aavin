@@ -50,144 +50,7 @@ export const getDefaultReconColumns = (): STGColumnDef[] => [
   { key: 'note', name: 'Reconciled Note', type: 'text', sort_order: 8 },
 ];
 
-export const getDefaultReconRows = (): STGReconRow[] => [
-  {
-    id: 'recon_row_1',
-    label: 'Total Receipts (+)',
-    row_type: 'TOTAL_RECEIPT',
-    is_formula: true,
-    color_hint: 'green',
-    values: {
-      lts: '=RECEIPTS.lts',
-      sp_gr: '—',
-      kg: '=RECEIPTS.kg',
-      fat_pct: '—',
-      snf_pct: '—',
-      kg_fat: '=RECEIPTS.kg_fat',
-      kg_snf: '=RECEIPTS.kg_snf',
-      note: 'Total of all Receipts',
-    },
-  },
-  {
-    id: 'recon_row_2',
-    label: 'Opening Balance (OB)',
-    row_type: 'OB',
-    is_formula: true,
-    color_hint: 'blue',
-    values: {
-      lts: '=OB.lts',
-      sp_gr: '=OB.sp_gr',
-      kg: '=OB.kg',
-      fat_pct: '=OB.fat_pct',
-      snf_pct: '=OB.snf_pct',
-      kg_fat: '=OB.kg_fat',
-      kg_snf: '=OB.kg_snf',
-      note: 'Beginning Inventory',
-    },
-  },
-  {
-    id: 'recon_row_3',
-    label: 'Grand Total Receipts (=)',
-    row_type: 'GRAND_TOTAL_RECEIPT',
-    is_formula: true,
-    color_hint: 'dark',
-    values: {
-      lts: '=R1+R2',
-      sp_gr: '—',
-      kg: '=R1+R2',
-      fat_pct: '—',
-      snf_pct: '—',
-      kg_fat: '=R1+R2',
-      kg_snf: '=R1+R2',
-      note: 'Total Receipts + OB',
-    },
-  },
-  {
-    id: 'recon_row_4',
-    label: 'Total Disposals (-)',
-    row_type: 'TOTAL_DISPOSAL',
-    is_formula: true,
-    color_hint: 'orange',
-    values: {
-      lts: '=DISPOSALS.lts',
-      sp_gr: '—',
-      kg: '=DISPOSALS.kg',
-      fat_pct: '—',
-      snf_pct: '—',
-      kg_fat: '=DISPOSALS.kg_fat',
-      kg_snf: '=DISPOSALS.kg_snf',
-      note: 'Total of all Disposals',
-    },
-  },
-  {
-    id: 'recon_row_5',
-    label: 'Closing Balance / Physical Count',
-    row_type: 'CB',
-    is_formula: true,
-    color_hint: 'yellow',
-    values: {
-      lts: '=CB.lts',
-      sp_gr: '=CB.sp_gr',
-      kg: '=CB.kg',
-      fat_pct: '=CB.fat_pct',
-      snf_pct: '=CB.snf_pct',
-      kg_fat: '=CB.kg_fat',
-      kg_snf: '=CB.kg_snf',
-      note: 'Physical stock at end of shift',
-    },
-  },
-  {
-    id: 'recon_row_6',
-    label: 'Grand Total Disposals (=)',
-    row_type: 'GRAND_TOTAL_DISPOSAL',
-    is_formula: true,
-    color_hint: 'dark',
-    values: {
-      lts: '=R4+R5',
-      sp_gr: '—',
-      kg: '=R4+R5',
-      fat_pct: '—',
-      snf_pct: '—',
-      kg_fat: '=R4+R5',
-      kg_snf: '=R4+R5',
-      note: 'Total Disposals + CB',
-    },
-  },
-  {
-    id: 'recon_row_7',
-    label: 'Operational Loss (-) / Gain (+)',
-    row_type: 'LOSS_GAIN',
-    is_formula: true,
-    color_hint: 'purple',
-    values: {
-      lts: '=R3-R6',
-      sp_gr: '—',
-      kg: '=R3-R6',
-      fat_pct: '—',
-      snf_pct: '—',
-      kg_fat: '=R3-R6',
-      kg_snf: '=R3-R6',
-      note: 'Grand Total Receipts - Grand Total Disposals',
-    },
-  },
-  {
-    id: 'recon_row_8',
-    label: 'Net Loss / Gain %',
-    row_type: 'LOSS_GAIN_PCT',
-    is_formula: true,
-    color_hint: 'purple',
-    values: {
-      lts: '=(R7/R3)*100',
-      sp_gr: '—',
-      kg: '=(R7/R3)*100',
-      fat_pct: '—',
-      snf_pct: '—',
-      kg_fat: '=(R7/R3)*100',
-      kg_snf: '=(R7/R3)*100',
-      note: 'Percentage loss/gain',
-    },
-  },
-];
+export const getDefaultReconRows = (): STGReconRow[] => [];
 
 // Excel formula evaluator for Reconciliation Summary
 export const evaluateReconCellFormula = (
@@ -252,13 +115,21 @@ export const evaluateReconCellFormula = (
     return '0';
   });
 
-  // Row references: R1 or R1.kg
+  // Row references: R1, R2 or R1.kg, R2.lts or R1.B, R1.C
   expr = expr.replace(/\bR([0-9]+)(?:\.([a-z_0-9]+))?\b/gi, (_, rowNum, targetColKey) => {
     const targetRIdx = parseInt(rowNum, 10) - 1;
     const targetRow = currentRows[targetRIdx];
     if (!targetRow) return '0';
-    const cKey = (targetColKey || colKey).toLowerCase();
-    const rawVal = targetRow.values?.[cKey];
+    let cKey = (targetColKey || colKey).toLowerCase();
+    if (targetColKey && /^[a-z]{1,2}$/i.test(targetColKey)) {
+      const reconCols = getDefaultReconColumns();
+      let colIndex = 0;
+      const upper = targetColKey.toUpperCase();
+      for (let i = 0; i < upper.length; i++) colIndex = colIndex * 26 + (upper.charCodeAt(i) - 64);
+      colIndex -= 1;
+      if (reconCols[colIndex]) cKey = reconCols[colIndex].key;
+    }
+    const rawVal = targetRow.values?.[cKey] ?? (cKey === 'label' ? targetRow.label : undefined);
     if (rawVal === undefined || rawVal === null || rawVal === '' || rawVal === '—' || rawVal === '-') return '0';
     if (typeof rawVal === 'string' && rawVal.startsWith('=')) {
       const evalSub = evaluateReconCellFormula(rawVal, cKey, targetRIdx, currentRows, contextTotals, depth + 1);
