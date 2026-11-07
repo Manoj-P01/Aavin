@@ -261,18 +261,14 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Invalid payload, expected array of statement masters' }, { status: 400 });
     }
 
-    // 1. Save strictly into prep_chart_configs DB table with config_key = 'stg_masters'
-    const { error: upsertErr } = await supabase.from('prep_chart_configs').upsert({
-      config_key: 'stg_masters',
-      config_json: mastersList,
-      updated_by: actorUsername,
-      updated_at: new Date().toISOString(),
-    }, { onConflict: 'config_key' });
-
-    if (upsertErr) throw upsertErr;
-
-    // 2. Also sync to dedicated stg_masters table if it exists
+    // 1. Primary Store: Save directly into dedicated separate stg_masters table
     try {
+      const currentKeys = mastersList.map((m: any) => m.key).filter(Boolean);
+      if (currentKeys.length > 0) {
+        // Clean up any deleted statements from stg_masters table
+        await supabase.from('stg_masters').delete().not('key', 'in', `(${currentKeys.map((k: string) => `"${k}"`).join(',')})`);
+      }
+
       const rowsToUpsert = mastersList.map((m: any, idx: number) => ({
         key: m.key,
         label: m.label || m.variant || 'Untitled Statement',
@@ -291,6 +287,18 @@ export async function POST(req: NextRequest) {
         updated_at: new Date().toISOString(),
       }));
       await supabase.from('stg_masters').upsert(rowsToUpsert, { onConflict: 'key' });
+    } catch (e) {
+      console.warn('stg_masters table write warning:', e);
+    }
+
+    // 2. Secondary/Fallback Sync: Keep prep_chart_configs updated for compatibility
+    try {
+      await supabase.from('prep_chart_configs').upsert({
+        config_key: 'stg_masters',
+        config_json: mastersList,
+        updated_by: actorUsername,
+        updated_at: new Date().toISOString(),
+      }, { onConflict: 'config_key' });
     } catch {}
 
     // 3. Also sync to entries table (report_type = 'TS') for backward compatibility

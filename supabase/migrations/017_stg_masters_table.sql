@@ -9,6 +9,7 @@ CREATE TABLE IF NOT EXISTS public.stg_masters (
   key                 text UNIQUE NOT NULL,
   label               text NOT NULL,
   variant             text NOT NULL,
+  description         text DEFAULT '',
   sort_order          int DEFAULT 0,
   is_active           boolean DEFAULT true,
 
@@ -30,6 +31,9 @@ CREATE TABLE IF NOT EXISTS public.stg_masters (
   updated_by          text DEFAULT 'admin',
   updated_at          timestamptz NOT NULL DEFAULT now()
 );
+
+-- Ensure description column exists if table was created previously
+ALTER TABLE public.stg_masters ADD COLUMN IF NOT EXISTS description text DEFAULT '';
 
 CREATE INDEX IF NOT EXISTS idx_stg_masters_key ON public.stg_masters (key);
 CREATE INDEX IF NOT EXISTS idx_stg_masters_sort ON public.stg_masters (sort_order ASC, created_at ASC);

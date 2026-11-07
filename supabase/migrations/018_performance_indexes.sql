@@ -34,3 +34,4 @@ CREATE INDEX IF NOT EXISTS idx_statement_mapping_rules_block
 
 CREATE INDEX IF NOT EXISTS idx_prep_to_stock_rules_lookup 
   ON public.prep_to_stock_mapping_rules (source_chart_key, enabled);
+
