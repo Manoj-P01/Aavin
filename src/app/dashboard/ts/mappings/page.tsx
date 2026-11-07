@@ -62,6 +62,29 @@ const extractRowName = (r: any): string => {
 export default function STGStatementMappingPage() {
   const [mappings, setMappings] = useState<MappingRule[]>([]);
   const [filterSource, setFilterSource] = useState<string>('ALL');
+  const [searchQuery, setSearchQuery] = useState<string>('');
+  const [openStatements, setOpenStatements] = useState<Record<string, boolean>>({});
+
+  const toggleStatement = (key: string) => {
+    setOpenStatements(prev => ({
+      ...prev,
+      [key]: prev[key] === false ? true : false,
+    }));
+  };
+
+  const handleExpandAll = () => {
+    const allOpen: Record<string, boolean> = {};
+    stgStatements.forEach(s => { allOpen[s.key] = true; });
+    allOpen['__other__'] = true;
+    setOpenStatements(allOpen);
+  };
+
+  const handleCollapseAll = () => {
+    const allClosed: Record<string, boolean> = {};
+    stgStatements.forEach(s => { allClosed[s.key] = false; });
+    allClosed['__other__'] = false;
+    setOpenStatements(allClosed);
+  };
 
   const [stockProducts, setStockProducts] = useState<Array<{ key: string; label: string }>>([]);
   const [prepMasters, setPrepMasters] = useState<Array<{ key: string; label: string }>>([]);
@@ -481,7 +504,7 @@ export default function STGStatementMappingPage() {
     await saveStgToApi([], true);
   };
 
-  const openNewStgForm = () => {
+  const openNewStgForm = (preselectedBlockKey?: string) => {
     setEditingId(null);
     setError('');
     setIsCustomParticular(false);
@@ -496,9 +519,11 @@ export default function STGStatementMappingPage() {
     setFormStockParticular('');
     setFormSourceField('qty_lts');
 
-    const targetKey = (stgStatements.length > 0 && stgStatements.some(s => s.key === formStgBlockKey))
-      ? formStgBlockKey
-      : (stgStatements[0]?.key || '');
+    const targetKey = (preselectedBlockKey && stgStatements.some(s => s.key === preselectedBlockKey))
+      ? preselectedBlockKey
+      : ((stgStatements.length > 0 && stgStatements.some(s => s.key === formStgBlockKey))
+        ? formStgBlockKey
+        : (stgStatements[0]?.key || ''));
     setFormStgBlockKey(targetKey);
     setFormStgTargetField('');
     setFormStgSection('');
@@ -625,10 +650,26 @@ export default function STGStatementMappingPage() {
   };
 
   const filteredMappings = mappings.filter(m => {
-    if (filterSource === 'ALL') return true;
-    if (filterSource === 'STAGE_1') return m.sourceStage === 'STAGE_1';
-    if (filterSource === 'STAGE_2') return m.sourceStage === 'STAGE_2';
-    return m.stockProductKey === filterSource || m.stgBlockKey === filterSource;
+    if (filterSource === 'STAGE_1' && m.sourceStage !== 'STAGE_1') return false;
+    if (filterSource === 'STAGE_2' && m.sourceStage !== 'STAGE_2') return false;
+    if (filterSource !== 'ALL' && filterSource !== 'STAGE_1' && filterSource !== 'STAGE_2' && m.stockProductKey !== filterSource && m.stgBlockKey !== filterSource) return false;
+
+    if (searchQuery.trim()) {
+      const q = searchQuery.toLowerCase();
+      const matches =
+        (m.stockProductLabel || '').toLowerCase().includes(q) ||
+        (m.stockParticular || '').toLowerCase().includes(q) ||
+        (m.sourceVariant || '').toLowerCase().includes(q) ||
+        (m.sourceField || '').toLowerCase().includes(q) ||
+        (m.stgBlockKey || '').toLowerCase().includes(q) ||
+        (m.stgBlockLabel || '').toLowerCase().includes(q) ||
+        (m.stgItemName || '').toLowerCase().includes(q) ||
+        (m.stgTargetField || '').toLowerCase().includes(q) ||
+        (m.stgSection || '').toLowerCase().includes(q);
+      if (!matches) return false;
+    }
+
+    return true;
   });
 
   return (
@@ -697,35 +738,63 @@ export default function STGStatementMappingPage() {
         {/* Controls & Filter */}
         <div className="card" style={{ marginBottom: 20 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-              <label className="form-label" style={{ margin: 0, fontWeight: 600 }}>
-                Filter Mappings:
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+              <label className="form-label" style={{ margin: 0, fontWeight: 700, fontSize: '0.85rem' }}>
+                Filter:
               </label>
               <select
                 className="form-select"
-                style={{ minWidth: 260, padding: '6px 12px' }}
+                style={{ minWidth: 230, padding: '6px 12px', fontSize: '0.85rem' }}
                 value={filterSource}
                 onChange={e => setFilterSource(e.target.value)}
               >
-                <option value="ALL">All Mapping Rules ({mappings.length})</option>
+                <option value="ALL">All Statements ({mappings.length} rules)</option>
                 <option value="STAGE_1">Stage 1 ➔ Stage 3 (Prep Charts)</option>
                 <option value="STAGE_2">Stage 2 ➔ Stage 3 (Stock Entry)</option>
                 <optgroup label="STG Statement Blocks">
                   {stgStatements.map(s => (
                     <option key={s.key} value={s.key}>
-                      STG Block: {s.key} - {s.label}
+                      {s.label}
                     </option>
                   ))}
                 </optgroup>
               </select>
+
+              <input
+                type="text"
+                className="form-input"
+                placeholder="🔍 Search rule, variant, column, row..."
+                value={searchQuery}
+                onChange={e => setSearchQuery(e.target.value)}
+                style={{ minWidth: 240, padding: '6px 12px', fontSize: '0.85rem' }}
+              />
             </div>
 
-            <div style={{ display: 'flex', gap: 10 }}>
+            <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+              <button
+                type="button"
+                className="btn btn-secondary btn-xs"
+                onClick={handleExpandAll}
+                title="Expand all statement sections"
+                style={{ padding: '6px 12px', fontSize: '0.78rem', fontWeight: 700 }}
+              >
+                ▲ Expand All
+              </button>
+              <button
+                type="button"
+                className="btn btn-secondary btn-xs"
+                onClick={handleCollapseAll}
+                title="Collapse all statement sections"
+                style={{ padding: '6px 12px', fontSize: '0.78rem', fontWeight: 700 }}
+              >
+                ▼ Collapse All
+              </button>
               <button
                 type="button"
                 className="btn btn-primary btn-sm"
-                onClick={openNewStgForm}
+                onClick={() => openNewStgForm()}
                 disabled={loading || saving}
+                style={{ display: 'flex', alignItems: 'center', gap: 6, fontWeight: 700 }}
               >
                 ➕ Add STG Mapping Rule
               </button>
@@ -1245,147 +1314,426 @@ export default function STGStatementMappingPage() {
           </div>
         )}
 
-        {/* Mappings Table */}
-        <div className="card">
-          {loading ? (
-            <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: 40 }}>
-              <span className="spinner" /> Loading STG statement mapping rules...
+        {/* Statement Accordions List */}
+        {loading ? (
+          <div className="card" style={{ display: 'flex', alignItems: 'center', gap: 12, padding: 40 }}>
+            <span className="spinner" /> Loading STG statement mapping rules...
+          </div>
+        ) : stgStatements.length === 0 ? (
+          <div className="card empty-state" style={{ padding: 40, textAlign: 'center' }}>
+            <div style={{ fontSize: '2.5rem', marginBottom: 12 }}>🔗</div>
+            <div style={{ fontWeight: 600, fontSize: '1.1rem', marginBottom: 6 }}>
+              No STG Statement Master Blocks Found
             </div>
-          ) : filteredMappings.length === 0 ? (
-            <div className="empty-state" style={{ padding: 40, textAlign: 'center' }}>
-              <div style={{ fontSize: '2.5rem', marginBottom: 12 }}>🔗</div>
-              <div style={{ fontWeight: 600, fontSize: '1.1rem', marginBottom: 6 }}>
-                No Solid Balance STG mapping rules configured
-              </div>
-              <div style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', marginBottom: 16 }}>
-                Click "Add STG Mapping Rule" above to create mapping rules from Stage 1 or Stage 2 into Stage 3 Solid Balance Details.
-              </div>
-              <button type="button" className="btn btn-primary btn-sm" onClick={openNewStgForm}>
-                ➕ Add First STG Rule
-              </button>
+            <div style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', marginBottom: 16 }}>
+              Please configure Statement Masters in Manage Statements before adding mappings.
             </div>
-          ) : (
-            <div style={{ overflowX: 'auto' }}>
-              <table className="data-table" style={{ width: '100%' }}>
-                <thead>
-                  <tr>
-                    <th style={{ width: 40 }}>#</th>
-                    <th style={{ textAlign: 'left', width: 140 }}>Stage Type</th>
-                    <th style={{ textAlign: 'left', minWidth: 280 }}>Source Column / Variant</th>
-                    <th style={{ width: 40, textAlign: 'center' }}>➔</th>
-                    <th style={{ textAlign: 'left', minWidth: 320 }}>Target Solid Balance STG</th>
-                    <th style={{ width: 100, textAlign: 'center' }}>Actions</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {filteredMappings.map((m, idx) => {
-                    const isStage1 = m.sourceStage === 'STAGE_1';
+            <Link href="/dashboard/ts/manage-statements" className="btn btn-primary btn-sm">
+              📊 Go to Statement Masters
+            </Link>
+          </div>
+        ) : (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+            {stgStatements
+              .filter(stmt => {
+                if (filterSource === 'ALL' || filterSource === 'STAGE_1' || filterSource === 'STAGE_2') {
+                  return true;
+                }
+                return stmt.key === filterSource;
+              })
+              .map(stmt => {
+                const stmtMappings = filteredMappings.filter(m => m.stgBlockKey === stmt.key);
+                const isOpen = openStatements[stmt.key] !== false;
 
-                    return (
-                      <tr key={m.id}>
-                        <td style={{ fontWeight: 600, color: 'var(--text-muted)', fontSize: '0.8rem' }}>
-                          {idx + 1}
-                        </td>
-
-                        <td>
-                          <span
-                            style={{
-                              fontSize: '0.68rem',
-                              fontWeight: 800,
-                              color: '#ffffff',
-                              background: isStage1 ? '#0284c7' : '#059669',
-                              padding: '2px 8px',
-                              borderRadius: 4,
-                            }}
-                          >
-                            {isStage1 ? 'STAGE 1 (PREP)' : 'STAGE 2 (STOCK)'}
-                          </span>
-                        </td>
-
-                        <td>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-                            <span
-                              style={{
-                                fontWeight: 700,
-                                fontSize: '0.85rem',
-                                color: 'var(--text-primary)',
-                                background: '#f1f5f9',
-                                padding: '2px 8px',
-                                borderRadius: 4,
-                                border: '1px solid var(--border)',
-                              }}
-                            >
-                              {m.stockProductLabel}
-                            </span>
-
-                            <span style={{ fontSize: '0.85rem', fontWeight: 700, color: isStage1 ? '#0369a1' : 'var(--text-secondary)' }}>
-                              {isStage1 ? 'Variant' : `Section: ${m.stockSection || 'RECEIPT'} | Particular`}: "{m.stockParticular}"
-                            </span>
-
-                            {m.sourceField && (
-                              <span style={{ fontSize: '0.7rem', fontWeight: 700, color: '#0369a1', background: '#e0f2fe', padding: '1px 5px', borderRadius: 4 }}>
-                                Value Field: {m.sourceField}
-                              </span>
-                            )}
+                return (
+                  <div
+                    key={stmt.key}
+                    className="card"
+                    style={{
+                      padding: 0,
+                      overflow: 'hidden',
+                      border: '1px solid var(--border)',
+                      borderRadius: 8,
+                      boxShadow: '0 1px 3px rgba(0,0,0,0.04)',
+                    }}
+                  >
+                    {/* Accordion Header - Matching image style */}
+                    <div
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        padding: '14px 20px',
+                        background: isOpen ? '#f8fafc' : '#ffffff',
+                        cursor: 'pointer',
+                        userSelect: 'none',
+                        borderBottom: isOpen ? '1px solid var(--border)' : 'none',
+                        transition: 'background-color 0.15s ease',
+                      }}
+                      onClick={() => toggleStatement(stmt.key)}
+                    >
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                        <span style={{ fontSize: '1.15rem' }}>📋</span>
+                        <div>
+                          <div style={{ fontWeight: 700, fontSize: '0.95rem', color: 'var(--text-primary)' }}>
+                            {stmt.label}
                           </div>
-                        </td>
+                          <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>
+                            Statement Key: <code>{stmt.key}</code>
+                          </div>
+                        </div>
+                        <span
+                          style={{
+                            marginLeft: 8,
+                            fontSize: '0.72rem',
+                            fontWeight: 700,
+                            padding: '2px 8px',
+                            borderRadius: 12,
+                            background: stmtMappings.length > 0 ? '#e0f2fe' : '#f1f5f9',
+                            color: stmtMappings.length > 0 ? '#0369a1' : '#64748b',
+                          }}
+                        >
+                          {stmtMappings.length} {stmtMappings.length === 1 ? 'rule' : 'rules'}
+                        </span>
+                      </div>
 
-                        <td style={{ textAlign: 'center', fontSize: '1.2rem', color: 'var(--brand-primary)' }}>
-                          ➔
-                        </td>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                        <button
+                          type="button"
+                          className="btn btn-secondary btn-xs"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            openNewStgForm(stmt.key);
+                          }}
+                          style={{
+                            fontSize: '0.75rem',
+                            padding: '4px 10px',
+                            fontWeight: 700,
+                            color: '#0284c7',
+                            background: '#ffffff',
+                            border: '1px solid #cbd5e1',
+                          }}
+                        >
+                          ➕ Add Rule
+                        </button>
 
-                        <td>
-                          <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                            <div style={{ fontWeight: 600, fontSize: '0.825rem', color: 'var(--brand-primary)' }}>
-                              <span style={{ background: '#e0f2fe', padding: '1px 6px', borderRadius: 4, marginRight: 6, fontWeight: 700 }}>
-                                {m.stgBlockKey}
-                              </span>
-                              {m.stgBlockLabel}
+                        <span
+                          style={{
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            width: 26,
+                            height: 26,
+                            borderRadius: 4,
+                            color: 'var(--text-secondary)',
+                            transition: 'transform 0.2s ease',
+                            transform: isOpen ? 'rotate(0deg)' : 'rotate(180deg)',
+                          }}
+                        >
+                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                            <polyline points="18 15 12 9 6 15" />
+                          </svg>
+                        </span>
+                      </div>
+                    </div>
+
+                    {/* Accordion Content */}
+                    {isOpen && (
+                      <div>
+                        {stmtMappings.length === 0 ? (
+                          <div style={{ padding: '24px 20px', textAlign: 'center', color: 'var(--text-muted)', fontSize: '0.85rem' }}>
+                            <div>No mapping rules configured for <strong>{stmt.label}</strong> yet.</div>
+                            <div style={{ marginTop: 8 }}>
+                              <button
+                                type="button"
+                                className="btn btn-secondary btn-xs"
+                                onClick={() => openNewStgForm(stmt.key)}
+                                style={{ fontWeight: 700, color: '#0284c7' }}
+                              >
+                                ➕ Add First Rule for {stmt.label}
+                              </button>
                             </div>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: '0.8rem', color: 'var(--text-secondary)', flexWrap: 'wrap' }}>
-                              <span style={{ color: '#059669', fontWeight: 700, background: '#d1fae5', padding: '1px 6px', borderRadius: 4 }}>
-                                Target Column: {m.stgTargetField}
-                              </span>
-                              <span>•</span>
-                              <span>
-                                Table: <strong>{m.stgSection === 'OB' ? 'Opening Balance (OB)' : m.stgSection === 'RECEIPT' ? 'Receipts' : m.stgSection === 'DISPOSAL' ? 'Disposals' : 'Closing Balance (CB)'}</strong>
-                              </span>
-                              <span>•</span>
-                              <span>
-                                Row: <strong>"{m.stgItemName}"</strong>
-                              </span>
-                            </div>
                           </div>
-                        </td>
+                        ) : (
+                          <div style={{ overflowX: 'auto' }}>
+                            <table className="data-table" style={{ width: '100%', margin: 0 }}>
+                              <thead>
+                                <tr style={{ background: '#f8fafc' }}>
+                                  <th style={{ width: 40, fontSize: '0.75rem' }}>#</th>
+                                  <th style={{ textAlign: 'left', width: 135, fontSize: '0.75rem' }}>Stage Type</th>
+                                  <th style={{ textAlign: 'left', minWidth: 260, fontSize: '0.75rem' }}>Source Column / Variant</th>
+                                  <th style={{ width: 40, textAlign: 'center', fontSize: '0.75rem' }}>➔</th>
+                                  <th style={{ textAlign: 'left', minWidth: 320, fontSize: '0.75rem' }}>Target Solid Balance STG</th>
+                                  <th style={{ width: 90, textAlign: 'center', fontSize: '0.75rem' }}>Actions</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {stmtMappings.map((m, idx) => {
+                                  const isStage1 = m.sourceStage === 'STAGE_1';
+                                  return (
+                                    <tr key={m.id}>
+                                      <td style={{ fontWeight: 600, color: 'var(--text-muted)', fontSize: '0.8rem' }}>
+                                        {idx + 1}
+                                      </td>
+                                      <td>
+                                        <span
+                                          style={{
+                                            fontSize: '0.68rem',
+                                            fontWeight: 800,
+                                            color: '#ffffff',
+                                            background: isStage1 ? '#0284c7' : '#059669',
+                                            padding: '2px 8px',
+                                            borderRadius: 4,
+                                          }}
+                                        >
+                                          {isStage1 ? 'STAGE 1 (PREP)' : 'STAGE 2 (STOCK)'}
+                                        </span>
+                                      </td>
+                                      <td>
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                                          <span
+                                            style={{
+                                              fontWeight: 700,
+                                              fontSize: '0.82rem',
+                                              color: 'var(--text-primary)',
+                                              background: '#f1f5f9',
+                                              padding: '2px 6px',
+                                              borderRadius: 4,
+                                              border: '1px solid var(--border)',
+                                            }}
+                                          >
+                                            {m.stockProductLabel}
+                                          </span>
+                                          <span style={{ fontSize: '0.82rem', fontWeight: 700, color: isStage1 ? '#0369a1' : 'var(--text-secondary)' }}>
+                                            {isStage1 ? 'Variant' : `Section: ${m.stockSection || 'RECEIPT'} | Particular`}: "{m.stockParticular}"
+                                          </span>
+                                          {m.sourceField && (
+                                            <span style={{ fontSize: '0.7rem', fontWeight: 700, color: '#0369a1', background: '#e0f2fe', padding: '1px 5px', borderRadius: 4 }}>
+                                              Field: {m.sourceField}
+                                            </span>
+                                          )}
+                                        </div>
+                                      </td>
+                                      <td style={{ textAlign: 'center', fontSize: '1.1rem', color: 'var(--brand-primary)' }}>
+                                        ➔
+                                      </td>
+                                      <td>
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: '0.8rem', color: 'var(--text-secondary)', flexWrap: 'wrap' }}>
+                                          <span style={{ color: '#059669', fontWeight: 700, background: '#d1fae5', padding: '1px 6px', borderRadius: 4 }}>
+                                            Column: {m.stgTargetField}
+                                          </span>
+                                          <span>•</span>
+                                          <span>
+                                            Table: <strong>{m.stgSection === 'OB' ? 'Opening Balance (OB)' : m.stgSection === 'RECEIPT' ? 'Receipts' : m.stgSection === 'DISPOSAL' ? 'Disposals' : 'Closing Balance (CB)'}</strong>
+                                          </span>
+                                          <span>•</span>
+                                          <span>
+                                            Row: <strong>"{m.stgItemName}"</strong>
+                                          </span>
+                                        </div>
+                                      </td>
+                                      <td style={{ textAlign: 'center' }}>
+                                        <div style={{ display: 'flex', gap: 4, justifyContent: 'center' }}>
+                                          <button
+                                            type="button"
+                                            className="btn btn-ghost btn-xs"
+                                            style={{ padding: '3px 6px', fontSize: '0.72rem', color: 'var(--brand-primary)' }}
+                                            onClick={() => openEditStgForm(m)}
+                                          >
+                                            ✏️ Edit
+                                          </button>
+                                          <button
+                                            type="button"
+                                            className="btn btn-ghost btn-xs"
+                                            style={{ padding: '3px 6px', fontSize: '0.72rem', color: '#ef4444' }}
+                                            onClick={() => deleteStgRule(m.id)}
+                                          >
+                                            ✕
+                                          </button>
+                                        </div>
+                                      </td>
+                                    </tr>
+                                  );
+                                })}
+                              </tbody>
+                            </table>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
 
-                        <td style={{ textAlign: 'center' }}>
-                          <div style={{ display: 'flex', gap: 6, justifyContent: 'center' }}>
-                            <button
-                              type="button"
-                              className="btn btn-ghost btn-sm"
-                              style={{ padding: '4px 8px', fontSize: '0.75rem', color: 'var(--brand-primary)' }}
-                              onClick={() => openEditStgForm(m)}
-                            >
-                              ✏️ Edit
-                            </button>
-                            <button
-                              type="button"
-                              className="btn btn-ghost btn-sm"
-                              style={{ padding: '4px 8px', fontSize: '0.75rem', color: '#ef4444' }}
-                              onClick={() => deleteStgRule(m.id)}
-                            >
-                              ✕
-                            </button>
-                          </div>
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </div>
+            {/* Any unassigned statement mappings */}
+            {(() => {
+              const unassignedMappings = filteredMappings.filter(m => !stgStatements.some(s => s.key === m.stgBlockKey));
+              if (unassignedMappings.length === 0) return null;
+              const isOtherOpen = openStatements['__other__'] !== false;
+
+              return (
+                <div
+                  className="card"
+                  style={{
+                    padding: 0,
+                    overflow: 'hidden',
+                    border: '1px solid var(--border)',
+                    borderRadius: 8,
+                    boxShadow: '0 1px 3px rgba(0,0,0,0.04)',
+                  }}
+                >
+                  <div
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      padding: '14px 20px',
+                      background: isOtherOpen ? '#f8fafc' : '#ffffff',
+                      cursor: 'pointer',
+                      userSelect: 'none',
+                      borderBottom: isOtherOpen ? '1px solid var(--border)' : 'none',
+                    }}
+                    onClick={() => toggleStatement('__other__')}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                      <span style={{ fontSize: '1.15rem' }}>📦</span>
+                      <div style={{ fontWeight: 700, fontSize: '0.95rem', color: 'var(--text-primary)' }}>
+                        Other / Legacy Statement Rules
+                      </div>
+                      <span
+                        style={{
+                          marginLeft: 8,
+                          fontSize: '0.72rem',
+                          fontWeight: 700,
+                          padding: '2px 8px',
+                          borderRadius: 12,
+                          background: '#fef3c7',
+                          color: '#b45309',
+                        }}
+                      >
+                        {unassignedMappings.length} rules
+                      </span>
+                    </div>
+
+                    <span
+                      style={{
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        width: 26,
+                        height: 26,
+                        borderRadius: 4,
+                        color: 'var(--text-secondary)',
+                        transition: 'transform 0.2s ease',
+                        transform: isOtherOpen ? 'rotate(0deg)' : 'rotate(180deg)',
+                      }}
+                    >
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                        <polyline points="18 15 12 9 6 15" />
+                      </svg>
+                    </span>
+                  </div>
+
+                  {isOtherOpen && (
+                    <div style={{ overflowX: 'auto' }}>
+                      <table className="data-table" style={{ width: '100%', margin: 0 }}>
+                        <thead>
+                          <tr style={{ background: '#f8fafc' }}>
+                            <th style={{ width: 40, fontSize: '0.75rem' }}>#</th>
+                            <th style={{ textAlign: 'left', width: 135, fontSize: '0.75rem' }}>Stage Type</th>
+                            <th style={{ textAlign: 'left', minWidth: 260, fontSize: '0.75rem' }}>Source Column / Variant</th>
+                            <th style={{ width: 40, textAlign: 'center', fontSize: '0.75rem' }}>➔</th>
+                            <th style={{ textAlign: 'left', minWidth: 320, fontSize: '0.75rem' }}>Target Solid Balance STG</th>
+                            <th style={{ width: 90, textAlign: 'center', fontSize: '0.75rem' }}>Actions</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {unassignedMappings.map((m, idx) => {
+                            const isStage1 = m.sourceStage === 'STAGE_1';
+                            return (
+                              <tr key={m.id}>
+                                <td style={{ fontWeight: 600, color: 'var(--text-muted)', fontSize: '0.8rem' }}>
+                                  {idx + 1}
+                                </td>
+                                <td>
+                                  <span
+                                    style={{
+                                      fontSize: '0.68rem',
+                                      fontWeight: 800,
+                                      color: '#ffffff',
+                                      background: isStage1 ? '#0284c7' : '#059669',
+                                      padding: '2px 8px',
+                                      borderRadius: 4,
+                                    }}
+                                  >
+                                    {isStage1 ? 'STAGE 1 (PREP)' : 'STAGE 2 (STOCK)'}
+                                  </span>
+                                </td>
+                                <td>
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                                    <span style={{ fontWeight: 700, fontSize: '0.82rem', color: 'var(--text-primary)', background: '#f1f5f9', padding: '2px 6px', borderRadius: 4, border: '1px solid var(--border)' }}>
+                                      {m.stockProductLabel}
+                                    </span>
+                                    <span style={{ fontSize: '0.82rem', fontWeight: 700, color: isStage1 ? '#0369a1' : 'var(--text-secondary)' }}>
+                                      {isStage1 ? 'Variant' : `Section: ${m.stockSection || 'RECEIPT'} | Particular`}: "{m.stockParticular}"
+                                    </span>
+                                    {m.sourceField && (
+                                      <span style={{ fontSize: '0.7rem', fontWeight: 700, color: '#0369a1', background: '#e0f2fe', padding: '1px 5px', borderRadius: 4 }}>
+                                        Field: {m.sourceField}
+                                      </span>
+                                    )}
+                                  </div>
+                                </td>
+                                <td style={{ textAlign: 'center', fontSize: '1.1rem', color: 'var(--brand-primary)' }}>
+                                  ➔
+                                </td>
+                                <td>
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: '0.8rem', color: 'var(--text-secondary)', flexWrap: 'wrap' }}>
+                                    <span style={{ color: '#059669', fontWeight: 700, background: '#d1fae5', padding: '1px 6px', borderRadius: 4 }}>
+                                      Column: {m.stgTargetField}
+                                    </span>
+                                    <span>•</span>
+                                    <span>
+                                      Table: <strong>{m.stgSection === 'OB' ? 'Opening Balance (OB)' : m.stgSection === 'RECEIPT' ? 'Receipts' : m.stgSection === 'DISPOSAL' ? 'Disposals' : 'Closing Balance (CB)'}</strong>
+                                    </span>
+                                    <span>•</span>
+                                    <span>
+                                      Row: <strong>"{m.stgItemName}"</strong>
+                                    </span>
+                                  </div>
+                                </td>
+                                <td style={{ textAlign: 'center' }}>
+                                  <div style={{ display: 'flex', gap: 4, justifyContent: 'center' }}>
+                                    <button
+                                      type="button"
+                                      className="btn btn-ghost btn-xs"
+                                      style={{ padding: '3px 6px', fontSize: '0.72rem', color: 'var(--brand-primary)' }}
+                                      onClick={() => openEditStgForm(m)}
+                                    >
+                                      ✏️ Edit
+                                    </button>
+                                    <button
+                                      type="button"
+                                      className="btn btn-ghost btn-xs"
+                                      style={{ padding: '3px 6px', fontSize: '0.72rem', color: '#ef4444' }}
+                                      onClick={() => deleteStgRule(m.id)}
+                                    >
+                                      ✕
+                                    </button>
+                                  </div>
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
+          </div>
+        )}
       </div>
     </>
   );
