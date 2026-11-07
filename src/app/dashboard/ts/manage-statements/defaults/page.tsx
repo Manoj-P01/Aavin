@@ -67,12 +67,12 @@ export const getDefaultOBColumns = (baseCols?: STGColumnDef[]): STGColumnDef[] =
   return [
     { key: 'variant', name: 'VARIANT', type: 'text', sort_order: 1 },
     { key: 'qty_lts', name: 'Qty (Lts)', type: 'number', decimals: 0, sort_order: 2 },
-    { key: 'qty_kg', name: 'Qty (Kg)', type: 'calculated', formula: 'qty_lts * sp_gr', decimals: 2, sort_order: 3 },
+    { key: 'qty_kg', name: 'Qty (Kg)', type: 'number', decimals: 2, sort_order: 3 },
     { key: 'fat_pct', name: 'Fat%', type: 'number', decimals: 2, sort_order: 4 },
     { key: 'snf_pct', name: 'Snf%', type: 'number', decimals: 2, sort_order: 5 },
     { key: 'sp_gr', name: 'SP.G', type: 'number', decimals: 4, sort_order: 6 },
-    { key: 'kg_fat', name: 'Kg.Fat', type: 'calculated', formula: 'qty_kg * fat_pct / 100', decimals: 3, sort_order: 7 },
-    { key: 'kg_snf', name: 'Kg.Snf', type: 'calculated', formula: 'qty_kg * snf_pct / 100', decimals: 3, sort_order: 8 },
+    { key: 'kg_fat', name: 'Kg.Fat', type: 'number', decimals: 3, sort_order: 7 },
+    { key: 'kg_snf', name: 'Kg.Snf', type: 'number', decimals: 3, sort_order: 8 },
   ];
 };
 
@@ -81,12 +81,12 @@ export const getDefaultReceiptColumns = (baseCols?: STGColumnDef[]): STGColumnDe
   return [
     { key: 'variant', name: 'VARIANT', type: 'text', sort_order: 1 },
     { key: 'qty_lts', name: 'Qty (Lts)', type: 'number', decimals: 0, sort_order: 2 },
-    { key: 'qty_kg', name: 'Qty (Kg)', type: 'calculated', formula: 'qty_lts * sp_gr', decimals: 2, sort_order: 3 },
+    { key: 'qty_kg', name: 'Qty (Kg)', type: 'number', decimals: 2, sort_order: 3 },
     { key: 'fat_pct', name: 'Fat%', type: 'number', decimals: 2, sort_order: 4 },
     { key: 'snf_pct', name: 'Snf%', type: 'number', decimals: 2, sort_order: 5 },
     { key: 'sp_gr', name: 'SP.G', type: 'number', decimals: 4, sort_order: 6 },
-    { key: 'kg_fat', name: 'Kg.Fat', type: 'calculated', formula: 'qty_kg * fat_pct / 100', decimals: 3, sort_order: 7 },
-    { key: 'kg_snf', name: 'Kg.Snf', type: 'calculated', formula: 'qty_kg * snf_pct / 100', decimals: 3, sort_order: 8 },
+    { key: 'kg_fat', name: 'Kg.Fat', type: 'number', decimals: 3, sort_order: 7 },
+    { key: 'kg_snf', name: 'Kg.Snf', type: 'number', decimals: 3, sort_order: 8 },
   ];
 };
 
@@ -95,12 +95,12 @@ export const getDefaultDisposalColumns = (baseCols?: STGColumnDef[]): STGColumnD
   return [
     { key: 'variant', name: 'VARIANT', type: 'text', sort_order: 1 },
     { key: 'qty_lts', name: 'Qty (Lts)', type: 'number', decimals: 0, sort_order: 2 },
-    { key: 'qty_kg', name: 'Qty (Kg)', type: 'calculated', formula: 'qty_lts * sp_gr', decimals: 2, sort_order: 3 },
+    { key: 'qty_kg', name: 'Qty (Kg)', type: 'number', decimals: 2, sort_order: 3 },
     { key: 'fat_pct', name: 'Fat%', type: 'number', decimals: 2, sort_order: 4 },
     { key: 'snf_pct', name: 'Snf%', type: 'number', decimals: 2, sort_order: 5 },
     { key: 'sp_gr', name: 'SP.G', type: 'number', decimals: 4, sort_order: 6 },
-    { key: 'kg_fat', name: 'Kg.Fat', type: 'calculated', formula: 'qty_kg * fat_pct / 100', decimals: 3, sort_order: 7 },
-    { key: 'kg_snf', name: 'Kg.Snf', type: 'calculated', formula: 'qty_kg * snf_pct / 100', decimals: 3, sort_order: 8 },
+    { key: 'kg_fat', name: 'Kg.Fat', type: 'number', decimals: 3, sort_order: 7 },
+    { key: 'kg_snf', name: 'Kg.Snf', type: 'number', decimals: 3, sort_order: 8 },
   ];
 };
 
@@ -115,12 +115,12 @@ export const getDefaultReconColumns = (baseCols?: STGColumnDef[]): STGColumnDef[
   return [
     { key: 'label', name: 'VARIANT', type: 'text', sort_order: 1 },
     { key: 'qty_lts', name: 'Qty (Lts)', type: 'number', decimals: 0, sort_order: 2 },
-    { key: 'qty_kg', name: 'Qty (Kg)', type: 'calculated', formula: 'qty_lts * sp_gr', decimals: 2, sort_order: 3 },
+    { key: 'qty_kg', name: 'Qty (Kg)', type: 'number', decimals: 2, sort_order: 3 },
     { key: 'fat_pct', name: 'Fat%', type: 'number', decimals: 2, sort_order: 4 },
     { key: 'snf_pct', name: 'Snf%', type: 'number', decimals: 2, sort_order: 5 },
     { key: 'sp_gr', name: 'SP.G', type: 'number', decimals: 4, sort_order: 6 },
-    { key: 'kg_fat', name: 'Kg.Fat', type: 'calculated', formula: 'qty_kg * fat_pct / 100', decimals: 3, sort_order: 7 },
-    { key: 'kg_snf', name: 'Kg.Snf', type: 'calculated', formula: 'qty_kg * snf_pct / 100', decimals: 3, sort_order: 8 },
+    { key: 'kg_fat', name: 'Kg.Fat', type: 'number', decimals: 3, sort_order: 7 },
+    { key: 'kg_snf', name: 'Kg.Snf', type: 'number', decimals: 3, sort_order: 8 },
     { key: 'note', name: 'Note / Description', type: 'text', sort_order: 9 },
   ];
 };
@@ -137,7 +137,7 @@ const PROHIBITED_COLUMN_NAMES = new Set([
 // Helper to synchronize a section's columns with configured columns from STG Statement Column Configuration:
 // 1. Removes any column that was removed from configured columns.
 // 2. Orders columns strictly in the exact order placed in STG Statement Column Configuration.
-// 3. Completely prevents artificial particular names from being injected.
+// 3. Completely prevents artificial particular names and unwanted forced calculated types from being injected.
 export const syncSectionColumnsWithConfig = (
   existingCols: STGColumnDef[] | undefined,
   activeConfigCols: STGColumnDef[],
@@ -165,17 +165,31 @@ export const syncSectionColumnsWithConfig = (
       ? existing.name
       : cfgCol.name;
 
-    return {
+    const isHardcodedCalc = (existing?.formula === 'qty_lts * sp_gr' || cfgCol.formula === 'qty_lts * sp_gr' ||
+                             existing?.formula === 'qty_kg * fat_pct / 100' || cfgCol.formula === 'qty_kg * fat_pct / 100' ||
+                             existing?.formula === 'qty_kg * snf_pct / 100' || cfgCol.formula === 'qty_kg * snf_pct / 100');
+
+    const colType = (cfgCol.key === 'variant' || cfgCol.key === 'label' || existing?.key === 'variant' || existing?.key === 'label')
+      ? 'text'
+      : (isHardcodedCalc ? 'number' : (existing?.type || cfgCol.type || 'number'));
+
+    const formula = isHardcodedCalc ? undefined : (existing?.formula || cfgCol.formula || undefined);
+
+    const res: STGColumnDef = {
       ...cfgCol,
       key: isRecon && (existing?.key === 'label' || cfgCol.key === 'label') ? 'label' : cfgCol.key,
       name,
-      formula: cfgCol.formula || existing?.formula,
-      decimals: cfgCol.decimals !== undefined ? cfgCol.decimals : existing?.decimals,
-      unit: cfgCol.unit || existing?.unit,
-      type: cfgCol.type || existing?.type,
+      type: colType,
+      decimals: existing?.decimals !== undefined ? existing.decimals : cfgCol.decimals,
+      unit: existing?.unit || cfgCol.unit,
       sort_order: idx + 1,
-      is_active: cfgCol.is_active !== undefined ? cfgCol.is_active : true,
+      is_active: existing?.is_active !== undefined ? existing.is_active : (cfgCol.is_active !== undefined ? cfgCol.is_active : true),
     };
+
+    if (formula) res.formula = formula;
+    else delete res.formula;
+
+    return res;
   });
 };
 

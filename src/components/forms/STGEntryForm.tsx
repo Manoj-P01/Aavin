@@ -1019,11 +1019,11 @@ export default function STGEntryForm({
     return [
       { key: 'qty_lts', name: 'Qty (Lts)', type: 'number', decimals: 0, sort_order: 1 },
       { key: 'sp_gr', name: 'SP.G', type: 'number', decimals: 4, sort_order: 2 },
-      { key: 'qty_kg', name: 'Qty (Kg)', type: 'calculated', formula: 'qty_lts * sp_gr', decimals: 2, sort_order: 3 },
+      { key: 'qty_kg', name: 'Qty (Kg)', type: 'number', decimals: 2, sort_order: 3 },
       { key: 'fat_pct', name: 'Fat%', type: 'number', decimals: 2, sort_order: 4 },
       { key: 'snf_pct', name: 'Snf%', type: 'number', decimals: 2, sort_order: 5 },
-      { key: 'kg_fat', name: 'Kg.Fat', type: 'calculated', formula: 'qty_kg * fat_pct / 100', decimals: 3, sort_order: 6 },
-      { key: 'kg_snf', name: 'Kg.Snf', type: 'calculated', formula: 'qty_kg * snf_pct / 100', decimals: 3, sort_order: 7 },
+      { key: 'kg_fat', name: 'Kg.Fat', type: 'number', decimals: 3, sort_order: 6 },
+      { key: 'kg_snf', name: 'Kg.Snf', type: 'number', decimals: 3, sort_order: 7 },
     ];
   }, [masters]);
 

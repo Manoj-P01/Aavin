@@ -16,13 +16,35 @@ const PROHIBITED_NAMES = new Set([
 const cleanseCols = (cols: any[] | undefined) => {
   if (!Array.isArray(cols)) return [];
   return cols.map((col: any) => {
+    let name = col.name;
     if (PROHIBITED_NAMES.has(col.name)) {
-      return {
-        ...col,
-        name: col.key === 'variant' ? 'VARIANT' : (col.key === 'label' ? 'LABEL' : col.key),
-      };
+      name = col.key === 'variant' ? 'VARIANT' : (col.key === 'label' ? 'LABEL' : col.key);
     }
-    return col;
+
+    const isHardcodedCalc = (col.formula === 'qty_lts * sp_gr' ||
+                             col.formula === 'qty_kg * fat_pct / 100' ||
+                             col.formula === 'qty_kg * snf_pct / 100' ||
+                             (col.type === 'calculated' && !col.formula));
+
+    const colType = (col.key === 'variant' || col.key === 'label' || col.key === 'note')
+      ? 'text'
+      : (isHardcodedCalc ? 'number' : (col.type === 'text' ? 'text' : 'number'));
+
+    const formula = isHardcodedCalc ? undefined : (col.formula || undefined);
+
+    const res: any = {
+      key: col.key,
+      name,
+      type: colType,
+      sort_order: col.sort_order,
+      is_active: col.is_active !== undefined ? col.is_active : true,
+    };
+
+    if (col.decimals !== undefined) res.decimals = col.decimals;
+    if (col.unit) res.unit = col.unit;
+    if (formula) res.formula = formula;
+
+    return res;
   });
 };
 

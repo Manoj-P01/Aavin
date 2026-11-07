@@ -16,12 +16,12 @@ export interface STGColumnDef {
 export const DEFAULT_STG_COLUMNS: STGColumnDef[] = [
   { key: 'variant', name: 'VARIANT', type: 'text', sort_order: 1 },
   { key: 'qty_lts', name: 'QTY (LTS)', type: 'number', decimals: 0, sort_order: 2 },
-  { key: 'qty_kg', name: 'QTY (KG)', type: 'calculated', formula: 'qty_lts * sp_gr', decimals: 2, sort_order: 3 },
+  { key: 'qty_kg', name: 'QTY (KG)', type: 'number', decimals: 2, sort_order: 3 },
   { key: 'fat_pct', name: 'FAT (%)', type: 'number', decimals: 2, sort_order: 4 },
   { key: 'snf_pct', name: 'SNF (%)', type: 'number', decimals: 2, sort_order: 5 },
   { key: 'sp_gr', name: 'SP.GR', type: 'number', decimals: 4, sort_order: 6 },
-  { key: 'kg_fat', name: 'KG FAT', type: 'calculated', formula: 'qty_kg * fat_pct / 100', decimals: 3, sort_order: 7 },
-  { key: 'kg_snf', name: 'KG SNF', type: 'calculated', formula: 'qty_kg * snf_pct / 100', decimals: 3, sort_order: 8 },
+  { key: 'kg_fat', name: 'KG FAT', type: 'number', decimals: 3, sort_order: 7 },
+  { key: 'kg_snf', name: 'KG SNF', type: 'number', decimals: 3, sort_order: 8 },
 ];
 
 // GET /api/ts/columns - Fetch STG column definitions strictly from DB table prep_chart_configs
@@ -96,17 +96,31 @@ export async function POST(req: NextRequest) {
             ? existing.name
             : cfgCol.name;
 
-          return {
+          const isHardcodedCalc = (existing?.formula === 'qty_lts * sp_gr' || cfgCol.formula === 'qty_lts * sp_gr' ||
+                                   existing?.formula === 'qty_kg * fat_pct / 100' || cfgCol.formula === 'qty_kg * fat_pct / 100' ||
+                                   existing?.formula === 'qty_kg * snf_pct / 100' || cfgCol.formula === 'qty_kg * snf_pct / 100');
+
+          const colType = (cfgCol.key === 'variant' || cfgCol.key === 'label' || existing?.key === 'variant' || existing?.key === 'label')
+            ? 'text'
+            : (isHardcodedCalc ? 'number' : (existing?.type || cfgCol.type || 'number'));
+
+          const formula = isHardcodedCalc ? undefined : (existing?.formula || cfgCol.formula || undefined);
+
+          const resCol: any = {
             ...cfgCol,
             key: isRecon && (existing?.key === 'label' || cfgCol.key === 'label') ? 'label' : cfgCol.key,
             name: colName,
-            type: cfgCol.type || existing?.type || (cfgCol.key === 'variant' || cfgCol.key === 'label' ? 'text' : 'number'),
-            formula: existing?.formula || cfgCol.formula,
-            decimals: cfgCol.decimals !== undefined ? cfgCol.decimals : existing?.decimals,
-            unit: cfgCol.unit || existing?.unit,
+            type: colType,
+            decimals: existing?.decimals !== undefined ? existing.decimals : cfgCol.decimals,
+            unit: existing?.unit || cfgCol.unit,
             sort_order: idx + 1,
-            is_active: cfgCol.is_active !== undefined ? cfgCol.is_active : true,
+            is_active: existing?.is_active !== undefined ? existing.is_active : (cfgCol.is_active !== undefined ? cfgCol.is_active : true),
           };
+
+          if (formula) resCol.formula = formula;
+          else delete resCol.formula;
+
+          return resCol;
         });
       };
 
