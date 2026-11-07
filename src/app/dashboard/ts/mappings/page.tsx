@@ -49,8 +49,9 @@ const extractRowName = (r: any): string => {
 
   // If stored under dynamic column key in values, return the first non-empty string value
   if (r.values && typeof r.values === 'object') {
-    for (const val of Object.values(r.values)) {
-      if (val && typeof val === 'string' && val.trim() !== '') {
+    const NUMERIC_COLS = new Set(['qty_lts', 'qty_kg', 'fat_pct', 'snf_pct', 'sp_gr', 'kg_fat', 'kg_snf', 'id', 'sort_order', 'is_active', 'formula']);
+    for (const [k, val] of Object.entries(r.values)) {
+      if (!NUMERIC_COLS.has(k.toLowerCase()) && val && typeof val === 'string' && val.trim() !== '') {
         return val.trim();
       }
     }
@@ -93,12 +94,12 @@ export default function STGStatementMappingPage() {
   const [isCustomStgItem, setIsCustomStgItem] = useState(false);
 
   const [formSourceStage, setFormSourceStage] = useState<'STAGE_1' | 'STAGE_2'>('STAGE_1');
-  const [formStockProductKey, setFormStockProductKey] = useState<string>('delite_prep');
+  const [formStockProductKey, setFormStockProductKey] = useState<string>('');
   const [formStockSection, setFormStockSection] = useState<'OB' | 'RECEIPT' | 'DISPOSAL' | 'CB'>('RECEIPT');
-  const [formStockParticular, setFormStockParticular] = useState<string>('DELITE');
+  const [formStockParticular, setFormStockParticular] = useState<string>('');
   const [formSourceField, setFormSourceField] = useState<'qty_lts' | 'qty_kg' | 'fat_pct' | 'snf_pct' | 'kg_fat' | 'kg_snf' | 'sp_gr'>('qty_lts');
 
-  const [formStgBlockKey, setFormStgBlockKey] = useState<string>('wh_milk');
+  const [formStgBlockKey, setFormStgBlockKey] = useState<string>('');
   const [formStgSection, setFormStgSection] = useState<'OB' | 'RECEIPT' | 'DISPOSAL' | 'CB'>('RECEIPT');
   const [formStgItemName, setFormStgItemName] = useState<string>('');
   const [formStgTargetField, setFormStgTargetField] = useState<'qty_lts' | 'qty_kg' | 'fat_pct' | 'snf_pct' | 'kg_fat' | 'kg_snf'>('qty_lts');
@@ -163,10 +164,10 @@ export default function STGStatementMappingPage() {
               const mastersList = json.masters.map((m: any) => ({
                 key: m.key,
                 label: m.label || m.name || m.key,
-                ob_rows: Array.isArray(m.ob_rows) ? m.ob_rows : [],
-                receipt_rows: Array.isArray(m.receipt_rows) ? m.receipt_rows : [],
-                disposal_rows: Array.isArray(m.disposal_rows) ? m.disposal_rows : [],
-                reconciliation_rows: Array.isArray(m.reconciliation_rows) ? m.reconciliation_rows : [],
+                ob_rows: Array.isArray(m.ob_rows) && m.ob_rows.length > 0 ? m.ob_rows : (m.rows || m.default_rows || []).filter((r: any) => r.row_type === 'OB'),
+                receipt_rows: Array.isArray(m.receipt_rows) && m.receipt_rows.length > 0 ? m.receipt_rows : (m.rows || m.default_rows || []).filter((r: any) => (r.row_type === 'RECEIPT' || r.side === 'RECEIPT') && r.row_type !== 'OB'),
+                disposal_rows: Array.isArray(m.disposal_rows) && m.disposal_rows.length > 0 ? m.disposal_rows : (m.rows || m.default_rows || []).filter((r: any) => r.row_type === 'DISPOSAL' || r.side === 'DISPOSAL'),
+                reconciliation_rows: Array.isArray(m.reconciliation_rows) ? m.reconciliation_rows : (m.recon_rows || []),
               }));
 
               setStgStatements(mastersList);
@@ -196,33 +197,7 @@ export default function STGStatementMappingPage() {
             try {
               const savedList = JSON.parse(entry.notes);
               if (Array.isArray(savedList)) {
-                let hasChanges = false;
-                const migratedList = savedList.map((r: MappingRule) => {
-                  const curItem = (r.stgItemName || '').trim();
-                  // If rule had placeholder "Receipt 1" / "Receipt" / "Disposal 1" / "Disposal",
-                  // auto-align with the actual saved row from table for this statement master
-                  if (/^receipt(\s*1)?$/i.test(curItem) || /^disposal(\s*1)?$/i.test(curItem)) {
-                    const stmt = loadedMasters.find((m: any) => m.key === r.stgBlockKey);
-                    let secRows: any[] = [];
-                    if (r.stgSection === 'OB') secRows = stmt?.ob_rows || [];
-                    else if (r.stgSection === 'RECEIPT') secRows = stmt?.receipt_rows || [];
-                    else if (r.stgSection === 'DISPOSAL') secRows = stmt?.disposal_rows || [];
-                    else if (r.stgSection === 'CB') secRows = stmt?.reconciliation_rows || [];
-                    const names = secRows.map(extractRowName).filter(Boolean);
-                    if (names.length > 0) {
-                      hasChanges = true;
-                      return { ...r, stgItemName: names[0] };
-                    }
-                  }
-                  return r;
-                });
-
-                if (active) {
-                  setMappings(migratedList);
-                  if (hasChanges) {
-                    saveStgToApi(migratedList);
-                  }
-                }
+                if (active) setMappings(savedList);
               }
             } catch (e) {
               console.error('Failed parsing saved mappings:', e);
@@ -285,7 +260,7 @@ export default function STGStatementMappingPage() {
       return ['Opening Balance'];
     }
     if (formStockSection === 'CB') {
-      return ['Closing Balance', 'CB', 'Physical Count', 'Physical Balance', 'Book Balance'];
+      return ['Closing Balance'];
     }
     const sourceList = formStockSection === 'RECEIPT' ? receiptRows : disposalRows;
     const labels = sourceList.map(r => (r.full_name || r.short_name || '').trim()).filter(Boolean);
@@ -293,7 +268,7 @@ export default function STGStatementMappingPage() {
   }, [formStockSection, receiptRows, disposalRows]);
 
   // Dynamically compute available STG particulars for selected STG statement and section strictly from saved rows from table
-  const availableStgItemNames = useMemo(() => {
+  const availableStgItemNames = useMemo<string[]>(() => {
     const stmt = stgStatements.find(s => s.key === formStgBlockKey);
     let rawList: any[] = [];
     if (stmt) {
@@ -306,12 +281,12 @@ export default function STGStatementMappingPage() {
       } else if (formStgSection === 'CB') {
         const reconRows = (stmt as any).reconciliation_rows || [];
         const reconList = reconRows.map(extractRowName).filter(Boolean);
-        return Array.from(new Set([...reconList, 'Closing Balance', 'CB', 'Physical Count', 'Physical Balance']));
+        return Array.from(new Set<string>(reconList.length > 0 ? reconList : ['Closing Balance']));
       }
     }
 
     const list = rawList.map(extractRowName).filter(Boolean);
-    return Array.from(new Set(list));
+    return Array.from(new Set<string>(list));
   }, [formStgBlockKey, formStgSection, stgStatements]);
 
   // Save STG Mappings to API
@@ -367,24 +342,23 @@ export default function STGStatementMappingPage() {
 
     setFormStockProductKey(initialKey);
     setFormStockSection('RECEIPT');
-
-    const defaultParticular = isStage1
-      ? (availablePrepVariants[0] || '')
-      : (receiptRows[0]?.full_name || receiptRows[0]?.short_name || 'Receipts');
-    setFormStockParticular(defaultParticular);
+    setFormStockParticular('');
     setFormSourceField('qty_lts');
 
     const targetKey = (stgStatements.length > 0 && stgStatements.some(s => s.key === formStgBlockKey))
       ? formStgBlockKey
-      : (stgStatements[0]?.key || 'wh_milk');
+      : (stgStatements[0]?.key || '');
     setFormStgBlockKey(targetKey);
     setFormStgSection('RECEIPT');
+    setFormStgItemName('');
+    setFormStgTargetField('qty_lts');
 
     const targetStmt = stgStatements.find(s => s.key === targetKey);
     const recRows = (targetStmt?.receipt_rows || []).map(extractRowName).filter(Boolean);
-    const firstRec = recRows[0] || '';
-    setFormStgItemName(firstRec);
-    setFormStgTargetField('qty_lts');
+    if (recRows.length === 0) {
+      setIsCustomStgItem(true);
+    }
+
     setIsEditing(true);
   };
 
@@ -392,13 +366,17 @@ export default function STGStatementMappingPage() {
     setEditingId(rule.id);
     setError('');
     setFormSourceStage(rule.sourceStage || 'STAGE_2');
-    setFormStockProductKey(rule.stockProductKey);
-    setFormStockSection(rule.stockSection);
+    setFormStockProductKey(rule.stockProductKey || '');
+    setFormStockSection(rule.stockSection || 'RECEIPT');
     setFormStockParticular(rule.stockParticular || rule.sourceVariant || '');
     setFormSourceField(rule.sourceField || 'qty_lts');
 
-    setFormStgBlockKey(rule.stgBlockKey);
-    setFormStgSection(rule.stgSection);
+    setFormStgBlockKey(rule.stgBlockKey || '');
+    setFormStgSection(rule.stgSection || 'RECEIPT');
+
+    const chosenItem = (rule.stgItemName || '').trim();
+    setFormStgItemName(chosenItem);
+    setFormStgTargetField(rule.stgTargetField || 'qty_lts');
 
     // Look up saved rows from table for this statement block and section
     const targetStmt = stgStatements.find(s => s.key === rule.stgBlockKey);
@@ -409,25 +387,36 @@ export default function STGStatementMappingPage() {
     else if (rule.stgSection === 'CB') tableRows = targetStmt?.reconciliation_rows || [];
 
     const tableNames = tableRows.map(extractRowName).filter(Boolean);
-
-    let chosenItem = (rule.stgItemName || '').trim();
-    const isPlaceholder = /^receipt(\s*1)?$/i.test(chosenItem) || /^disposal(\s*1)?$/i.test(chosenItem);
-    // If the saved rule had dummy placeholder like "Receipt 1" or is not in table rows, and table has rows:
-    if ((isPlaceholder || !tableNames.includes(chosenItem)) && tableNames.length > 0) {
-      chosenItem = tableNames[0]; // Auto-select genuine saved row from table
+    if (tableNames.length === 0 || (chosenItem && !tableNames.includes(chosenItem))) {
+      setIsCustomStgItem(true);
+    } else {
+      setIsCustomStgItem(false);
     }
 
-    setFormStgItemName(chosenItem);
-    setFormStgTargetField(rule.stgTargetField);
-
     setIsCustomParticular(false);
-    setIsCustomStgItem(false);
     setIsEditing(true);
   };
 
   const handleStgFormSave = (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
+
+    if (!formStockProductKey) {
+      setError('Please select a source product/chart.');
+      return;
+    }
+    if (!formStockParticular.trim()) {
+      setError('Please select or enter a source particular / variant.');
+      return;
+    }
+    if (!formStgBlockKey) {
+      setError('Please select an STG statement master block.');
+      return;
+    }
+    if (!formStgItemName.trim()) {
+      setError('Please select or enter an STG item / particular.');
+      return;
+    }
 
     const isStage1 = formSourceStage === 'STAGE_1';
     const selectedSourceObj = isStage1
@@ -445,13 +434,13 @@ export default function STGStatementMappingPage() {
       stockProductKey: formStockProductKey,
       stockProductLabel: sourceLabel,
       stockSection: formStockSection,
-      stockParticular: formStockParticular.trim() || (isStage1 ? 'VARIANT' : 'Particular'),
+      stockParticular: formStockParticular.trim(),
       sourceVariant: isStage1 ? formStockParticular.trim() : undefined,
       sourceField: formSourceField,
       stgBlockKey: formStgBlockKey,
       stgBlockLabel: stgLabel,
       stgSection: formStgSection,
-      stgItemName: formStgItemName.trim() || 'Item',
+      stgItemName: formStgItemName.trim(),
       stgTargetField: formStgTargetField,
     };
 
@@ -616,7 +605,8 @@ export default function STGStatementMappingPage() {
                     checked={formSourceStage === 'STAGE_1'}
                     onChange={() => {
                       setFormSourceStage('STAGE_1');
-                      if (prepMasters.length > 0) setFormStockProductKey(prepMasters[0].key);
+                      setFormStockProductKey(prepMasters[0]?.key || '*');
+                      setFormStockParticular('');
                     }}
                   />
                   <span>📋 Stage 1: Preparation Charts</span>
@@ -628,7 +618,8 @@ export default function STGStatementMappingPage() {
                     checked={formSourceStage === 'STAGE_2'}
                     onChange={() => {
                       setFormSourceStage('STAGE_2');
-                      if (stockProducts.length > 0) setFormStockProductKey(stockProducts[0].key);
+                      setFormStockProductKey(stockProducts[0]?.key || '');
+                      setFormStockParticular('');
                     }}
                   />
                   <span>📦 Stage 2: Stock Statement Entry</span>
@@ -672,7 +663,9 @@ export default function STGStatementMappingPage() {
                               value={formStockParticular}
                               onChange={e => setFormStockParticular(e.target.value)}
                               style={{ width: '100%' }}
+                              required
                             >
+                              <option value="" disabled>-- Select Product Variant --</option>
                               {availablePrepVariants.map(v => (
                                 <option key={v} value={v}>{v}</option>
                               ))}
@@ -719,7 +712,9 @@ export default function STGStatementMappingPage() {
                             value={formStockProductKey}
                             onChange={e => setFormStockProductKey(e.target.value)}
                             style={{ width: '100%' }}
+                            required
                           >
+                            <option value="" disabled>-- Select Stock Product --</option>
                             {stockProducts.map(p => (
                               <option key={p.key} value={p.key}>{p.label} ({p.key})</option>
                             ))}
@@ -740,11 +735,9 @@ export default function STGStatementMappingPage() {
                               } else if (sec === 'CB') {
                                 setFormStockParticular('Closing Balance');
                               } else if (sec === 'RECEIPT') {
-                                const first = receiptRows[0]?.full_name || receiptRows[0]?.short_name || 'Receipts';
-                                setFormStockParticular(first);
+                                setFormStockParticular(receiptRows[0]?.full_name || receiptRows[0]?.short_name || '');
                               } else {
-                                const first = disposalRows[0]?.full_name || disposalRows[0]?.short_name || 'Separation';
-                                setFormStockParticular(first);
+                                setFormStockParticular(disposalRows[0]?.full_name || disposalRows[0]?.short_name || '');
                               }
                             }}
                             style={{ width: '100%' }}
@@ -808,7 +801,7 @@ export default function STGStatementMappingPage() {
                                 className="form-input"
                                 value={formStockParticular}
                                 onChange={e => setFormStockParticular(e.target.value)}
-                                placeholder={`e.g. ${formStockSection === 'OB' ? 'Opening Balance' : formStockSection === 'RECEIPT' ? 'From MDU-SSM' : 'To DLT Milk'}...`}
+                                placeholder="Enter stock particular name..."
                                 style={{ width: '100%', fontWeight: 700 }}
                                 required
                                 autoFocus={isCustomParticular}
@@ -820,7 +813,7 @@ export default function STGStatementMappingPage() {
                                   onClick={() => {
                                     setIsCustomParticular(false);
                                     if (!availableStockParticulars.includes(formStockParticular)) {
-                                      setFormStockParticular(availableStockParticulars[0] || 'Receipts');
+                                      setFormStockParticular(availableStockParticulars[0] || '');
                                     }
                                   }}
                                   title="Return to predefined dropdown"
@@ -851,6 +844,7 @@ export default function STGStatementMappingPage() {
                         onChange={e => {
                           const newKey = e.target.value;
                           setFormStgBlockKey(newKey);
+                          setFormStgItemName('');
                           setIsCustomStgItem(false);
                           const stmt = stgStatements.find(s => s.key === newKey);
                           let list: any[] = [];
@@ -859,10 +853,14 @@ export default function STGStatementMappingPage() {
                           else if (formStgSection === 'DISPOSAL') list = (stmt as any)?.disposal_rows || [];
                           else if (formStgSection === 'CB') list = (stmt as any)?.reconciliation_rows || [];
                           const names = list.map(extractRowName).filter(Boolean);
-                          setFormStgItemName(names[0] || '');
+                          if (names.length === 0) {
+                            setIsCustomStgItem(true);
+                          }
                         }}
                         style={{ width: '100%' }}
+                        required
                       >
+                        <option value="" disabled>-- Select Statement Master --</option>
                         {stgStatements.map(s => (
                           <option key={s.key} value={s.key}>{s.key} - {s.label}</option>
                         ))}
@@ -877,6 +875,7 @@ export default function STGStatementMappingPage() {
                         onChange={e => {
                           const sec = e.target.value as 'OB' | 'RECEIPT' | 'DISPOSAL' | 'CB';
                           setFormStgSection(sec);
+                          setFormStgItemName('');
                           setIsCustomStgItem(false);
                           const stmt = stgStatements.find(s => s.key === formStgBlockKey);
                           let list: any[] = [];
@@ -885,7 +884,9 @@ export default function STGStatementMappingPage() {
                           else if (sec === 'DISPOSAL') list = (stmt as any)?.disposal_rows || [];
                           else if (sec === 'CB') list = (stmt as any)?.reconciliation_rows || [];
                           const names = list.map(extractRowName).filter(Boolean);
-                          setFormStgItemName(names[0] || '');
+                          if (names.length === 0) {
+                            setIsCustomStgItem(true);
+                          }
                         }}
                         style={{ width: '100%' }}
                       >
@@ -949,7 +950,7 @@ export default function STGStatementMappingPage() {
                               className="form-input"
                               value={formStgItemName}
                               onChange={e => setFormStgItemName(e.target.value)}
-                              placeholder="e.g. Water Flush, SMP, DLT Milk..."
+                              placeholder="Enter STG particular / item name..."
                               style={{ width: '100%', fontWeight: 700 }}
                               required
                               autoFocus={isCustomStgItem}
@@ -961,7 +962,7 @@ export default function STGStatementMappingPage() {
                                 onClick={() => {
                                   setIsCustomStgItem(false);
                                   if (!availableStgItemNames.includes(formStgItemName)) {
-                                    setFormStgItemName(availableStgItemNames[0]);
+                                    setFormStgItemName(availableStgItemNames[0] || '');
                                   }
                                 }}
                                 title="Return to predefined dropdown"
