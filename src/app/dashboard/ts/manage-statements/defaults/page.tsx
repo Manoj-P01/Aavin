@@ -23,6 +23,7 @@ export interface STGColumnDef {
 export interface STGReconRow {
   id: string;
   label: string;
+  variant?: string;
   row_type?: string;
   values: Record<string, any>;
   is_formula?: boolean;
@@ -59,90 +60,121 @@ export interface STGMasterDef {
 }
 
 // Default columns for each section with editable Column A (Particular / Label)
-export const getDefaultOBColumns = (): STGColumnDef[] => [
-  { key: 'variant', name: 'Opening Balance Particular', type: 'text', sort_order: 1 },
-  { key: 'qty_lts', name: 'Qty (Lts)', type: 'number', decimals: 0, sort_order: 2 },
-  { key: 'qty_kg', name: 'Qty (Kg)', type: 'calculated', formula: 'qty_lts * sp_gr', decimals: 2, sort_order: 3 },
-  { key: 'fat_pct', name: 'Fat%', type: 'number', decimals: 2, sort_order: 4 },
-  { key: 'snf_pct', name: 'Snf%', type: 'number', decimals: 2, sort_order: 5 },
-  { key: 'sp_gr', name: 'SP.G', type: 'number', decimals: 4, sort_order: 6 },
-  { key: 'kg_fat', name: 'Kg.Fat', type: 'calculated', formula: 'qty_kg * fat_pct / 100', decimals: 3, sort_order: 7 },
-  { key: 'kg_snf', name: 'Kg.Snf', type: 'calculated', formula: 'qty_kg * snf_pct / 100', decimals: 3, sort_order: 8 },
-];
+export const getDefaultOBColumns = (baseCols?: STGColumnDef[]): STGColumnDef[] => {
+  if (baseCols && baseCols.length > 0) return JSON.parse(JSON.stringify(baseCols));
+  return [
+    { key: 'variant', name: 'VARIANT', type: 'text', sort_order: 1 },
+    { key: 'qty_lts', name: 'Qty (Lts)', type: 'number', decimals: 0, sort_order: 2 },
+    { key: 'qty_kg', name: 'Qty (Kg)', type: 'calculated', formula: 'qty_lts * sp_gr', decimals: 2, sort_order: 3 },
+    { key: 'fat_pct', name: 'Fat%', type: 'number', decimals: 2, sort_order: 4 },
+    { key: 'snf_pct', name: 'Snf%', type: 'number', decimals: 2, sort_order: 5 },
+    { key: 'sp_gr', name: 'SP.G', type: 'number', decimals: 4, sort_order: 6 },
+    { key: 'kg_fat', name: 'Kg.Fat', type: 'calculated', formula: 'qty_kg * fat_pct / 100', decimals: 3, sort_order: 7 },
+    { key: 'kg_snf', name: 'Kg.Snf', type: 'calculated', formula: 'qty_kg * snf_pct / 100', decimals: 3, sort_order: 8 },
+  ];
+};
 
-export const getDefaultReceiptColumns = (): STGColumnDef[] => [
-  { key: 'variant', name: 'Receipt Particular', type: 'text', sort_order: 1 },
-  { key: 'qty_lts', name: 'Qty (Lts)', type: 'number', decimals: 0, sort_order: 2 },
-  { key: 'qty_kg', name: 'Qty (Kg)', type: 'calculated', formula: 'qty_lts * sp_gr', decimals: 2, sort_order: 3 },
-  { key: 'fat_pct', name: 'Fat%', type: 'number', decimals: 2, sort_order: 4 },
-  { key: 'snf_pct', name: 'Snf%', type: 'number', decimals: 2, sort_order: 5 },
-  { key: 'sp_gr', name: 'SP.G', type: 'number', decimals: 4, sort_order: 6 },
-  { key: 'kg_fat', name: 'Kg.Fat', type: 'calculated', formula: 'qty_kg * fat_pct / 100', decimals: 3, sort_order: 7 },
-  { key: 'kg_snf', name: 'Kg.Snf', type: 'calculated', formula: 'qty_kg * snf_pct / 100', decimals: 3, sort_order: 8 },
-];
+export const getDefaultReceiptColumns = (baseCols?: STGColumnDef[]): STGColumnDef[] => {
+  if (baseCols && baseCols.length > 0) return JSON.parse(JSON.stringify(baseCols));
+  return [
+    { key: 'variant', name: 'VARIANT', type: 'text', sort_order: 1 },
+    { key: 'qty_lts', name: 'Qty (Lts)', type: 'number', decimals: 0, sort_order: 2 },
+    { key: 'qty_kg', name: 'Qty (Kg)', type: 'calculated', formula: 'qty_lts * sp_gr', decimals: 2, sort_order: 3 },
+    { key: 'fat_pct', name: 'Fat%', type: 'number', decimals: 2, sort_order: 4 },
+    { key: 'snf_pct', name: 'Snf%', type: 'number', decimals: 2, sort_order: 5 },
+    { key: 'sp_gr', name: 'SP.G', type: 'number', decimals: 4, sort_order: 6 },
+    { key: 'kg_fat', name: 'Kg.Fat', type: 'calculated', formula: 'qty_kg * fat_pct / 100', decimals: 3, sort_order: 7 },
+    { key: 'kg_snf', name: 'Kg.Snf', type: 'calculated', formula: 'qty_kg * snf_pct / 100', decimals: 3, sort_order: 8 },
+  ];
+};
 
-export const getDefaultDisposalColumns = (): STGColumnDef[] => [
-  { key: 'variant', name: 'Disposal Particular', type: 'text', sort_order: 1 },
-  { key: 'qty_lts', name: 'Qty (Lts)', type: 'number', decimals: 0, sort_order: 2 },
-  { key: 'qty_kg', name: 'Qty (Kg)', type: 'calculated', formula: 'qty_lts * sp_gr', decimals: 2, sort_order: 3 },
-  { key: 'fat_pct', name: 'Fat%', type: 'number', decimals: 2, sort_order: 4 },
-  { key: 'snf_pct', name: 'Snf%', type: 'number', decimals: 2, sort_order: 5 },
-  { key: 'sp_gr', name: 'SP.G', type: 'number', decimals: 4, sort_order: 6 },
-  { key: 'kg_fat', name: 'Kg.Fat', type: 'calculated', formula: 'qty_kg * fat_pct / 100', decimals: 3, sort_order: 7 },
-  { key: 'kg_snf', name: 'Kg.Snf', type: 'calculated', formula: 'qty_kg * snf_pct / 100', decimals: 3, sort_order: 8 },
-];
+export const getDefaultDisposalColumns = (baseCols?: STGColumnDef[]): STGColumnDef[] => {
+  if (baseCols && baseCols.length > 0) return JSON.parse(JSON.stringify(baseCols));
+  return [
+    { key: 'variant', name: 'VARIANT', type: 'text', sort_order: 1 },
+    { key: 'qty_lts', name: 'Qty (Lts)', type: 'number', decimals: 0, sort_order: 2 },
+    { key: 'qty_kg', name: 'Qty (Kg)', type: 'calculated', formula: 'qty_lts * sp_gr', decimals: 2, sort_order: 3 },
+    { key: 'fat_pct', name: 'Fat%', type: 'number', decimals: 2, sort_order: 4 },
+    { key: 'snf_pct', name: 'Snf%', type: 'number', decimals: 2, sort_order: 5 },
+    { key: 'sp_gr', name: 'SP.G', type: 'number', decimals: 4, sort_order: 6 },
+    { key: 'kg_fat', name: 'Kg.Fat', type: 'calculated', formula: 'qty_kg * fat_pct / 100', decimals: 3, sort_order: 7 },
+    { key: 'kg_snf', name: 'Kg.Snf', type: 'calculated', formula: 'qty_kg * snf_pct / 100', decimals: 3, sort_order: 8 },
+  ];
+};
 
-export const getDefaultReconColumns = (): STGColumnDef[] => [
-  { key: 'label', name: 'Reconciliation Item / Summary Label', type: 'text', sort_order: 1 },
-  { key: 'qty_lts', name: 'Qty (Lts)', type: 'number', decimals: 0, sort_order: 2 },
-  { key: 'qty_kg', name: 'Qty (Kg)', type: 'calculated', formula: 'qty_lts * sp_gr', decimals: 2, sort_order: 3 },
-  { key: 'fat_pct', name: 'Fat%', type: 'number', decimals: 2, sort_order: 4 },
-  { key: 'snf_pct', name: 'Snf%', type: 'number', decimals: 2, sort_order: 5 },
-  { key: 'sp_gr', name: 'SP.G', type: 'number', decimals: 4, sort_order: 6 },
-  { key: 'kg_fat', name: 'Kg.Fat', type: 'calculated', formula: 'qty_kg * fat_pct / 100', decimals: 3, sort_order: 7 },
-  { key: 'kg_snf', name: 'Kg.Snf', type: 'calculated', formula: 'qty_kg * snf_pct / 100', decimals: 3, sort_order: 8 },
-  { key: 'note', name: 'Note / Description', type: 'text', sort_order: 9 },
-];
+export const getDefaultReconColumns = (baseCols?: STGColumnDef[]): STGColumnDef[] => {
+  if (baseCols && baseCols.length > 0) {
+    return baseCols.map((c, i) => ({
+      ...c,
+      key: c.key === 'variant' ? 'label' : c.key,
+      sort_order: i + 1,
+    }));
+  }
+  return [
+    { key: 'label', name: 'VARIANT', type: 'text', sort_order: 1 },
+    { key: 'qty_lts', name: 'Qty (Lts)', type: 'number', decimals: 0, sort_order: 2 },
+    { key: 'qty_kg', name: 'Qty (Kg)', type: 'calculated', formula: 'qty_lts * sp_gr', decimals: 2, sort_order: 3 },
+    { key: 'fat_pct', name: 'Fat%', type: 'number', decimals: 2, sort_order: 4 },
+    { key: 'snf_pct', name: 'Snf%', type: 'number', decimals: 2, sort_order: 5 },
+    { key: 'sp_gr', name: 'SP.G', type: 'number', decimals: 4, sort_order: 6 },
+    { key: 'kg_fat', name: 'Kg.Fat', type: 'calculated', formula: 'qty_kg * fat_pct / 100', decimals: 3, sort_order: 7 },
+    { key: 'kg_snf', name: 'Kg.Snf', type: 'calculated', formula: 'qty_kg * snf_pct / 100', decimals: 3, sort_order: 8 },
+    { key: 'note', name: 'Note / Description', type: 'text', sort_order: 9 },
+  ];
+};
 
 export const getDefaultReconRows = (): STGReconRow[] => [];
+
+const PROHIBITED_COLUMN_NAMES = new Set([
+  'Opening Balance Particular',
+  'Receipt Particular',
+  'Disposal Particular',
+  'Reconciliation Item / Summary Label',
+]);
 
 // Helper to synchronize a section's columns with configured columns from STG Statement Column Configuration:
 // 1. Removes any column that was removed from configured columns.
 // 2. Orders columns strictly in the exact order placed in STG Statement Column Configuration.
-// 3. Preserves Column A (Particular / Label) at sort_order 1.
+// 3. Completely prevents artificial particular names from being injected.
 export const syncSectionColumnsWithConfig = (
   existingCols: STGColumnDef[] | undefined,
-  defaultParticularName: string,
-  particularKey: string,
-  activeConfigCols: STGColumnDef[]
+  activeConfigCols: STGColumnDef[],
+  isRecon: boolean = false
 ): STGColumnDef[] => {
-  const baseDataCols = activeConfigCols && activeConfigCols.length > 0
-    ? activeConfigCols.filter(c => c.key !== 'variant' && c.key !== 'label' && c.key !== particularKey)
-    : getDefaultReceiptColumns().filter(c => c.key !== 'variant' && c.key !== 'label' && c.key !== particularKey);
+  const configCols = activeConfigCols && activeConfigCols.length > 0
+    ? activeConfigCols
+    : getDefaultReceiptColumns();
 
-  const existingParticular = Array.isArray(existingCols)
-    ? existingCols.find(c => c.key === particularKey)
-    : null;
-  const particularCol: STGColumnDef = existingParticular || {
-    key: particularKey,
-    name: defaultParticularName,
-    type: 'text',
-    sort_order: 1,
-    is_active: true,
-  };
+  if (!Array.isArray(existingCols) || existingCols.length === 0) {
+    return configCols.map((c, idx) => ({
+      ...c,
+      key: isRecon && c.key === 'variant' ? 'label' : c.key,
+      sort_order: idx + 1,
+    }));
+  }
 
-  const syncedDataCols = baseDataCols.map((cfgCol, idx) => {
-    const existing = Array.isArray(existingCols) ? existingCols.find(c => c.key === cfgCol.key) : null;
+  // Map strictly over configCols to respect order & removals from STG Statement Column Configuration
+  return configCols.map((cfgCol, idx) => {
+    const existing = existingCols.find(
+      c => c.key === cfgCol.key || (isRecon && cfgCol.key === 'variant' && c.key === 'label')
+    );
+
+    const name = existing?.name && !PROHIBITED_COLUMN_NAMES.has(existing.name)
+      ? existing.name
+      : cfgCol.name;
+
     return {
       ...cfgCol,
-      name: existing?.name || cfgCol.name,
+      key: isRecon && (existing?.key === 'label' || cfgCol.key === 'label') ? 'label' : cfgCol.key,
+      name,
       formula: cfgCol.formula || existing?.formula,
       decimals: cfgCol.decimals !== undefined ? cfgCol.decimals : existing?.decimals,
-      sort_order: idx + 2,
+      unit: cfgCol.unit || existing?.unit,
+      type: cfgCol.type || existing?.type,
+      sort_order: idx + 1,
+      is_active: cfgCol.is_active !== undefined ? cfgCol.is_active : true,
     };
   });
-
-  return [particularCol, ...syncedDataCols];
 };
 
 // Helper to ensure Column A (Particular or Label) exists in a column list
@@ -674,10 +706,10 @@ function STGDefaultFormulationsContent() {
   const getRowCellValue = (row: any, colKey: string): string => {
     if (!row) return '';
     if (colKey === 'variant') {
-      return row.variant !== undefined ? row.variant : (row.values?.['variant'] !== undefined ? row.values['variant'] : '');
+      return row.variant !== undefined ? row.variant : (row.label !== undefined ? row.label : (row.values?.['variant'] !== undefined ? row.values['variant'] : (row.values?.['label'] !== undefined ? row.values['label'] : '')));
     }
     if (colKey === 'label') {
-      return row.label !== undefined ? row.label : (row.values?.['label'] !== undefined ? row.values['label'] : '');
+      return row.label !== undefined ? row.label : (row.variant !== undefined ? row.variant : (row.values?.['label'] !== undefined ? row.values['label'] : (row.values?.['variant'] !== undefined ? row.values['variant'] : '')));
     }
     let raw = row.values?.[colKey];
     if (raw === undefined) {
@@ -786,10 +818,10 @@ function STGDefaultFormulationsContent() {
       : (configuredColumnsRef.current.length > 0 ? configuredColumnsRef.current : configuredColumns);
 
     if (!masterKey || !targetMaster) {
-      setObColumns(syncSectionColumnsWithConfig(undefined, 'Opening Balance Particular', 'variant', activeCols));
-      setReceiptColumns(syncSectionColumnsWithConfig(undefined, 'Receipt Particular', 'variant', activeCols));
-      setDisposalColumns(syncSectionColumnsWithConfig(undefined, 'Disposal Particular', 'variant', activeCols));
-      setReconColumns(syncSectionColumnsWithConfig(undefined, 'Reconciliation Item / Summary Label', 'label', activeCols));
+      setObColumns(syncSectionColumnsWithConfig(undefined, activeCols, false));
+      setReceiptColumns(syncSectionColumnsWithConfig(undefined, activeCols, false));
+      setDisposalColumns(syncSectionColumnsWithConfig(undefined, activeCols, false));
+      setReconColumns(syncSectionColumnsWithConfig(undefined, activeCols, true));
       setObRows([]);
       setReceiptRows([]);
       setDisposalRows([]);
@@ -804,33 +836,29 @@ function STGDefaultFormulationsContent() {
     // 2. Columns follow the exact order configured in STG Statement Column Configuration.
     const loadedOBCols = syncSectionColumnsWithConfig(
       targetMaster.ob_columns,
-      'Opening Balance Particular',
-      'variant',
-      activeCols
+      activeCols,
+      false
     );
     setObColumns(loadedOBCols);
 
     const loadedRecCols = syncSectionColumnsWithConfig(
       targetMaster.receipt_columns,
-      'Receipt Particular',
-      'variant',
-      activeCols
+      activeCols,
+      false
     );
     setReceiptColumns(loadedRecCols);
 
     const loadedDispCols = syncSectionColumnsWithConfig(
       targetMaster.disposal_columns,
-      'Disposal Particular',
-      'variant',
-      activeCols
+      activeCols,
+      false
     );
     setDisposalColumns(loadedDispCols);
 
     const loadedReconCols = syncSectionColumnsWithConfig(
       targetMaster.recon_columns,
-      'Reconciliation Item / Summary Label',
-      'label',
-      activeCols
+      activeCols,
+      true
     );
     setReconColumns(loadedReconCols);
 
@@ -1142,8 +1170,11 @@ function STGDefaultFormulationsContent() {
       if (colKey === 'qty_kg') updatedVals['kg'] = val;
       if (colKey === 'kg') updatedVals['qty_kg'] = val;
       const updatedRow = { ...copy[rIdx], values: updatedVals };
-      if (colKey === 'label') {
+      if (colKey === 'label' || colKey === 'variant') {
         updatedRow.label = val;
+        updatedRow.variant = val;
+        updatedVals['label'] = val;
+        updatedVals['variant'] = val;
       }
       copy[rIdx] = updatedRow;
       return copy;
@@ -1211,7 +1242,107 @@ function STGDefaultFormulationsContent() {
     setIsColModalOpen(true);
   };
 
-  const handleSaveColumnModal = (e: React.FormEvent) => {
+  // Helper to persist column modifications (edit, delete, move, add) directly to database
+  const persistColumnModification = async (
+    sec: STGSectionType,
+    updatedCols: STGColumnDef[],
+    deletedKey?: string,
+    updatedRowsPayload?: {
+      obRows?: STGRowData[];
+      receiptRows?: STGRowData[];
+      disposalRows?: STGRowData[];
+      reconRows?: STGReconRow[];
+    },
+    modifiedCol?: STGColumnDef
+  ) => {
+    if (!activeMasterKey) return;
+
+    const colField = sec === 'OB' ? 'ob_columns'
+      : sec === 'RECEIPT' ? 'receipt_columns'
+      : sec === 'DISPOSAL' ? 'disposal_columns'
+      : 'recon_columns';
+
+    const effectiveOBRows = updatedRowsPayload?.obRows ?? obRows;
+    const effectiveRecRows = updatedRowsPayload?.receiptRows ?? receiptRows;
+    const effectiveDispRows = updatedRowsPayload?.disposalRows ?? disposalRows;
+    const effectiveReconRows = updatedRowsPayload?.reconRows ?? reconRows;
+
+    const combinedRows = [
+      ...effectiveOBRows.map(r => ({ ...r, row_type: 'OB' as const, side: 'RECEIPT' as const })),
+      ...effectiveRecRows.map(r => ({ ...r, row_type: 'RECEIPT' as const, side: 'RECEIPT' as const })),
+      ...effectiveDispRows.map(r => ({ ...r, row_type: 'DISPOSAL' as const, side: 'DISPOSAL' as const })),
+    ];
+
+    const updatedMasters = masters.map(m => {
+      if (m.key === activeMasterKey) {
+        return {
+          ...m,
+          [colField]: updatedCols,
+          ...(sec === 'RECEIPT' ? { custom_columns: updatedCols } : {}),
+          ob_rows: effectiveOBRows,
+          receipt_rows: effectiveRecRows,
+          disposal_rows: effectiveDispRows,
+          reconciliation_rows: effectiveReconRows,
+          default_rows: combinedRows,
+          rows: combinedRows,
+        };
+      }
+      return m;
+    });
+
+    setMasters(updatedMasters);
+
+    try {
+      // 1. Immediately persist statement master section columns to DB (/api/ts/masters -> stg_masters table)
+      await fetch('/api/ts/masters', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ masters: updatedMasters }),
+      });
+
+      // 2. Keep STG Statement Column Configuration (/api/ts/columns) synchronized if deleted or edited
+      if (deletedKey) {
+        const remainingConfig = configuredColumns.filter(c => c.key !== deletedKey);
+        if (remainingConfig.length !== configuredColumns.length) {
+          setConfiguredColumns(remainingConfig);
+          configuredColumnsRef.current = remainingConfig;
+          await fetch('/api/ts/columns', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ columns: remainingConfig }),
+          });
+        }
+      } else if (modifiedCol) {
+        let hasMatch = false;
+        const syncedConfig = configuredColumns.map(cfgCol => {
+          if (cfgCol.key === modifiedCol.key || (cfgCol.key === 'variant' && modifiedCol.key === 'label')) {
+            hasMatch = true;
+            return {
+              ...cfgCol,
+              name: modifiedCol.name,
+              decimals: modifiedCol.decimals,
+              type: modifiedCol.type,
+              unit: modifiedCol.unit,
+            };
+          }
+          return cfgCol;
+        });
+        if (hasMatch) {
+          setConfiguredColumns(syncedConfig);
+          configuredColumnsRef.current = syncedConfig;
+          await fetch('/api/ts/columns', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ columns: syncedConfig }),
+          });
+        }
+      }
+    } catch (err) {
+      console.error('Error persisting column modification to DB:', err);
+    }
+  };
+
+  const handleSaveColumnModal = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!formColName.trim()) {
       showWarning('Please enter a column name');
@@ -1242,19 +1373,21 @@ function STGDefaultFormulationsContent() {
     let updatedCols: STGColumnDef[] = [];
     if (colModalEditingKey) {
       updatedCols = currentCols.map(c => (c.key === colModalEditingKey ? newCol : c));
-      showToast(`✅ Updated column "${newCol.name}" in ${sec} section!`);
+      showToast(`✅ Saved column "${newCol.name}" in ${sec} section to database!`);
     } else if (colModalInsertIdx !== null && colModalInsertIdx >= 0) {
       const copy = [...currentCols];
       copy.splice(colModalInsertIdx, 0, newCol);
       updatedCols = copy.map((c, idx) => ({ ...c, sort_order: idx + 1 }));
-      showToast(`✅ Inserted column "${newCol.name}" into ${sec} section!`);
+      showToast(`✅ Inserted column "${newCol.name}" into ${sec} section and saved to database!`);
     } else {
       updatedCols = [...currentCols, newCol].map((c, idx) => ({ ...c, sort_order: idx + 1 }));
-      showToast(`✅ Added column "${newCol.name}" to ${sec} section!`);
+      showToast(`✅ Added column "${newCol.name}" to ${sec} section and saved to database!`);
     }
 
     setSectionColumns(sec, updatedCols);
     setIsColModalOpen(false);
+
+    await persistColumnModification(sec, updatedCols, undefined, undefined, newCol);
   };
 
   const handleDeleteColumn = async (sec: STGSectionType, key: string) => {
@@ -1264,7 +1397,7 @@ function STGDefaultFormulationsContent() {
 
     const ok = await confirm({
       title: `Delete Column from ${sec}`,
-      message: `Are you sure you want to delete column "${col.name}" from the ${sec} section? Any row values in this column will be cleared.`,
+      message: `Are you sure you want to delete column "${col.name}" from the ${sec} section? Any row values in this column will be cleared and changes saved to database.`,
       confirmText: 'Delete Column',
       cancelText: 'Cancel',
       type: 'danger',
@@ -1275,36 +1408,52 @@ function STGDefaultFormulationsContent() {
     setSectionColumns(sec, updatedCols);
 
     // Clear that key from rows of this section
+    let updatedOB = obRows;
+    let updatedRec = receiptRows;
+    let updatedDisp = disposalRows;
+    let updatedRecon = reconRows;
+
     if (sec === 'OB') {
-      setObRows(prev => prev.map(r => {
+      updatedOB = obRows.map(r => {
         const copy = { ...r.values };
         delete copy[key];
         return { ...r, values: copy };
-      }));
+      });
+      setObRows(updatedOB);
     } else if (sec === 'RECEIPT') {
-      setReceiptRows(prev => prev.map(r => {
+      updatedRec = receiptRows.map(r => {
         const copy = { ...r.values };
         delete copy[key];
         return { ...r, values: copy };
-      }));
+      });
+      setReceiptRows(updatedRec);
     } else if (sec === 'DISPOSAL') {
-      setDisposalRows(prev => prev.map(r => {
+      updatedDisp = disposalRows.map(r => {
         const copy = { ...r.values };
         delete copy[key];
         return { ...r, values: copy };
-      }));
+      });
+      setDisposalRows(updatedDisp);
     } else if (sec === 'RECON') {
-      setReconRows(prev => prev.map(r => {
+      updatedRecon = reconRows.map(r => {
         const copy = { ...r.values };
         delete copy[key];
         return { ...r, values: copy };
-      }));
+      });
+      setReconRows(updatedRecon);
     }
 
-    showToast(`Deleted column "${col.name}" from ${sec}.`);
+    showToast(`✅ Deleted column "${col.name}" from ${sec} and saved to database.`);
+
+    await persistColumnModification(sec, updatedCols, key, {
+      obRows: updatedOB,
+      receiptRows: updatedRec,
+      disposalRows: updatedDisp,
+      reconRows: updatedRecon,
+    });
   };
 
-  const handleMoveColumn = (sec: STGSectionType, index: number, direction: 'LEFT' | 'RIGHT') => {
+  const handleMoveColumn = async (sec: STGSectionType, index: number, direction: 'LEFT' | 'RIGHT') => {
     const currentCols = getSectionColumns(sec);
     if (direction === 'LEFT' && index === 0) return;
     if (direction === 'RIGHT' && index === currentCols.length - 1) return;
@@ -1315,6 +1464,9 @@ function STGDefaultFormulationsContent() {
     copy[targetIdx] = temp;
     const reindexed = copy.map((c, i) => ({ ...c, sort_order: i + 1 }));
     setSectionColumns(sec, reindexed);
+
+    showToast(`✅ Column order saved to database.`);
+    await persistColumnModification(sec, reindexed);
   };
 
   // Statement Master Management Handlers

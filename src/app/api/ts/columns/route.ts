@@ -75,43 +75,49 @@ export async function POST(req: NextRequest) {
 
     // 2. Synchronize all existing statement masters in `stg_masters` table and `prep_chart_configs`
     try {
-      const dataCols = columns.filter((c: any) => c.key !== 'variant' && c.key !== 'label');
+      const PROHIBITED_NAMES = new Set([
+        'Opening Balance Particular',
+        'Receipt Particular',
+        'Disposal Particular',
+        'Reconciliation Item / Summary Label',
+      ]);
 
       const syncSectionCols = (
         existingCols: any[] | undefined,
-        defaultParticularName: string,
-        particularKey: string = 'variant'
+        isRecon: boolean = false
       ) => {
-        const particularCol = (Array.isArray(existingCols) && existingCols.find((c: any) => c.key === particularKey)) || {
-          key: particularKey,
-          name: defaultParticularName,
-          type: 'text',
-          sort_order: 1,
-          is_active: true,
-        };
+        return columns.map((cfgCol: any, idx: number) => {
+          const existing = Array.isArray(existingCols)
+            ? existingCols.find((c: any) => c.key === cfgCol.key || (isRecon && cfgCol.key === 'variant' && c.key === 'label'))
+            : null;
 
-        const synced = dataCols.map((cfgCol: any, idx: number) => {
-          const existing = Array.isArray(existingCols) ? existingCols.find((c: any) => c.key === cfgCol.key) : null;
+          // Discard prohibited artificial names; strictly use configured column name unless a valid user custom name was given
+          const colName = existing?.name && !PROHIBITED_NAMES.has(existing.name)
+            ? existing.name
+            : cfgCol.name;
+
           return {
             ...cfgCol,
-            formula: cfgCol.formula || existing?.formula,
-            name: existing?.name || cfgCol.name,
+            key: isRecon && (existing?.key === 'label' || cfgCol.key === 'label') ? 'label' : cfgCol.key,
+            name: colName,
+            type: cfgCol.type || existing?.type || (cfgCol.key === 'variant' || cfgCol.key === 'label' ? 'text' : 'number'),
+            formula: existing?.formula || cfgCol.formula,
             decimals: cfgCol.decimals !== undefined ? cfgCol.decimals : existing?.decimals,
-            sort_order: idx + 2,
+            unit: cfgCol.unit || existing?.unit,
+            sort_order: idx + 1,
+            is_active: cfgCol.is_active !== undefined ? cfgCol.is_active : true,
           };
         });
-
-        return [particularCol, ...synced];
       };
 
       // 2a. Update dedicated stg_masters table
       const { data: stgRows, error: stgErr } = await supabase.from('stg_masters').select('*');
       if (!stgErr && Array.isArray(stgRows) && stgRows.length > 0) {
         const updatedStgRows = stgRows.map((r: any) => {
-          const ob_columns = syncSectionCols(r.ob_columns, 'Opening Balance Particular', 'variant');
-          const receipt_columns = syncSectionCols(r.receipt_columns, 'Receipt Particular', 'variant');
-          const disposal_columns = syncSectionCols(r.disposal_columns, 'Disposal Particular', 'variant');
-          const recon_columns = syncSectionCols(r.recon_columns, 'Reconciliation Item / Summary Label', 'label');
+          const ob_columns = syncSectionCols(r.ob_columns, false);
+          const receipt_columns = syncSectionCols(r.receipt_columns, false);
+          const disposal_columns = syncSectionCols(r.disposal_columns, false);
+          const recon_columns = syncSectionCols(r.recon_columns, true);
 
           return {
             ...r,
@@ -137,10 +143,10 @@ export async function POST(req: NextRequest) {
 
       if (stgConfig && Array.isArray(stgConfig.config_json) && stgConfig.config_json.length > 0) {
         const updatedMastersConfig = stgConfig.config_json.map((m: any) => {
-          const ob_columns = syncSectionCols(m.ob_columns, 'Opening Balance Particular', 'variant');
-          const receipt_columns = syncSectionCols(m.receipt_columns, 'Receipt Particular', 'variant');
-          const disposal_columns = syncSectionCols(m.disposal_columns, 'Disposal Particular', 'variant');
-          const recon_columns = syncSectionCols(m.recon_columns, 'Reconciliation Item / Summary Label', 'label');
+          const ob_columns = syncSectionCols(m.ob_columns, false);
+          const receipt_columns = syncSectionCols(m.receipt_columns, false);
+          const disposal_columns = syncSectionCols(m.disposal_columns, false);
+          const recon_columns = syncSectionCols(m.recon_columns, true);
 
           return {
             ...m,

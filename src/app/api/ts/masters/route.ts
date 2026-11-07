@@ -254,41 +254,55 @@ export async function GET(req: NextRequest) {
         .eq('config_key', 'stg_columns')
         .maybeSingle();
 
-      if (colData && Array.isArray(colData.config_json) && colData.config_json.length > 0) {
-        const configuredCols: any[] = colData.config_json;
-        const dataCols = configuredCols.filter((c: any) => c.key !== 'variant' && c.key !== 'label');
+      const configuredCols: any[] = (colData && Array.isArray(colData.config_json) && colData.config_json.length > 0)
+        ? colData.config_json
+        : [
+            { key: 'variant', name: 'VARIANT', type: 'text', sort_order: 1 },
+            { key: 'qty_lts', name: 'Qty (Lts)', type: 'number', decimals: 0, sort_order: 2 },
+            { key: 'qty_kg', name: 'Qty (Kg)', type: 'calculated', formula: 'qty_lts * sp_gr', decimals: 2, sort_order: 3 },
+            { key: 'fat_pct', name: 'Fat%', type: 'number', decimals: 2, sort_order: 4 },
+            { key: 'snf_pct', name: 'Snf%', type: 'number', decimals: 2, sort_order: 5 },
+            { key: 'sp_gr', name: 'SP.G', type: 'number', decimals: 4, sort_order: 6 },
+            { key: 'kg_fat', name: 'Kg.Fat', type: 'calculated', formula: 'qty_kg * fat_pct / 100', decimals: 3, sort_order: 7 },
+            { key: 'kg_snf', name: 'Kg.Snf', type: 'calculated', formula: 'qty_kg * snf_pct / 100', decimals: 3, sort_order: 8 },
+          ];
 
-        const syncCols = (existingCols: any[] | undefined, defaultParticularName: string, particularKey: string = 'variant') => {
-          const particularCol = (Array.isArray(existingCols) && existingCols.find((c: any) => c.key === particularKey)) || {
-            key: particularKey,
-            name: defaultParticularName,
-            type: 'text',
-            sort_order: 1,
-            is_active: true,
-          };
+      const PROHIBITED_NAMES = new Set([
+        'Opening Balance Particular',
+        'Receipt Particular',
+        'Disposal Particular',
+        'Reconciliation Item / Summary Label',
+      ]);
 
-          const synced = dataCols.map((cfgCol: any, idx: number) => {
-            const existing = Array.isArray(existingCols) ? existingCols.find((c: any) => c.key === cfgCol.key) : null;
+      const cleanAndSyncCols = (existingCols: any[] | undefined, isRecon: boolean = false) => {
+        if (!Array.isArray(existingCols) || existingCols.length === 0) {
+          return configuredCols.map((cfgCol: any, idx: number) => ({
+            ...cfgCol,
+            key: isRecon && cfgCol.key === 'variant' ? 'label' : cfgCol.key,
+            sort_order: idx + 1,
+          }));
+        }
+
+        // Cleanse prohibited artificial names from existing columns, preserving all user edits & deletions
+        return existingCols.map((col: any) => {
+          if (PROHIBITED_NAMES.has(col.name)) {
+            const matchingCfg = configuredCols.find((c: any) => c.key === col.key || (isRecon && col.key === 'label' && c.key === 'variant'));
             return {
-              ...cfgCol,
-              formula: cfgCol.formula || existing?.formula,
-              name: existing?.name || cfgCol.name,
-              decimals: cfgCol.decimals !== undefined ? cfgCol.decimals : existing?.decimals,
-              sort_order: idx + 2,
+              ...col,
+              name: matchingCfg?.name || (col.key === 'variant' || col.key === 'label' ? 'VARIANT' : col.key),
             };
-          });
+          }
+          return col;
+        });
+      };
 
-          return [particularCol, ...synced];
-        };
-
-        masters = masters.map((m: any) => ({
-          ...m,
-          ob_columns: syncCols(m.ob_columns, 'Opening Balance Particular', 'variant'),
-          receipt_columns: syncCols(m.receipt_columns, 'Receipt Particular', 'variant'),
-          disposal_columns: syncCols(m.disposal_columns, 'Disposal Particular', 'variant'),
-          recon_columns: syncCols(m.recon_columns, 'Reconciliation Item / Summary Label', 'label'),
-        }));
-      }
+      masters = masters.map((m: any) => ({
+        ...m,
+        ob_columns: cleanAndSyncCols(m.ob_columns, false),
+        receipt_columns: cleanAndSyncCols(m.receipt_columns, false),
+        disposal_columns: cleanAndSyncCols(m.disposal_columns, false),
+        recon_columns: cleanAndSyncCols(m.recon_columns, true),
+      }));
     } catch (e) {
       console.warn('Harmonize masters with stg_columns warning:', e);
     }
@@ -322,6 +336,23 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Invalid payload, expected array of statement masters' }, { status: 400 });
     }
 
+    const PROHIBITED_NAMES = new Set([
+      'Opening Balance Particular',
+      'Receipt Particular',
+      'Disposal Particular',
+      'Reconciliation Item / Summary Label',
+    ]);
+
+    const cleanseCols = (cols: any[]) => {
+      if (!Array.isArray(cols)) return [];
+      return cols.map((c: any) => {
+        if (PROHIBITED_NAMES.has(c.name)) {
+          return { ...c, name: 'VARIANT' };
+        }
+        return c;
+      });
+    };
+
     // 1. Primary Store: Save directly into dedicated separate stg_masters table
     try {
       const currentKeys = mastersList.map((m: any) => m.key).filter(Boolean);
@@ -340,10 +371,10 @@ export async function POST(req: NextRequest) {
           variant: m.variant || m.key || 'Statement',
           sort_order: typeof m.sort_order === 'number' ? m.sort_order : idx + 1,
           is_active: m.is_active !== undefined ? !!m.is_active : true,
-          ob_columns: m.ob_columns || [],
-          receipt_columns: m.receipt_columns || [],
-          disposal_columns: m.disposal_columns || [],
-          recon_columns: m.recon_columns || [],
+          ob_columns: cleanseCols(m.ob_columns),
+          receipt_columns: cleanseCols(m.receipt_columns),
+          disposal_columns: cleanseCols(m.disposal_columns),
+          recon_columns: cleanseCols(m.recon_columns),
           ob_rows: m.ob_rows || [],
           receipt_rows: m.receipt_rows || [],
           disposal_rows: m.disposal_rows || [],
@@ -359,9 +390,18 @@ export async function POST(req: NextRequest) {
 
     // 2. Secondary/Fallback Sync: Keep prep_chart_configs updated for compatibility
     try {
+      const cleansedMasters = mastersList.map((m: any) => ({
+        ...m,
+        ob_columns: cleanseCols(m.ob_columns),
+        receipt_columns: cleanseCols(m.receipt_columns),
+        disposal_columns: cleanseCols(m.disposal_columns),
+        recon_columns: cleanseCols(m.recon_columns),
+        custom_columns: cleanseCols(m.receipt_columns || m.custom_columns),
+      }));
+
       await supabase.from('prep_chart_configs').upsert({
         config_key: 'stg_masters',
-        config_json: mastersList,
+        config_json: cleansedMasters,
         updated_by: actorUsername,
         updated_at: new Date().toISOString(),
       }, { onConflict: 'config_key' });
