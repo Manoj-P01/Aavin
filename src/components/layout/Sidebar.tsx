@@ -39,6 +39,7 @@ const NAV_SECTIONS = [
       { href: '/dashboard/ts/manage-statements', icon: '📊', label: 'Statement Master Names' },
       { href: '/dashboard/ts/manage-statements/defaults', icon: '⭐', label: 'Master Default Statements' },
       { href: '/dashboard/ts/manage-statements/columns', icon: '⚙️', label: 'Statement Columns Config' },
+      { href: '/dashboard/ts/mappings', icon: '🔗', label: 'Solid Balance STG Mapping' },
     ],
   },
   {

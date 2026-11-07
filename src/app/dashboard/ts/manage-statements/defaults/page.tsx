@@ -1950,6 +1950,26 @@ function STGDefaultFormulationsContent() {
             >
               📋 Statement Master Names
             </button>
+
+            <Link
+              href="/dashboard/ts/mappings"
+              style={{
+                background: '#ecfdf5',
+                border: '1px solid #a7f3d0',
+                color: '#059669',
+                borderRadius: 6,
+                padding: '6px 12px',
+                fontSize: '0.8rem',
+                fontWeight: 700,
+                textDecoration: 'none',
+                display: 'flex',
+                alignItems: 'center',
+                gap: 5,
+              }}
+              title="Configure Solid Balance STG Mapping Rules (Stage 1 & Stage 2 ➔ Stage 3)"
+            >
+              🔗 STG Mappings
+            </Link>
           </div>
 
           {/* Quick Add Row Shortcuts & Save Master Table */}
