@@ -1140,7 +1140,7 @@ export default function STGEntryForm({
         let globalStatements: any[] = [];
         if (configRes.ok) {
           const configJson = await configRes.json();
-          if (Array.isArray(configJson.masters) && configJson.masters.length > 0) {
+          if (Array.isArray(configJson.masters)) {
             setMasters(configJson.masters);
             globalStatements = configJson.masters.map((s: any) => ({
               ...s,

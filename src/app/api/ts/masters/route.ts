@@ -198,6 +198,7 @@ export async function GET(req: NextRequest) {
     const supabase = getSupabaseServiceClient();
 
     let masters: any[] = [];
+    let stgTableQueried = false;
 
     // 1. First try reading from dedicated stg_masters table
     try {
@@ -206,26 +207,29 @@ export async function GET(req: NextRequest) {
         .select('*')
         .order('sort_order', { ascending: true });
 
-      if (!stgErr && Array.isArray(stgRows) && stgRows.length > 0) {
-        masters = stgRows.map((r: any) => ({
-          key: r.key,
-          label: r.label,
-          variant: r.variant,
-          sort_order: r.sort_order,
-          is_active: r.is_active,
-          ob_columns: r.ob_columns || [],
-          receipt_columns: r.receipt_columns || [],
-          disposal_columns: r.disposal_columns || [],
-          recon_columns: r.recon_columns || [],
-          ob_rows: r.ob_rows || [],
-          receipt_rows: r.receipt_rows || [],
-          disposal_rows: r.disposal_rows || [],
-          reconciliation_rows: r.reconciliation_rows || [],
-        }));
+      if (!stgErr && Array.isArray(stgRows)) {
+        stgTableQueried = true;
+        if (stgRows.length > 0) {
+          masters = stgRows.map((r: any) => ({
+            key: r.key,
+            label: r.label,
+            variant: r.variant,
+            sort_order: r.sort_order,
+            is_active: r.is_active,
+            ob_columns: r.ob_columns || [],
+            receipt_columns: r.receipt_columns || [],
+            disposal_columns: r.disposal_columns || [],
+            recon_columns: r.recon_columns || [],
+            ob_rows: r.ob_rows || [],
+            receipt_rows: r.receipt_rows || [],
+            disposal_rows: r.disposal_rows || [],
+            reconciliation_rows: r.reconciliation_rows || [],
+          }));
+        }
       }
     } catch { }
 
-    // 2. If stg_masters table not present or empty, fallback to prep_chart_configs (config_key = 'stg_masters')
+    // 2. If stg_masters table had no records or not found, check prep_chart_configs (config_key = 'stg_masters')
     if (masters.length === 0) {
       const { data: res, error } = await supabase
         .from('prep_chart_configs')
@@ -233,9 +237,11 @@ export async function GET(req: NextRequest) {
         .eq('config_key', 'stg_masters')
         .maybeSingle();
 
-      if (!error && res && Array.isArray(res.config_json) && res.config_json.length > 0) {
+      if (!error && res && Array.isArray(res.config_json)) {
+        // If prep_chart_configs exists (even if empty []), respect user state
         masters = res.config_json;
-      } else {
+      } else if (!res && !stgTableQueried) {
+        // Only if database has neither stg_masters table nor prep_chart_configs entry, use defaults
         masters = DEFAULT_STG_MASTERS;
       }
     }
@@ -255,7 +261,15 @@ export async function POST(req: NextRequest) {
     const body = await req.json();
 
     const supabase = getSupabaseServiceClient();
-    const mastersList = Array.isArray(body.masters) ? body.masters : (Array.isArray(body.statements) ? body.statements : body);
+
+    let mastersList = Array.isArray(body.masters)
+      ? body.masters
+      : (Array.isArray(body.statements) ? body.statements : (Array.isArray(body) ? body : null));
+
+    // Handle reset to defaults request
+    if (body.action === 'reset') {
+      mastersList = DEFAULT_STG_MASTERS;
+    }
 
     if (!Array.isArray(mastersList)) {
       return NextResponse.json({ error: 'Invalid payload, expected array of statement masters' }, { status: 400 });
@@ -267,26 +281,31 @@ export async function POST(req: NextRequest) {
       if (currentKeys.length > 0) {
         // Clean up any deleted statements from stg_masters table
         await supabase.from('stg_masters').delete().not('key', 'in', `(${currentKeys.map((k: string) => `"${k}"`).join(',')})`);
+      } else {
+        // When empty (all deleted), clear all rows from stg_masters
+        await supabase.from('stg_masters').delete().neq('key', '');
       }
 
-      const rowsToUpsert = mastersList.map((m: any, idx: number) => ({
-        key: m.key,
-        label: m.label || m.variant || 'Untitled Statement',
-        variant: m.variant || m.key || 'Statement',
-        sort_order: typeof m.sort_order === 'number' ? m.sort_order : idx + 1,
-        is_active: m.is_active !== undefined ? !!m.is_active : true,
-        ob_columns: m.ob_columns || [],
-        receipt_columns: m.receipt_columns || [],
-        disposal_columns: m.disposal_columns || [],
-        recon_columns: m.recon_columns || [],
-        ob_rows: m.ob_rows || [],
-        receipt_rows: m.receipt_rows || [],
-        disposal_rows: m.disposal_rows || [],
-        reconciliation_rows: m.reconciliation_rows || [],
-        updated_by: actorUsername,
-        updated_at: new Date().toISOString(),
-      }));
-      await supabase.from('stg_masters').upsert(rowsToUpsert, { onConflict: 'key' });
+      if (mastersList.length > 0) {
+        const rowsToUpsert = mastersList.map((m: any, idx: number) => ({
+          key: m.key,
+          label: m.label || m.variant || 'Untitled Statement',
+          variant: m.variant || m.key || 'Statement',
+          sort_order: typeof m.sort_order === 'number' ? m.sort_order : idx + 1,
+          is_active: m.is_active !== undefined ? !!m.is_active : true,
+          ob_columns: m.ob_columns || [],
+          receipt_columns: m.receipt_columns || [],
+          disposal_columns: m.disposal_columns || [],
+          recon_columns: m.recon_columns || [],
+          ob_rows: m.ob_rows || [],
+          receipt_rows: m.receipt_rows || [],
+          disposal_rows: m.disposal_rows || [],
+          reconciliation_rows: m.reconciliation_rows || [],
+          updated_by: actorUsername,
+          updated_at: new Date().toISOString(),
+        }));
+        await supabase.from('stg_masters').upsert(rowsToUpsert, { onConflict: 'key' });
+      }
     } catch (e) {
       console.warn('stg_masters table write warning:', e);
     }
@@ -317,43 +336,94 @@ export async function POST(req: NextRequest) {
   }
 }
 
-// DELETE /api/ts/masters?key=XXX - Delete a statement master from Supabase DB table
+// DELETE /api/ts/masters?key=XXX or body: { keys: [...], all?: boolean }
 export async function DELETE(req: NextRequest) {
   try {
     const authUser = await getAuthUserFromRequest(req);
     const actorUsername = authUser?.username || 'admin';
     const { searchParams } = new URL(req.url);
-    const key = searchParams.get('key');
+    const singleKey = searchParams.get('key');
+    const keysParam = searchParams.get('keys');
+    let deleteAll = searchParams.get('all') === 'true';
 
-    if (!key) return NextResponse.json({ error: 'Statement master key required' }, { status: 400 });
+    let keysToDelete: string[] = [];
+    if (singleKey) keysToDelete.push(singleKey);
+    if (keysParam) {
+      keysParam.split(',').map(k => k.trim()).filter(Boolean).forEach(k => {
+        if (!keysToDelete.includes(k)) keysToDelete.push(k);
+      });
+    }
+
+    // Parse body if present for bulk delete or all delete
+    try {
+      const body = await req.json();
+      if (body.all) deleteAll = true;
+      if (Array.isArray(body.keys)) {
+        body.keys.forEach((k: string) => {
+          if (k && !keysToDelete.includes(k)) keysToDelete.push(k);
+        });
+      } else if (typeof body.key === 'string' && body.key) {
+        if (!keysToDelete.includes(body.key)) keysToDelete.push(body.key);
+      }
+    } catch {
+      // Body may be empty on query-string DELETE
+    }
+
+    if (!deleteAll && keysToDelete.length === 0) {
+      return NextResponse.json({ error: 'Statement master key(s) required' }, { status: 400 });
+    }
 
     const supabase = getSupabaseServiceClient();
 
     // 1. Delete from dedicated stg_masters table if present
     try {
-      await supabase.from('stg_masters').delete().eq('key', key);
-    } catch { }
+      if (deleteAll) {
+        await supabase.from('stg_masters').delete().neq('key', '');
+      } else {
+        await supabase.from('stg_masters').delete().in('key', keysToDelete);
+      }
+    } catch (e) {
+      console.warn('stg_masters delete warning:', e);
+    }
 
     // 2. Delete from prep_chart_configs
-    const { data: res } = await supabase
-      .from('prep_chart_configs')
-      .select('config_json')
-      .eq('config_key', 'stg_masters')
-      .maybeSingle();
+    let remaining: any[] = [];
+    try {
+      const { data: res } = await supabase
+        .from('prep_chart_configs')
+        .select('config_json')
+        .eq('config_key', 'stg_masters')
+        .maybeSingle();
 
-    if (res && Array.isArray(res.config_json)) {
-      const remaining = res.config_json.filter((m: any) => m.key !== key);
+      if (res && Array.isArray(res.config_json)) {
+        remaining = deleteAll ? [] : res.config_json.filter((m: any) => !keysToDelete.includes(m.key));
+      }
+
       await supabase.from('prep_chart_configs').upsert({
         config_key: 'stg_masters',
         config_json: remaining,
         updated_by: actorUsername,
         updated_at: new Date().toISOString(),
       }, { onConflict: 'config_key' });
-
-      return NextResponse.json({ success: true, masters: remaining });
+    } catch (e) {
+      console.warn('prep_chart_configs delete warning:', e);
     }
 
-    return NextResponse.json({ success: true, message: 'Statement master deleted' });
+    // 3. Sync to entries table
+    try {
+      await supabase.from('entries').insert({
+        report_type: 'TS',
+        notes: JSON.stringify(remaining),
+        created_by: actorUsername,
+      });
+    } catch { }
+
+    return NextResponse.json({
+      success: true,
+      masters: remaining,
+      deletedCount: deleteAll ? 'all' : keysToDelete.length,
+      message: deleteAll ? 'All statement masters deleted' : `${keysToDelete.length} statement master(s) deleted`
+    });
   } catch (err: any) {
     console.error('DELETE /api/ts/masters error:', err);
     return NextResponse.json({ error: err.message || 'Failed to delete statement master' }, { status: 500 });

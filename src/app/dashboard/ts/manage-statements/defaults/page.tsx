@@ -194,6 +194,7 @@ function STGDefaultFormulationsContent() {
 
   // Manage Statement Master Names Modal (Update, Delete, Insert)
   const [isManageMastersModalOpen, setIsManageMastersModalOpen] = useState<boolean>(false);
+  const [selectedMasterKeys, setSelectedMasterKeys] = useState<string[]>([]);
   const [editingMasterKey, setEditingMasterKey] = useState<string | null>(null);
   const [editMasterLabel, setEditMasterLabel] = useState<string>('');
   const [editMasterVariant, setEditMasterVariant] = useState<string>('');
@@ -736,6 +737,20 @@ function STGDefaultFormulationsContent() {
   ) => {
     const targetMaster = mastersList.find(m => m.key === masterKey);
 
+    if (!masterKey || !targetMaster) {
+      setObColumns(getDefaultOBColumns());
+      setReceiptColumns(getDefaultReceiptColumns());
+      setDisposalColumns(getDefaultDisposalColumns());
+      setReconColumns(getDefaultReconColumns());
+      setObRows([]);
+      setReceiptRows([]);
+      setDisposalRows([]);
+      setReconRows([]);
+      setSelectedCell(null);
+      setFocusedCell(null);
+      return;
+    }
+
     // Ensure Column A (Particular or Label) exists in each section's columns
     const loadedOBCols = ensureParticularColumn(
       targetMaster?.ob_columns && targetMaster.ob_columns.length > 0 ? targetMaster.ob_columns : getDefaultOBColumns(),
@@ -830,6 +845,9 @@ function STGDefaultFormulationsContent() {
               : loadedMasters[0].key);
           setActiveMasterKey(initialKey);
           loadMasterDefaults(initialKey, loadedMasters);
+        } else {
+          setActiveMasterKey(null);
+          loadMasterDefaults('', []);
         }
       }
     } catch (err) {
@@ -1278,14 +1296,13 @@ function STGDefaultFormulationsContent() {
   };
 
   const handleDeleteMaster = async (key: string, name: string) => {
-    if (masters.length <= 1) {
-      showWarning('Cannot delete the only statement master in the system.');
-      return;
-    }
+    const isLast = masters.length <= 1;
     const isConfirmed = await confirm({
       title: 'Delete Statement Master',
-      message: `Are you sure you want to delete Statement Master "${name}"? This will delete the statement and all its configured columns and formulation tables.`,
-      confirmText: 'Delete Statement Master',
+      message: isLast
+        ? `Are you sure you want to delete the last Statement Master "${name}"? This will leave no statement masters in the system until new ones are created.`
+        : `Are you sure you want to delete Statement Master "${name}"? This will delete the statement and all its configured columns and formulation tables.`,
+      confirmText: isLast ? 'Delete Last Master' : 'Delete Statement Master',
       cancelText: 'Cancel',
       type: 'warning',
     });
@@ -1299,10 +1316,15 @@ function STGDefaultFormulationsContent() {
       if (res.ok) {
         const updatedMasters = masters.filter(m => m.key !== key);
         setMasters(updatedMasters);
+        setSelectedMasterKeys(prev => prev.filter(k => k !== key));
         if (activeMasterKey === key) {
           const nextKey = updatedMasters[0]?.key || null;
           setActiveMasterKey(nextKey);
-          if (nextKey) loadMasterDefaults(nextKey, updatedMasters);
+          if (nextKey) {
+            loadMasterDefaults(nextKey, updatedMasters);
+          } else {
+            loadMasterDefaults('', []);
+          }
         }
         showToast(`✅ Deleted Statement Master "${name}"`);
       } else {
@@ -1310,6 +1332,138 @@ function STGDefaultFormulationsContent() {
       }
     } catch {
       showToast('❌ Server error deleting statement master');
+    }
+    setSaving(false);
+  };
+
+  const handleToggleSelectAllMasters = () => {
+    if (selectedMasterKeys.length === masters.length) {
+      setSelectedMasterKeys([]);
+    } else {
+      setSelectedMasterKeys(masters.map(m => m.key));
+    }
+  };
+
+  const handleToggleSelectMaster = (key: string) => {
+    setSelectedMasterKeys(prev =>
+      prev.includes(key) ? prev.filter(k => k !== key) : [...prev, key]
+    );
+  };
+
+  const handleBulkDeleteMasters = async () => {
+    if (selectedMasterKeys.length === 0) {
+      showWarning('Please select at least one statement master to delete.');
+      return;
+    }
+
+    const count = selectedMasterKeys.length;
+    const isAll = count === masters.length;
+    const isConfirmed = await confirm({
+      title: isAll ? 'Delete All Statement Masters' : `Delete Selected (${count}) Statement Masters`,
+      message: isAll
+        ? `Are you sure you want to delete ALL ${count} Statement Masters? All statement masters and their configured formulation tables will be permanently deleted.`
+        : `Are you sure you want to delete the ${count} selected Statement Masters? This will permanently remove them and all their configured formulation tables.`,
+      confirmText: isAll ? 'Delete All Masters' : `Delete ${count} Masters`,
+      cancelText: 'Cancel',
+      type: 'warning',
+    });
+    if (!isConfirmed) return;
+
+    setSaving(true);
+    try {
+      const res = await fetch('/api/ts/masters', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ keys: selectedMasterKeys, all: isAll }),
+      });
+      if (res.ok) {
+        const updatedMasters = masters.filter(m => !selectedMasterKeys.includes(m.key));
+        setMasters(updatedMasters);
+        setSelectedMasterKeys([]);
+        if (selectedMasterKeys.includes(activeMasterKey || '')) {
+          const nextKey = updatedMasters[0]?.key || null;
+          setActiveMasterKey(nextKey);
+          if (nextKey) {
+            loadMasterDefaults(nextKey, updatedMasters);
+          } else {
+            loadMasterDefaults('', []);
+          }
+        }
+        showToast(`✅ Successfully deleted ${count} Statement Master${count > 1 ? 's' : ''}`);
+      } else {
+        showToast('❌ Failed to delete selected statement masters');
+      }
+    } catch {
+      showToast('❌ Server error deleting statement masters');
+    }
+    setSaving(false);
+  };
+
+  const handleDeleteAllMasters = async () => {
+    if (masters.length === 0) return;
+    const isConfirmed = await confirm({
+      title: 'Delete All Statement Masters',
+      message: `Are you sure you want to delete ALL ${masters.length} Statement Masters? All statements and their configured formulation tables will be permanently removed from the database.`,
+      confirmText: `Yes, Delete All (${masters.length})`,
+      cancelText: 'Cancel',
+      type: 'warning',
+    });
+    if (!isConfirmed) return;
+
+    setSaving(true);
+    try {
+      const res = await fetch('/api/ts/masters', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ all: true }),
+      });
+      if (res.ok) {
+        setMasters([]);
+        setSelectedMasterKeys([]);
+        setActiveMasterKey(null);
+        loadMasterDefaults('', []);
+        showToast('✅ All Statement Masters have been deleted');
+      } else {
+        showToast('❌ Failed to delete all statement masters');
+      }
+    } catch {
+      showToast('❌ Server error deleting all statement masters');
+    }
+    setSaving(false);
+  };
+
+  const handleRestoreDefaultMasters = async () => {
+    const isConfirmed = await confirm({
+      title: 'Restore Default Statement Masters',
+      message: 'Restore the standard 9 statement masters (Whole Milk, Skimmed Milk, Cream, Separation, Delite, FCM, STD, Curd, SMP for RSM)?',
+      confirmText: 'Restore Defaults',
+      cancelText: 'Cancel',
+      type: 'info',
+    });
+    if (!isConfirmed) return;
+
+    setSaving(true);
+    try {
+      const res = await fetch('/api/ts/masters', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'reset' }),
+      });
+      if (res.ok) {
+        const json = await res.json();
+        const loaded: STGMasterDef[] = json.masters || [];
+        setMasters(loaded);
+        setSelectedMasterKeys([]);
+        if (loaded.length > 0) {
+          setActiveMasterKey(loaded[0].key);
+          loadMasterDefaults(loaded[0].key, loaded);
+        }
+        showToast('✅ Restored default Statement Masters successfully!');
+      } else {
+        showToast('❌ Failed to restore default statement masters');
+      }
+    } catch {
+      showToast('❌ Server error restoring default statement masters');
     }
     setSaving(false);
   };
@@ -1901,13 +2055,18 @@ function STGDefaultFormulationsContent() {
               className="form-select"
               value={activeMasterKey || ''}
               onChange={e => handleSwitchMaster(e.target.value)}
+              disabled={masters.length === 0}
               style={{ width: 260, fontWeight: 700, fontSize: '0.88rem', borderColor: '#0284c7', background: '#f0f9ff', color: '#0369a1' }}
             >
-              {masters.map(m => (
-                <option key={m.key} value={m.key}>
-                  {cleanStatementLabel(m.label || m.name || m.key)}
-                </option>
-              ))}
+              {masters.length === 0 ? (
+                <option value="">-- No Statement Masters --</option>
+              ) : (
+                masters.map(m => (
+                  <option key={m.key} value={m.key}>
+                    {cleanStatementLabel(m.label || m.name || m.key)}
+                  </option>
+                ))
+              )}
             </select>
 
             <button
@@ -1932,7 +2091,10 @@ function STGDefaultFormulationsContent() {
 
             <button
               type="button"
-              onClick={() => setIsManageMastersModalOpen(true)}
+              onClick={() => {
+                setSelectedMasterKeys([]);
+                setIsManageMastersModalOpen(true);
+              }}
               style={{
                 background: '#ffffff',
                 border: '1px solid #cbd5e1',
@@ -1977,7 +2139,8 @@ function STGDefaultFormulationsContent() {
             <button
               type="button"
               onClick={handleAddOBRow}
-              style={{ background: '#2563eb', border: 'none', color: '#ffffff', borderRadius: 6, padding: '5px 12px', fontSize: '0.8rem', fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4 }}
+              disabled={!activeMasterKey}
+              style={{ background: '#2563eb', border: 'none', color: '#ffffff', borderRadius: 6, padding: '5px 12px', fontSize: '0.8rem', fontWeight: 700, cursor: activeMasterKey ? 'pointer' : 'not-allowed', opacity: activeMasterKey ? 1 : 0.6, display: 'flex', alignItems: 'center', gap: 4 }}
               title="Add a new row to Opening Balance"
             >
               ➕ Add OB Row
@@ -1986,7 +2149,8 @@ function STGDefaultFormulationsContent() {
             <button
               type="button"
               onClick={handleAddReceiptRow}
-              style={{ background: '#16a34a', border: 'none', color: '#ffffff', borderRadius: 6, padding: '5px 12px', fontSize: '0.8rem', fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4 }}
+              disabled={!activeMasterKey}
+              style={{ background: '#16a34a', border: 'none', color: '#ffffff', borderRadius: 6, padding: '5px 12px', fontSize: '0.8rem', fontWeight: 700, cursor: activeMasterKey ? 'pointer' : 'not-allowed', opacity: activeMasterKey ? 1 : 0.6, display: 'flex', alignItems: 'center', gap: 4 }}
               title="Add a new row to Receipts"
             >
               ➕ Add Receipt Row
@@ -1995,7 +2159,8 @@ function STGDefaultFormulationsContent() {
             <button
               type="button"
               onClick={handleAddDisposalRow}
-              style={{ background: '#ea580c', border: 'none', color: '#ffffff', borderRadius: 6, padding: '5px 12px', fontSize: '0.8rem', fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4 }}
+              disabled={!activeMasterKey}
+              style={{ background: '#ea580c', border: 'none', color: '#ffffff', borderRadius: 6, padding: '5px 12px', fontSize: '0.8rem', fontWeight: 700, cursor: activeMasterKey ? 'pointer' : 'not-allowed', opacity: activeMasterKey ? 1 : 0.6, display: 'flex', alignItems: 'center', gap: 4 }}
               title="Add a new row to Disposals"
             >
               ➕ Add Disposal Row
@@ -2004,7 +2169,8 @@ function STGDefaultFormulationsContent() {
             <button
               type="button"
               onClick={handleAddReconRow}
-              style={{ background: '#7c3aed', border: 'none', color: '#ffffff', borderRadius: 6, padding: '5px 12px', fontSize: '0.8rem', fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4 }}
+              disabled={!activeMasterKey}
+              style={{ background: '#7c3aed', border: 'none', color: '#ffffff', borderRadius: 6, padding: '5px 12px', fontSize: '0.8rem', fontWeight: 700, cursor: activeMasterKey ? 'pointer' : 'not-allowed', opacity: activeMasterKey ? 1 : 0.6, display: 'flex', alignItems: 'center', gap: 4 }}
               title="Add a new row to Reconciliation Summary"
             >
               ➕ Add Reconciliation Row
@@ -2013,14 +2179,46 @@ function STGDefaultFormulationsContent() {
             <button
               type="button"
               onClick={handleSaveDefaultTemplate}
-              disabled={saving}
+              disabled={saving || !activeMasterKey}
               className="btn btn-primary btn-sm"
-              style={{ background: 'var(--primary)', fontWeight: 800, padding: '6px 14px' }}
+              style={{ background: 'var(--primary)', fontWeight: 800, padding: '6px 14px', opacity: activeMasterKey ? 1 : 0.6, cursor: activeMasterKey ? 'pointer' : 'not-allowed' }}
             >
               {saving ? 'Saving Master...' : '⭐ Save Master Default Table'}
             </button>
           </div>
         </div>
+
+        {masters.length === 0 ? (
+          <div style={{ padding: '60px 24px', textAlign: 'center', background: '#ffffff' }}>
+            <div style={{ fontSize: '3rem', marginBottom: 12 }}>📋</div>
+            <h3 style={{ fontSize: '1.2rem', fontWeight: 800, color: '#1e293b', marginBottom: 6 }}>
+              No Statement Masters Configured
+            </h3>
+            <p style={{ fontSize: '0.85rem', color: '#64748b', maxWidth: 480, margin: '0 auto 20px' }}>
+              All statement masters have been removed from the database. Create a new Statement Master or restore defaults to configure default formulation tables.
+            </p>
+            <div style={{ display: 'flex', justifyContent: 'center', gap: 12 }}>
+              <button
+                type="button"
+                onClick={handleOpenNewMasterModal}
+                className="btn btn-primary"
+                style={{ fontWeight: 800, padding: '8px 18px' }}
+              >
+                ➕ Create Statement Master
+              </button>
+              <button
+                type="button"
+                onClick={handleRestoreDefaultMasters}
+                disabled={saving}
+                className="btn btn-secondary"
+                style={{ fontWeight: 800, padding: '8px 18px', background: '#f8fafc' }}
+              >
+                🔄 Restore Default Statements
+              </button>
+            </div>
+          </div>
+        ) : (
+          <>
 
         {/* Excel Formula Bar */}
         <div
@@ -2595,7 +2793,7 @@ function STGDefaultFormulationsContent() {
         {/* Bottom Footer Bar */}
         <div style={{ padding: '12px 18px', background: '#f8fafc', borderTop: '1px solid var(--border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexShrink: 0 }}>
           <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
-            ⭐ Changes saved here will be stored in database as the Master Default Formulation Table for <b>{activeMasterKey}</b>.
+            ⭐ Changes saved here will be stored in database as the Master Default Formulation Table for <b>{activeMasterKey || 'None'}</b>.
           </div>
 
           <div style={{ display: 'flex', gap: 10 }}>
@@ -2605,7 +2803,7 @@ function STGDefaultFormulationsContent() {
             <button
               type="button"
               onClick={handleSaveDefaultTemplate}
-              disabled={saving}
+              disabled={saving || !activeMasterKey}
               className="btn btn-primary btn-sm"
               style={{ fontWeight: 800 }}
             >
@@ -2613,6 +2811,8 @@ function STGDefaultFormulationsContent() {
             </button>
           </div>
         </div>
+        </>
+      )}
       </div>
 
       {/* MODAL 1: Section Column Configuration Modal (view, reorder, edit, delete all columns for a section) */}
@@ -2875,129 +3075,286 @@ function STGDefaultFormulationsContent() {
       {/* MODAL 3: Manage Statement Master Names Modal */}
       {isManageMastersModalOpen && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-          <div className="card" style={{ width: 680, maxHeight: '85vh', display: 'flex', flexDirection: 'column', padding: 24, boxShadow: '0 20px 25px -5px rgba(0,0,0,0.2)' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+          <div className="card" style={{ width: 750, maxHeight: '88vh', display: 'flex', flexDirection: 'column', padding: 24, boxShadow: '0 20px 25px -5px rgba(0,0,0,0.2)' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
               <div>
                 <h3 style={{ margin: 0, fontSize: '1.15rem', fontWeight: 800, color: '#1e293b' }}>
                   📋 Manage Statement Master Names
                 </h3>
                 <p style={{ margin: '3px 0 0', fontSize: '0.78rem', color: '#64748b' }}>
-                  Update, delete, or create new Statement Master templates.
+                  Update, individual delete, bulk select to delete, or delete all Statement Master templates.
                 </p>
               </div>
 
-              <button
-                type="button"
-                onClick={() => setIsManageMastersModalOpen(false)}
-                style={{ background: 'transparent', border: 'none', fontSize: '1.2rem', cursor: 'pointer', color: '#64748b' }}
-              >
-                ✕
-              </button>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                {masters.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={handleDeleteAllMasters}
+                    disabled={saving}
+                    style={{
+                      background: '#fef2f2',
+                      color: '#dc2626',
+                      border: '1px solid #fecaca',
+                      borderRadius: 6,
+                      padding: '5px 12px',
+                      fontSize: '0.75rem',
+                      fontWeight: 800,
+                      cursor: 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 4,
+                    }}
+                    title="Delete all statement masters from database"
+                  >
+                    🗑️ Delete All ({masters.length})
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={() => setIsManageMastersModalOpen(false)}
+                  style={{ background: 'transparent', border: 'none', fontSize: '1.2rem', cursor: 'pointer', color: '#64748b', padding: '0 4px' }}
+                >
+                  ✕
+                </button>
+              </div>
             </div>
 
-            <div style={{ flex: 1, overflowY: 'auto', marginBottom: 16 }}>
-              <table className="inline-table" style={{ width: '100%', margin: 0 }}>
-                <thead>
-                  <tr style={{ background: '#f8fafc', borderBottom: '1px solid var(--border)' }}>
-                    <th style={{ width: 44, textAlign: 'center', fontSize: '0.75rem' }}>#</th>
-                    <th style={{ textAlign: 'left', fontSize: '0.78rem', fontWeight: 800 }}>Statement Label</th>
-                    <th style={{ textAlign: 'left', fontSize: '0.78rem', fontWeight: 700 }}>Identifier Key</th>
-                    <th style={{ width: 140, textAlign: 'center', fontSize: '0.75rem' }}>Actions</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {masters.map((m, idx) => {
-                    const isEditing = editingMasterKey === m.key;
-                    const isActive = activeMasterKey === m.key;
+            {/* Bulk Selection Bar */}
+            {selectedMasterKeys.length > 0 && (
+              <div
+                style={{
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                  background: '#fef2f2',
+                  border: '1px solid #fecaca',
+                  borderRadius: 6,
+                  padding: '8px 12px',
+                  marginBottom: 12,
+                }}
+              >
+                <div style={{ fontSize: '0.8rem', fontWeight: 700, color: '#991b1b', display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <span>☑️ <b>{selectedMasterKeys.length}</b> of <b>{masters.length}</b> statement{masters.length > 1 ? 's' : ''} selected</span>
+                  <button
+                    type="button"
+                    onClick={() => setSelectedMasterKeys([])}
+                    style={{ background: 'none', border: 'none', color: '#64748b', fontSize: '0.74rem', textDecoration: 'underline', cursor: 'pointer', padding: 0 }}
+                  >
+                    Clear selection
+                  </button>
+                  {selectedMasterKeys.length < masters.length && (
+                    <button
+                      type="button"
+                      onClick={() => setSelectedMasterKeys(masters.map(m => m.key))}
+                      style={{ background: 'none', border: 'none', color: '#0369a1', fontSize: '0.74rem', textDecoration: 'underline', cursor: 'pointer', padding: 0 }}
+                    >
+                      Select all ({masters.length})
+                    </button>
+                  )}
+                </div>
 
-                    return (
-                      <tr key={m.key} style={{ borderBottom: '1px solid #f1f5f9', background: isActive ? '#f0f9ff' : '#ffffff' }}>
-                        <td style={{ textAlign: 'center', fontWeight: 700, color: '#94a3b8', fontSize: '0.75rem' }}>
-                          {idx + 1}
-                        </td>
-                        <td style={{ padding: '6px 8px' }}>
-                          {isEditing ? (
+                <button
+                  type="button"
+                  onClick={handleBulkDeleteMasters}
+                  disabled={saving}
+                  style={{
+                    background: '#dc2626',
+                    color: '#ffffff',
+                    border: 'none',
+                    borderRadius: 5,
+                    padding: '5px 12px',
+                    fontSize: '0.76rem',
+                    fontWeight: 800,
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 5,
+                    boxShadow: '0 1px 2px rgba(0,0,0,0.1)'
+                  }}
+                >
+                  🗑️ Delete Selected ({selectedMasterKeys.length})
+                </button>
+              </div>
+            )}
+
+            <div style={{ flex: 1, overflowY: 'auto', marginBottom: 16 }}>
+              {masters.length === 0 ? (
+                <div style={{ textAlign: 'center', padding: '36px 16px', background: '#f8fafc', borderRadius: 8, border: '1px dashed #cbd5e1' }}>
+                  <div style={{ fontSize: '2.2rem', marginBottom: 8 }}>📭</div>
+                  <div style={{ fontWeight: 800, fontSize: '0.95rem', color: '#334155', marginBottom: 4 }}>
+                    No Statement Masters in Database
+                  </div>
+                  <p style={{ fontSize: '0.8rem', color: '#64748b', maxWidth: 420, margin: '0 auto 16px' }}>
+                    All statement master definitions have been deleted. You can create a new statement master or restore default statement templates.
+                  </p>
+                  <div style={{ display: 'flex', justifyContent: 'center', gap: 10 }}>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsManageMastersModalOpen(false);
+                        handleOpenNewMasterModal();
+                      }}
+                      className="btn btn-primary btn-sm"
+                      style={{ fontWeight: 800 }}
+                    >
+                      ➕ Create New Statement Master
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleRestoreDefaultMasters}
+                      disabled={saving}
+                      className="btn btn-secondary btn-sm"
+                      style={{ fontWeight: 800, background: '#ffffff' }}
+                    >
+                      🔄 Restore Defaults
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <table className="inline-table" style={{ width: '100%', margin: 0 }}>
+                  <thead>
+                    <tr style={{ background: '#f8fafc', borderBottom: '1px solid var(--border)' }}>
+                      <th style={{ width: 38, textAlign: 'center' }}>
+                        <input
+                          type="checkbox"
+                          checked={masters.length > 0 && selectedMasterKeys.length === masters.length}
+                          onChange={handleToggleSelectAllMasters}
+                          title="Select / Deselect All Statements"
+                          style={{ cursor: 'pointer', width: 15, height: 15 }}
+                        />
+                      </th>
+                      <th style={{ width: 38, textAlign: 'center', fontSize: '0.75rem' }}>#</th>
+                      <th style={{ textAlign: 'left', fontSize: '0.78rem', fontWeight: 800 }}>Statement Label</th>
+                      <th style={{ textAlign: 'left', fontSize: '0.78rem', fontWeight: 700 }}>Identifier Key</th>
+                      <th style={{ width: 140, textAlign: 'center', fontSize: '0.75rem' }}>Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {masters.map((m, idx) => {
+                      const isEditing = editingMasterKey === m.key;
+                      const isActive = activeMasterKey === m.key;
+                      const isSelected = selectedMasterKeys.includes(m.key);
+
+                      return (
+                        <tr
+                          key={m.key}
+                          style={{
+                            borderBottom: '1px solid #f1f5f9',
+                            background: isSelected ? '#fff1f2' : (isActive ? '#f0f9ff' : '#ffffff'),
+                          }}
+                        >
+                          <td style={{ textAlign: 'center', padding: '6px 4px' }}>
                             <input
-                              type="text"
-                              className="form-input"
-                              value={editMasterLabel}
-                              onChange={e => setEditMasterLabel(e.target.value)}
-                              style={{ height: 28, fontSize: '0.82rem', fontWeight: 700 }}
-                              autoFocus
+                              type="checkbox"
+                              checked={isSelected}
+                              onChange={() => handleToggleSelectMaster(m.key)}
+                              style={{ cursor: 'pointer', width: 15, height: 15 }}
+                              title={`Select ${cleanStatementLabel(m.label || m.name || m.key)}`}
                             />
-                          ) : (
-                            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                              <span style={{ fontWeight: 800, color: '#0f172a', fontSize: '0.85rem' }}>
-                                {cleanStatementLabel(m.label || m.name || m.key)}
-                              </span>
-                              {isActive && (
-                                <span style={{ fontSize: '0.65rem', background: '#0284c7', color: '#ffffff', padding: '1px 5px', borderRadius: 3, fontWeight: 800 }}>
-                                  Active
+                          </td>
+                          <td style={{ textAlign: 'center', fontWeight: 700, color: '#94a3b8', fontSize: '0.75rem' }}>
+                            {idx + 1}
+                          </td>
+                          <td style={{ padding: '6px 8px' }}>
+                            {isEditing ? (
+                              <input
+                                type="text"
+                                className="form-input"
+                                value={editMasterLabel}
+                                onChange={e => setEditMasterLabel(e.target.value)}
+                                style={{ height: 28, fontSize: '0.82rem', fontWeight: 700 }}
+                                autoFocus
+                              />
+                            ) : (
+                              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                                <span style={{ fontWeight: 800, color: '#0f172a', fontSize: '0.85rem' }}>
+                                  {cleanStatementLabel(m.label || m.name || m.key)}
                                 </span>
-                              )}
-                            </div>
-                          )}
-                        </td>
-                        <td style={{ fontFamily: 'monospace', fontSize: '0.78rem', color: '#64748b' }}>
-                          {m.key}
-                        </td>
-                        <td style={{ textAlign: 'center' }}>
-                          {isEditing ? (
-                            <div style={{ display: 'flex', gap: 4, justifyContent: 'center' }}>
-                              <button
-                                type="button"
-                                onClick={handleSaveEditMaster}
-                                disabled={saving}
-                                style={{ background: '#16a34a', color: '#ffffff', border: 'none', borderRadius: 4, padding: '3px 8px', fontSize: '0.72rem', fontWeight: 700, cursor: 'pointer' }}
-                              >
-                                Save
-                              </button>
-                              <button
-                                type="button"
-                                onClick={handleCancelEditMaster}
-                                style={{ background: '#ffffff', color: '#475569', border: '1px solid #cbd5e1', borderRadius: 4, padding: '3px 8px', fontSize: '0.72rem', fontWeight: 700, cursor: 'pointer' }}
-                              >
-                                Cancel
-                              </button>
-                            </div>
-                          ) : (
-                            <div style={{ display: 'flex', gap: 4, justifyContent: 'center' }}>
-                              <button
-                                type="button"
-                                onClick={() => handleStartEditMaster(m)}
-                                style={{ background: '#f1f5f9', color: '#0369a1', border: '1px solid #bae6fd', borderRadius: 4, padding: '3px 8px', fontSize: '0.72rem', fontWeight: 700, cursor: 'pointer' }}
-                              >
-                                ✏️ Edit
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => handleDeleteMaster(m.key, m.label || m.name || m.key)}
-                                style={{ background: '#fef2f2', color: '#dc2626', border: '1px solid #fecaca', borderRadius: 4, padding: '3px 8px', fontSize: '0.72rem', fontWeight: 700, cursor: 'pointer' }}
-                              >
-                                🗑️ Delete
-                              </button>
-                            </div>
-                          )}
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
+                                {isActive && (
+                                  <span style={{ fontSize: '0.65rem', background: '#0284c7', color: '#ffffff', padding: '1px 5px', borderRadius: 3, fontWeight: 800 }}>
+                                    Active
+                                  </span>
+                                )}
+                              </div>
+                            )}
+                          </td>
+                          <td style={{ fontFamily: 'monospace', fontSize: '0.78rem', color: '#64748b' }}>
+                            {m.key}
+                          </td>
+                          <td style={{ textAlign: 'center' }}>
+                            {isEditing ? (
+                              <div style={{ display: 'flex', gap: 4, justifyContent: 'center' }}>
+                                <button
+                                  type="button"
+                                  onClick={handleSaveEditMaster}
+                                  disabled={saving}
+                                  style={{ background: '#16a34a', color: '#ffffff', border: 'none', borderRadius: 4, padding: '3px 8px', fontSize: '0.72rem', fontWeight: 700, cursor: 'pointer' }}
+                                >
+                                  Save
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={handleCancelEditMaster}
+                                  style={{ background: '#ffffff', color: '#475569', border: '1px solid #cbd5e1', borderRadius: 4, padding: '3px 8px', fontSize: '0.72rem', fontWeight: 700, cursor: 'pointer' }}
+                                >
+                                  Cancel
+                                </button>
+                              </div>
+                            ) : (
+                              <div style={{ display: 'flex', gap: 4, justifyContent: 'center' }}>
+                                <button
+                                  type="button"
+                                  onClick={() => handleStartEditMaster(m)}
+                                  style={{ background: '#f1f5f9', color: '#0369a1', border: '1px solid #bae6fd', borderRadius: 4, padding: '3px 8px', fontSize: '0.72rem', fontWeight: 700, cursor: 'pointer' }}
+                                >
+                                  ✏️ Edit
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => handleDeleteMaster(m.key, m.label || m.name || m.key)}
+                                  style={{ background: '#fef2f2', color: '#dc2626', border: '1px solid #fecaca', borderRadius: 4, padding: '3px 8px', fontSize: '0.72rem', fontWeight: 700, cursor: 'pointer' }}
+                                  title="Delete statement master"
+                                >
+                                  🗑️ Delete
+                                </button>
+                              </div>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              )}
             </div>
 
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderTop: '1px solid var(--border)', paddingTop: 14 }}>
-              <button
-                type="button"
-                onClick={() => {
-                  setIsManageMastersModalOpen(false);
-                  handleOpenNewMasterModal();
-                }}
-                className="btn btn-secondary btn-sm"
-                style={{ fontWeight: 800 }}
-              >
-                ➕ Create New Statement Master
-              </button>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsManageMastersModalOpen(false);
+                    handleOpenNewMasterModal();
+                  }}
+                  className="btn btn-secondary btn-sm"
+                  style={{ fontWeight: 800 }}
+                >
+                  ➕ Create New Statement Master
+                </button>
+                {masters.length < 9 && (
+                  <button
+                    type="button"
+                    onClick={handleRestoreDefaultMasters}
+                    disabled={saving}
+                    className="btn btn-secondary btn-sm"
+                    style={{ fontWeight: 700, background: '#f8fafc' }}
+                    title="Restore standard 9 statement masters"
+                  >
+                    🔄 Restore Defaults
+                  </button>
+                )}
+              </div>
 
               <button
                 type="button"
