@@ -19,7 +19,7 @@ export interface MappingRule {
   stockSection: 'OB' | 'RECEIPT' | 'DISPOSAL' | 'CB';
   stockParticular: string; // Variant name for STAGE_1, or Particular name for STAGE_2
   sourceVariant?: string;
-  sourceField?: 'qty_lts' | 'qty_kg' | 'fat_pct' | 'snf_pct' | 'kg_fat' | 'kg_snf' | 'sp_gr';
+  sourceField?: string;
   stgBlockKey: string;
   stgBlockLabel: string;
   stgSection: 'OB' | 'RECEIPT' | 'DISPOSAL' | 'CB';
@@ -97,12 +97,14 @@ export default function STGStatementMappingPage() {
 
   const [isCustomParticular, setIsCustomParticular] = useState(false);
   const [isCustomStgItem, setIsCustomStgItem] = useState(false);
+  const [isCustomPrepVariant, setIsCustomPrepVariant] = useState(false);
 
   const [formSourceStage, setFormSourceStage] = useState<'STAGE_1' | 'STAGE_2'>('STAGE_1');
   const [formStockProductKey, setFormStockProductKey] = useState<string>('');
   const [formStockSection, setFormStockSection] = useState<'OB' | 'RECEIPT' | 'DISPOSAL' | 'CB'>('RECEIPT');
   const [formStockParticular, setFormStockParticular] = useState<string>('');
-  const [formSourceField, setFormSourceField] = useState<'qty_lts' | 'qty_kg' | 'fat_pct' | 'snf_pct' | 'kg_fat' | 'kg_snf' | 'sp_gr'>('qty_lts');
+  const [formSourceField, setFormSourceField] = useState<string>('qty_lts');
+  const [prepColumns, setPrepColumns] = useState<Array<{ key: string; name: string }>>([]);
 
   const [formStgBlockKey, setFormStgBlockKey] = useState<string>('');
   const [formStgTargetField, setFormStgTargetField] = useState<string>('');
@@ -155,6 +157,12 @@ export default function STGStatementMappingPage() {
           }
           if (prepJson.templates && typeof prepJson.templates === 'object') {
             if (active) setPrepTemplates(prepJson.templates);
+          }
+          if (Array.isArray(prepJson.columns) && active) {
+            setPrepColumns(prepJson.columns.map((c: any) => ({
+              key: c.key,
+              name: c.name || c.key,
+            })));
           }
         }
 
@@ -241,23 +249,114 @@ export default function STGStatementMappingPage() {
     return () => { active = false; };
   }, []);
 
-  // Dynamically compute non-empty available product variants strictly from DB preparation chart masters for selected chart
+  // Dynamically compute available preparation chart columns/fields
+  const availablePrepFields = useMemo(() => {
+    const map = new Map<string, string>();
+    const IGNORED = new Set(['variant', 'id', 'sort_order', 'batch_number', 'batch_name', 'action']);
+
+    if (prepColumns && prepColumns.length > 0) {
+      prepColumns.forEach(c => {
+        const k = (c?.key || '').trim().toLowerCase();
+        if (k && !IGNORED.has(k)) {
+          map.set(c.key, c.name || c.key);
+        }
+      });
+    }
+
+    // Standard fallback columns
+    const defaults = [
+      { key: 'qty_lts', name: 'Qty (Lts)' },
+      { key: 'qty_kg', name: 'Qty (Kg)' },
+      { key: 'fat_pct', name: 'Fat %' },
+      { key: 'snf_pct', name: 'SNF %' },
+      { key: 'kg_fat', name: 'Kg Fat' },
+      { key: 'kg_snf', name: 'Kg SNF' },
+      { key: 'sp_gr', name: 'Sp. Gravity' },
+    ];
+    defaults.forEach(d => {
+      if (!map.has(d.key)) {
+        map.set(d.key, d.name);
+      }
+    });
+
+    return Array.from(map.entries()).map(([key, name]) => ({ key, name }));
+  }, [prepColumns]);
+
+  // Dynamically compute non-empty available product variants & rows strictly from DB preparation chart masters & templates
   const availablePrepVariants = useMemo(() => {
     const set = new Set<string>();
+    const IGNORED_ROW_NAMES = new Set(['new ingredient', 'sample', 'diff', 'difference', 'total']);
+
+    const extractVariantsFromRow = (r: any) => {
+      if (!r) return;
+      const name = extractRowName(r);
+      if (name && !IGNORED_ROW_NAMES.has(name.toLowerCase())) {
+        set.add(name);
+      }
+      const v1 = typeof r.variant === 'string' ? r.variant.trim() : '';
+      const v2 = typeof r.values?.variant === 'string' ? r.values.variant.trim() : '';
+      [v1, v2].forEach(v => {
+        if (v && !IGNORED_ROW_NAMES.has(v.toLowerCase())) {
+          set.add(v);
+        }
+      });
+    };
 
     if (formStockProductKey && formStockProductKey !== '*') {
       const m = rawPrepMasters.find(x => x.key === formStockProductKey);
-      const v = (m?.product_variant || m?.name || m?.label || '').trim();
-      if (v) set.add(v);
+      if (m) {
+        const mv = (m.product_variant || m.name || m.label || '').trim();
+        if (mv) set.add(mv);
+        if (Array.isArray(m.rows)) {
+          m.rows.forEach(extractVariantsFromRow);
+        }
+        if (Array.isArray(m.default_rows)) {
+          m.default_rows.forEach(extractVariantsFromRow);
+        }
+      }
+
+      const tmpl = prepTemplates[formStockProductKey];
+      if (tmpl) {
+        if (Array.isArray(tmpl.rows)) {
+          tmpl.rows.forEach(extractVariantsFromRow);
+        }
+        if (Array.isArray(tmpl.batches)) {
+          tmpl.batches.forEach((b: any) => {
+            if (Array.isArray(b?.rows)) {
+              b.rows.forEach(extractVariantsFromRow);
+            }
+          });
+        }
+      }
     } else {
       rawPrepMasters.forEach(m => {
-        const v = (m.product_variant || m.name || m.label || '').trim();
-        if (v) set.add(v);
+        const mv = (m.product_variant || m.name || m.label || '').trim();
+        if (mv) set.add(mv);
+        if (Array.isArray(m.rows)) {
+          m.rows.forEach(extractVariantsFromRow);
+        }
+        if (Array.isArray(m.default_rows)) {
+          m.default_rows.forEach(extractVariantsFromRow);
+        }
+      });
+      Object.values(prepTemplates).forEach((tmpl: any) => {
+        if (tmpl) {
+          if (Array.isArray(tmpl.rows)) {
+            tmpl.rows.forEach(extractVariantsFromRow);
+          }
+          if (Array.isArray(tmpl.batches)) {
+            tmpl.batches.forEach((b: any) => {
+              if (Array.isArray(b?.rows)) {
+                b.rows.forEach(extractVariantsFromRow);
+              }
+            });
+          }
+        }
       });
     }
 
     return Array.from(set).filter(Boolean);
-  }, [formStockProductKey, rawPrepMasters]);
+  }, [formStockProductKey, rawPrepMasters, prepTemplates]);
 
   // Dynamically compute available stock particulars for selected stock section strictly from DB table rows
   const availableStockParticulars = useMemo(() => {
@@ -387,6 +486,7 @@ export default function STGStatementMappingPage() {
     setError('');
     setIsCustomParticular(false);
     setIsCustomStgItem(false);
+    setIsCustomPrepVariant(false);
 
     const isStage1 = formSourceStage === 'STAGE_1';
     const initialKey = isStage1 ? (prepMasters[0]?.key || '') : (stockProducts[0]?.key || '');
@@ -439,6 +539,7 @@ export default function STGStatementMappingPage() {
     }
 
     setIsCustomParticular(false);
+    setIsCustomPrepVariant(false);
     setIsEditing(true);
   };
 
@@ -688,16 +789,21 @@ export default function STGStatementMappingPage() {
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
                     {formSourceStage === 'STAGE_1' ? (
                       <>
+                        {/* 1. Preparation Chart Master */}
                         <div>
-                          <label className="form-label" style={{ fontSize: '0.75rem', marginBottom: 4 }}>Preparation Chart Master</label>
+                          <label className="form-label" style={{ fontSize: '0.75rem', marginBottom: 4, fontWeight: 700 }}>
+                            1. Preparation Chart Master *
+                          </label>
                           <select
                             className="form-select"
                             value={formStockProductKey}
                             onChange={e => {
                               const key = e.target.value;
                               setFormStockProductKey(key);
+                              setIsCustomPrepVariant(false);
                             }}
                             style={{ width: '100%' }}
+                            required
                           >
                             <option value="*">⭐ All Preparation Charts (*)</option>
                             {prepMasters.map(m => (
@@ -706,54 +812,102 @@ export default function STGStatementMappingPage() {
                           </select>
                         </div>
 
+                        {/* 2. Source Chart Field (Variant Value) - Column */}
                         <div>
-                          <label className="form-label" style={{ fontSize: '0.75rem', marginBottom: 4 }}>
-                            Product Variant (Non-Empty Variant)
-                          </label>
-                          {availablePrepVariants.length > 0 ? (
-                            <select
-                              className="form-select"
-                              value={formStockParticular}
-                              onChange={e => setFormStockParticular(e.target.value)}
-                              style={{ width: '100%' }}
-                              required
-                            >
-                              <option value="" disabled>-- Select Product Variant --</option>
-                              {availablePrepVariants.map(v => (
-                                <option key={v} value={v}>{v}</option>
-                              ))}
-                            </select>
-                          ) : (
-                            <input
-                              type="text"
-                              className="form-input"
-                              value={formStockParticular}
-                              onChange={e => setFormStockParticular(e.target.value)}
-                              placeholder="Type non-empty variant name..."
-                              style={{ width: '100%' }}
-                              required
-                            />
-                          )}
-                        </div>
-
-                        <div>
-                          <label className="form-label" style={{ fontSize: '0.75rem', marginBottom: 4 }}>
-                            Source Chart Field (Variant Value)
+                          <label className="form-label" style={{ fontSize: '0.75rem', marginBottom: 4, fontWeight: 700 }}>
+                            2. Source Chart Field (Variant Value) *
                           </label>
                           <select
                             className="form-select"
                             value={formSourceField}
-                            onChange={e => setFormSourceField(e.target.value as any)}
-                            style={{ width: '100%' }}
+                            onChange={e => setFormSourceField(e.target.value)}
+                            style={{ width: '100%', fontWeight: 600 }}
+                            required
                           >
-                            <option value="qty_lts">Qty (Lts)</option>
-                            <option value="qty_kg">Qty (Kg)</option>
-                            <option value="fat_pct">Fat %</option>
-                            <option value="snf_pct">SNF %</option>
-                            <option value="kg_fat">Kg Fat</option>
-                            <option value="kg_snf">Kg SNF</option>
-                            <option value="sp_gr">Sp. Gravity</option>
+                            {availablePrepFields.map(f => (
+                              <option key={f.key} value={f.key}>{f.name} ({f.key})</option>
+                            ))}
                           </select>
+                        </div>
+
+                        {/* 3. Product Variant (Non-Empty Variant) - Row Value */}
+                        <div>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+                            <label className="form-label" style={{ fontSize: '0.75rem', margin: 0, fontWeight: 700 }}>
+                              3. Product Variant (Non-Empty Variant) *
+                            </label>
+                            {availablePrepVariants.length > 0 && (
+                              <button
+                                type="button"
+                                onClick={() => setIsCustomPrepVariant(!isCustomPrepVariant)}
+                                style={{
+                                  background: 'none',
+                                  border: 'none',
+                                  color: '#0369a1',
+                                  fontSize: '0.72rem',
+                                  fontWeight: 700,
+                                  cursor: 'pointer',
+                                  padding: 0,
+                                }}
+                              >
+                                {isCustomPrepVariant ? '📋 Dropdown' : '✏️ Custom'}
+                              </button>
+                            )}
+                          </div>
+
+                          {!isCustomPrepVariant && availablePrepVariants.length > 0 ? (
+                            <select
+                              className="form-select"
+                              value={formStockParticular}
+                              onChange={e => {
+                                if (e.target.value === '__custom__') {
+                                  setIsCustomPrepVariant(true);
+                                } else {
+                                  setFormStockParticular(e.target.value);
+                                }
+                              }}
+                              style={{ width: '100%', fontWeight: 700, color: '#0369a1' }}
+                              required
+                            >
+                              <option value="" disabled>-- Select Chart Row / Product Variant --</option>
+                              {availablePrepVariants.map(v => (
+                                <option key={v} value={v}>{v}</option>
+                              ))}
+                              {formStockParticular && !availablePrepVariants.includes(formStockParticular) && (
+                                <option value={formStockParticular}>{formStockParticular} (Custom / Saved)</option>
+                              )}
+                              <option value="__custom__">➕ Type Custom Variant...</option>
+                            </select>
+                          ) : (
+                            <div style={{ display: 'flex', gap: 6 }}>
+                              <input
+                                type="text"
+                                className="form-input"
+                                value={formStockParticular}
+                                onChange={e => setFormStockParticular(e.target.value)}
+                                placeholder="Type non-empty variant or row name..."
+                                style={{ width: '100%', fontWeight: 700 }}
+                                required
+                                autoFocus={isCustomPrepVariant}
+                              />
+                              {availablePrepVariants.length > 0 && (
+                                <button
+                                  type="button"
+                                  className="btn btn-secondary btn-xs"
+                                  onClick={() => {
+                                    setIsCustomPrepVariant(false);
+                                    if (!availablePrepVariants.includes(formStockParticular)) {
+                                      setFormStockParticular(availablePrepVariants[0] || '');
+                                    }
+                                  }}
+                                  title="Return to predefined dropdown"
+                                  style={{ fontSize: '0.72rem', whiteSpace: 'nowrap' }}
+                                >
+                                  Dropdown
+                                </button>
+                              )}
+                            </div>
+                          )}
                         </div>
                       </>
                     ) : (
