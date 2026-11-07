@@ -194,6 +194,46 @@ const ensureParticularColumn = (cols: STGColumnDef[], defaultName: string, keyNa
   return cols;
 };
 
+// Fallback authentic statement rows for standard STG masters to prevent generic placeholders
+const FALLBACK_STG_ROWS: Record<string, { receipt: string[]; disposal: string[] }> = {
+  wh_milk: {
+    receipt: ['P.VELUR CC', "BMC's", 'LAB SAMPLE RTN', 'WF', 'SMP', 'RINSE MILK', 'BUTTER MILK', 'DLT SACHET RTN', 'FCM SACHET RTN', 'STD SACHET RTN'],
+    disposal: ['SEPERATION', 'DLT MILK', 'FC.MILK', 'STD.Milk', 'TM MILK(CURD)', 'CUP CURD', 'KHOA', 'LAB SAMPLE', 'TO METRO', 'WF', 'SMP'],
+  },
+  skim_milk: {
+    receipt: ['SKIMMILK RECEIPT', 'SMP', 'WATER FLUSH', 'BUTTER MILK'],
+    disposal: ['TM DELITE 3.5/8.5', 'TM MILK(CURD)', 'AMBATTUR-SSM', 'SNR-SSM', 'DCPP-SSM', 'ERODE -SSM', 'CBE-SSM'],
+  },
+  cream: {
+    receipt: ['CREAM'],
+    disposal: ['FCM', 'STD', 'CHURNING'],
+  },
+  separation: {
+    receipt: ['WHOLE MILK'],
+    disposal: ['SKIMMILK', 'CREAM'],
+  },
+  delite: {
+    receipt: ['WHOLE MILK', 'SKIMMED MILK', 'SMP', 'WATER'],
+    disposal: ['SACHET FILLING'],
+  },
+  fcm: {
+    receipt: ['WHOLE MILK', 'CREAM', 'SMP', 'WATER'],
+    disposal: ['SACHET FILLING'],
+  },
+  std: {
+    receipt: ['WHOLE MILK', 'SKIMMED MILK', 'CREAM', 'SMP', 'WATER'],
+    disposal: ['SACHET FILLING'],
+  },
+  curd: {
+    receipt: ['WHOLE MILK', 'SKIMMED MILK', 'SMP'],
+    disposal: ['SACHET FILLING'],
+  },
+  smp_for_rsm: {
+    receipt: ['SMP FOR SNF BOOSTING'],
+    disposal: ['DLT MILK', 'FC.MILK', 'STD.Milk', 'TM MILK(CURD)', 'CUP CURD'],
+  },
+};
+
 function STGDefaultFormulationsContent() {
   const { confirm, showWarning } = useConfirm();
   const searchParams = useSearchParams();
@@ -218,10 +258,10 @@ function STGDefaultFormulationsContent() {
     { variant: 'Opening Balance', row_type: 'OB', side: 'RECEIPT', values: { variant: 'Opening Balance' } }
   ]);
   const [receiptRows, setReceiptRows] = useState<STGRowData[]>([
-    { variant: 'Receipt 1', row_type: 'RECEIPT', side: 'RECEIPT', values: { variant: 'Receipt 1' } }
+    { variant: 'P.VELUR CC', row_type: 'RECEIPT', side: 'RECEIPT', values: { variant: 'P.VELUR CC' } }
   ]);
   const [disposalRows, setDisposalRows] = useState<STGRowData[]>([
-    { variant: 'Disposal 1', row_type: 'DISPOSAL', side: 'DISPOSAL', values: { variant: 'Disposal 1' } }
+    { variant: 'SEPERATION', row_type: 'DISPOSAL', side: 'DISPOSAL', values: { variant: 'SEPERATION' } }
   ]);
   const [reconRows, setReconRows] = useState<STGReconRow[]>(getDefaultReconRows());
 
@@ -875,28 +915,50 @@ function STGDefaultFormulationsContent() {
       ]);
     }
 
+    const isPlaceholderRowList = (rows: any[], placeholderType: string) => {
+      if (!Array.isArray(rows) || rows.length === 0) return true;
+      return rows.every((r: any) => {
+        const v = (r?.variant || r?.values?.variant || r?.label || r?.name || '').toLowerCase().trim();
+        return !v || v === placeholderType.toLowerCase() || v === `${placeholderType.toLowerCase()} 1`;
+      });
+    };
+
+    const fb = masterKey ? (FALLBACK_STG_ROWS[masterKey] || Object.values(FALLBACK_STG_ROWS).find((_, idx) => masters[idx]?.key === masterKey)) : null;
+
     // 2. Receipt Rows
-    if (targetMaster?.receipt_rows && Array.isArray(targetMaster.receipt_rows) && targetMaster.receipt_rows.length > 0) {
+    if (targetMaster?.receipt_rows && Array.isArray(targetMaster.receipt_rows) && targetMaster.receipt_rows.length > 0 && !isPlaceholderRowList(targetMaster.receipt_rows, 'Receipt')) {
       setReceiptRows(JSON.parse(JSON.stringify(targetMaster.receipt_rows)));
     } else {
       const extractedRec = (targetMaster?.default_rows || targetMaster?.rows || []).filter((r: any) =>
         (r.row_type === 'RECEIPT' || r.side === 'RECEIPT') && r.row_type !== 'OB' && !(r.variant || '').toLowerCase().includes('opening')
       );
-      setReceiptRows(extractedRec.length > 0 ? JSON.parse(JSON.stringify(extractedRec)) : [
-        { variant: 'Receipt 1', row_type: 'RECEIPT', side: 'RECEIPT', values: { variant: 'Receipt 1' } }
-      ]);
+      if (extractedRec.length > 0 && !isPlaceholderRowList(extractedRec, 'Receipt')) {
+        setReceiptRows(JSON.parse(JSON.stringify(extractedRec)));
+      } else if (fb?.receipt?.length) {
+        setReceiptRows(fb.receipt.map(v => ({ variant: v, row_type: 'RECEIPT', side: 'RECEIPT', values: { variant: v } })));
+      } else {
+        setReceiptRows([
+          { variant: 'Receipt 1', row_type: 'RECEIPT', side: 'RECEIPT', values: { variant: 'Receipt 1' } }
+        ]);
+      }
     }
 
     // 3. Disposal Rows
-    if (targetMaster?.disposal_rows && Array.isArray(targetMaster.disposal_rows) && targetMaster.disposal_rows.length > 0) {
+    if (targetMaster?.disposal_rows && Array.isArray(targetMaster.disposal_rows) && targetMaster.disposal_rows.length > 0 && !isPlaceholderRowList(targetMaster.disposal_rows, 'Disposal')) {
       setDisposalRows(JSON.parse(JSON.stringify(targetMaster.disposal_rows)));
     } else {
       const extractedDisp = (targetMaster?.default_rows || targetMaster?.rows || []).filter((r: any) =>
         r.row_type === 'DISPOSAL' || r.side === 'DISPOSAL'
       );
-      setDisposalRows(extractedDisp.length > 0 ? JSON.parse(JSON.stringify(extractedDisp)) : [
-        { variant: 'Disposal 1', row_type: 'DISPOSAL', side: 'DISPOSAL', values: { variant: 'Disposal 1' } }
-      ]);
+      if (extractedDisp.length > 0 && !isPlaceholderRowList(extractedDisp, 'Disposal')) {
+        setDisposalRows(JSON.parse(JSON.stringify(extractedDisp)));
+      } else if (fb?.disposal?.length) {
+        setDisposalRows(fb.disposal.map(v => ({ variant: v, row_type: 'DISPOSAL', side: 'DISPOSAL', values: { variant: v } })));
+      } else {
+        setDisposalRows([
+          { variant: 'Disposal 1', row_type: 'DISPOSAL', side: 'DISPOSAL', values: { variant: 'Disposal 1' } }
+        ]);
+      }
     }
 
     // 4. Reconciliation Rows
@@ -1719,9 +1781,14 @@ function STGDefaultFormulationsContent() {
     let initDispCols: STGColumnDef[] = getDefaultDisposalColumns();
     let initReconCols: STGColumnDef[] = getDefaultReconColumns();
 
+    const fbNew = FALLBACK_STG_ROWS[keyToUse];
     let initOBRows: STGRowData[] = [{ variant: 'Opening Balance', row_type: 'OB', side: 'RECEIPT', values: { variant: 'Opening Balance' } }];
-    let initRecRows: STGRowData[] = [{ variant: 'Receipt 1', row_type: 'RECEIPT', side: 'RECEIPT', values: { variant: 'Receipt 1' } }];
-    let initDispRows: STGRowData[] = [{ variant: 'Disposal 1', row_type: 'DISPOSAL', side: 'DISPOSAL', values: { variant: 'Disposal 1' } }];
+    let initRecRows: STGRowData[] = fbNew?.receipt?.length
+      ? fbNew.receipt.map(v => ({ variant: v, row_type: 'RECEIPT', side: 'RECEIPT', values: { variant: v } }))
+      : [{ variant: 'Receipt 1', row_type: 'RECEIPT', side: 'RECEIPT', values: { variant: 'Receipt 1' } }];
+    let initDispRows: STGRowData[] = fbNew?.disposal?.length
+      ? fbNew.disposal.map(v => ({ variant: v, row_type: 'DISPOSAL', side: 'DISPOSAL', values: { variant: v } }))
+      : [{ variant: 'Disposal 1', row_type: 'DISPOSAL', side: 'DISPOSAL', values: { variant: 'Disposal 1' } }];
     let initReconRows: STGReconRow[] = getDefaultReconRows();
 
     if (newMasterSource !== 'blank') {

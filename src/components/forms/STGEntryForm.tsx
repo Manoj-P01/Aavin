@@ -236,19 +236,79 @@ export const resolveStockCandidateKeys = (stmtKey: string, stmtLabel: string = '
   return Array.from(new Set(keys));
 };
 
+// Fallback authentic statement rows for standard STG masters to prevent generic placeholders
+const FALLBACK_STG_ROWS: Record<string, { receipt: string[]; disposal: string[] }> = {
+  wh_milk: {
+    receipt: ['P.VELUR CC', "BMC's", 'LAB SAMPLE RTN', 'WF', 'SMP', 'RINSE MILK', 'BUTTER MILK', 'DLT SACHET RTN', 'FCM SACHET RTN', 'STD SACHET RTN'],
+    disposal: ['SEPERATION', 'DLT MILK', 'FC.MILK', 'STD.Milk', 'TM MILK(CURD)', 'CUP CURD', 'KHOA', 'LAB SAMPLE', 'TO METRO', 'WF', 'SMP'],
+  },
+  skim_milk: {
+    receipt: ['SKIMMILK RECEIPT', 'SMP', 'WATER FLUSH', 'BUTTER MILK'],
+    disposal: ['TM DELITE 3.5/8.5', 'TM MILK(CURD)', 'AMBATTUR-SSM', 'SNR-SSM', 'DCPP-SSM', 'ERODE -SSM', 'CBE-SSM'],
+  },
+  cream: {
+    receipt: ['CREAM'],
+    disposal: ['FCM', 'STD', 'CHURNING'],
+  },
+  separation: {
+    receipt: ['WHOLE MILK'],
+    disposal: ['SKIMMILK', 'CREAM'],
+  },
+  delite: {
+    receipt: ['WHOLE MILK', 'SKIMMED MILK', 'SMP', 'WATER'],
+    disposal: ['SACHET FILLING'],
+  },
+  fcm: {
+    receipt: ['WHOLE MILK', 'CREAM', 'SMP', 'WATER'],
+    disposal: ['SACHET FILLING'],
+  },
+  std: {
+    receipt: ['WHOLE MILK', 'SKIMMED MILK', 'CREAM', 'SMP', 'WATER'],
+    disposal: ['SACHET FILLING'],
+  },
+  curd: {
+    receipt: ['WHOLE MILK', 'SKIMMED MILK', 'SMP'],
+    disposal: ['SACHET FILLING'],
+  },
+  smp_for_rsm: {
+    receipt: ['SMP FOR SNF BOOSTING'],
+    disposal: ['DLT MILK', 'FC.MILK', 'STD.Milk', 'TM MILK(CURD)', 'CUP CURD'],
+  },
+};
+
 // Populate block defaults from statement master
 export const populateBlockDefaultsFromMaster = (stmtMaster: any): STGBlockState => {
   const rows: STGRowData[] = [];
-  if (Array.isArray(stmtMaster.receipt_rows) && stmtMaster.receipt_rows.length > 0) {
+
+  const isPlaceholderList = (rowsList: any[], placeholder: string) => {
+    if (!Array.isArray(rowsList) || rowsList.length === 0) return true;
+    return rowsList.every((r: any) => {
+      const v = (r?.variant || r?.values?.variant || r?.label || '').toLowerCase().trim();
+      return !v || v === placeholder.toLowerCase() || v === `${placeholder.toLowerCase()} 1`;
+    });
+  };
+
+  const fb = stmtMaster?.key ? FALLBACK_STG_ROWS[stmtMaster.key] : null;
+
+  if (Array.isArray(stmtMaster.receipt_rows) && stmtMaster.receipt_rows.length > 0 && !isPlaceholderList(stmtMaster.receipt_rows, 'Receipt')) {
     stmtMaster.receipt_rows.forEach((r: any) => {
       const name = r.variant || r.short_name || r.full_name || 'Particular';
       rows.push({ variant: name, row_type: 'RECEIPT', side: 'RECEIPT', values: { variant: name, ...(r.values || {}) } });
     });
+  } else if (fb?.receipt?.length) {
+    fb.receipt.forEach(name => {
+      rows.push({ variant: name, row_type: 'RECEIPT', side: 'RECEIPT', values: { variant: name } });
+    });
   }
-  if (Array.isArray(stmtMaster.disposal_rows) && stmtMaster.disposal_rows.length > 0) {
+
+  if (Array.isArray(stmtMaster.disposal_rows) && stmtMaster.disposal_rows.length > 0 && !isPlaceholderList(stmtMaster.disposal_rows, 'Disposal')) {
     stmtMaster.disposal_rows.forEach((d: any) => {
       const name = d.variant || d.short_name || d.full_name || 'Particular';
       rows.push({ variant: name, row_type: 'DISPOSAL', side: 'DISPOSAL', values: { variant: name, ...(d.values || {}) } });
+    });
+  } else if (fb?.disposal?.length) {
+    fb.disposal.forEach(name => {
+      rows.push({ variant: name, row_type: 'DISPOSAL', side: 'DISPOSAL', values: { variant: name } });
     });
   }
 
