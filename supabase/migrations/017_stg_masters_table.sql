@@ -25,8 +25,8 @@ CREATE TABLE IF NOT EXISTS public.stg_masters (
   disposal_rows       jsonb NOT NULL DEFAULT '[]'::jsonb,
   reconciliation_rows jsonb NOT NULL DEFAULT '[]'::jsonb,
 
-  -- CMPDD Norm (Loss/Gain threshold percentage)
-  cmpdd_norm          text DEFAULT '0.5',
+  -- Statement Metadata & Settings stored as JSONB (stores cmpdd_norm and other configurations)
+  metadata            jsonb NOT NULL DEFAULT '{"cmpdd_norm": "0.5"}'::jsonb,
 
   -- Audit Fields
   created_by          text DEFAULT 'admin',
@@ -35,9 +35,10 @@ CREATE TABLE IF NOT EXISTS public.stg_masters (
   updated_at          timestamptz NOT NULL DEFAULT now()
 );
 
--- Ensure description and cmpdd_norm columns exist if table was created previously
+-- Ensure description and metadata columns exist; drop separate cmpdd_norm column if present
 ALTER TABLE public.stg_masters ADD COLUMN IF NOT EXISTS description text DEFAULT '';
-ALTER TABLE public.stg_masters ADD COLUMN IF NOT EXISTS cmpdd_norm text DEFAULT '0.5';
+ALTER TABLE public.stg_masters ADD COLUMN IF NOT EXISTS metadata jsonb NOT NULL DEFAULT '{"cmpdd_norm": "0.5"}'::jsonb;
+ALTER TABLE public.stg_masters DROP COLUMN IF EXISTS cmpdd_norm;
 
 CREATE INDEX IF NOT EXISTS idx_stg_masters_key ON public.stg_masters (key);
 CREATE INDEX IF NOT EXISTS idx_stg_masters_sort ON public.stg_masters (sort_order ASC, created_at ASC);
@@ -79,10 +80,11 @@ DECLARE
     {"key": "kg_snf", "name": "Kg.Snf", "type": "calculated", "formula": "qty_kg * snf_pct / 100", "decimals": 3, "sort_order": 8}
   ]'::jsonb;
   v_default_ob jsonb := '[{"variant": "Opening Balance", "row_type": "OB", "side": "RECEIPT", "values": {"variant": "Opening Balance"}}]'::jsonb;
+  v_default_meta jsonb := '{"cmpdd_norm": "0.5"}'::jsonb;
 BEGIN
 
   -- 1. Tentative Whole Milk
-  INSERT INTO public.stg_masters (key, label, variant, description, sort_order, is_active, ob_columns, receipt_columns, disposal_columns, recon_columns, ob_rows, receipt_rows, disposal_rows, cmpdd_norm)
+  INSERT INTO public.stg_masters (key, label, variant, description, sort_order, is_active, ob_columns, receipt_columns, disposal_columns, recon_columns, ob_rows, receipt_rows, disposal_rows, metadata)
   VALUES (
     'wh_milk',
     'TENTATIVE WHOLE MILK - RECEIPT AND DISPOSAL STATEMENT',
@@ -117,16 +119,17 @@ BEGIN
       {"variant": "WF", "row_type": "DISPOSAL", "side": "DISPOSAL", "values": {"variant": "WF"}},
       {"variant": "SMP", "row_type": "DISPOSAL", "side": "DISPOSAL", "values": {"variant": "SMP"}}
     ]'::jsonb,
-    '0.5'
+    v_default_meta
   )
   ON CONFLICT (key) DO UPDATE SET
     label = EXCLUDED.label,
     variant = EXCLUDED.variant,
     description = EXCLUDED.description,
-    sort_order = EXCLUDED.sort_order;
+    sort_order = EXCLUDED.sort_order,
+    metadata = EXCLUDED.metadata;
 
   -- 2. Skimmed Milk
-  INSERT INTO public.stg_masters (key, label, variant, description, sort_order, is_active, ob_columns, receipt_columns, disposal_columns, recon_columns, ob_rows, receipt_rows, disposal_rows, cmpdd_norm)
+  INSERT INTO public.stg_masters (key, label, variant, description, sort_order, is_active, ob_columns, receipt_columns, disposal_columns, recon_columns, ob_rows, receipt_rows, disposal_rows, metadata)
   VALUES (
     'skim_milk',
     'SKIMMED MILK - RECEIPT AND DISPOSAL STATEMENT',
@@ -151,16 +154,17 @@ BEGIN
       {"variant": "ERODE -SSM", "row_type": "DISPOSAL", "side": "DISPOSAL", "values": {"variant": "ERODE -SSM"}},
       {"variant": "CBE-SSM", "row_type": "DISPOSAL", "side": "DISPOSAL", "values": {"variant": "CBE-SSM"}}
     ]'::jsonb,
-    '0.5'
+    v_default_meta
   )
   ON CONFLICT (key) DO UPDATE SET
     label = EXCLUDED.label,
     variant = EXCLUDED.variant,
     description = EXCLUDED.description,
-    sort_order = EXCLUDED.sort_order;
+    sort_order = EXCLUDED.sort_order,
+    metadata = EXCLUDED.metadata;
 
   -- 3. Cream
-  INSERT INTO public.stg_masters (key, label, variant, description, sort_order, is_active, ob_columns, receipt_columns, disposal_columns, recon_columns, ob_rows, receipt_rows, disposal_rows, cmpdd_norm)
+  INSERT INTO public.stg_masters (key, label, variant, description, sort_order, is_active, ob_columns, receipt_columns, disposal_columns, recon_columns, ob_rows, receipt_rows, disposal_rows, metadata)
   VALUES (
     'cream',
     'CREAM - RECEIPT AND DISPOSAL STATEMENT',
@@ -178,16 +182,17 @@ BEGIN
       {"variant": "STD", "row_type": "DISPOSAL", "side": "DISPOSAL", "values": {"variant": "STD"}},
       {"variant": "CHURNING", "row_type": "DISPOSAL", "side": "DISPOSAL", "values": {"variant": "CHURNING"}}
     ]'::jsonb,
-    '0.5'
+    v_default_meta
   )
   ON CONFLICT (key) DO UPDATE SET
     label = EXCLUDED.label,
     variant = EXCLUDED.variant,
     description = EXCLUDED.description,
-    sort_order = EXCLUDED.sort_order;
+    sort_order = EXCLUDED.sort_order,
+    metadata = EXCLUDED.metadata;
 
   -- 4. Separation
-  INSERT INTO public.stg_masters (key, label, variant, description, sort_order, is_active, ob_columns, receipt_columns, disposal_columns, recon_columns, ob_rows, receipt_rows, disposal_rows, cmpdd_norm)
+  INSERT INTO public.stg_masters (key, label, variant, description, sort_order, is_active, ob_columns, receipt_columns, disposal_columns, recon_columns, ob_rows, receipt_rows, disposal_rows, metadata)
   VALUES (
     'separation',
     'SEPARATION - RECEIPT AND DISPOSAL STATEMENT',
@@ -204,16 +209,17 @@ BEGIN
       {"variant": "SKIMMILK", "row_type": "DISPOSAL", "side": "DISPOSAL", "values": {"variant": "SKIMMILK"}},
       {"variant": "CREAM", "row_type": "DISPOSAL", "side": "DISPOSAL", "values": {"variant": "CREAM"}}
     ]'::jsonb,
-    '0.5'
+    v_default_meta
   )
   ON CONFLICT (key) DO UPDATE SET
     label = EXCLUDED.label,
     variant = EXCLUDED.variant,
     description = EXCLUDED.description,
-    sort_order = EXCLUDED.sort_order;
+    sort_order = EXCLUDED.sort_order,
+    metadata = EXCLUDED.metadata;
 
   -- 5. Delite
-  INSERT INTO public.stg_masters (key, label, variant, description, sort_order, is_active, ob_columns, receipt_columns, disposal_columns, recon_columns, ob_rows, receipt_rows, disposal_rows, cmpdd_norm)
+  INSERT INTO public.stg_masters (key, label, variant, description, sort_order, is_active, ob_columns, receipt_columns, disposal_columns, recon_columns, ob_rows, receipt_rows, disposal_rows, metadata)
   VALUES (
     'delite',
     'DELITE - RECEIPT AND DISPOSAL STATEMENT',
@@ -232,16 +238,17 @@ BEGIN
     '[
       {"variant": "SACHET FILLING", "row_type": "DISPOSAL", "side": "DISPOSAL", "values": {"variant": "SACHET FILLING"}}
     ]'::jsonb,
-    '0.5'
+    v_default_meta
   )
   ON CONFLICT (key) DO UPDATE SET
     label = EXCLUDED.label,
     variant = EXCLUDED.variant,
     description = EXCLUDED.description,
-    sort_order = EXCLUDED.sort_order;
+    sort_order = EXCLUDED.sort_order,
+    metadata = EXCLUDED.metadata;
 
   -- 6. Full Cream Milk (FCM)
-  INSERT INTO public.stg_masters (key, label, variant, description, sort_order, is_active, ob_columns, receipt_columns, disposal_columns, recon_columns, ob_rows, receipt_rows, disposal_rows, cmpdd_norm)
+  INSERT INTO public.stg_masters (key, label, variant, description, sort_order, is_active, ob_columns, receipt_columns, disposal_columns, recon_columns, ob_rows, receipt_rows, disposal_rows, metadata)
   VALUES (
     'fcm',
     'FCM - RECEIPT AND DISPOSAL STATEMENT',
@@ -260,16 +267,17 @@ BEGIN
     '[
       {"variant": "SACHET FILLING", "row_type": "DISPOSAL", "side": "DISPOSAL", "values": {"variant": "SACHET FILLING"}}
     ]'::jsonb,
-    '0.5'
+    v_default_meta
   )
   ON CONFLICT (key) DO UPDATE SET
     label = EXCLUDED.label,
     variant = EXCLUDED.variant,
     description = EXCLUDED.description,
-    sort_order = EXCLUDED.sort_order;
+    sort_order = EXCLUDED.sort_order,
+    metadata = EXCLUDED.metadata;
 
   -- 7. Standardised Milk (STD)
-  INSERT INTO public.stg_masters (key, label, variant, description, sort_order, is_active, ob_columns, receipt_columns, disposal_columns, recon_columns, ob_rows, receipt_rows, disposal_rows, cmpdd_norm)
+  INSERT INTO public.stg_masters (key, label, variant, description, sort_order, is_active, ob_columns, receipt_columns, disposal_columns, recon_columns, ob_rows, receipt_rows, disposal_rows, metadata)
   VALUES (
     'std',
     'STD - RECEIPT AND DISPOSAL STATEMENT',
@@ -289,16 +297,17 @@ BEGIN
     '[
       {"variant": "SACHET FILLING", "row_type": "DISPOSAL", "side": "DISPOSAL", "values": {"variant": "SACHET FILLING"}}
     ]'::jsonb,
-    '0.5'
+    v_default_meta
   )
   ON CONFLICT (key) DO UPDATE SET
     label = EXCLUDED.label,
     variant = EXCLUDED.variant,
     description = EXCLUDED.description,
-    sort_order = EXCLUDED.sort_order;
+    sort_order = EXCLUDED.sort_order,
+    metadata = EXCLUDED.metadata;
 
   -- 8. Curd
-  INSERT INTO public.stg_masters (key, label, variant, description, sort_order, is_active, ob_columns, receipt_columns, disposal_columns, recon_columns, ob_rows, receipt_rows, disposal_rows, cmpdd_norm)
+  INSERT INTO public.stg_masters (key, label, variant, description, sort_order, is_active, ob_columns, receipt_columns, disposal_columns, recon_columns, ob_rows, receipt_rows, disposal_rows, metadata)
   VALUES (
     'curd',
     'CURD - RECEIPT AND DISPOSAL STATEMENT',
@@ -316,16 +325,17 @@ BEGIN
     '[
       {"variant": "SACHET FILLING", "row_type": "DISPOSAL", "side": "DISPOSAL", "values": {"variant": "SACHET FILLING"}}
     ]'::jsonb,
-    '0.5'
+    v_default_meta
   )
   ON CONFLICT (key) DO UPDATE SET
     label = EXCLUDED.label,
     variant = EXCLUDED.variant,
     description = EXCLUDED.description,
-    sort_order = EXCLUDED.sort_order;
+    sort_order = EXCLUDED.sort_order,
+    metadata = EXCLUDED.metadata;
 
   -- 9. SMP For RSM
-  INSERT INTO public.stg_masters (key, label, variant, description, sort_order, is_active, ob_columns, receipt_columns, disposal_columns, recon_columns, ob_rows, receipt_rows, disposal_rows, cmpdd_norm)
+  INSERT INTO public.stg_masters (key, label, variant, description, sort_order, is_active, ob_columns, receipt_columns, disposal_columns, recon_columns, ob_rows, receipt_rows, disposal_rows, metadata)
   VALUES (
     'smp_for_rsm',
     'SMP FOR RSM - RECEIPT AND DISPOSAL STATEMENT',
@@ -345,12 +355,13 @@ BEGIN
       {"variant": "TM MILK(CURD)", "row_type": "DISPOSAL", "side": "DISPOSAL", "values": {"variant": "TM MILK(CURD)"}},
       {"variant": "CUP CURD", "row_type": "DISPOSAL", "side": "DISPOSAL", "values": {"variant": "CUP CURD"}}
     ]'::jsonb,
-    '0.5'
+    v_default_meta
   )
   ON CONFLICT (key) DO UPDATE SET
     label = EXCLUDED.label,
     variant = EXCLUDED.variant,
     description = EXCLUDED.description,
-    sort_order = EXCLUDED.sort_order;
+    sort_order = EXCLUDED.sort_order,
+    metadata = EXCLUDED.metadata;
 
 END $$;

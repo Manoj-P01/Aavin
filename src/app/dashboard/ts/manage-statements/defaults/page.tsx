@@ -44,6 +44,8 @@ export interface STGMasterDef {
   variant?: string;
   description?: string;
   is_split?: boolean;
+  cmpdd_norm?: string;
+  metadata?: Record<string, any>;
   ob_rows?: STGRowData[];
   receipt_rows?: STGRowData[];
   disposal_rows?: STGRowData[];
