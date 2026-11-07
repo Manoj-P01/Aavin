@@ -244,6 +244,25 @@ export async function GET(req: NextRequest) {
         // Only if database has neither stg_masters table nor prep_chart_configs entry, use defaults
         masters = DEFAULT_STG_MASTERS;
       }
+    } else {
+      // Merge any metadata properties (such as cmpdd_norm) from prep_chart_configs
+      try {
+        const { data: cfgRes } = await supabase
+          .from('prep_chart_configs')
+          .select('config_json')
+          .eq('config_key', 'stg_masters')
+          .maybeSingle();
+        if (cfgRes && Array.isArray(cfgRes.config_json)) {
+          const cfgMap = new Map(cfgRes.config_json.map((c: any) => [c.key, c]));
+          masters = masters.map((m: any) => {
+            const extra = cfgMap.get(m.key);
+            return {
+              ...m,
+              cmpdd_norm: m.cmpdd_norm || extra?.cmpdd_norm || '',
+            };
+          });
+        }
+      } catch { }
     }
 
     // 3. Harmonize master section columns with configured STG columns (stg_columns)

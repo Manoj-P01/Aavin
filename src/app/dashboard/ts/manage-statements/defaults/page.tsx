@@ -858,19 +858,6 @@ function STGDefaultFormulationsContent() {
     );
     setReconColumns(loadedReconCols);
 
-    // Section Rows
-    // 1. Opening Balance Rows
-    if (targetMaster?.ob_rows && Array.isArray(targetMaster.ob_rows) && targetMaster.ob_rows.length > 0) {
-      setObRows(JSON.parse(JSON.stringify(targetMaster.ob_rows)));
-    } else {
-      const extractedOB = (targetMaster?.default_rows || targetMaster?.rows || []).filter((r: any) =>
-        r.row_type === 'OB' || (r.variant || '').toLowerCase().includes('opening')
-      );
-      setObRows(extractedOB.length > 0 ? JSON.parse(JSON.stringify(extractedOB)) : [
-        { variant: 'Opening Balance', row_type: 'OB', side: 'RECEIPT', values: { variant: 'Opening Balance' } }
-      ]);
-    }
-
     // Section Rows strictly from saved rows of targetMaster in table
     // 1. Opening Balance Rows
     if (targetMaster?.ob_rows && Array.isArray(targetMaster.ob_rows) && targetMaster.ob_rows.length > 0) {

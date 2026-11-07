@@ -115,6 +115,11 @@ export const evaluateReconCellFormula = (
     return '0';
   });
 
+  // Norm references: NORM or CMPDD_NORM
+  expr = expr.replace(/\b(?:CMPDD_)?NORM(?:\.([a-z_0-9]+))?\b/gi, () => {
+    return String(contextTotals?.norm ?? 0.5);
+  });
+
   // Row references: R1, R2 or R1.kg, R2.lts or R1.B, R1.C
   expr = expr.replace(/\bR([0-9]+)(?:\.([a-z_0-9]+))?\b/gi, (_, rowNum, targetColKey) => {
     const targetRIdx = parseInt(rowNum, 10) - 1;
@@ -240,21 +245,21 @@ export const resolveStockCandidateKeys = (stmtKey: string, stmtLabel: string = '
 export const populateBlockDefaultsFromMaster = (stmtMaster: any): STGBlockState => {
   const rows: STGRowData[] = [];
 
-  if (Array.isArray(stmtMaster.receipt_rows) && stmtMaster.receipt_rows.length > 0) {
+  if (Array.isArray(stmtMaster?.receipt_rows) && stmtMaster.receipt_rows.length > 0) {
     stmtMaster.receipt_rows.forEach((r: any) => {
       const name = r.variant || r.short_name || r.full_name || (r.values?.variant || 'Particular');
       rows.push({ variant: name, row_type: 'RECEIPT', side: 'RECEIPT', values: { variant: name, ...(r.values || {}) } });
     });
   }
 
-  if (Array.isArray(stmtMaster.disposal_rows) && stmtMaster.disposal_rows.length > 0) {
+  if (Array.isArray(stmtMaster?.disposal_rows) && stmtMaster.disposal_rows.length > 0) {
     stmtMaster.disposal_rows.forEach((d: any) => {
       const name = d.variant || d.short_name || d.full_name || (d.values?.variant || 'Particular');
       rows.push({ variant: name, row_type: 'DISPOSAL', side: 'DISPOSAL', values: { variant: name, ...(d.values || {}) } });
     });
   }
 
-  if (rows.length === 0 && Array.isArray(stmtMaster.default_rows) && stmtMaster.default_rows.length > 0) {
+  if (rows.length === 0 && Array.isArray(stmtMaster?.default_rows) && stmtMaster.default_rows.length > 0) {
     stmtMaster.default_rows.forEach((r: any) => {
       const name = r.variant || r.short_name || r.full_name || (r.values?.variant || 'Particular');
       rows.push({
@@ -266,11 +271,45 @@ export const populateBlockDefaultsFromMaster = (stmtMaster: any): STGBlockState 
     });
   }
 
+  // Load opening balance strictly from master defaults if configured in stg_masters (ob_rows or opening_balance)
+  const masterOb = Array.isArray(stmtMaster?.ob_rows) && stmtMaster.ob_rows.length > 0
+    ? (stmtMaster.ob_rows[0]?.values || stmtMaster.ob_rows[0])
+    : (stmtMaster?.opening_balance || {});
+
+  const opening_balance: STGOpeningBalance = {
+    qty_lts: masterOb?.qty_lts !== undefined && masterOb?.qty_lts !== null ? String(masterOb.qty_lts) : '',
+    sp_gr: masterOb?.sp_gr !== undefined && masterOb?.sp_gr !== null ? String(masterOb.sp_gr) : '',
+    qty_kg: masterOb?.qty_kg !== undefined && masterOb?.qty_kg !== null ? String(masterOb.qty_kg) : '',
+    fat_pct: masterOb?.fat_pct !== undefined && masterOb?.fat_pct !== null ? String(masterOb.fat_pct) : '',
+    snf_pct: masterOb?.snf_pct !== undefined && masterOb?.snf_pct !== null ? String(masterOb.snf_pct) : '',
+    kg_fat: masterOb?.kg_fat !== undefined && masterOb?.kg_fat !== null ? String(masterOb.kg_fat) : '',
+    kg_snf: masterOb?.kg_snf !== undefined && masterOb?.kg_snf !== null ? String(masterOb.kg_snf) : '',
+  };
+
+  // Load physical count strictly from master defaults if configured (cb_rows or physical_count)
+  const masterCb = Array.isArray(stmtMaster?.cb_rows) && stmtMaster.cb_rows.length > 0
+    ? (stmtMaster.cb_rows[0]?.values || stmtMaster.cb_rows[0])
+    : (stmtMaster?.physical_count || {});
+
+  const physical_count: STGPhysicalCount = {
+    qty_lts: masterCb?.qty_lts !== undefined && masterCb?.qty_lts !== null ? String(masterCb.qty_lts) : '',
+    sp_gr: masterCb?.sp_gr !== undefined && masterCb?.sp_gr !== null ? String(masterCb.sp_gr) : '',
+    qty_kg: masterCb?.qty_kg !== undefined && masterCb?.qty_kg !== null ? String(masterCb.qty_kg) : '',
+    fat_pct: masterCb?.fat_pct !== undefined && masterCb?.fat_pct !== null ? String(masterCb.fat_pct) : '',
+    snf_pct: masterCb?.snf_pct !== undefined && masterCb?.snf_pct !== null ? String(masterCb.snf_pct) : '',
+    kg_fat: masterCb?.kg_fat !== undefined && masterCb?.kg_fat !== null ? String(masterCb.kg_fat) : '',
+    kg_snf: masterCb?.kg_snf !== undefined && masterCb?.kg_snf !== null ? String(masterCb.kg_snf) : '',
+  };
+
+  const cmpdd_norm = stmtMaster?.cmpdd_norm !== undefined && stmtMaster?.cmpdd_norm !== null && stmtMaster?.cmpdd_norm !== ''
+    ? String(stmtMaster.cmpdd_norm)
+    : '';
+
   return {
     rows,
-    opening_balance: { qty_lts: '', sp_gr: '', qty_kg: '', fat_pct: '', snf_pct: '', kg_fat: '', kg_snf: '' },
-    physical_count: { qty_lts: '', sp_gr: '', qty_kg: '', fat_pct: '', snf_pct: '', kg_fat: '', kg_snf: '' },
-    cmpdd_norm: '0.5'
+    opening_balance,
+    physical_count,
+    cmpdd_norm,
   };
 };
 
@@ -487,7 +526,7 @@ export default function STGEntryForm({
 
   const activeBlockState = useMemo(() => {
     if (!activeBlock || !blocks[activeBlock]) {
-      return { rows: [], opening_balance: {}, physical_count: {}, cmpdd_norm: '0.5' };
+      return { rows: [], opening_balance: {}, physical_count: {}, cmpdd_norm: '' };
     }
     return blocks[activeBlock];
   }, [activeBlock, blocks]);
@@ -925,9 +964,10 @@ export default function STGEntryForm({
         ? {
             ...copy[stmtKey],
             opening_balance: { ...(copy[stmtKey].opening_balance || {}) },
+            physical_count: { ...(copy[stmtKey].physical_count || {}) },
             rows: (copy[stmtKey].rows || []).map(r => ({ ...r, values: { ...(r.values || {}) } })),
           }
-        : { rows: [], opening_balance: {}, physical_count: {} };
+        : { rows: [], opening_balance: {}, physical_count: {}, cmpdd_norm: '' };
 
       // Find user-defined mapping rules for this statement
       const matchingRules = (rules || []).filter((r: any) => {
@@ -979,7 +1019,51 @@ export default function STGEntryForm({
         currentBlockState.opening_balance.kg_snf = (qtyKg * snfPct) / 100 !== 0 ? String((qtyKg * snfPct) / 100) : '';
       }
 
-      // 2. Particulars Rows Sync (Receipts & Disposals)
+      // 2. Physical Count / Closing Balance Sync
+      let cbSynced = false;
+      const cbRule = matchingRules.find((r: any) => r.stgSection === 'CB');
+      const cbRow = stockRows.find(r => r.row_type === 'CB');
+
+      if (cbRule && cbRow) {
+        const mappedVal = getStockVal(cbRow, cbRule.stockProductKey);
+        if (mappedVal !== undefined) {
+          const targetField = cbRule.stgTargetField || 'qty_lts';
+          (currentBlockState.physical_count as any)[targetField] = String(mappedVal);
+          cbSynced = true;
+          syncedCount++;
+        }
+      }
+
+      // If no explicit rule or rule didn't produce a value, check candidate keys against cbRow
+      if (!cbSynced && cbRow) {
+        const candidateKeys = resolveStockCandidateKeys(stmtKey, stmt.label || '');
+        for (const cKey of candidateKeys) {
+          const val = getStockVal(cbRow, cKey);
+          if (val !== undefined) {
+            currentBlockState.physical_count = {
+              ...(currentBlockState.physical_count || {}),
+              qty_lts: String(val),
+            };
+            cbSynced = true;
+            syncedCount++;
+            break;
+          }
+        }
+      }
+
+      // Recalculate CB calculated fields if Qty Lts is set
+      if (currentBlockState.physical_count?.qty_lts) {
+        const qtyLit = parseFloat(currentBlockState.physical_count.qty_lts) || 0;
+        const spGr = parseFloat(currentBlockState.physical_count.sp_gr || '0') || 0;
+        const qtyKg = spGr > 0 ? qtyLit * spGr : qtyLit;
+        currentBlockState.physical_count.qty_kg = qtyKg !== 0 ? String(qtyKg) : '';
+        const fatPct = parseFloat(currentBlockState.physical_count.fat_pct || '0') || 0;
+        const snfPct = parseFloat(currentBlockState.physical_count.snf_pct || '0') || 0;
+        currentBlockState.physical_count.kg_fat = (qtyKg * fatPct) / 100 !== 0 ? String((qtyKg * fatPct) / 100) : '';
+        currentBlockState.physical_count.kg_snf = (qtyKg * snfPct) / 100 !== 0 ? String((qtyKg * snfPct) / 100) : '';
+      }
+
+      // 3. Particulars Rows Sync (Receipts & Disposals)
       const nextRows = currentBlockState.rows.map(r => {
         const rowCopy = { ...r, values: { ...(r.values || {}) } };
         let rowSynced = false;
@@ -1215,6 +1299,12 @@ export default function STGEntryForm({
                   if (meta.custom_statements) todayCustomStatements = meta.custom_statements;
                   if (meta.custom_blocks) customBlocksState = meta.custom_blocks;
                   if (meta.enabled_blocks) savedEnabledKeys = meta.enabled_blocks;
+                  if (meta.cmpdd_norms && typeof meta.cmpdd_norms === 'object') {
+                    Object.entries(meta.cmpdd_norms).forEach(([k, v]) => {
+                      if (!customBlocksState[k]) customBlocksState[k] = { rows: [] };
+                      customBlocksState[k].cmpdd_norm = String(v);
+                    });
+                  }
                 } catch (e) {
                   console.error('Failed to parse STG metadata:', e);
                 }
@@ -1260,13 +1350,20 @@ export default function STGEntryForm({
             let newBlocks: Record<string, STGBlockState> = {};
             combinedStatements.forEach((s: any) => {
               const matchedMaster = globalStatements.find((g: any) => g.key === s.key);
-              newBlocks[s.key] = matchedMaster ? populateBlockDefaultsFromMaster(matchedMaster) : { rows: [] };
+              newBlocks[s.key] = matchedMaster ? populateBlockDefaultsFromMaster(matchedMaster) : { rows: [], opening_balance: {}, physical_count: {}, cmpdd_norm: '' };
             });
 
             // Restore from custom_blocks state if present
             Object.entries(customBlocksState).forEach(([key, state]) => {
               if (newBlocks[key] && state.rows && Array.isArray(state.rows)) {
-                newBlocks[key] = state;
+                newBlocks[key] = {
+                  ...state,
+                  opening_balance: state.opening_balance || newBlocks[key].opening_balance || {},
+                  physical_count: state.physical_count || newBlocks[key].physical_count || {},
+                  cmpdd_norm: state.cmpdd_norm !== undefined && state.cmpdd_norm !== null && state.cmpdd_norm !== ''
+                    ? String(state.cmpdd_norm)
+                    : (newBlocks[key].cmpdd_norm || ''),
+                };
               }
             });
 
@@ -1392,11 +1489,11 @@ export default function STGEntryForm({
 
       initialReceipts = customRecs.length > 0
         ? customRecs.map(name => ({ variant: name, row_type: 'RECEIPT', side: 'RECEIPT', values: { variant: name } }))
-        : [{ variant: 'Receipt 1', row_type: 'RECEIPT', side: 'RECEIPT', values: { variant: 'Receipt 1' } }];
+        : [];
 
       initialDisposals = customDisps.length > 0
         ? customDisps.map(name => ({ variant: name, row_type: 'DISPOSAL', side: 'DISPOSAL', values: { variant: name } }))
-        : [{ variant: 'Disposal 1', row_type: 'DISPOSAL', side: 'DISPOSAL', values: { variant: 'Disposal 1' } }];
+        : [];
     } else {
       const srcMaster = masters.find(m => m.key === newStmtSource);
       if (srcMaster) {
@@ -1443,7 +1540,7 @@ export default function STGEntryForm({
             rows: allRows,
             opening_balance: { qty_lts: '', sp_gr: '', qty_kg: '', fat_pct: '', snf_pct: '', kg_fat: '', kg_snf: '' },
             physical_count: { qty_lts: '', sp_gr: '', qty_kg: '', fat_pct: '', snf_pct: '', kg_fat: '', kg_snf: '' },
-            cmpdd_norm: '0.5'
+            cmpdd_norm: ''
           }
         }));
         setActiveBlock(keyToUse);
@@ -1663,9 +1760,21 @@ export default function STGEntryForm({
     });
   };
 
+  const handleCmpddNormChange = (val: string, stmtKeyParam?: string) => {
+    const key = stmtKeyParam || activeBlock;
+    if (!key) return;
+    setBlocks(prev => {
+      const copy = { ...prev };
+      const block = { ...(copy[key] || { rows: [], opening_balance: {}, physical_count: {} }) };
+      block.cmpdd_norm = val;
+      copy[key] = block;
+      return copy;
+    });
+  };
+
   // Reconciled Totals & Balances computed dynamically per statement
   const getStatementTotals = useCallback((stmtKey: string) => {
-    const block = blocks[stmtKey] || { rows: [], opening_balance: {}, physical_count: {}, cmpdd_norm: '0.5' };
+    const block = blocks[stmtKey] || { rows: [], opening_balance: {}, physical_count: {}, cmpdd_norm: '' };
     const ob = block.opening_balance || {};
     const cb = block.physical_count || {};
 
@@ -1711,7 +1820,9 @@ export default function STGEntryForm({
     const lossGainFatPct = grandRecFat !== 0 ? (lossGainFat / grandRecFat) * 100 : 0;
     const lossGainSnfPct = grandRecSnf !== 0 ? (lossGainSnf / grandRecSnf) * 100 : 0;
 
-    const norm = parseFloat(block.cmpdd_norm || '0.5') || 0.5;
+    const norm = block.cmpdd_norm !== undefined && block.cmpdd_norm !== null && block.cmpdd_norm !== ''
+      ? (parseFloat(block.cmpdd_norm) || 0)
+      : 0.5;
 
     return {
       ob: { lts: obLts, kg: obKg, fat: obFat, snf: obSnf },
@@ -1740,6 +1851,11 @@ export default function STGEntryForm({
     setError('');
 
     try {
+      const cmpddNormsMap: Record<string, string> = {};
+      Object.entries(blocks).forEach(([k, b]) => {
+        if (b.cmpdd_norm) cmpddNormsMap[k] = b.cmpdd_norm;
+      });
+
       const entryRes = await fetch('/api/entries', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -1747,7 +1863,7 @@ export default function STGEntryForm({
           entry_date: entryDate,
           shift,
           report_type: 'TS',
-          notes: `${notes}\n__METADATA__:${JSON.stringify({ custom_statements: statements, custom_blocks: blocks, enabled_blocks: enabledBlockKeys, reconciliation: reconciliations })}`,
+          notes: `${notes}\n__METADATA__:${JSON.stringify({ custom_statements: statements, custom_blocks: blocks, enabled_blocks: enabledBlockKeys, reconciliation: reconciliations, cmpdd_norms: cmpddNormsMap })}`,
         }),
       });
 
@@ -2629,7 +2745,7 @@ export default function STGEntryForm({
           </div>
         ) : (
           displayedStatements.map((stmt, sIdx) => {
-            const stmtBlock = blocks[stmt.key] || { rows: [], opening_balance: {}, physical_count: {}, cmpdd_norm: '0.5' };
+            const stmtBlock = blocks[stmt.key] || { rows: [], opening_balance: {}, physical_count: {}, cmpdd_norm: '' };
             const stmtOb = stmtBlock.opening_balance || {};
             const stmtRows = stmtBlock.rows || [];
             const stmtReceiptRows = stmtRows.filter(r => r.row_type === 'RECEIPT' || r.side === 'RECEIPT');
@@ -2686,6 +2802,41 @@ export default function STGEntryForm({
                   </div>
 
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                    {/* CMPDD Norm editable input */}
+                    <div
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 4,
+                        background: '#ffffff',
+                        border: '1px solid #cbd5e1',
+                        borderRadius: 4,
+                        padding: '2px 8px',
+                        fontSize: '0.74rem',
+                      }}
+                      title="Enter CMPDD Norm loss percentage for this statement"
+                    >
+                      <span style={{ fontWeight: 600, color: '#475569' }}>CMPDD Norm:</span>
+                      <input
+                        type="number"
+                        step="0.01"
+                        placeholder="0.5"
+                        value={stmtBlock.cmpdd_norm ?? ''}
+                        onChange={e => handleCmpddNormChange(e.target.value, stmt.key)}
+                        style={{
+                          width: 52,
+                          height: 22,
+                          padding: '1px 4px',
+                          fontSize: '0.75rem',
+                          border: '1px solid #94a3b8',
+                          borderRadius: 3,
+                          textAlign: 'right',
+                          fontWeight: 700,
+                        }}
+                      />
+                      <span style={{ color: '#64748b', fontWeight: 600 }}>%</span>
+                    </div>
+
                     <Link
                       href={`/dashboard/ts/manage-statements/defaults?master=${encodeURIComponent(stmt.key)}`}
                       className="btn btn-secondary btn-xs"

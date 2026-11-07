@@ -32,8 +32,9 @@ CREATE TABLE IF NOT EXISTS public.stg_masters (
   updated_at          timestamptz NOT NULL DEFAULT now()
 );
 
--- Ensure description column exists if table was created previously
+-- Ensure description and cmpdd_norm columns exist if table was created previously
 ALTER TABLE public.stg_masters ADD COLUMN IF NOT EXISTS description text DEFAULT '';
+ALTER TABLE public.stg_masters ADD COLUMN IF NOT EXISTS cmpdd_norm text DEFAULT '';
 
 CREATE INDEX IF NOT EXISTS idx_stg_masters_key ON public.stg_masters (key);
 CREATE INDEX IF NOT EXISTS idx_stg_masters_sort ON public.stg_masters (sort_order ASC, created_at ASC);
