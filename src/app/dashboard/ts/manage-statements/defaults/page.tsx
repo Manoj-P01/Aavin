@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useMemo, useCallback, Suspense } from 'react';
+import { useState, useEffect, useMemo, useCallback, useRef, Suspense } from 'react';
 import Header from '@/components/layout/Header';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
@@ -62,10 +62,10 @@ export interface STGMasterDef {
 export const getDefaultOBColumns = (): STGColumnDef[] => [
   { key: 'variant', name: 'Opening Balance Particular', type: 'text', sort_order: 1 },
   { key: 'qty_lts', name: 'Qty (Lts)', type: 'number', decimals: 0, sort_order: 2 },
-  { key: 'sp_gr', name: 'SP.G', type: 'number', decimals: 4, sort_order: 3 },
-  { key: 'qty_kg', name: 'Qty (Kg)', type: 'calculated', formula: 'qty_lts * sp_gr', decimals: 2, sort_order: 4 },
-  { key: 'fat_pct', name: 'Fat%', type: 'number', decimals: 2, sort_order: 5 },
-  { key: 'snf_pct', name: 'Snf%', type: 'number', decimals: 2, sort_order: 6 },
+  { key: 'qty_kg', name: 'Qty (Kg)', type: 'calculated', formula: 'qty_lts * sp_gr', decimals: 2, sort_order: 3 },
+  { key: 'fat_pct', name: 'Fat%', type: 'number', decimals: 2, sort_order: 4 },
+  { key: 'snf_pct', name: 'Snf%', type: 'number', decimals: 2, sort_order: 5 },
+  { key: 'sp_gr', name: 'SP.G', type: 'number', decimals: 4, sort_order: 6 },
   { key: 'kg_fat', name: 'Kg.Fat', type: 'calculated', formula: 'qty_kg * fat_pct / 100', decimals: 3, sort_order: 7 },
   { key: 'kg_snf', name: 'Kg.Snf', type: 'calculated', formula: 'qty_kg * snf_pct / 100', decimals: 3, sort_order: 8 },
 ];
@@ -73,10 +73,10 @@ export const getDefaultOBColumns = (): STGColumnDef[] => [
 export const getDefaultReceiptColumns = (): STGColumnDef[] => [
   { key: 'variant', name: 'Receipt Particular', type: 'text', sort_order: 1 },
   { key: 'qty_lts', name: 'Qty (Lts)', type: 'number', decimals: 0, sort_order: 2 },
-  { key: 'sp_gr', name: 'SP.G', type: 'number', decimals: 4, sort_order: 3 },
-  { key: 'qty_kg', name: 'Qty (Kg)', type: 'calculated', formula: 'qty_lts * sp_gr', decimals: 2, sort_order: 4 },
-  { key: 'fat_pct', name: 'Fat%', type: 'number', decimals: 2, sort_order: 5 },
-  { key: 'snf_pct', name: 'Snf%', type: 'number', decimals: 2, sort_order: 6 },
+  { key: 'qty_kg', name: 'Qty (Kg)', type: 'calculated', formula: 'qty_lts * sp_gr', decimals: 2, sort_order: 3 },
+  { key: 'fat_pct', name: 'Fat%', type: 'number', decimals: 2, sort_order: 4 },
+  { key: 'snf_pct', name: 'Snf%', type: 'number', decimals: 2, sort_order: 5 },
+  { key: 'sp_gr', name: 'SP.G', type: 'number', decimals: 4, sort_order: 6 },
   { key: 'kg_fat', name: 'Kg.Fat', type: 'calculated', formula: 'qty_kg * fat_pct / 100', decimals: 3, sort_order: 7 },
   { key: 'kg_snf', name: 'Kg.Snf', type: 'calculated', formula: 'qty_kg * snf_pct / 100', decimals: 3, sort_order: 8 },
 ];
@@ -84,10 +84,10 @@ export const getDefaultReceiptColumns = (): STGColumnDef[] => [
 export const getDefaultDisposalColumns = (): STGColumnDef[] => [
   { key: 'variant', name: 'Disposal Particular', type: 'text', sort_order: 1 },
   { key: 'qty_lts', name: 'Qty (Lts)', type: 'number', decimals: 0, sort_order: 2 },
-  { key: 'sp_gr', name: 'SP.G', type: 'number', decimals: 4, sort_order: 3 },
-  { key: 'qty_kg', name: 'Qty (Kg)', type: 'calculated', formula: 'qty_lts * sp_gr', decimals: 2, sort_order: 4 },
-  { key: 'fat_pct', name: 'Fat%', type: 'number', decimals: 2, sort_order: 5 },
-  { key: 'snf_pct', name: 'Snf%', type: 'number', decimals: 2, sort_order: 6 },
+  { key: 'qty_kg', name: 'Qty (Kg)', type: 'calculated', formula: 'qty_lts * sp_gr', decimals: 2, sort_order: 3 },
+  { key: 'fat_pct', name: 'Fat%', type: 'number', decimals: 2, sort_order: 4 },
+  { key: 'snf_pct', name: 'Snf%', type: 'number', decimals: 2, sort_order: 5 },
+  { key: 'sp_gr', name: 'SP.G', type: 'number', decimals: 4, sort_order: 6 },
   { key: 'kg_fat', name: 'Kg.Fat', type: 'calculated', formula: 'qty_kg * fat_pct / 100', decimals: 3, sort_order: 7 },
   { key: 'kg_snf', name: 'Kg.Snf', type: 'calculated', formula: 'qty_kg * snf_pct / 100', decimals: 3, sort_order: 8 },
 ];
@@ -95,16 +95,55 @@ export const getDefaultDisposalColumns = (): STGColumnDef[] => [
 export const getDefaultReconColumns = (): STGColumnDef[] => [
   { key: 'label', name: 'Reconciliation Item / Summary Label', type: 'text', sort_order: 1 },
   { key: 'qty_lts', name: 'Qty (Lts)', type: 'number', decimals: 0, sort_order: 2 },
-  { key: 'sp_gr', name: 'SP.G', type: 'number', decimals: 4, sort_order: 3 },
-  { key: 'qty_kg', name: 'Qty (Kg)', type: 'calculated', formula: 'qty_lts * sp_gr', decimals: 2, sort_order: 4 },
-  { key: 'fat_pct', name: 'Fat%', type: 'number', decimals: 2, sort_order: 5 },
-  { key: 'snf_pct', name: 'Snf%', type: 'number', decimals: 2, sort_order: 6 },
+  { key: 'qty_kg', name: 'Qty (Kg)', type: 'calculated', formula: 'qty_lts * sp_gr', decimals: 2, sort_order: 3 },
+  { key: 'fat_pct', name: 'Fat%', type: 'number', decimals: 2, sort_order: 4 },
+  { key: 'snf_pct', name: 'Snf%', type: 'number', decimals: 2, sort_order: 5 },
+  { key: 'sp_gr', name: 'SP.G', type: 'number', decimals: 4, sort_order: 6 },
   { key: 'kg_fat', name: 'Kg.Fat', type: 'calculated', formula: 'qty_kg * fat_pct / 100', decimals: 3, sort_order: 7 },
   { key: 'kg_snf', name: 'Kg.Snf', type: 'calculated', formula: 'qty_kg * snf_pct / 100', decimals: 3, sort_order: 8 },
   { key: 'note', name: 'Note / Description', type: 'text', sort_order: 9 },
 ];
 
 export const getDefaultReconRows = (): STGReconRow[] => [];
+
+// Helper to synchronize a section's columns with configured columns from STG Statement Column Configuration:
+// 1. Removes any column that was removed from configured columns.
+// 2. Orders columns strictly in the exact order placed in STG Statement Column Configuration.
+// 3. Preserves Column A (Particular / Label) at sort_order 1.
+export const syncSectionColumnsWithConfig = (
+  existingCols: STGColumnDef[] | undefined,
+  defaultParticularName: string,
+  particularKey: string,
+  activeConfigCols: STGColumnDef[]
+): STGColumnDef[] => {
+  const baseDataCols = activeConfigCols && activeConfigCols.length > 0
+    ? activeConfigCols.filter(c => c.key !== 'variant' && c.key !== 'label' && c.key !== particularKey)
+    : getDefaultReceiptColumns().filter(c => c.key !== 'variant' && c.key !== 'label' && c.key !== particularKey);
+
+  const existingParticular = Array.isArray(existingCols)
+    ? existingCols.find(c => c.key === particularKey)
+    : null;
+  const particularCol: STGColumnDef = existingParticular || {
+    key: particularKey,
+    name: defaultParticularName,
+    type: 'text',
+    sort_order: 1,
+    is_active: true,
+  };
+
+  const syncedDataCols = baseDataCols.map((cfgCol, idx) => {
+    const existing = Array.isArray(existingCols) ? existingCols.find(c => c.key === cfgCol.key) : null;
+    return {
+      ...cfgCol,
+      name: existing?.name || cfgCol.name,
+      formula: cfgCol.formula || existing?.formula,
+      decimals: cfgCol.decimals !== undefined ? cfgCol.decimals : existing?.decimals,
+      sort_order: idx + 2,
+    };
+  });
+
+  return [particularCol, ...syncedDataCols];
+};
 
 // Helper to ensure Column A (Particular or Label) exists in a column list
 const ensureParticularColumn = (cols: STGColumnDef[], defaultName: string, keyName: string = 'variant'): STGColumnDef[] => {
@@ -137,6 +176,10 @@ function STGDefaultFormulationsContent() {
   const [receiptColumns, setReceiptColumns] = useState<STGColumnDef[]>(getDefaultReceiptColumns());
   const [disposalColumns, setDisposalColumns] = useState<STGColumnDef[]>(getDefaultDisposalColumns());
   const [reconColumns, setReconColumns] = useState<STGColumnDef[]>(getDefaultReconColumns());
+
+  // Global authoritative configured columns from STG Statement Column Configuration (/api/ts/columns)
+  const [configuredColumns, setConfiguredColumns] = useState<STGColumnDef[]>([]);
+  const configuredColumnsRef = useRef<STGColumnDef[]>([]);
 
   // Per-section Rows
   const [obRows, setObRows] = useState<STGRowData[]>([
@@ -733,15 +776,20 @@ function STGDefaultFormulationsContent() {
   // Loading data from API
   const loadMasterDefaults = useCallback((
     masterKey: string,
-    mastersList: STGMasterDef[]
+    mastersList: STGMasterDef[],
+    activeConfigCols?: STGColumnDef[]
   ) => {
     const targetMaster = mastersList.find(m => m.key === masterKey);
 
+    const activeCols = (activeConfigCols && activeConfigCols.length > 0)
+      ? activeConfigCols
+      : (configuredColumnsRef.current.length > 0 ? configuredColumnsRef.current : configuredColumns);
+
     if (!masterKey || !targetMaster) {
-      setObColumns(getDefaultOBColumns());
-      setReceiptColumns(getDefaultReceiptColumns());
-      setDisposalColumns(getDefaultDisposalColumns());
-      setReconColumns(getDefaultReconColumns());
+      setObColumns(syncSectionColumnsWithConfig(undefined, 'Opening Balance Particular', 'variant', activeCols));
+      setReceiptColumns(syncSectionColumnsWithConfig(undefined, 'Receipt Particular', 'variant', activeCols));
+      setDisposalColumns(syncSectionColumnsWithConfig(undefined, 'Disposal Particular', 'variant', activeCols));
+      setReconColumns(syncSectionColumnsWithConfig(undefined, 'Reconciliation Item / Summary Label', 'label', activeCols));
       setObRows([]);
       setReceiptRows([]);
       setDisposalRows([]);
@@ -751,32 +799,38 @@ function STGDefaultFormulationsContent() {
       return;
     }
 
-    // Ensure Column A (Particular or Label) exists in each section's columns
-    const loadedOBCols = ensureParticularColumn(
-      targetMaster?.ob_columns && targetMaster.ob_columns.length > 0 ? targetMaster.ob_columns : getDefaultOBColumns(),
+    // Synchronize Column lists strictly with STG Statement Column Configuration:
+    // 1. Columns removed in STG Statement Column Configuration are removed.
+    // 2. Columns follow the exact order configured in STG Statement Column Configuration.
+    const loadedOBCols = syncSectionColumnsWithConfig(
+      targetMaster.ob_columns,
       'Opening Balance Particular',
-      'variant'
+      'variant',
+      activeCols
     );
     setObColumns(loadedOBCols);
 
-    const loadedRecCols = ensureParticularColumn(
-      targetMaster?.receipt_columns && targetMaster.receipt_columns.length > 0 ? targetMaster.receipt_columns : getDefaultReceiptColumns(),
+    const loadedRecCols = syncSectionColumnsWithConfig(
+      targetMaster.receipt_columns,
       'Receipt Particular',
-      'variant'
+      'variant',
+      activeCols
     );
     setReceiptColumns(loadedRecCols);
 
-    const loadedDispCols = ensureParticularColumn(
-      targetMaster?.disposal_columns && targetMaster.disposal_columns.length > 0 ? targetMaster.disposal_columns : getDefaultDisposalColumns(),
+    const loadedDispCols = syncSectionColumnsWithConfig(
+      targetMaster.disposal_columns,
       'Disposal Particular',
-      'variant'
+      'variant',
+      activeCols
     );
     setDisposalColumns(loadedDispCols);
 
-    const loadedReconCols = ensureParticularColumn(
-      targetMaster?.recon_columns && targetMaster.recon_columns.length > 0 ? targetMaster.recon_columns : getDefaultReconColumns(),
+    const loadedReconCols = syncSectionColumnsWithConfig(
+      targetMaster.recon_columns,
       'Reconciliation Item / Summary Label',
-      'label'
+      'label',
+      activeCols
     );
     setReconColumns(loadedReconCols);
 
@@ -826,14 +880,28 @@ function STGDefaultFormulationsContent() {
 
     setSelectedCell(null);
     setFocusedCell(null);
-  }, []);
+  }, [configuredColumns]);
 
   const loadData = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await fetch('/api/ts/masters');
-      if (res.ok) {
-        const json = await res.json();
+      const [mastersRes, colsRes] = await Promise.all([
+        fetch('/api/ts/masters'),
+        fetch('/api/ts/columns'),
+      ]);
+
+      let loadedCols: STGColumnDef[] = [];
+      if (colsRes.ok) {
+        const colJson = await colsRes.json();
+        if (Array.isArray(colJson.columns) && colJson.columns.length > 0) {
+          loadedCols = colJson.columns;
+        }
+      }
+      setConfiguredColumns(loadedCols);
+      configuredColumnsRef.current = loadedCols;
+
+      if (mastersRes.ok) {
+        const json = await mastersRes.json();
         const loadedMasters: STGMasterDef[] = json.masters || [];
         setMasters(loadedMasters);
 
@@ -844,14 +912,14 @@ function STGDefaultFormulationsContent() {
               ? activeMasterKey
               : loadedMasters[0].key);
           setActiveMasterKey(initialKey);
-          loadMasterDefaults(initialKey, loadedMasters);
+          loadMasterDefaults(initialKey, loadedMasters, loadedCols);
         } else {
           setActiveMasterKey(null);
-          loadMasterDefaults('', []);
+          loadMasterDefaults('', [], loadedCols);
         }
       }
     } catch (err) {
-      console.error('Failed to load STG masters:', err);
+      console.error('Failed to load STG masters and columns:', err);
     }
     setLoading(false);
   }, [activeMasterKey, paramMaster, loadMasterDefaults]);
@@ -1607,20 +1675,13 @@ function STGDefaultFormulationsContent() {
         return m;
       });
 
-      const [colRes, masterRes] = await Promise.all([
-        fetch('/api/ts/columns', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ columns: receiptColumns }),
-        }),
-        fetch('/api/ts/masters', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ masters: updatedMasters }),
-        }),
-      ]);
+      const masterRes = await fetch('/api/ts/masters', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ masters: updatedMasters }),
+      });
 
-      if (colRes.ok && masterRes.ok) {
+      if (masterRes.ok) {
         setMasters(updatedMasters);
         showToast('✅ All 4 sections, columns, particulars, and formulation formulas saved successfully to database!');
       } else {
@@ -2112,6 +2173,26 @@ function STGDefaultFormulationsContent() {
             >
               📋 Statement Master Names
             </button>
+
+            <Link
+              href="/dashboard/ts/manage-statements/columns"
+              style={{
+                background: '#f8fafc',
+                border: '1px solid #cbd5e1',
+                color: '#334155',
+                borderRadius: 6,
+                padding: '6px 12px',
+                fontSize: '0.8rem',
+                fontWeight: 700,
+                textDecoration: 'none',
+                display: 'flex',
+                alignItems: 'center',
+                gap: 5,
+              }}
+              title="Configure global dynamic columns and order for all STG statement tables"
+            >
+              ⚙️ Column Configuration
+            </Link>
 
             <Link
               href="/dashboard/ts/mappings"

@@ -176,19 +176,19 @@ export default function STGColumnsPage() {
             <button
               type="button"
               onClick={handleSaveAllToDb}
-              disabled={saving || !hasUnsavedChanges}
+              disabled={saving}
               className="btn btn-sm"
               style={{
-                background: hasUnsavedChanges ? '#16a34a' : '#f1f5f9',
-                borderColor: hasUnsavedChanges ? '#15803d' : '#cbd5e1',
-                color: hasUnsavedChanges ? '#ffffff' : '#94a3b8',
+                background: hasUnsavedChanges ? '#16a34a' : 'var(--primary)',
+                borderColor: hasUnsavedChanges ? '#15803d' : 'var(--primary)',
+                color: '#ffffff',
                 fontWeight: 800,
-                cursor: hasUnsavedChanges ? 'pointer' : 'default',
+                cursor: saving ? 'wait' : 'pointer',
                 boxShadow: hasUnsavedChanges ? '0 0 10px rgba(22, 163, 74, 0.4)' : 'none',
               }}
-              title={hasUnsavedChanges ? 'Click to commit all column edits to Database' : 'No unsaved changes'}
+              title="Click to save and sync column configuration across all STG statement masters"
             >
-              {saving ? '⏳ Saving...' : hasUnsavedChanges ? '💾 Save Column Configuration *' : '✓ Columns Saved'}
+              {saving ? '⏳ Saving & Syncing...' : hasUnsavedChanges ? '💾 Save Column Configuration *' : '💾 Save & Sync Columns'}
             </button>
             <Link href="/dashboard/ts/manage-statements/defaults" className="btn btn-secondary btn-sm" style={{ background: '#fffbeb', borderColor: '#fde68a', color: '#b45309', fontWeight: 700 }}>
               ⭐ Default Formulation Tables

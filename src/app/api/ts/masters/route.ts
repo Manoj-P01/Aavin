@@ -246,6 +246,53 @@ export async function GET(req: NextRequest) {
       }
     }
 
+    // 3. Harmonize master section columns with configured STG columns (stg_columns)
+    try {
+      const { data: colData } = await supabase
+        .from('prep_chart_configs')
+        .select('config_json')
+        .eq('config_key', 'stg_columns')
+        .maybeSingle();
+
+      if (colData && Array.isArray(colData.config_json) && colData.config_json.length > 0) {
+        const configuredCols: any[] = colData.config_json;
+        const dataCols = configuredCols.filter((c: any) => c.key !== 'variant' && c.key !== 'label');
+
+        const syncCols = (existingCols: any[] | undefined, defaultParticularName: string, particularKey: string = 'variant') => {
+          const particularCol = (Array.isArray(existingCols) && existingCols.find((c: any) => c.key === particularKey)) || {
+            key: particularKey,
+            name: defaultParticularName,
+            type: 'text',
+            sort_order: 1,
+            is_active: true,
+          };
+
+          const synced = dataCols.map((cfgCol: any, idx: number) => {
+            const existing = Array.isArray(existingCols) ? existingCols.find((c: any) => c.key === cfgCol.key) : null;
+            return {
+              ...cfgCol,
+              formula: cfgCol.formula || existing?.formula,
+              name: existing?.name || cfgCol.name,
+              decimals: cfgCol.decimals !== undefined ? cfgCol.decimals : existing?.decimals,
+              sort_order: idx + 2,
+            };
+          });
+
+          return [particularCol, ...synced];
+        };
+
+        masters = masters.map((m: any) => ({
+          ...m,
+          ob_columns: syncCols(m.ob_columns, 'Opening Balance Particular', 'variant'),
+          receipt_columns: syncCols(m.receipt_columns, 'Receipt Particular', 'variant'),
+          disposal_columns: syncCols(m.disposal_columns, 'Disposal Particular', 'variant'),
+          recon_columns: syncCols(m.recon_columns, 'Reconciliation Item / Summary Label', 'label'),
+        }));
+      }
+    } catch (e) {
+      console.warn('Harmonize masters with stg_columns warning:', e);
+    }
+
     return NextResponse.json({ success: true, masters });
   } catch (err: any) {
     console.error('GET /api/ts/masters error:', err);
