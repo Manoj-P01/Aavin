@@ -30,58 +30,32 @@ export interface MappingRule {
 const extractRowName = (r: any): string => {
   if (!r) return '';
   if (typeof r === 'string') return r.trim();
-  const name =
+  const directName =
     r.variant ||
     r.label ||
     r.item_name ||
     r.name ||
+    r.particular ||
     r.values?.variant ||
     r.values?.VARIANT ||
     r.values?.label ||
+    r.values?.LABEL ||
     r.values?.particular ||
+    r.values?.PARTICULAR ||
     r.values?.name ||
-    '';
-  return String(name).trim();
-};
+    r.values?.NAME ||
+    r.values?.item_name;
+  if (directName) return String(directName).trim();
 
-// Fallback authentic statement rows for standard STG masters to prevent generic placeholders
-const FALLBACK_STG_ROWS: Record<string, { receipt: string[]; disposal: string[] }> = {
-  wh_milk: {
-    receipt: ['P.VELUR CC', "BMC's", 'LAB SAMPLE RTN', 'WF', 'SMP', 'RINSE MILK', 'BUTTER MILK', 'DLT SACHET RTN', 'FCM SACHET RTN', 'STD SACHET RTN'],
-    disposal: ['SEPERATION', 'DLT MILK', 'FC.MILK', 'STD.Milk', 'TM MILK(CURD)', 'CUP CURD', 'KHOA', 'LAB SAMPLE', 'TO METRO', 'WF', 'SMP'],
-  },
-  skim_milk: {
-    receipt: ['SKIMMILK RECEIPT', 'SMP', 'WATER FLUSH', 'BUTTER MILK'],
-    disposal: ['TM DELITE 3.5/8.5', 'TM MILK(CURD)', 'AMBATTUR-SSM', 'SNR-SSM', 'DCPP-SSM', 'ERODE -SSM', 'CBE-SSM'],
-  },
-  cream: {
-    receipt: ['CREAM'],
-    disposal: ['FCM', 'STD', 'CHURNING'],
-  },
-  separation: {
-    receipt: ['WHOLE MILK'],
-    disposal: ['SKIMMILK', 'CREAM'],
-  },
-  delite: {
-    receipt: ['WHOLE MILK', 'SKIMMED MILK', 'SMP', 'WATER'],
-    disposal: ['SACHET FILLING'],
-  },
-  fcm: {
-    receipt: ['WHOLE MILK', 'CREAM', 'SMP', 'WATER'],
-    disposal: ['SACHET FILLING'],
-  },
-  std: {
-    receipt: ['WHOLE MILK', 'SKIMMED MILK', 'CREAM', 'SMP', 'WATER'],
-    disposal: ['SACHET FILLING'],
-  },
-  curd: {
-    receipt: ['WHOLE MILK', 'SKIMMED MILK', 'SMP'],
-    disposal: ['SACHET FILLING'],
-  },
-  smp_for_rsm: {
-    receipt: ['SMP FOR SNF BOOSTING'],
-    disposal: ['DLT MILK', 'FC.MILK', 'STD.Milk', 'TM MILK(CURD)', 'CUP CURD'],
-  },
+  // If stored under dynamic column key in values, return the first non-empty string value
+  if (r.values && typeof r.values === 'object') {
+    for (const val of Object.values(r.values)) {
+      if (val && typeof val === 'string' && val.trim() !== '') {
+        return val.trim();
+      }
+    }
+  }
+  return '';
 };
 
 export default function STGStatementMappingPage() {
@@ -179,63 +153,21 @@ export default function STGStatementMappingPage() {
         }
 
         // 3. Load STG statement masters strictly from DB table
+        let loadedMasters: any[] = [];
         const stgConfigRes = await fetch('/api/ts/masters');
         if (stgConfigRes.ok) {
           const json = await stgConfigRes.json();
           if (Array.isArray(json.masters) && json.masters.length > 0) {
+            loadedMasters = json.masters;
             if (active) {
-              const mastersList = json.masters.map((m: any) => {
-                let ob = Array.isArray(m.ob_rows) && m.ob_rows.length > 0 ? m.ob_rows : [];
-                if (ob.length === 0) {
-                  ob = (m.default_rows || m.rows || []).filter((r: any) =>
-                    r.row_type === 'OB' || (r.variant || '').toLowerCase().includes('opening')
-                  );
-                }
-                if (ob.length === 0) {
-                  ob = [{ variant: 'Opening Balance' }];
-                }
-
-                const isPlaceholderRowList = (rows: any[], placeholderType: string) => {
-                  if (!Array.isArray(rows) || rows.length === 0) return true;
-                  return rows.every((r: any) => {
-                    const v = (r?.variant || r?.values?.variant || r?.label || r?.name || '').toLowerCase().trim();
-                    return !v || v === placeholderType.toLowerCase() || v === `${placeholderType.toLowerCase()} 1`;
-                  });
-                };
-
-                const fb = FALLBACK_STG_ROWS[m.key];
-
-                let rec = Array.isArray(m.receipt_rows) && m.receipt_rows.length > 0 ? m.receipt_rows : [];
-                if (rec.length === 0) {
-                  rec = (m.default_rows || m.rows || []).filter((r: any) =>
-                    (r.row_type === 'RECEIPT' || r.side === 'RECEIPT') && r.row_type !== 'OB' && !(r.variant || '').toLowerCase().includes('opening')
-                  );
-                }
-                if (isPlaceholderRowList(rec, 'Receipt') && fb?.receipt?.length) {
-                  rec = fb.receipt.map(v => ({ variant: v, row_type: 'RECEIPT', side: 'RECEIPT', values: { variant: v } }));
-                }
-
-                let disp = Array.isArray(m.disposal_rows) && m.disposal_rows.length > 0 ? m.disposal_rows : [];
-                if (disp.length === 0) {
-                  disp = (m.default_rows || m.rows || []).filter((r: any) =>
-                    r.row_type === 'DISPOSAL' || r.side === 'DISPOSAL'
-                  );
-                }
-                if (isPlaceholderRowList(disp, 'Disposal') && fb?.disposal?.length) {
-                  disp = fb.disposal.map(v => ({ variant: v, row_type: 'DISPOSAL', side: 'DISPOSAL', values: { variant: v } }));
-                }
-
-                const recon = Array.isArray(m.reconciliation_rows) ? m.reconciliation_rows : [];
-
-                return {
-                  key: m.key,
-                  label: m.label || m.name || m.key,
-                  ob_rows: ob,
-                  receipt_rows: rec,
-                  disposal_rows: disp,
-                  reconciliation_rows: recon,
-                };
-              });
+              const mastersList = json.masters.map((m: any) => ({
+                key: m.key,
+                label: m.label || m.name || m.key,
+                ob_rows: Array.isArray(m.ob_rows) ? m.ob_rows : [],
+                receipt_rows: Array.isArray(m.receipt_rows) ? m.receipt_rows : [],
+                disposal_rows: Array.isArray(m.disposal_rows) ? m.disposal_rows : [],
+                reconciliation_rows: Array.isArray(m.reconciliation_rows) ? m.reconciliation_rows : [],
+              }));
 
               setStgStatements(mastersList);
               if (mastersList.length > 0) {
@@ -266,20 +198,20 @@ export default function STGStatementMappingPage() {
               if (Array.isArray(savedList)) {
                 let hasChanges = false;
                 const migratedList = savedList.map((r: MappingRule) => {
-                  const stmtKey = r.stgBlockKey;
-                  const sec = r.stgSection;
                   const curItem = (r.stgItemName || '').trim();
-
-                  // Auto-migrate placeholder "Receipt 1" / "Receipt" / "Disposal 1" / "Disposal" to genuine master particulars!
+                  // If rule had placeholder "Receipt 1" / "Receipt" / "Disposal 1" / "Disposal",
+                  // auto-align with the actual saved row from table for this statement master
                   if (/^receipt(\s*1)?$/i.test(curItem) || /^disposal(\s*1)?$/i.test(curItem)) {
-                    const fallback = FALLBACK_STG_ROWS[stmtKey];
-                    if (sec === 'RECEIPT' && fallback?.receipt?.length) {
+                    const stmt = loadedMasters.find((m: any) => m.key === r.stgBlockKey);
+                    let secRows: any[] = [];
+                    if (r.stgSection === 'OB') secRows = stmt?.ob_rows || [];
+                    else if (r.stgSection === 'RECEIPT') secRows = stmt?.receipt_rows || [];
+                    else if (r.stgSection === 'DISPOSAL') secRows = stmt?.disposal_rows || [];
+                    else if (r.stgSection === 'CB') secRows = stmt?.reconciliation_rows || [];
+                    const names = secRows.map(extractRowName).filter(Boolean);
+                    if (names.length > 0) {
                       hasChanges = true;
-                      return { ...r, stgItemName: fallback.receipt[0] };
-                    }
-                    if (sec === 'DISPOSAL' && fallback?.disposal?.length) {
-                      hasChanges = true;
-                      return { ...r, stgItemName: fallback.disposal[0] };
+                      return { ...r, stgItemName: names[0] };
                     }
                   }
                   return r;
@@ -288,7 +220,6 @@ export default function STGStatementMappingPage() {
                 if (active) {
                   setMappings(migratedList);
                   if (hasChanges) {
-                    // Silently persist migrated rules to DB so database is permanently cleaned up
                     saveStgToApi(migratedList);
                   }
                 }
@@ -366,7 +297,7 @@ export default function STGStatementMappingPage() {
     return Array.from(new Set(labels));
   }, [formStockSection, receiptRows, disposalRows]);
 
-  // Dynamically compute available STG particulars for selected STG statement and section from Master Default Formulation Tables
+  // Dynamically compute available STG particulars for selected STG statement and section strictly from saved rows from table
   const availableStgItemNames = useMemo(() => {
     const stmt = stgStatements.find(s => s.key === formStgBlockKey);
     let rawList: any[] = [];
@@ -384,25 +315,8 @@ export default function STGStatementMappingPage() {
       }
     }
 
-    let list = rawList.map(extractRowName).filter(Boolean);
-    const isAllPlaceholders = list.length === 0 || list.every(n => /^receipt(\s*1)?$/i.test(n) || /^disposal(\s*1)?$/i.test(n));
-    if (isAllPlaceholders) {
-      const fb = FALLBACK_STG_ROWS[formStgBlockKey];
-      if (formStgSection === 'RECEIPT' && fb?.receipt?.length) {
-        list = fb.receipt;
-      } else if (formStgSection === 'DISPOSAL' && fb?.disposal?.length) {
-        list = fb.disposal;
-      }
-    } else {
-      list = list.filter(n => !/^receipt(\s*1)?$/i.test(n) && !/^disposal(\s*1)?$/i.test(n));
-    }
-
-    if (list.length > 0) return Array.from(new Set(list));
-
-    if (formStgSection === 'OB') return ['Opening Balance', 'OB'];
-    if (formStgSection === 'RECEIPT') return ['Receipt'];
-    if (formStgSection === 'DISPOSAL') return ['Disposal'];
-    return ['Closing Balance', 'CB'];
+    const list = rawList.map(extractRowName).filter(Boolean);
+    return Array.from(new Set(list));
   }, [formStgBlockKey, formStgSection, stgStatements]);
 
   // Save STG Mappings to API
@@ -472,10 +386,8 @@ export default function STGStatementMappingPage() {
     setFormStgSection('RECEIPT');
 
     const targetStmt = stgStatements.find(s => s.key === targetKey);
-    const validRecs = (targetStmt?.receipt_rows || [])
-      .map(extractRowName)
-      .filter((n: string) => n && !/^receipt(\s*1)?$/i.test(n));
-    const firstRec = validRecs[0] || FALLBACK_STG_ROWS[targetKey]?.receipt?.[0] || 'Receipt';
+    const recRows = (targetStmt?.receipt_rows || []).map(extractRowName).filter(Boolean);
+    const firstRec = recRows[0] || '';
     setFormStgItemName(firstRec);
     setFormStgTargetField('qty_lts');
     setIsEditing(true);
@@ -493,22 +405,24 @@ export default function STGStatementMappingPage() {
     setFormStgBlockKey(rule.stgBlockKey);
     setFormStgSection(rule.stgSection);
 
-    // If existing rule had a dummy placeholder like "Receipt 1" or "Disposal 1", resolve to genuine master particular!
-    let targetItem = (rule.stgItemName || '').trim();
-    if (/^receipt(\s*1)?$/i.test(targetItem) || /^disposal(\s*1)?$/i.test(targetItem)) {
-      const stmt = stgStatements.find(s => s.key === rule.stgBlockKey);
-      const fb = FALLBACK_STG_ROWS[rule.stgBlockKey];
-      if (rule.stgSection === 'RECEIPT') {
-        const rows = (stmt as any)?.receipt_rows || [];
-        const names = rows.map(extractRowName).filter((n: string) => n && !/^receipt(\s*1)?$/i.test(n));
-        targetItem = names[0] || fb?.receipt?.[0] || 'SKIMMILK RECEIPT';
-      } else if (rule.stgSection === 'DISPOSAL') {
-        const rows = (stmt as any)?.disposal_rows || [];
-        const names = rows.map(extractRowName).filter((n: string) => n && !/^disposal(\s*1)?$/i.test(n));
-        targetItem = names[0] || fb?.disposal?.[0] || 'Disposal';
-      }
+    // Look up saved rows from table for this statement block and section
+    const targetStmt = stgStatements.find(s => s.key === rule.stgBlockKey);
+    let tableRows: any[] = [];
+    if (rule.stgSection === 'OB') tableRows = targetStmt?.ob_rows || [];
+    else if (rule.stgSection === 'RECEIPT') tableRows = targetStmt?.receipt_rows || [];
+    else if (rule.stgSection === 'DISPOSAL') tableRows = targetStmt?.disposal_rows || [];
+    else if (rule.stgSection === 'CB') tableRows = targetStmt?.reconciliation_rows || [];
+
+    const tableNames = tableRows.map(extractRowName).filter(Boolean);
+
+    let chosenItem = (rule.stgItemName || '').trim();
+    const isPlaceholder = /^receipt(\s*1)?$/i.test(chosenItem) || /^disposal(\s*1)?$/i.test(chosenItem);
+    // If the saved rule had dummy placeholder like "Receipt 1" or is not in table rows, and table has rows:
+    if ((isPlaceholder || !tableNames.includes(chosenItem)) && tableNames.length > 0) {
+      chosenItem = tableNames[0]; // Auto-select genuine saved row from table
     }
-    setFormStgItemName(targetItem);
+
+    setFormStgItemName(chosenItem);
     setFormStgTargetField(rule.stgTargetField);
 
     setIsCustomParticular(false);
@@ -949,21 +863,8 @@ export default function STGStatementMappingPage() {
                           else if (formStgSection === 'RECEIPT') list = (stmt as any)?.receipt_rows || [];
                           else if (formStgSection === 'DISPOSAL') list = (stmt as any)?.disposal_rows || [];
                           else if (formStgSection === 'CB') list = (stmt as any)?.reconciliation_rows || [];
-                          let names = list.map(extractRowName).filter(Boolean);
-                          names = names.filter(n => !/^receipt(\s*1)?$/i.test(n) && !/^disposal(\s*1)?$/i.test(n));
-                          if (names.length === 0) {
-                            const fb = FALLBACK_STG_ROWS[newKey];
-                            if (formStgSection === 'RECEIPT' && fb?.receipt?.length) names = fb.receipt;
-                            else if (formStgSection === 'DISPOSAL' && fb?.disposal?.length) names = fb.disposal;
-                          }
-                          if (names.length > 0) {
-                            setFormStgItemName(names[0]);
-                          } else {
-                            if (formStgSection === 'OB') setFormStgItemName('Opening Balance');
-                            else if (formStgSection === 'CB') setFormStgItemName('Closing Balance');
-                            else if (formStgSection === 'RECEIPT') setFormStgItemName('Receipt');
-                            else setFormStgItemName('Disposal');
-                          }
+                          const names = list.map(extractRowName).filter(Boolean);
+                          setFormStgItemName(names[0] || '');
                         }}
                         style={{ width: '100%' }}
                       >
@@ -988,21 +889,8 @@ export default function STGStatementMappingPage() {
                           else if (sec === 'RECEIPT') list = (stmt as any)?.receipt_rows || [];
                           else if (sec === 'DISPOSAL') list = (stmt as any)?.disposal_rows || [];
                           else if (sec === 'CB') list = (stmt as any)?.reconciliation_rows || [];
-                          let names = list.map(extractRowName).filter(Boolean);
-                          names = names.filter(n => !/^receipt(\s*1)?$/i.test(n) && !/^disposal(\s*1)?$/i.test(n));
-                          if (names.length === 0) {
-                            const fb = FALLBACK_STG_ROWS[formStgBlockKey];
-                            if (sec === 'RECEIPT' && fb?.receipt?.length) names = fb.receipt;
-                            else if (sec === 'DISPOSAL' && fb?.disposal?.length) names = fb.disposal;
-                          }
-                          if (names.length > 0) {
-                            setFormStgItemName(names[0]);
-                          } else {
-                            if (sec === 'OB') setFormStgItemName('Opening Balance');
-                            else if (sec === 'CB') setFormStgItemName('Closing Balance');
-                            else if (sec === 'RECEIPT') setFormStgItemName('Receipt');
-                            else setFormStgItemName('Disposal');
-                          }
+                          const names = list.map(extractRowName).filter(Boolean);
+                          setFormStgItemName(names[0] || '');
                         }}
                         style={{ width: '100%' }}
                       >
