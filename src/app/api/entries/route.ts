@@ -101,7 +101,13 @@ export async function GET(req: NextRequest) {
     if (error) throw error;
     const data = (rawData || []).map((e: any) => e.entry_date === '1970-01-01' ? { ...e, entry_date: today } : e);
 
-    if (dbReportType === 'STOCK' && data.length > 0) {
+    // Performance Optimization: Only fetch child stock_rows/stock_summary_rows if specifically requested
+    // (e.g. periodical reports) or for a single target date entry, preventing massive full-database joins.
+    const includeRows = searchParams.get('include_rows') === 'true' || 
+                        searchParams.get('rows') === 'true' || 
+                        Boolean(targetDate && data.length <= 5);
+
+    if (includeRows && dbReportType === 'STOCK' && data.length > 0) {
       const entryIds = data.map((e: any) => e.id);
       try {
         const [rowsRes, summaryRes] = await Promise.all([

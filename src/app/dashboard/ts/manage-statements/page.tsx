@@ -28,6 +28,7 @@ export default function StatementMastersConfigPage() {
   const [loading, setLoading] = useState<boolean>(true);
   const [saving, setSaving] = useState<boolean>(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
+  const [hasUnsavedChanges, setHasUnsavedChanges] = useState<boolean>(false);
 
   // Modal / Form state for new / edit statement master
   const [isModalOpen, setIsModalOpen] = useState<boolean>(false);
@@ -101,7 +102,7 @@ export default function StatementMastersConfigPage() {
   const handleDelete = async (key: string, name: string) => {
     const isConfirmed = await confirm({
       title: 'Delete Statement Master',
-      message: `Are you sure you want to delete "${name}"? Users will no longer see this statement master on the daily TS dashboard.`,
+      message: `Are you sure you want to delete "${name}"? Click "Save Statement Masters" to persist changes to the database.`,
       confirmText: 'Delete Statement Master',
       cancelText: 'Cancel',
       type: 'warning',
@@ -109,23 +110,12 @@ export default function StatementMastersConfigPage() {
 
     if (!isConfirmed) return;
 
-    try {
-      const res = await fetch(`/api/ts/masters?key=${encodeURIComponent(key)}`, {
-        method: 'DELETE',
-      });
-      if (res.ok) {
-        setMasters(prev => prev.filter(m => m.key !== key));
-        showToast(`✅ Deleted statement master "${name}" from database`);
-      } else {
-        showToast('❌ Failed to delete statement master from database');
-      }
-    } catch (err) {
-      console.error('Delete master error:', err);
-      showToast('❌ Error connecting to database');
-    }
+    setMasters(prev => prev.filter(m => m.key !== key));
+    setHasUnsavedChanges(true);
+    showToast(`🗑️ Removed statement master "${name}" (click "Save Statement Masters" to commit)`);
   };
 
-  const handleMove = async (index: number, direction: 'up' | 'down') => {
+  const handleMove = (index: number, direction: 'up' | 'down') => {
     const targetIndex = direction === 'up' ? index - 1 : index + 1;
     if (targetIndex < 0 || targetIndex >= masters.length) return;
 
@@ -136,10 +126,10 @@ export default function StatementMastersConfigPage() {
 
     const reindexed = copy.map((m, i) => ({ ...m, sort_order: i + 1 }));
     setMasters(reindexed);
-    await saveMastersToApi(reindexed, 'Reordered statement master names');
+    setHasUnsavedChanges(true);
   };
 
-  const handleSaveModal = async (e: React.FormEvent) => {
+  const handleSaveModal = (e: React.FormEvent) => {
     e.preventDefault();
 
     if (!formName.trim()) {
@@ -177,7 +167,8 @@ export default function StatementMastersConfigPage() {
 
     setMasters(updated);
     setIsModalOpen(false);
-    await saveMastersToApi(updated, editingKey ? `Updated "${newMaster.label}"` : `Created "${newMaster.label}"`);
+    setHasUnsavedChanges(true);
+    showToast(`Statement "${newMaster.label}" updated (click "Save Statement Masters" to commit)`);
   };
 
   const saveMastersToApi = async (mastersToSave: StatementMasterDef[], successMsg: string) => {
@@ -190,6 +181,7 @@ export default function StatementMastersConfigPage() {
       });
       if (res.ok) {
         showToast(`✅ ${successMsg}`);
+        setHasUnsavedChanges(false);
       } else {
         showToast('❌ Failed to save statement masters');
       }
@@ -200,13 +192,34 @@ export default function StatementMastersConfigPage() {
     setSaving(false);
   };
 
+  const handleSaveAllMastersToDb = async () => {
+    await saveMastersToApi(masters, 'Saved all statement masters to database!');
+  };
+
   return (
     <>
       <Header
         title="Statement Master Names & Particulars"
         subtitle="Create, edit & delete Statement Master Names & Particulars for RECEIPT AND DISPOSAL STATEMENT"
         actions={
-          <div style={{ display: 'flex', gap: 10 }}>
+          <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+            <button
+              type="button"
+              onClick={handleSaveAllMastersToDb}
+              disabled={saving || !hasUnsavedChanges}
+              className="btn btn-sm"
+              style={{
+                background: hasUnsavedChanges ? '#16a34a' : '#f1f5f9',
+                borderColor: hasUnsavedChanges ? '#15803d' : '#cbd5e1',
+                color: hasUnsavedChanges ? '#ffffff' : '#94a3b8',
+                fontWeight: 800,
+                cursor: hasUnsavedChanges ? 'pointer' : 'default',
+                boxShadow: hasUnsavedChanges ? '0 0 10px rgba(22, 163, 74, 0.4)' : 'none',
+              }}
+              title={hasUnsavedChanges ? 'Click to commit all statement masters to Database' : 'No unsaved changes'}
+            >
+              {saving ? '⏳ Saving...' : hasUnsavedChanges ? '💾 Save Statement Masters *' : '✓ Masters Saved'}
+            </button>
             <Link href="/dashboard/ts/manage-statements/defaults" className="btn btn-secondary btn-sm" style={{ color: '#b45309', borderColor: '#fde68a', background: '#fffbeb', fontWeight: 700 }}>
               ⭐ Master Default Formulation Tables
             </Link>

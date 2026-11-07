@@ -24,7 +24,7 @@ export default function TSListPage() {
         // Load report mode configuration
         let parsedMode: 'full_day' | 'shift' = 'full_day';
         try {
-          const configRes = await fetch('/api/entries?report_type=STOCK');
+          const configRes = await fetch('/api/entries?report_type=STOCK&date=1970-01-01');
           if (configRes.ok) {
             const configJson = await configRes.json();
             const entries: any[] = configJson.data || [];

@@ -21,6 +21,7 @@ export default function STGColumnsPage() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
+  const [hasUnsavedChanges, setHasUnsavedChanges] = useState<boolean>(false);
 
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingKey, setEditingKey] = useState<string | null>(null);
@@ -98,7 +99,7 @@ export default function STGColumnsPage() {
   const handleDelete = async (key: string, name: string) => {
     const ok = await confirm({
       title: 'Delete Column',
-      message: `Delete column "${name}"? All entries using this column field will lose that data.`,
+      message: `Delete column "${name}"? Click "Save Column Configuration" to persist changes to the database.`,
       confirmText: 'Delete Column',
       cancelText: 'Cancel',
       type: 'danger',
@@ -106,20 +107,21 @@ export default function STGColumnsPage() {
     if (!ok) return;
     const updated = columns.filter(c => c.key !== key).map((c, i) => ({ ...c, sort_order: i + 1 }));
     setColumns(updated);
-    await saveColumnsToApi(updated, `Deleted column "${name}"`);
+    setHasUnsavedChanges(true);
+    showToast(`🗑️ Removed column "${name}" (click "Save Column Configuration" to commit)`);
   };
 
-  const handleMove = async (index: number, direction: 'up' | 'down') => {
+  const handleMove = (index: number, direction: 'up' | 'down') => {
     const targetIndex = direction === 'up' ? index - 1 : index + 1;
     if (targetIndex < 0 || targetIndex >= columns.length) return;
     const copy = [...columns];
     [copy[index], copy[targetIndex]] = [copy[targetIndex], copy[index]];
     const reindexed = copy.map((c, i) => ({ ...c, sort_order: i + 1 }));
     setColumns(reindexed);
-    await saveColumnsToApi(reindexed, 'Reordered columns');
+    setHasUnsavedChanges(true);
   };
 
-  const handleSaveModal = async (e: React.FormEvent) => {
+  const handleSaveModal = (e: React.FormEvent) => {
     e.preventDefault();
     if (!formName.trim()) { alert('Please enter a Column Name'); return; }
     const keyToUse = editingKey || formKey.trim().toLowerCase().replace(/[^a-z0-9_]/g, '_') || formName.trim().toLowerCase().replace(/[^a-z0-9_]/g, '_');
@@ -148,7 +150,13 @@ export default function STGColumnsPage() {
 
     setColumns(updated);
     setIsModalOpen(false);
-    await saveColumnsToApi(updated, editingKey ? `Updated "${newCol.name}"` : `Created "${newCol.name}"`);
+    setHasUnsavedChanges(true);
+    showToast(`Column "${newCol.name}" updated (click "Save Column Configuration" to commit)`);
+  };
+
+  const handleSaveAllToDb = async () => {
+    await saveColumnsToApi(columns, 'Saved all column configurations to database!');
+    setHasUnsavedChanges(false);
   };
 
   const getDecimalLabel = (col: STGColumnDef) => {
@@ -164,7 +172,24 @@ export default function STGColumnsPage() {
         title="STG Statement Column Configuration"
         subtitle="Manage dynamic column definitions for RECEIPT AND DISPOSAL STATEMENT tables"
         actions={
-          <div style={{ display: 'flex', gap: 10 }}>
+          <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+            <button
+              type="button"
+              onClick={handleSaveAllToDb}
+              disabled={saving || !hasUnsavedChanges}
+              className="btn btn-sm"
+              style={{
+                background: hasUnsavedChanges ? '#16a34a' : '#f1f5f9',
+                borderColor: hasUnsavedChanges ? '#15803d' : '#cbd5e1',
+                color: hasUnsavedChanges ? '#ffffff' : '#94a3b8',
+                fontWeight: 800,
+                cursor: hasUnsavedChanges ? 'pointer' : 'default',
+                boxShadow: hasUnsavedChanges ? '0 0 10px rgba(22, 163, 74, 0.4)' : 'none',
+              }}
+              title={hasUnsavedChanges ? 'Click to commit all column edits to Database' : 'No unsaved changes'}
+            >
+              {saving ? '⏳ Saving...' : hasUnsavedChanges ? '💾 Save Column Configuration *' : '✓ Columns Saved'}
+            </button>
             <Link href="/dashboard/ts/manage-statements/defaults" className="btn btn-secondary btn-sm" style={{ background: '#fffbeb', borderColor: '#fde68a', color: '#b45309', fontWeight: 700 }}>
               ⭐ Default Formulation Tables
             </Link>

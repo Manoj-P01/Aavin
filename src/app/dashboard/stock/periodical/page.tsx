@@ -182,7 +182,7 @@ export default function PeriodicalSummaryReportPage() {
           console.error('Failed to load DB stock config:', cfgErr);
         }
 
-        const res = await fetch('/api/entries?report_type=STOCK');
+        const res = await fetch('/api/entries?report_type=STOCK&include_rows=true');
         if (res.ok) {
           const json = await res.json();
           const list: Entry[] = (json.data || []).filter((e: Entry) => e.entry_date && e.entry_date !== '1970-01-01');

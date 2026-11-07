@@ -136,7 +136,7 @@ export default function PreparationChartsDashboardPage({
   useEffect(() => {
     async function loadShiftSettings() {
       try {
-        const res = await fetch('/api/entries?report_type=STOCK');
+        const res = await fetch('/api/entries?report_type=STOCK&date=1970-01-01');
         if (res.ok) {
           const json = await res.json();
           const entries: any[] = json.data || [];
