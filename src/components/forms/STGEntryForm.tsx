@@ -163,6 +163,7 @@ export interface STGOpeningBalance {
   sp_gr?: string;
   kg_fat?: string;
   kg_snf?: string;
+  [key: string]: string | undefined;
 }
 
 export interface STGPhysicalCount {
@@ -173,6 +174,7 @@ export interface STGPhysicalCount {
   sp_gr?: string;
   kg_fat?: string;
   kg_snf?: string;
+  [key: string]: string | undefined;
 }
 
 export interface STGBlockState {
@@ -269,105 +271,6 @@ export default function STGEntryForm({
     }
   };
 
-  const handleSyncFromStock = async () => {
-    try {
-      const res = await fetch(`/api/stock?date=${entryDate}${shift ? `&shift=${shift}` : ''}`);
-      if (!res.ok) {
-        await showWarning(`No saved Stock Statement found for date ${entryDate}. Please save the Stock Statement first.`, 'No Stock Data');
-        return;
-      }
-      const json = await res.json();
-      const stockRows: any[] = json.data?.stock_rows || [];
-      if (!stockRows || stockRows.length === 0) {
-        await showWarning(`No stock rows found for ${entryDate}.`, 'Empty Stock Data');
-        return;
-      }
-
-      const stmtsToSync = displayedStatements.length > 0 ? displayedStatements : availableStatements;
-      let syncedCount = 0;
-
-      setBlocks(prev => {
-        const copy = { ...prev };
-
-        stmtsToSync.forEach(stmt => {
-          const stmtKey = stmt.key;
-          const currentBlockState = copy[stmtKey] || { rows: [], opening_balance: {}, physical_count: {} };
-          const nextRows = [...(currentBlockState.rows || [])];
-
-          const targetColKeys = [stmtKey.toLowerCase()];
-          if (['wm', 'wh_milk', 'tentative_whole_milk'].includes(stmtKey.toLowerCase())) {
-            targetColKeys.push('wh_milk', 'whole_milk', 'wm');
-          }
-          if (['ssm', 'skim_milk', 'skimmed_milk', 'skimmed_milk____receipt_and_disposal_statement'].includes(stmtKey.toLowerCase())) {
-            targetColKeys.push('skim_milk', 'ssm');
-          }
-          if (stmtKey.toLowerCase().includes('cream')) targetColKeys.push('cream');
-          if (stmtKey.toLowerCase().includes('smp')) targetColKeys.push('smp');
-          if (stmtKey.toLowerCase().includes('delite')) targetColKeys.push('delite');
-          if (stmtKey.toLowerCase().includes('fcm')) targetColKeys.push('fcm');
-          if (stmtKey.toLowerCase().includes('std')) targetColKeys.push('std');
-          if (stmtKey.toLowerCase().includes('curd')) targetColKeys.push('curd');
-
-          const obRow = stockRows.find(r => r.row_type === 'OB');
-          if (obRow) {
-            for (const key of targetColKeys) {
-              const val = obRow.values?.[key] ?? obRow[key];
-              if (val !== undefined && val !== null && !isNaN(parseFloat(val))) {
-                const numVal = parseFloat(val);
-                if (numVal > 0) {
-                  currentBlockState.opening_balance = {
-                    ...(currentBlockState.opening_balance || {}),
-                    qty_lts: String(numVal),
-                  };
-                  syncedCount++;
-                  break;
-                }
-              }
-            }
-          }
-
-          nextRows.forEach(r => {
-            const rLabelNorm = (r.variant || '').toLowerCase().replace(/[^a-z0-9]/g, '');
-            const matchingStockRow = stockRows.find(sr => {
-              if (r.row_type && sr.row_type && r.row_type !== sr.row_type) return false;
-              const srLabelNorm = (sr.row_label || '').toLowerCase().replace(/[^a-z0-9]/g, '');
-              return srLabelNorm === rLabelNorm || srLabelNorm.includes(rLabelNorm) || rLabelNorm.includes(srLabelNorm);
-            });
-
-            if (matchingStockRow) {
-              for (const key of targetColKeys) {
-                const val = matchingStockRow.values?.[key] ?? matchingStockRow[key];
-                if (val !== undefined && val !== null && !isNaN(parseFloat(val))) {
-                  const numVal = parseFloat(val);
-                  if (numVal > 0) {
-                    r.values = { ...(r.values || {}), qty_lts: numVal };
-                    syncedCount++;
-                    break;
-                  }
-                }
-              }
-            }
-          });
-
-          currentBlockState.rows = nextRows;
-          copy[stmtKey] = currentBlockState;
-        });
-
-        return copy;
-      });
-
-      setReceiptsUnlocked(true);
-      setDisposalsUnlocked(true);
-      if (syncedCount > 0) {
-        await showSuccess(`Synced ${syncedCount} quantity value(s) from Stock Statement into selected statement(s)! Receipts & Disposals unlocked for editing.`, 'Stock Statement Synced');
-      } else {
-        await showWarning(`Found Stock Statement for ${entryDate}, but no matching rows found for selected statements. You can enter values manually.`, 'Sync Notice');
-      }
-    } catch (err) {
-      console.error(err);
-      await showError('Failed to sync from Stock Statement.', 'Sync Error');
-    }
-  };
   const [masters, setMasters] = useState<any[]>([]);
   const [statements, setStatements] = useState<Array<{ key: string; label: string; variant?: string }>>([]);
   const [enabledBlockKeys, setEnabledBlockKeys] = useState<string[]>([]);
@@ -377,6 +280,27 @@ export default function STGEntryForm({
   const [saving, setSaving] = useState(false);
   const [exporting, setExporting] = useState(false);
   const [error, setError] = useState('');
+
+  // Mapping rules from STG Mapping configuration
+  const [mappingRules, setMappingRules] = useState<any[]>([]);
+
+  // Compact Statement Dropdown state
+  const [isStatementDropdownOpen, setIsStatementDropdownOpen] = useState(false);
+  const statementDropdownRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (statementDropdownRef.current && !statementDropdownRef.current.contains(e.target as Node)) {
+        setIsStatementDropdownOpen(false);
+      }
+    };
+    if (isStatementDropdownOpen) {
+      document.addEventListener('mousedown', handleClickOutside);
+    }
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, [isStatementDropdownOpen]);
 
   // Lock / Edit states (global fallback and per-statement tracking)
   const [obUnlocked, setObUnlocked] = useState(false);
@@ -439,10 +363,10 @@ export default function STGEntryForm({
     return displayedStatements[0] || availableStatements.find(s => s.key === activeBlock) || availableStatements[0] || null;
   }, [displayedStatements, availableStatements, activeBlock]);
 
-  // Initial selection of statements to view
+  // Initial selection of statements to view - default to all available
   useEffect(() => {
     if (availableStatements.length > 0 && selectedStatementKeys.length === 0) {
-      setSelectedStatementKeys([availableStatements[0].key]);
+      setSelectedStatementKeys(availableStatements.map(s => s.key));
     }
   }, [availableStatements, selectedStatementKeys.length]);
 
@@ -602,7 +526,7 @@ export default function STGEntryForm({
       if (targetRow.row_type === 'CB' && ['lts', 'qty_lts', 'fat_pct', 'snf_pct', 'sp_gr'].includes(colKey)) {
         const numVal = parseFloat(val);
         if (!isNaN(numVal) && !String(val).startsWith('=')) {
-          const fieldMap: Record<string, keyof STGPhysicalCount> = {
+          const fieldMap: Record<string, string> = {
             lts: 'qty_lts',
             qty_lts: 'qty_lts',
             fat_pct: 'fat_pct',
@@ -879,6 +803,316 @@ export default function STGEntryForm({
     };
   }, []);
 
+  // Helper to dynamically get configured columns for OB, Receipts, or Disposals for any statement master
+  const getSectionColumnsForMaster = useCallback((stmtKey: string, section: 'ob' | 'receipt' | 'disposal') => {
+    const master = masters.find(m => m.key === stmtKey);
+    let rawCols: any[] | undefined;
+    if (master) {
+      if (section === 'ob') rawCols = master.ob_columns || master.columns;
+      else if (section === 'receipt') rawCols = master.receipt_columns || master.columns;
+      else if (section === 'disposal') rawCols = master.disposal_columns || master.columns;
+    }
+    if (Array.isArray(rawCols) && rawCols.length > 0) {
+      const filtered = rawCols.filter((c: any) => {
+        const k = (c.key || '').toLowerCase();
+        return k && !['variant', 'label', 'particular', 'name', 'item_name', 'id', '#'].includes(k);
+      });
+      if (filtered.length > 0) {
+        return filtered.map((c: any) => ({
+          key: c.key,
+          name: c.name || c.label || c.key,
+          type: c.type || (['qty_kg', 'kg_fat', 'kg_snf'].includes(c.key) ? 'calculated' : 'number'),
+          decimals: c.decimals,
+        }));
+      }
+    }
+    return [
+      { key: 'qty_lts', name: 'Qty (Lts)', type: 'number', decimals: 0 },
+      { key: 'sp_gr', name: 'SP.G', type: 'number', decimals: 4 },
+      { key: 'qty_kg', name: 'Qty (Kg)', type: 'calculated', decimals: 2 },
+      { key: 'fat_pct', name: 'Fat%', type: 'number', decimals: 2 },
+      { key: 'snf_pct', name: 'Snf%', type: 'number', decimals: 2 },
+      { key: 'kg_fat', name: 'Kg.Fat', type: 'calculated', decimals: 3 },
+      { key: 'kg_snf', name: 'Kg.Snf', type: 'calculated', decimals: 3 },
+    ];
+  }, [masters]);
+
+  // Candidate stock keys resolver for intelligent matching fallback
+  const resolveStockCandidateKeys = (stmtKey: string, stmtLabel: string = ''): string[] => {
+    const normKey = (stmtKey + ' ' + stmtLabel).toLowerCase().replace(/[^a-z0-9]/g, ' ');
+    const tokens = normKey.split(/\s+/).filter(Boolean);
+    const keys: string[] = [];
+
+    const has = (...terms: string[]) => terms.some(t => tokens.includes(t) || normKey.includes(t));
+
+    if (has('wh', 'wm', 'whole', 'tentative whole milk', 'whole milk')) {
+      keys.push('wh.milk', 'wh_milk', 'whole_milk', 'wm');
+    }
+    if (has('delite', 'dlt')) {
+      keys.push('dlt.milk', 'dlt_milk', 'delite', 'delite_milk', 'dlt');
+    }
+    if (has('fc', 'fcm', 'full cream')) {
+      keys.push('fc.milk', 'fc_milk', 'fcm', 'fc', 'full_cream_milk');
+    }
+    if (has('std', 'standard', 'standardised')) {
+      keys.push('std.milk', 'std_milk', 'std', 'standardised_milk');
+    }
+    if (has('cream', 'crm')) {
+      keys.push('cream', 'crm');
+    }
+    if (has('skim', 'skimmed', 'ssm')) {
+      keys.push('skim_milk', 'skimmed_milk', 'ssm', 'skim.milk', 'skim');
+    }
+    if (has('smp')) {
+      keys.push('smp');
+    }
+    if (has('curd', 'tm')) {
+      keys.push('curd', 'tm_milk', 'tm.milk', 'toned_milk');
+    }
+
+    keys.push(stmtKey.toLowerCase());
+    return Array.from(new Set(keys));
+  };
+
+  // Sync stock values from Stock Statement and Mapping Rules into blocks
+  const syncStockValuesToBlocks = useCallback((
+    stockRows: any[],
+    rules: any[],
+    stmtsToSync: Array<{ key: string; label: string; variant?: string }>,
+    currentBlocks: Record<string, STGBlockState>
+  ) => {
+    const copy: Record<string, STGBlockState> = { ...currentBlocks };
+    let syncedCount = 0;
+
+    const obRow = stockRows.find(r => r.row_type === 'OB');
+
+    const getStockVal = (row: any, productKey: string): number | undefined => {
+      if (!row || !productKey) return undefined;
+      const cleanTarget = productKey.toLowerCase().replace(/[^a-z0-9]/g, '');
+
+      // 1. Direct key lookups
+      const directVals = [row.values?.[productKey], row[productKey]];
+      for (const v of directVals) {
+        if (v !== undefined && v !== null && v !== '') {
+          const n = parseFloat(String(v));
+          if (!isNaN(n)) return n;
+        }
+      }
+
+      // 2. Normalized key in row.values
+      if (row.values && typeof row.values === 'object') {
+        for (const [k, v] of Object.entries(row.values)) {
+          if (k.toLowerCase().replace(/[^a-z0-9]/g, '') === cleanTarget) {
+            if (v !== undefined && v !== null && v !== '') {
+              const n = parseFloat(String(v));
+              if (!isNaN(n)) return n;
+            }
+          }
+        }
+      }
+
+      // 3. Normalized key on row root
+      for (const [k, v] of Object.entries(row)) {
+        if (k.toLowerCase().replace(/[^a-z0-9]/g, '') === cleanTarget) {
+          if (v !== undefined && v !== null && v !== '') {
+            const n = parseFloat(String(v));
+            if (!isNaN(n)) return n;
+          }
+        }
+      }
+
+      return undefined;
+    };
+
+    stmtsToSync.forEach(stmt => {
+      const stmtKey = stmt.key;
+      const currentBlockState = copy[stmtKey]
+        ? {
+            ...copy[stmtKey],
+            opening_balance: { ...(copy[stmtKey].opening_balance || {}) },
+            rows: (copy[stmtKey].rows || []).map(r => ({ ...r, values: { ...(r.values || {}) } })),
+          }
+        : { rows: [], opening_balance: {}, physical_count: {} };
+
+      // Find user-defined mapping rules for this statement
+      const matchingRules = (rules || []).filter((r: any) => {
+        const bKey = (r.stgBlockKey || '').toLowerCase();
+        const sKey = stmtKey.toLowerCase();
+        return bKey === sKey || bKey.replace(/[^a-z0-9]/g, '') === sKey.replace(/[^a-z0-9]/g, '');
+      });
+
+      // 1. Opening Balance Sync
+      let obSynced = false;
+      const obRule = matchingRules.find((r: any) => r.stgSection === 'OB');
+
+      if (obRule && obRow) {
+        const mappedVal = getStockVal(obRow, obRule.stockProductKey);
+        if (mappedVal !== undefined) {
+          const targetField = obRule.stgTargetField || 'qty_lts';
+          (currentBlockState.opening_balance as any)[targetField] = String(mappedVal);
+          obSynced = true;
+          syncedCount++;
+        }
+      }
+
+      // If no explicit rule or rule didn't produce a value, use intelligent candidate keys
+      if (!obSynced && obRow) {
+        const candidateKeys = resolveStockCandidateKeys(stmtKey, stmt.label || '');
+        for (const cKey of candidateKeys) {
+          const val = getStockVal(obRow, cKey);
+          if (val !== undefined) {
+            currentBlockState.opening_balance = {
+              ...(currentBlockState.opening_balance || {}),
+              qty_lts: String(val),
+            };
+            obSynced = true;
+            syncedCount++;
+            break;
+          }
+        }
+      }
+
+      // Recalculate OB calculated fields if Qty Lts is set
+      if (currentBlockState.opening_balance?.qty_lts) {
+        const qtyLit = parseFloat(currentBlockState.opening_balance.qty_lts) || 0;
+        const spGr = parseFloat(currentBlockState.opening_balance.sp_gr || '0') || 0;
+        const qtyKg = spGr > 0 ? qtyLit * spGr : qtyLit;
+        currentBlockState.opening_balance.qty_kg = qtyKg !== 0 ? String(qtyKg) : '';
+        const fatPct = parseFloat(currentBlockState.opening_balance.fat_pct || '0') || 0;
+        const snfPct = parseFloat(currentBlockState.opening_balance.snf_pct || '0') || 0;
+        currentBlockState.opening_balance.kg_fat = (qtyKg * fatPct) / 100 !== 0 ? String((qtyKg * fatPct) / 100) : '';
+        currentBlockState.opening_balance.kg_snf = (qtyKg * snfPct) / 100 !== 0 ? String((qtyKg * snfPct) / 100) : '';
+      }
+
+      // 2. Particulars Rows Sync (Receipts & Disposals)
+      const nextRows = currentBlockState.rows.map(r => {
+        const rowCopy = { ...r, values: { ...(r.values || {}) } };
+        let rowSynced = false;
+
+        // Check if a mapping rule matches this particular item
+        const itemRule = matchingRules.find((mr: any) => {
+          const rName = (rowCopy.variant || '').trim().toLowerCase();
+          const ruleItem = (mr.stgItemName || '').trim().toLowerCase();
+          return (mr.stgSection === rowCopy.side || mr.stgSection === rowCopy.row_type) &&
+            (ruleItem === rName || ruleItem.replace(/[^a-z0-9]/g, '') === rName.replace(/[^a-z0-9]/g, ''));
+        });
+
+        if (itemRule) {
+          const matchingStockRow = stockRows.find(sr => {
+            if (itemRule.stockSection && sr.row_type && itemRule.stockSection !== sr.row_type) return false;
+            const srLabel = (sr.row_label || '').trim().toLowerCase();
+            const targetPart = (itemRule.stockParticular || '').trim().toLowerCase();
+            return srLabel === targetPart || srLabel.replace(/[^a-z0-9]/g, '') === targetPart.replace(/[^a-z0-9]/g, '');
+          });
+
+          if (matchingStockRow) {
+            const val = getStockVal(matchingStockRow, itemRule.stockProductKey);
+            if (val !== undefined) {
+              const targetField = itemRule.stgTargetField || 'qty_lts';
+              rowCopy.values[targetField] = val;
+              rowSynced = true;
+              syncedCount++;
+            }
+          }
+        }
+
+        // Fallback matching by candidate keys and particular name
+        if (!rowSynced) {
+          const candidateKeys = resolveStockCandidateKeys(stmtKey, stmt.label || '');
+          const rLabelNorm = (rowCopy.variant || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+
+          if (rLabelNorm) {
+            const matchingStockRow = stockRows.find(sr => {
+              if (rowCopy.row_type && sr.row_type && rowCopy.row_type !== sr.row_type) return false;
+              const srLabelNorm = (sr.row_label || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+              return srLabelNorm === rLabelNorm || srLabelNorm.includes(rLabelNorm) || rLabelNorm.includes(srLabelNorm);
+            });
+
+            if (matchingStockRow) {
+              for (const cKey of candidateKeys) {
+                const val = getStockVal(matchingStockRow, cKey);
+                if (val !== undefined && val > 0) {
+                  rowCopy.values.qty_lts = val;
+                  rowSynced = true;
+                  syncedCount++;
+                  break;
+                }
+              }
+            }
+          }
+        }
+
+        // Recompute calculated fields for row if qty_lts changed
+        if (rowCopy.values.qty_lts !== undefined && rowCopy.values.qty_lts !== '') {
+          const qtyKg = computeCalculatedField('qty_kg', rowCopy.values);
+          rowCopy.values.qty_kg = qtyKg !== 0 ? String(qtyKg) : '';
+          const kgFat = computeCalculatedField('kg_fat', rowCopy.values);
+          rowCopy.values.kg_fat = kgFat !== 0 ? String(kgFat) : '';
+          const kgSnf = computeCalculatedField('kg_snf', rowCopy.values);
+          rowCopy.values.kg_snf = kgSnf !== 0 ? String(kgSnf) : '';
+        }
+
+        return rowCopy;
+      });
+
+      currentBlockState.rows = nextRows;
+      copy[stmtKey] = currentBlockState;
+    });
+
+    return { updatedBlocks: copy, syncedCount };
+  }, [computeCalculatedField]);
+
+  // Handle Sync From Stock button click
+  const handleSyncFromStock = async () => {
+    try {
+      let loadedRules = mappingRules;
+      if (!loadedRules || loadedRules.length === 0) {
+        const mapRes = await fetch('/api/entries?report_type=STOCK_MAPPING');
+        if (mapRes.ok) {
+          const mapJson = await mapRes.json();
+          const entries: any[] = mapJson.data || [];
+          const entry = entries.find((e: any) => {
+            if (!e.notes) return false;
+            try { return Array.isArray(JSON.parse(e.notes)); } catch { return false; }
+          }) || entries[0];
+          if (entry && entry.notes) {
+            try {
+              loadedRules = JSON.parse(entry.notes);
+              setMappingRules(loadedRules);
+            } catch {}
+          }
+        }
+      }
+
+      const res = await fetch(`/api/stock?date=${entryDate}${shift ? `&shift=${shift}` : ''}`);
+      if (!res.ok) {
+        await showWarning(`No saved Stock Statement found for date ${entryDate}. Please save the Stock Statement first.`, 'No Stock Data');
+        return;
+      }
+      const json = await res.json();
+      const stockRows: any[] = json.data?.stock_rows || [];
+      if (!stockRows || stockRows.length === 0) {
+        await showWarning(`No stock rows found for ${entryDate}.`, 'Empty Stock Data');
+        return;
+      }
+
+      const stmtsToSync = displayedStatements.length > 0 ? displayedStatements : availableStatements;
+      const { updatedBlocks, syncedCount } = syncStockValuesToBlocks(stockRows, loadedRules, stmtsToSync, blocks);
+
+      setBlocks(updatedBlocks);
+      setReceiptsUnlocked(true);
+      setDisposalsUnlocked(true);
+      if (syncedCount > 0) {
+        await showSuccess(`Synced ${syncedCount} quantity value(s) from Stock Statement into selected statement(s)! Receipts & Disposals unlocked for editing.`, 'Stock Statement Synced');
+      } else {
+        await showWarning(`Found Stock Statement for ${entryDate}, but no matching rows found for selected statements. You can enter values manually.`, 'Sync Notice');
+      }
+    } catch (err) {
+      console.error(err);
+      await showError('Failed to sync from Stock Statement.', 'Sync Error');
+    }
+  };
+
   // Fetch statement masters and data
   useEffect(() => {
     if (!entryDate) return;
@@ -959,7 +1193,7 @@ export default function STGEntryForm({
             }
             setNotes(cleanNotes);
 
-            const newBlocks: Record<string, STGBlockState> = {};
+            let newBlocks: Record<string, STGBlockState> = {};
             combinedStatements.forEach((s: any) => {
               const matchedMaster = globalStatements.find((g: any) => g.key === s.key);
               newBlocks[s.key] = matchedMaster ? populateBlockDefaultsFromMaster(matchedMaster) : { rows: [] };
@@ -1032,6 +1266,44 @@ export default function STGEntryForm({
               });
             }
 
+            // Load STG statement mapping rules & auto-sync from Stock Statement if opening balance is not yet filled
+            try {
+              let loadedRules: any[] = [];
+              const mapRes = await fetch('/api/entries?report_type=STOCK_MAPPING');
+              if (mapRes.ok) {
+                const mapJson = await mapRes.json();
+                const entries: any[] = mapJson.data || [];
+                const entry = entries.find((e: any) => {
+                  if (!e.notes) return false;
+                  try { return Array.isArray(JSON.parse(e.notes)); } catch { return false; }
+                }) || entries[0];
+                if (entry && entry.notes) {
+                  try {
+                    loadedRules = JSON.parse(entry.notes);
+                    if (active) setMappingRules(loadedRules);
+                  } catch {}
+                }
+              }
+
+              const stockRes = await fetch(`/api/stock?date=${entryDate}${shift ? `&shift=${shift}` : ''}`);
+              if (stockRes.ok) {
+                const stockJson = await stockRes.json();
+                const stockRows: any[] = stockJson.data?.stock_rows || [];
+                if (stockRows.length > 0) {
+                  const needsSync = combinedStatements.some(s => {
+                    const obLts = newBlocks[s.key]?.opening_balance?.qty_lts;
+                    return obLts === undefined || obLts === null || obLts === '' || obLts === '0';
+                  });
+                  if (needsSync) {
+                    const { updatedBlocks } = syncStockValuesToBlocks(stockRows, loadedRules, combinedStatements, newBlocks);
+                    newBlocks = updatedBlocks;
+                  }
+                }
+              }
+            } catch (syncErr) {
+              console.warn('Auto-sync from stock on load skipped:', syncErr);
+            }
+
             setBlocks(newBlocks);
 
             // Load Reconciliation Summaries from dedicated table stg_reconciliation_entries
@@ -1055,7 +1327,7 @@ export default function STGEntryForm({
 
     loadData();
     return () => { active = false; };
-  }, [entryDate, shift, populateBlockDefaultsFromMaster]);
+  }, [entryDate, shift, populateBlockDefaultsFromMaster, syncStockValuesToBlocks]);
 
   // Handle Create Statement Master from Modal
   const handleCreateStatementMaster = async (e: React.FormEvent) => {
@@ -1276,7 +1548,7 @@ export default function STGEntryForm({
     });
   };
 
-  const handleOpeningBalanceChange = (field: keyof STGOpeningBalance, val: string, stmtKeyParam?: string) => {
+  const handleOpeningBalanceChange = (field: string, val: string, stmtKeyParam?: string) => {
     const key = stmtKeyParam || activeBlock;
     if (!key) return;
     setBlocks(prev => {
@@ -1301,7 +1573,7 @@ export default function STGEntryForm({
     });
   };
 
-  const handlePhysicalCountChange = (field: keyof STGPhysicalCount, val: string, stmtKeyParam?: string) => {
+  const handlePhysicalCountChange = (field: string, val: string, stmtKeyParam?: string) => {
     const key = stmtKeyParam || activeBlock;
     if (!key) return;
     setBlocks(prev => {
@@ -1598,6 +1870,7 @@ export default function STGEntryForm({
     const key = stmtKeyParam || activeBlock;
     const currentBlockRows = (blocks[key]?.rows || []);
     const sectionTotals = getStatementTotals(key);
+    const sectionCols = getSectionColumnsForMaster(key, side === 'RECEIPT' ? 'receipt' : 'disposal');
 
     return (
       <div className="card" style={{ marginBottom: 16, padding: 0, overflow: 'hidden', border: `1px solid ${colorScheme.border}` }}>
@@ -1656,20 +1929,25 @@ export default function STGEntryForm({
               <tr style={{ background: '#f8fafc', borderBottom: '1px solid var(--border)' }}>
                 <th style={{ width: 44, textAlign: 'center', fontSize: '0.72rem' }}>#</th>
                 <th style={{ width: 220, textAlign: 'left', fontSize: '0.75rem', fontWeight: 800 }}>{title} Particular</th>
-                <th style={{ textAlign: 'right', fontSize: '0.75rem' }}>Qty (Lts)</th>
-                <th style={{ textAlign: 'right', fontSize: '0.75rem' }}>SP.G</th>
-                <th style={{ textAlign: 'right', fontSize: '0.75rem', background: '#e0f2fe', color: '#0369a1' }}>Qty (Kg)</th>
-                <th style={{ textAlign: 'right', fontSize: '0.75rem' }}>Fat%</th>
-                <th style={{ textAlign: 'right', fontSize: '0.75rem' }}>Snf%</th>
-                <th style={{ textAlign: 'right', fontSize: '0.75rem', background: '#e0f2fe', color: '#0369a1' }}>Kg.Fat</th>
-                <th style={{ textAlign: 'right', fontSize: '0.75rem', background: '#e0f2fe', color: '#0369a1' }}>Kg.Snf</th>
+                {sectionCols.map(col => (
+                  <th
+                    key={`th_${col.key}`}
+                    style={{
+                      textAlign: 'right',
+                      fontSize: '0.75rem',
+                      ...(col.type === 'calculated' ? { background: '#e0f2fe', color: '#0369a1' } : {}),
+                    }}
+                  >
+                    {col.name}
+                  </th>
+                ))}
                 <th style={{ width: 90, textAlign: 'center', fontSize: '0.72rem' }}>Action</th>
               </tr>
             </thead>
             <tbody>
               {list.length === 0 ? (
                 <tr>
-                  <td colSpan={10} style={{ textAlign: 'center', padding: '20px 12px', color: '#94a3b8', fontStyle: 'italic', fontSize: '0.82rem' }}>
+                  <td colSpan={sectionCols.length + 3} style={{ textAlign: 'center', padding: '20px 12px', color: '#94a3b8', fontStyle: 'italic', fontSize: '0.82rem' }}>
                     No {title.toLowerCase()} recorded. Click "+ Add {title} Particular" to add.
                   </td>
                 </tr>
@@ -1704,75 +1982,43 @@ export default function STGEntryForm({
                         />
                       </td>
 
-                      {/* Qty (Lts) */}
-                      <td style={{ padding: '2px 4px' }}>
-                        <input
-                          type="number"
-                          className="form-input"
-                          value={row.values.qty_lts ?? ''}
-                          readOnly={isReadOnly}
-                          placeholder="0"
-                          onChange={e => handleParticularCellChange(globalIdx, 'qty_lts', e.target.value, key)}
-                          style={{ height: 28, fontSize: '0.82rem', textAlign: 'right', fontFamily: 'var(--font-numbers)' }}
-                        />
-                      </td>
+                      {/* Dynamic Columns */}
+                      {sectionCols.map(col => {
+                        if (col.type === 'calculated') {
+                          return (
+                            <td
+                              key={`td_${col.key}`}
+                              style={{
+                                textAlign: 'right',
+                                padding: '4px 8px',
+                                fontWeight: 800,
+                                color: '#0369a1',
+                                fontFamily: 'var(--font-numbers)',
+                                background: '#f0f9ff',
+                              }}
+                            >
+                              {row.values[col.key]
+                                ? formatDisplayNum(row.values[col.key], col.key === 'qty_kg' ? 2 : 3, col.key)
+                                : '-'}
+                            </td>
+                          );
+                        }
 
-                      {/* SP.G */}
-                      <td style={{ padding: '2px 4px' }}>
-                        <input
-                          type="number"
-                          step="any"
-                          className="form-input"
-                          value={row.values.sp_gr ?? ''}
-                          readOnly={isReadOnly}
-                          placeholder="0"
-                          onChange={e => handleParticularCellChange(globalIdx, 'sp_gr', e.target.value, key)}
-                          style={{ height: 28, fontSize: '0.82rem', textAlign: 'right', fontFamily: 'var(--font-numbers)' }}
-                        />
-                      </td>
-
-                      {/* Qty (Kg) - Computed */}
-                      <td style={{ textAlign: 'right', padding: '4px 8px', fontWeight: 800, color: '#0369a1', fontFamily: 'var(--font-numbers)', background: '#f0f9ff' }}>
-                        {row.values.qty_kg ? formatDisplayNum(row.values.qty_kg, 2, 'qty_kg') : '-'}
-                      </td>
-
-                      {/* Fat% */}
-                      <td style={{ padding: '2px 4px' }}>
-                        <input
-                          type="number"
-                          step="any"
-                          className="form-input"
-                          value={row.values.fat_pct ?? ''}
-                          readOnly={isReadOnly}
-                          placeholder="0"
-                          onChange={e => handleParticularCellChange(globalIdx, 'fat_pct', e.target.value, key)}
-                          style={{ height: 28, fontSize: '0.82rem', textAlign: 'right', fontFamily: 'var(--font-numbers)' }}
-                        />
-                      </td>
-
-                      {/* Snf% */}
-                      <td style={{ padding: '2px 4px' }}>
-                        <input
-                          type="number"
-                          step="any"
-                          className="form-input"
-                          value={row.values.snf_pct ?? ''}
-                          readOnly={isReadOnly}
-                          placeholder="0"
-                          onChange={e => handleParticularCellChange(globalIdx, 'snf_pct', e.target.value, key)}
-                          style={{ height: 28, fontSize: '0.82rem', textAlign: 'right', fontFamily: 'var(--font-numbers)' }}
-                        />
-                      </td>
-
-                      {/* Kg.Fat - Computed */}
-                      <td style={{ textAlign: 'right', padding: '4px 8px', fontWeight: 800, color: '#0369a1', fontFamily: 'var(--font-numbers)', background: '#f0f9ff' }}>
-                        {row.values.kg_fat ? formatDisplayNum(row.values.kg_fat, 3, 'kg_fat') : '-'}
-                      </td>
-
-                      {/* Kg.Snf - Computed */}
-                      <td style={{ textAlign: 'right', padding: '4px 8px', fontWeight: 800, color: '#0369a1', fontFamily: 'var(--font-numbers)', background: '#f0f9ff' }}>
-                        {row.values.kg_snf ? formatDisplayNum(row.values.kg_snf, 3, 'kg_snf') : '-'}
-                      </td>
+                        return (
+                          <td key={`td_${col.key}`} style={{ padding: '2px 4px' }}>
+                            <input
+                              type="number"
+                              step={col.key === 'qty_lts' ? undefined : 'any'}
+                              className="form-input"
+                              value={row.values[col.key] ?? ''}
+                              readOnly={isReadOnly}
+                              placeholder="0"
+                              onChange={e => handleParticularCellChange(globalIdx, col.key, e.target.value, key)}
+                              style={{ height: 28, fontSize: '0.82rem', textAlign: 'right', fontFamily: 'var(--font-numbers)' }}
+                            />
+                          </td>
+                        );
+                      })}
 
                       {/* Actions */}
                       <td style={{ textAlign: 'center', background: '#fafafa' }}>
@@ -1807,21 +2053,39 @@ export default function STGEntryForm({
                   <td style={{ fontWeight: 800, color: colorScheme.text, padding: '6px 8px' }}>
                     Total {title}
                   </td>
-                  <td style={{ textAlign: 'right', fontWeight: 800, padding: '6px 4px', fontFamily: 'var(--font-numbers)', color: colorScheme.text }}>
-                    {formatDisplayNum(side === 'RECEIPT' ? sectionTotals.rec.lts : sectionTotals.disp.lts, 0)}
-                  </td>
-                  <td style={{ textAlign: 'right', padding: '6px 4px' }}>—</td>
-                  <td style={{ textAlign: 'right', fontWeight: 800, padding: '6px 8px', fontFamily: 'var(--font-numbers)', color: colorScheme.text, background: '#f1f5f9' }}>
-                    {formatDisplayNum(side === 'RECEIPT' ? sectionTotals.rec.kg : sectionTotals.disp.kg, 2)}
-                  </td>
-                  <td style={{ textAlign: 'right', padding: '6px 4px' }}>—</td>
-                  <td style={{ textAlign: 'right', padding: '6px 4px' }}>—</td>
-                  <td style={{ textAlign: 'right', fontWeight: 800, padding: '6px 8px', fontFamily: 'var(--font-numbers)', color: colorScheme.text, background: '#f1f5f9' }}>
-                    {formatDisplayNum(side === 'RECEIPT' ? sectionTotals.rec.fat : sectionTotals.disp.fat, 3)}
-                  </td>
-                  <td style={{ textAlign: 'right', fontWeight: 800, padding: '6px 8px', fontFamily: 'var(--font-numbers)', color: colorScheme.text, background: '#f1f5f9' }}>
-                    {formatDisplayNum(side === 'RECEIPT' ? sectionTotals.rec.snf : sectionTotals.disp.snf, 3)}
-                  </td>
+                  {sectionCols.map(col => {
+                    if (col.key === 'qty_lts') {
+                      return (
+                        <td key={`tf_${col.key}`} style={{ textAlign: 'right', fontWeight: 800, padding: '6px 4px', fontFamily: 'var(--font-numbers)', color: colorScheme.text }}>
+                          {formatDisplayNum(side === 'RECEIPT' ? sectionTotals.rec.lts : sectionTotals.disp.lts, 0, 'qty_lts')}
+                        </td>
+                      );
+                    }
+                    if (col.key === 'qty_kg') {
+                      return (
+                        <td key={`tf_${col.key}`} style={{ textAlign: 'right', fontWeight: 800, padding: '6px 8px', fontFamily: 'var(--font-numbers)', color: colorScheme.text, background: '#f1f5f9' }}>
+                          {formatDisplayNum(side === 'RECEIPT' ? sectionTotals.rec.kg : sectionTotals.disp.kg, 2, 'qty_kg')}
+                        </td>
+                      );
+                    }
+                    if (col.key === 'kg_fat') {
+                      return (
+                        <td key={`tf_${col.key}`} style={{ textAlign: 'right', fontWeight: 800, padding: '6px 8px', fontFamily: 'var(--font-numbers)', color: colorScheme.text, background: '#f1f5f9' }}>
+                          {formatDisplayNum(side === 'RECEIPT' ? sectionTotals.rec.fat : sectionTotals.disp.fat, 3, 'kg_fat')}
+                        </td>
+                      );
+                    }
+                    if (col.key === 'kg_snf') {
+                      return (
+                        <td key={`tf_${col.key}`} style={{ textAlign: 'right', fontWeight: 800, padding: '6px 8px', fontFamily: 'var(--font-numbers)', color: colorScheme.text, background: '#f1f5f9' }}>
+                          {formatDisplayNum(side === 'RECEIPT' ? sectionTotals.rec.snf : sectionTotals.disp.snf, 3, 'kg_snf')}
+                        </td>
+                      );
+                    }
+                    return (
+                      <td key={`tf_${col.key}`} style={{ textAlign: 'right', padding: '6px 4px' }}>—</td>
+                    );
+                  })}
                   <td style={{ background: '#f8fafc' }} />
                 </tr>
               </tfoot>
@@ -2055,112 +2319,253 @@ export default function STGEntryForm({
             </div>
           </div>
 
-          {/* Select Statement: Checkbox Selector for viewing one or more statements */}
+          {/* Select Statement Dropdown with Checkbox Multi-Select inside */}
           <div
             style={{
-              marginTop: 16,
-              paddingTop: 14,
+              marginTop: 14,
+              paddingTop: 12,
               borderTop: '1px solid #e2e8f0',
               display: 'flex',
-              flexDirection: 'column',
-              gap: 10,
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              flexWrap: 'wrap',
+              gap: 12,
             }}
           >
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-                <span style={{ fontWeight: 800, fontSize: '0.86rem', color: '#0369a1', display: 'flex', alignItems: 'center', gap: 6 }}>
-                  <span>📋</span> Select Statement:
-                </span>
-                <span style={{ fontSize: '0.74rem', color: '#64748b' }}>
-                  (Check one or more statements to view &amp; edit)
-                </span>
-                <span
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+              <div style={{ position: 'relative' }} ref={statementDropdownRef}>
+                <button
+                  type="button"
+                  onClick={() => setIsStatementDropdownOpen(prev => !prev)}
                   style={{
-                    background: '#e0f2fe',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: 8,
+                    padding: '6px 14px',
+                    borderRadius: 6,
+                    border: isStatementDropdownOpen ? '1.5px solid #0284c7' : '1px solid #7dd3fc',
+                    background: '#f0f9ff',
                     color: '#0369a1',
-                    padding: '2px 8px',
-                    borderRadius: 12,
-                    fontSize: '0.74rem',
-                    fontWeight: 800,
+                    fontWeight: 700,
+                    fontSize: '0.82rem',
+                    cursor: 'pointer',
+                    boxShadow: '0 1px 2px rgba(0,0,0,0.05)',
+                    transition: 'all 0.15s ease',
                   }}
+                  title="Click to select one or more statements to view"
                 >
-                  {selectedStatementKeys.length} of {availableStatements.length} selected
-                </span>
+                  <span style={{ fontSize: '0.9rem' }}>📋</span>
+                  <span>Select Statement:</span>
+                  <span
+                    style={{
+                      background: '#0284c7',
+                      color: '#ffffff',
+                      padding: '1px 8px',
+                      borderRadius: 10,
+                      fontSize: '0.72rem',
+                      fontWeight: 800,
+                    }}
+                  >
+                    {selectedStatementKeys.length === availableStatements.length && availableStatements.length > 0
+                      ? 'All Selected'
+                      : selectedStatementKeys.length === 0
+                      ? 'None Selected'
+                      : `${selectedStatementKeys.length} of ${availableStatements.length} selected`}
+                  </span>
+                  <span style={{ fontSize: '0.7rem', color: '#0284c7', marginLeft: 2 }}>
+                    {isStatementDropdownOpen ? '▲' : '▼'}
+                  </span>
+                </button>
+
+                {/* Floating Dropdown Panel */}
+                {isStatementDropdownOpen && (
+                  <div
+                    style={{
+                      position: 'absolute',
+                      top: 'calc(100% + 6px)',
+                      left: 0,
+                      zIndex: 50,
+                      minWidth: 320,
+                      maxWidth: 420,
+                      background: '#ffffff',
+                      border: '1px solid #cbd5e1',
+                      borderRadius: 8,
+                      boxShadow: '0 10px 25px -5px rgba(0, 0, 0, 0.15), 0 8px 10px -6px rgba(0, 0, 0, 0.1)',
+                      padding: 12,
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: 8,
+                    }}
+                  >
+                    {/* Header with Quick Actions */}
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingBottom: 8, borderBottom: '1px solid #f1f5f9' }}>
+                      <span style={{ fontSize: '0.78rem', fontWeight: 800, color: '#334155' }}>
+                        Choose Statements to View ({selectedStatementKeys.length}/{availableStatements.length})
+                      </span>
+                      <div style={{ display: 'flex', gap: 6 }}>
+                        <button
+                          type="button"
+                          onClick={handleSelectAllStatements}
+                          style={{
+                            padding: '2px 8px',
+                            fontSize: '0.72rem',
+                            fontWeight: 700,
+                            borderRadius: 4,
+                            border: '1px solid #bae6fd',
+                            background: '#f0f9ff',
+                            color: '#0284c7',
+                            cursor: 'pointer',
+                          }}
+                        >
+                          Select All
+                        </button>
+                        <button
+                          type="button"
+                          onClick={handleDeselectAllStatements}
+                          style={{
+                            padding: '2px 8px',
+                            fontSize: '0.72rem',
+                            fontWeight: 700,
+                            borderRadius: 4,
+                            border: '1px solid #e2e8f0',
+                            background: '#f8fafc',
+                            color: '#64748b',
+                            cursor: 'pointer',
+                          }}
+                        >
+                          Clear
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Scrollable Checkbox List */}
+                    <div style={{ maxHeight: 280, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 4, paddingRight: 4 }}>
+                      {availableStatements.map(stmt => {
+                        const isChecked = selectedStatementKeys.includes(stmt.key);
+                        const rowCount = (blocks[stmt.key]?.rows || []).length;
+                        return (
+                          <label
+                            key={`stmt_chk_${stmt.key}`}
+                            style={{
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'space-between',
+                              padding: '6px 10px',
+                              borderRadius: 6,
+                              background: isChecked ? '#f0f9ff' : '#ffffff',
+                              border: isChecked ? '1.5px solid #0284c7' : '1px solid #e2e8f0',
+                              cursor: 'pointer',
+                              userSelect: 'none',
+                              transition: 'all 0.15s ease',
+                            }}
+                          >
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                              <input
+                                type="checkbox"
+                                checked={isChecked}
+                                onChange={() => handleToggleStatement(stmt.key)}
+                                style={{ cursor: 'pointer', accentColor: '#0284c7', width: 15, height: 15 }}
+                              />
+                              <span style={{ fontSize: '0.82rem', fontWeight: isChecked ? 700 : 500, color: isChecked ? '#0369a1' : '#334155' }}>
+                                {cleanStatementLabel(stmt.label || stmt.key)}
+                              </span>
+                              {stmt.variant && (
+                                <span style={{ fontSize: '0.7rem', color: '#64748b' }}>
+                                  ({stmt.variant})
+                                </span>
+                              )}
+                            </div>
+                            <span
+                              style={{
+                                fontSize: '0.68rem',
+                                padding: '1px 6px',
+                                borderRadius: 10,
+                                background: isChecked ? '#0284c7' : '#f1f5f9',
+                                color: isChecked ? '#ffffff' : '#64748b',
+                                fontWeight: 800,
+                              }}
+                              title={`${rowCount} particulars rows`}
+                            >
+                              {rowCount}
+                            </span>
+                          </label>
+                        );
+                      })}
+                    </div>
+
+                    {/* Done button */}
+                    <div style={{ paddingTop: 8, borderTop: '1px solid #f1f5f9', display: 'flex', justifyContent: 'flex-end' }}>
+                      <button
+                        type="button"
+                        onClick={() => setIsStatementDropdownOpen(false)}
+                        className="btn btn-primary btn-xs"
+                        style={{ padding: '3px 12px', fontSize: '0.74rem' }}
+                      >
+                        Done
+                      </button>
+                    </div>
+                  </div>
+                )}
               </div>
 
-              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                <button
-                  type="button"
-                  onClick={handleSelectAllStatements}
-                  className="btn btn-secondary btn-xs"
-                  style={{ fontSize: '0.72rem', padding: '2px 8px' }}
-                >
-                  Select All
-                </button>
-                <button
-                  type="button"
-                  onClick={handleDeselectAllStatements}
-                  className="btn btn-secondary btn-xs"
-                  style={{ fontSize: '0.72rem', padding: '2px 8px' }}
-                >
-                  Deselect All
-                </button>
+              {/* Badges showing currently selected statements */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                {displayedStatements.map(s => (
+                  <span
+                    key={`disp_badge_${s.key}`}
+                    style={{
+                      background: '#f0f9ff',
+                      border: '1px solid #bae6fd',
+                      color: '#0369a1',
+                      fontSize: '0.72rem',
+                      fontWeight: 700,
+                      padding: '2px 8px',
+                      borderRadius: 4,
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: 4,
+                    }}
+                  >
+                    <span>{cleanStatementLabel(s.label || s.key)}</span>
+                    <button
+                      type="button"
+                      onClick={() => handleToggleStatement(s.key)}
+                      style={{
+                        background: 'transparent',
+                        border: 'none',
+                        color: '#0284c7',
+                        cursor: 'pointer',
+                        padding: 0,
+                        fontSize: '0.7rem',
+                        fontWeight: 800,
+                        lineHeight: 1,
+                      }}
+                      title="Remove from view"
+                    >
+                      ✕
+                    </button>
+                  </span>
+                ))}
               </div>
             </div>
 
-            {/* Checkbox Items - flexWrap wraps naturally without overflow */}
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
-              {availableStatements.map(stmt => {
-                const isChecked = selectedStatementKeys.includes(stmt.key);
-                const rowCount = (blocks[stmt.key]?.rows || []).length;
-                return (
-                  <label
-                    key={`stmt_chk_${stmt.key}`}
-                    style={{
-                      display: 'inline-flex',
-                      alignItems: 'center',
-                      gap: 6,
-                      padding: '5px 12px',
-                      borderRadius: 6,
-                      border: isChecked ? '1.5px solid #0284c7' : '1px solid #cbd5e1',
-                      background: isChecked ? '#f0f9ff' : '#ffffff',
-                      color: isChecked ? '#0369a1' : '#475569',
-                      fontWeight: isChecked ? 700 : 500,
-                      fontSize: '0.8rem',
-                      cursor: 'pointer',
-                      userSelect: 'none',
-                      transition: 'all 0.15s ease',
-                      boxShadow: isChecked ? '0 1px 3px rgba(2, 132, 199, 0.15)' : 'none',
-                    }}
-                  >
-                    <input
-                      type="checkbox"
-                      checked={isChecked}
-                      onChange={() => handleToggleStatement(stmt.key)}
-                      style={{ cursor: 'pointer', accentColor: '#0284c7' }}
-                    />
-                    <span>{cleanStatementLabel(stmt.label || stmt.key)}</span>
-                    {stmt.variant && (
-                      <span style={{ fontSize: '0.7rem', color: isChecked ? '#0284c7' : '#94a3b8' }}>
-                        ({stmt.variant})
-                      </span>
-                    )}
-                    <span
-                      style={{
-                        fontSize: '0.68rem',
-                        padding: '1px 6px',
-                        borderRadius: 10,
-                        background: isChecked ? '#0284c7' : '#f1f5f9',
-                        color: isChecked ? '#ffffff' : '#64748b',
-                        fontWeight: 800,
-                      }}
-                      title={`${rowCount} particulars rows`}
-                    >
-                      {rowCount}
-                    </span>
-                  </label>
-                );
-              })}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              <button
+                type="button"
+                onClick={handleSyncFromStock}
+                className="btn btn-secondary btn-xs"
+                style={{
+                  background: '#f0fdf4',
+                  border: '1px solid #86efac',
+                  color: '#15803d',
+                  fontSize: '0.74rem',
+                  fontWeight: 700,
+                  padding: '4px 10px',
+                }}
+                title="Sync Opening Balance and matching rows from Stock Statement Entry"
+              >
+                ⚡ Sync from Stock Statement
+              </button>
             </div>
           </div>
         </div>
@@ -2324,13 +2729,18 @@ export default function STGEntryForm({
                         <tr style={{ background: '#f8fafc', borderBottom: '1px solid var(--border)' }}>
                           <th style={{ width: 44, textAlign: 'center', fontSize: '0.72rem' }}>#</th>
                           <th style={{ width: 220, textAlign: 'left', fontSize: '0.75rem', fontWeight: 800 }}>Label</th>
-                          <th style={{ textAlign: 'right', fontSize: '0.75rem' }}>Qty (Lts)</th>
-                          <th style={{ textAlign: 'right', fontSize: '0.75rem' }}>SP.G</th>
-                          <th style={{ textAlign: 'right', fontSize: '0.75rem', background: '#e0f2fe', color: '#0369a1' }}>Qty (Kg)</th>
-                          <th style={{ textAlign: 'right', fontSize: '0.75rem' }}>Fat%</th>
-                          <th style={{ textAlign: 'right', fontSize: '0.75rem' }}>Snf%</th>
-                          <th style={{ textAlign: 'right', fontSize: '0.75rem', background: '#e0f2fe', color: '#0369a1' }}>Kg.Fat</th>
-                          <th style={{ textAlign: 'right', fontSize: '0.75rem', background: '#e0f2fe', color: '#0369a1' }}>Kg.Snf</th>
+                          {getSectionColumnsForMaster(stmt.key, 'ob').map(col => (
+                            <th
+                              key={`ob_th_${col.key}`}
+                              style={{
+                                textAlign: 'right',
+                                fontSize: '0.75rem',
+                                ...(col.type === 'calculated' ? { background: '#e0f2fe', color: '#0369a1' } : {}),
+                              }}
+                            >
+                              {col.name}
+                            </th>
+                          ))}
                           <th style={{ width: 90, textAlign: 'center', fontSize: '0.72rem' }}>Status</th>
                         </tr>
                       </thead>
@@ -2338,62 +2748,40 @@ export default function STGEntryForm({
                         <tr>
                           <td style={{ textAlign: 'center', fontWeight: 700, color: '#1d4ed8', fontSize: '0.75rem', background: '#eff6ff' }}>OB</td>
                           <td style={{ fontWeight: 800, color: '#1d4ed8', fontSize: '0.82rem', padding: '6px 8px' }}>Opening Balance</td>
-                          <td style={{ padding: '2px 4px' }}>
-                            <input
-                              type="number"
-                              className="form-input"
-                              value={stmtOb.qty_lts ?? ''}
-                              readOnly={!stmtObUnlocked}
-                              placeholder="0"
-                              onChange={e => handleOpeningBalanceChange('qty_lts', e.target.value, stmt.key)}
-                              style={{ height: 28, fontSize: '0.82rem', textAlign: 'right', fontFamily: 'var(--font-numbers)' }}
-                            />
-                          </td>
-                          <td style={{ padding: '2px 4px' }}>
-                            <input
-                              type="number"
-                              step="any"
-                              className="form-input"
-                              value={stmtOb.sp_gr ?? ''}
-                              readOnly={!stmtObUnlocked}
-                              placeholder="0"
-                              onChange={e => handleOpeningBalanceChange('sp_gr', e.target.value, stmt.key)}
-                              style={{ height: 28, fontSize: '0.82rem', textAlign: 'right', fontFamily: 'var(--font-numbers)' }}
-                            />
-                          </td>
-                          <td style={{ textAlign: 'right', padding: '4px 8px', fontWeight: 800, color: '#0369a1', fontFamily: 'var(--font-numbers)', background: '#f0f9ff' }}>
-                            {stmtOb.qty_kg ? formatDisplayNum(stmtOb.qty_kg, 2) : '-'}
-                          </td>
-                          <td style={{ padding: '2px 4px' }}>
-                            <input
-                              type="number"
-                              step="any"
-                              className="form-input"
-                              value={stmtOb.fat_pct ?? ''}
-                              readOnly={!stmtObUnlocked}
-                              placeholder="0"
-                              onChange={e => handleOpeningBalanceChange('fat_pct', e.target.value, stmt.key)}
-                              style={{ height: 28, fontSize: '0.82rem', textAlign: 'right', fontFamily: 'var(--font-numbers)' }}
-                            />
-                          </td>
-                          <td style={{ padding: '2px 4px' }}>
-                            <input
-                              type="number"
-                              step="any"
-                              className="form-input"
-                              value={stmtOb.snf_pct ?? ''}
-                              readOnly={!stmtObUnlocked}
-                              placeholder="0"
-                              onChange={e => handleOpeningBalanceChange('snf_pct', e.target.value, stmt.key)}
-                              style={{ height: 28, fontSize: '0.82rem', textAlign: 'right', fontFamily: 'var(--font-numbers)' }}
-                            />
-                          </td>
-                          <td style={{ textAlign: 'right', padding: '4px 8px', fontWeight: 800, color: '#0369a1', fontFamily: 'var(--font-numbers)', background: '#f0f9ff' }}>
-                            {stmtOb.kg_fat ? formatDisplayNum(stmtOb.kg_fat, 3) : '-'}
-                          </td>
-                          <td style={{ textAlign: 'right', padding: '4px 8px', fontWeight: 800, color: '#0369a1', fontFamily: 'var(--font-numbers)', background: '#f0f9ff' }}>
-                            {stmtOb.kg_snf ? formatDisplayNum(stmtOb.kg_snf, 3) : '-'}
-                          </td>
+                          {getSectionColumnsForMaster(stmt.key, 'ob').map(col => {
+                            if (col.type === 'calculated') {
+                              const val = stmtOb[col.key];
+                              return (
+                                <td
+                                  key={`ob_td_${col.key}`}
+                                  style={{
+                                    textAlign: 'right',
+                                    padding: '4px 8px',
+                                    fontWeight: 800,
+                                    color: '#0369a1',
+                                    fontFamily: 'var(--font-numbers)',
+                                    background: '#f0f9ff',
+                                  }}
+                                >
+                                  {val ? formatDisplayNum(val, col.key === 'qty_kg' ? 2 : 3, col.key) : '-'}
+                                </td>
+                              );
+                            }
+                            return (
+                              <td key={`ob_td_${col.key}`} style={{ padding: '2px 4px' }}>
+                                <input
+                                  type="number"
+                                  step={col.key === 'qty_lts' ? undefined : 'any'}
+                                  className="form-input"
+                                  value={stmtOb[col.key] ?? ''}
+                                  readOnly={!stmtObUnlocked}
+                                  placeholder="0"
+                                  onChange={e => handleOpeningBalanceChange(col.key, e.target.value, stmt.key)}
+                                  style={{ height: 28, fontSize: '0.82rem', textAlign: 'right', fontFamily: 'var(--font-numbers)' }}
+                                />
+                              </td>
+                            );
+                          })}
                           <td style={{ textAlign: 'center', fontSize: '0.72rem', color: stmtObUnlocked ? '#b45309' : '#1d4ed8', fontWeight: 700 }}>
                             {stmtObUnlocked ? 'Unlocked' : 'Locked'}
                           </td>
