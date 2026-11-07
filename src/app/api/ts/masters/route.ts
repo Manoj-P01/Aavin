@@ -43,28 +43,22 @@ export async function GET(req: NextRequest) {
 
       if (!stgErr && Array.isArray(stgRows) && stgRows.length > 0) {
         sourceTable = 'stg_masters';
-        masters = stgRows.map((r: any) => {
-          const meta = typeof r.metadata === 'object' && r.metadata !== null ? r.metadata : {};
-          const normVal = meta.cmpdd_norm || r.cmpdd_norm || '0.5';
-          return {
-            key: r.key,
-            label: r.label,
-            variant: r.variant,
-            description: r.description || '',
-            sort_order: r.sort_order,
-            is_active: r.is_active,
-            cmpdd_norm: normVal,
-            metadata: { ...meta, cmpdd_norm: normVal },
-            ob_columns: cleanseCols(r.ob_columns),
-            receipt_columns: cleanseCols(r.receipt_columns),
-            disposal_columns: cleanseCols(r.disposal_columns),
-            recon_columns: cleanseCols(r.recon_columns),
-            ob_rows: r.ob_rows || [],
-            receipt_rows: r.receipt_rows || [],
-            disposal_rows: r.disposal_rows || [],
-            reconciliation_rows: r.reconciliation_rows || [],
-          };
-        });
+        masters = stgRows.map((r: any) => ({
+          key: r.key,
+          label: r.label,
+          variant: r.variant,
+          description: r.description || '',
+          sort_order: r.sort_order,
+          is_active: r.is_active,
+          ob_columns: cleanseCols(r.ob_columns),
+          receipt_columns: cleanseCols(r.receipt_columns),
+          disposal_columns: cleanseCols(r.disposal_columns),
+          recon_columns: cleanseCols(r.recon_columns),
+          ob_rows: r.ob_rows || [],
+          receipt_rows: r.receipt_rows || [],
+          disposal_rows: r.disposal_rows || [],
+          reconciliation_rows: r.reconciliation_rows || [],
+        }));
       } else if (stgErr) {
         console.warn('stg_masters table read error (falling back to prep_chart_configs):', stgErr.message || stgErr);
       }
@@ -83,19 +77,22 @@ export async function GET(req: NextRequest) {
 
         if (!cfgErr && res && Array.isArray(res.config_json) && res.config_json.length > 0) {
           sourceTable = 'prep_chart_configs';
-          masters = res.config_json.map((m: any) => {
-            const meta = typeof m.metadata === 'object' && m.metadata !== null ? m.metadata : {};
-            const normVal = meta.cmpdd_norm || m.cmpdd_norm || '0.5';
-            return {
-              ...m,
-              cmpdd_norm: normVal,
-              metadata: { ...meta, cmpdd_norm: normVal },
-              ob_columns: cleanseCols(m.ob_columns),
-              receipt_columns: cleanseCols(m.receipt_columns),
-              disposal_columns: cleanseCols(m.disposal_columns),
-              recon_columns: cleanseCols(m.recon_columns),
-            };
-          });
+          masters = res.config_json.map((m: any) => ({
+            key: m.key,
+            label: m.label,
+            variant: m.variant,
+            description: m.description || '',
+            sort_order: m.sort_order,
+            is_active: m.is_active,
+            ob_columns: cleanseCols(m.ob_columns),
+            receipt_columns: cleanseCols(m.receipt_columns),
+            disposal_columns: cleanseCols(m.disposal_columns),
+            recon_columns: cleanseCols(m.recon_columns),
+            ob_rows: m.ob_rows || [],
+            receipt_rows: m.receipt_rows || [],
+            disposal_rows: m.disposal_rows || [],
+            reconciliation_rows: m.reconciliation_rows || [],
+          }));
         }
       } catch (e) {
         console.warn('prep_chart_configs read exception:', e);
@@ -172,33 +169,25 @@ export async function POST(req: NextRequest) {
       }
 
       if (mastersList.length > 0) {
-        const rowsToUpsert = mastersList.map((m: any, idx: number) => {
-          const meta = {
-            ...(typeof m.metadata === 'object' && m.metadata !== null ? m.metadata : {}),
-            cmpdd_norm: m.cmpdd_norm !== undefined && m.cmpdd_norm !== null && m.cmpdd_norm !== ''
-              ? String(m.cmpdd_norm)
-              : (m.metadata?.cmpdd_norm || '0.5'),
-          };
-          return {
-            key: m.key,
-            label: m.label || m.variant || 'Untitled Statement',
-            variant: m.variant || m.key || 'Statement',
-            description: m.description || '',
-            metadata: meta,
-            sort_order: typeof m.sort_order === 'number' ? m.sort_order : idx + 1,
-            is_active: m.is_active !== undefined ? !!m.is_active : true,
-            ob_columns: cleanseCols(m.ob_columns),
-            receipt_columns: cleanseCols(m.receipt_columns),
-            disposal_columns: cleanseCols(m.disposal_columns),
-            recon_columns: cleanseCols(m.recon_columns),
-            ob_rows: m.ob_rows || [],
-            receipt_rows: m.receipt_rows || [],
-            disposal_rows: m.disposal_rows || [],
-            reconciliation_rows: m.reconciliation_rows || [],
-            updated_by: actorUsername,
-            updated_at: new Date().toISOString(),
-          };
-        });
+        // Only include columns that strictly exist in stg_masters table schema
+        const rowsToUpsert = mastersList.map((m: any, idx: number) => ({
+          key: m.key,
+          label: m.label || m.variant || 'Untitled Statement',
+          variant: m.variant || m.key || 'Statement',
+          description: m.description || '',
+          sort_order: typeof m.sort_order === 'number' ? m.sort_order : idx + 1,
+          is_active: m.is_active !== undefined ? !!m.is_active : true,
+          ob_columns: cleanseCols(m.ob_columns),
+          receipt_columns: cleanseCols(m.receipt_columns),
+          disposal_columns: cleanseCols(m.disposal_columns),
+          recon_columns: cleanseCols(m.recon_columns),
+          ob_rows: m.ob_rows || [],
+          receipt_rows: m.receipt_rows || [],
+          disposal_rows: m.disposal_rows || [],
+          reconciliation_rows: m.reconciliation_rows || [],
+          updated_by: actorUsername,
+          updated_at: new Date().toISOString(),
+        }));
 
         const { error: upsertErr } = await supabase
           .from('stg_masters')
@@ -222,24 +211,23 @@ export async function POST(req: NextRequest) {
 
     // 2. Secondary Sync: Keep prep_chart_configs updated as resilient sync / fallback
     try {
-      const cleansedMasters = mastersList.map((m: any) => {
-        const meta = {
-          ...(typeof m.metadata === 'object' && m.metadata !== null ? m.metadata : {}),
-          cmpdd_norm: m.cmpdd_norm !== undefined && m.cmpdd_norm !== null && m.cmpdd_norm !== ''
-            ? String(m.cmpdd_norm)
-            : (m.metadata?.cmpdd_norm || '0.5'),
-        };
-        return {
-          ...m,
-          cmpdd_norm: meta.cmpdd_norm,
-          metadata: meta,
-          ob_columns: cleanseCols(m.ob_columns),
-          receipt_columns: cleanseCols(m.receipt_columns),
-          disposal_columns: cleanseCols(m.disposal_columns),
-          recon_columns: cleanseCols(m.recon_columns),
-          custom_columns: cleanseCols(m.receipt_columns || m.custom_columns),
-        };
-      });
+      const cleansedMasters = mastersList.map((m: any, idx: number) => ({
+        key: m.key,
+        label: m.label || m.variant || 'Untitled Statement',
+        variant: m.variant || m.key || 'Statement',
+        description: m.description || '',
+        sort_order: typeof m.sort_order === 'number' ? m.sort_order : idx + 1,
+        is_active: m.is_active !== undefined ? !!m.is_active : true,
+        ob_columns: cleanseCols(m.ob_columns),
+        receipt_columns: cleanseCols(m.receipt_columns),
+        disposal_columns: cleanseCols(m.disposal_columns),
+        recon_columns: cleanseCols(m.recon_columns),
+        custom_columns: cleanseCols(m.receipt_columns || m.custom_columns),
+        ob_rows: m.ob_rows || [],
+        receipt_rows: m.receipt_rows || [],
+        disposal_rows: m.disposal_rows || [],
+        reconciliation_rows: m.reconciliation_rows || [],
+      }));
 
       const { error: cfgErr } = await supabase.from('prep_chart_configs').upsert({
         config_key: 'stg_masters',
