@@ -75,44 +75,86 @@ export const evaluateReconCellFormula = (
   // Cross-references
   expr = expr.replace(/\bRECEIPTS?\.([a-z_0-9]+)\b/gi, (_, key) => {
     const k = key.toLowerCase();
-    if (k === 'lts' || k === 'qty_lts') return String(contextTotals.rec?.lts || 0);
-    if (k === 'kg' || k === 'qty_kg') return String(contextTotals.rec?.kg || 0);
-    if (k === 'fat' || k === 'kg_fat') return String(contextTotals.rec?.fat || 0);
-    if (k === 'snf' || k === 'kg_snf') return String(contextTotals.rec?.snf || 0);
-    return '0';
+    const val = contextTotals.rec?.[k] !== undefined
+      ? contextTotals.rec[k]
+      : (k === 'lts' || k === 'qty_lts' ? contextTotals.rec?.lts
+        : k === 'kg' || k === 'qty_kg' ? contextTotals.rec?.kg
+        : k === 'fat' || k === 'kg_fat' ? contextTotals.rec?.fat
+        : k === 'snf' || k === 'kg_snf' ? contextTotals.rec?.snf
+        : 0);
+    return String(val ?? 0);
   });
 
   expr = expr.replace(/\bDISPOSALS?\.([a-z_0-9]+)\b/gi, (_, key) => {
     const k = key.toLowerCase();
-    if (k === 'lts' || k === 'qty_lts') return String(contextTotals.disp?.lts || 0);
-    if (k === 'kg' || k === 'qty_kg') return String(contextTotals.disp?.kg || 0);
-    if (k === 'fat' || k === 'kg_fat') return String(contextTotals.disp?.fat || 0);
-    if (k === 'snf' || k === 'kg_snf') return String(contextTotals.disp?.snf || 0);
-    return '0';
+    const val = contextTotals.disp?.[k] !== undefined
+      ? contextTotals.disp[k]
+      : (k === 'lts' || k === 'qty_lts' ? contextTotals.disp?.lts
+        : k === 'kg' || k === 'qty_kg' ? contextTotals.disp?.kg
+        : k === 'fat' || k === 'kg_fat' ? contextTotals.disp?.fat
+        : k === 'snf' || k === 'kg_snf' ? contextTotals.disp?.snf
+        : 0);
+    return String(val ?? 0);
   });
 
   expr = expr.replace(/\bOB\.([a-z_0-9]+)\b/gi, (_, key) => {
     const k = key.toLowerCase();
-    if (k === 'lts' || k === 'qty_lts') return String(contextTotals.ob?.lts || 0);
-    if (k === 'kg' || k === 'qty_kg') return String(contextTotals.ob?.kg || 0);
-    if (k === 'fat' || k === 'kg_fat') return String(contextTotals.ob?.fat || 0);
-    if (k === 'snf' || k === 'kg_snf') return String(contextTotals.ob?.snf || 0);
-    if (k === 'fat_pct') return String(contextTotals.ob?.fat_pct || 0);
-    if (k === 'snf_pct') return String(contextTotals.ob?.snf_pct || 0);
-    if (k === 'sp_gr') return String(contextTotals.ob?.sp_gr || 0);
-    return '0';
+    const val = contextTotals.ob?.[k] !== undefined
+      ? contextTotals.ob[k]
+      : (k === 'lts' || k === 'qty_lts' ? contextTotals.ob?.lts
+        : k === 'kg' || k === 'qty_kg' ? contextTotals.ob?.kg
+        : k === 'fat' || k === 'kg_fat' ? contextTotals.ob?.fat
+        : k === 'snf' || k === 'kg_snf' ? contextTotals.ob?.snf
+        : 0);
+    return String(val ?? 0);
   });
 
   expr = expr.replace(/\bCB\.([a-z_0-9]+)\b/gi, (_, key) => {
     const k = key.toLowerCase();
-    if (k === 'lts' || k === 'qty_lts') return String(contextTotals.cb?.lts || 0);
-    if (k === 'kg' || k === 'qty_kg') return String(contextTotals.cb?.kg || 0);
-    if (k === 'fat' || k === 'kg_fat') return String(contextTotals.cb?.fat || 0);
-    if (k === 'snf' || k === 'kg_snf') return String(contextTotals.cb?.snf || 0);
-    if (k === 'fat_pct') return String(contextTotals.cb?.fat_pct || 0);
-    if (k === 'snf_pct') return String(contextTotals.cb?.snf_pct || 0);
-    if (k === 'sp_gr') return String(contextTotals.cb?.sp_gr || 0);
-    return '0';
+    const val = contextTotals.cb?.[k] !== undefined
+      ? contextTotals.cb[k]
+      : (k === 'lts' || k === 'qty_lts' ? contextTotals.cb?.lts
+        : k === 'kg' || k === 'qty_kg' ? contextTotals.cb?.kg
+        : k === 'fat' || k === 'kg_fat' ? contextTotals.cb?.fat
+        : k === 'snf' || k === 'kg_snf' ? contextTotals.cb?.snf
+        : 0);
+    return String(val ?? 0);
+  });
+
+  expr = expr.replace(/\bGRAND_REC(?:EIPTS?)?\.([a-z_0-9]+)\b/gi, (_, key) => {
+    const k = key.toLowerCase();
+    const val = contextTotals.grandRec?.[k] !== undefined
+      ? contextTotals.grandRec[k]
+      : (k === 'lts' || k === 'qty_lts' ? contextTotals.grandRec?.lts
+        : k === 'kg' || k === 'qty_kg' ? contextTotals.grandRec?.kg
+        : k === 'fat' || k === 'kg_fat' ? contextTotals.grandRec?.fat
+        : k === 'snf' || k === 'kg_snf' ? contextTotals.grandRec?.snf
+        : 0);
+    return String(val ?? 0);
+  });
+
+  expr = expr.replace(/\bGRAND_DISP(?:OSALS?)?\.([a-z_0-9]+)\b/gi, (_, key) => {
+    const k = key.toLowerCase();
+    const val = contextTotals.grandDisp?.[k] !== undefined
+      ? contextTotals.grandDisp[k]
+      : (k === 'lts' || k === 'qty_lts' ? contextTotals.grandDisp?.lts
+        : k === 'kg' || k === 'qty_kg' ? contextTotals.grandDisp?.kg
+        : k === 'fat' || k === 'kg_fat' ? contextTotals.grandDisp?.fat
+        : k === 'snf' || k === 'kg_snf' ? contextTotals.grandDisp?.snf
+        : 0);
+    return String(val ?? 0);
+  });
+
+  expr = expr.replace(/\bLOSS_GAIN\.([a-z_0-9]+)\b/gi, (_, key) => {
+    const k = key.toLowerCase();
+    const val = contextTotals.lossGain?.[k] !== undefined
+      ? contextTotals.lossGain[k]
+      : (k === 'lts' || k === 'qty_lts' ? contextTotals.lossGain?.lts
+        : k === 'kg' || k === 'qty_kg' ? contextTotals.lossGain?.kg
+        : k === 'fat' || k === 'kg_fat' ? contextTotals.lossGain?.fat
+        : k === 'snf' || k === 'kg_snf' ? contextTotals.lossGain?.snf
+        : 0);
+    return String(val ?? 0);
   });
 
   // Norm references: NORM or CMPDD_NORM
@@ -190,15 +232,57 @@ export interface STGBlockState {
   physical_count?: STGPhysicalCount;
 }
 
-// Safe formula computation
-export const computeCalculatedField = (colKey: string, vals: Record<string, any>): number => {
+// Safe formula evaluator for row calculations
+export const evaluateRowFormula = (formula: string, vals: Record<string, any>): number => {
+  if (!formula || typeof formula !== 'string') return 0;
+  let expr = formula.trim();
+  if (expr.startsWith('=')) expr = expr.substring(1).trim();
+  if (expr.startsWith('+')) expr = expr.substring(1).trim();
+  if (!expr) return 0;
+
+  // Substitute column identifiers with their numeric value from vals
+  expr = expr.replace(/[a-zA-Z_][a-zA-Z0-9_]*/g, (match) => {
+    const k = match.toLowerCase();
+    // Allow Math functions
+    if (['math', 'min', 'max', 'round', 'abs', 'floor', 'ceil'].includes(k)) {
+      return match;
+    }
+    const rawVal = vals[match] ?? vals[k] ?? vals[match.toUpperCase()];
+    const num = rawVal !== undefined && rawVal !== null && rawVal !== '' ? parseFloat(String(rawVal)) : NaN;
+
+    if (k === 'sp_gr' && (isNaN(num) || num === 0)) {
+      return '1'; // Default SP.GR to 1 if not specified
+    }
+
+    return isNaN(num) ? '0' : String(num);
+  });
+
+  try {
+    if (!/^[0-9+\-*\/().\s,eEMath.minmaxroundabsfloorceil]+$/.test(expr)) return 0;
+    const result = new Function('return (' + expr + ');')();
+    return typeof result === 'number' && !isNaN(result) && isFinite(result) ? result : 0;
+  } catch {
+    return 0;
+  }
+};
+
+// Safe formula computation for any dynamic column key
+export const computeCalculatedField = (
+  colKey: string,
+  vals: Record<string, any>,
+  customFormula?: string
+): number => {
+  if (customFormula) {
+    const res = evaluateRowFormula(customFormula, vals);
+    if (!isNaN(res)) return res;
+  }
   const qtyLit = parseFloat(vals.qty_lts) || 0;
   const spGr = parseFloat(vals.sp_gr) || 0;
   const qtyKg = vals.qty_kg !== undefined && vals.qty_kg !== '' ? parseFloat(vals.qty_kg) : (spGr > 0 ? qtyLit * spGr : qtyLit);
   const fatPct = parseFloat(vals.fat_pct) || 0;
   const snfPct = parseFloat(vals.snf_pct) || 0;
 
-  if (colKey === 'qty_kg') return qtyKg;
+  if (colKey === 'qty_kg') return spGr > 0 ? qtyLit * spGr : qtyLit;
   if (colKey === 'kg_fat') return (qtyKg * fatPct) / 100;
   if (colKey === 'kg_snf') return (qtyKg * snfPct) / 100;
   return 0;
@@ -900,30 +984,65 @@ export default function STGEntryForm({
       else if (section === 'receipt') rawCols = master.receipt_columns || master.columns;
       else if (section === 'disposal') rawCols = master.disposal_columns || master.columns;
     }
+    // If this master doesn't have columns configured, check other masters from DB
+    if (!Array.isArray(rawCols) || rawCols.length === 0) {
+      const fallbackMaster = masters.find(m => {
+        const c = section === 'ob' ? m.ob_columns : section === 'receipt' ? m.receipt_columns : m.disposal_columns;
+        return Array.isArray(c) && c.length > 0;
+      }) || masters.find(m => Array.isArray(m.columns) && m.columns.length > 0);
+      if (fallbackMaster) {
+        if (section === 'ob') rawCols = fallbackMaster.ob_columns || fallbackMaster.columns;
+        else if (section === 'receipt') rawCols = fallbackMaster.receipt_columns || fallbackMaster.columns;
+        else if (section === 'disposal') rawCols = fallbackMaster.disposal_columns || fallbackMaster.columns;
+      }
+    }
+
     if (Array.isArray(rawCols) && rawCols.length > 0) {
       const filtered = rawCols.filter((c: any) => {
         const k = (c.key || '').toLowerCase();
-        return k && !['variant', 'label', 'particular', 'name', 'item_name', 'id', '#'].includes(k);
+        return k && !['variant', 'label', 'particular', 'name', 'item_name', 'id', '#'].includes(k) && c.is_active !== false;
       });
       if (filtered.length > 0) {
-        return filtered.map((c: any) => ({
+        const sorted = [...filtered].sort((a: any, b: any) => (a.sort_order ?? 0) - (b.sort_order ?? 0));
+        return sorted.map((c: any) => ({
           key: c.key,
           name: c.name || c.label || c.key,
-          type: c.type || (['qty_kg', 'kg_fat', 'kg_snf'].includes(c.key) ? 'calculated' : 'number'),
+          type: c.type || (c.formula ? 'calculated' : (['qty_kg', 'kg_fat', 'kg_snf'].includes(c.key) ? 'calculated' : 'number')),
+          formula: c.formula,
           decimals: c.decimals,
+          sort_order: c.sort_order,
+          unit: c.unit,
+          is_active: c.is_active,
         }));
       }
     }
     return [
-      { key: 'qty_lts', name: 'Qty (Lts)', type: 'number', decimals: 0 },
-      { key: 'sp_gr', name: 'SP.G', type: 'number', decimals: 4 },
-      { key: 'qty_kg', name: 'Qty (Kg)', type: 'calculated', decimals: 2 },
-      { key: 'fat_pct', name: 'Fat%', type: 'number', decimals: 2 },
-      { key: 'snf_pct', name: 'Snf%', type: 'number', decimals: 2 },
-      { key: 'kg_fat', name: 'Kg.Fat', type: 'calculated', decimals: 3 },
-      { key: 'kg_snf', name: 'Kg.Snf', type: 'calculated', decimals: 3 },
+      { key: 'qty_lts', name: 'Qty (Lts)', type: 'number', decimals: 0, sort_order: 1 },
+      { key: 'sp_gr', name: 'SP.G', type: 'number', decimals: 4, sort_order: 2 },
+      { key: 'qty_kg', name: 'Qty (Kg)', type: 'calculated', formula: 'qty_lts * sp_gr', decimals: 2, sort_order: 3 },
+      { key: 'fat_pct', name: 'Fat%', type: 'number', decimals: 2, sort_order: 4 },
+      { key: 'snf_pct', name: 'Snf%', type: 'number', decimals: 2, sort_order: 5 },
+      { key: 'kg_fat', name: 'Kg.Fat', type: 'calculated', formula: 'qty_kg * fat_pct / 100', decimals: 3, sort_order: 6 },
+      { key: 'kg_snf', name: 'Kg.Snf', type: 'calculated', formula: 'qty_kg * snf_pct / 100', decimals: 3, sort_order: 7 },
     ];
   }, [masters]);
+
+  // Helper to dynamically recompute all calculated columns for a section based on configured formulas
+  const recalculateSectionValues = useCallback((
+    vals: Record<string, any>,
+    sectionCols: Array<{ key: string; type?: string; formula?: string; decimals?: number }>
+  ): Record<string, any> => {
+    const updated = { ...vals };
+    for (let pass = 0; pass < 3; pass++) {
+      for (const col of sectionCols) {
+        if (col.type === 'calculated' || col.formula || ['qty_kg', 'kg_fat', 'kg_snf'].includes(col.key)) {
+          const computed = computeCalculatedField(col.key, updated, col.formula);
+          updated[col.key] = computed !== 0 ? String(computed) : '';
+        }
+      }
+    }
+    return updated;
+  }, []);
 
   // Sync stock values from Stock Statement and Mapping Rules into blocks
   const syncStockValuesToBlocks = useCallback((
@@ -1024,16 +1143,10 @@ export default function STGEntryForm({
         }
       }
 
-      // Recalculate OB calculated fields if Qty Lts is set
+      // Recalculate OB calculated fields dynamically based on master columns
       if (currentBlockState.opening_balance?.qty_lts) {
-        const qtyLit = parseFloat(currentBlockState.opening_balance.qty_lts) || 0;
-        const spGr = parseFloat(currentBlockState.opening_balance.sp_gr || '0') || 0;
-        const qtyKg = spGr > 0 ? qtyLit * spGr : qtyLit;
-        currentBlockState.opening_balance.qty_kg = qtyKg !== 0 ? String(qtyKg) : '';
-        const fatPct = parseFloat(currentBlockState.opening_balance.fat_pct || '0') || 0;
-        const snfPct = parseFloat(currentBlockState.opening_balance.snf_pct || '0') || 0;
-        currentBlockState.opening_balance.kg_fat = (qtyKg * fatPct) / 100 !== 0 ? String((qtyKg * fatPct) / 100) : '';
-        currentBlockState.opening_balance.kg_snf = (qtyKg * snfPct) / 100 !== 0 ? String((qtyKg * snfPct) / 100) : '';
+        const obCols = getSectionColumnsForMaster(stmtKey, 'ob');
+        currentBlockState.opening_balance = recalculateSectionValues(currentBlockState.opening_balance, obCols);
       }
 
       // 2. Physical Count / Closing Balance Sync
@@ -1068,16 +1181,10 @@ export default function STGEntryForm({
         }
       }
 
-      // Recalculate CB calculated fields if Qty Lts is set
+      // Recalculate CB calculated fields dynamically based on master columns
       if (currentBlockState.physical_count?.qty_lts) {
-        const qtyLit = parseFloat(currentBlockState.physical_count.qty_lts) || 0;
-        const spGr = parseFloat(currentBlockState.physical_count.sp_gr || '0') || 0;
-        const qtyKg = spGr > 0 ? qtyLit * spGr : qtyLit;
-        currentBlockState.physical_count.qty_kg = qtyKg !== 0 ? String(qtyKg) : '';
-        const fatPct = parseFloat(currentBlockState.physical_count.fat_pct || '0') || 0;
-        const snfPct = parseFloat(currentBlockState.physical_count.snf_pct || '0') || 0;
-        currentBlockState.physical_count.kg_fat = (qtyKg * fatPct) / 100 !== 0 ? String((qtyKg * fatPct) / 100) : '';
-        currentBlockState.physical_count.kg_snf = (qtyKg * snfPct) / 100 !== 0 ? String((qtyKg * snfPct) / 100) : '';
+        const cbCols = getSectionColumnsForMaster(stmtKey, 'disposal');
+        currentBlockState.physical_count = recalculateSectionValues(currentBlockState.physical_count, cbCols);
       }
 
       // 3. Particulars Rows Sync (Receipts & Disposals)
@@ -1139,14 +1246,11 @@ export default function STGEntryForm({
           }
         }
 
-        // Recompute calculated fields for row if qty_lts changed
+        // Recompute calculated fields dynamically based on master columns
         if (rowCopy.values.qty_lts !== undefined && rowCopy.values.qty_lts !== '') {
-          const qtyKg = computeCalculatedField('qty_kg', rowCopy.values);
-          rowCopy.values.qty_kg = qtyKg !== 0 ? String(qtyKg) : '';
-          const kgFat = computeCalculatedField('kg_fat', rowCopy.values);
-          rowCopy.values.kg_fat = kgFat !== 0 ? String(kgFat) : '';
-          const kgSnf = computeCalculatedField('kg_snf', rowCopy.values);
-          rowCopy.values.kg_snf = kgSnf !== 0 ? String(kgSnf) : '';
+          const sec = (rowCopy.side === 'RECEIPT' || rowCopy.row_type === 'RECEIPT') ? 'receipt' : 'disposal';
+          const secCols = getSectionColumnsForMaster(stmtKey, sec);
+          rowCopy.values = recalculateSectionValues(rowCopy.values, secCols);
         }
 
         return rowCopy;
@@ -1707,14 +1811,9 @@ export default function STGEntryForm({
       }
       r.values[colKey] = val;
 
-      if (['qty_lts', 'sp_gr', 'fat_pct', 'snf_pct'].includes(colKey)) {
-        const qtyKg = computeCalculatedField('qty_kg', r.values);
-        r.values.qty_kg = qtyKg !== 0 ? String(qtyKg) : '';
-        const kgFat = computeCalculatedField('kg_fat', r.values);
-        r.values.kg_fat = kgFat !== 0 ? String(kgFat) : '';
-        const kgSnf = computeCalculatedField('kg_snf', r.values);
-        r.values.kg_snf = kgSnf !== 0 ? String(kgSnf) : '';
-      }
+      const sec: 'receipt' | 'disposal' = (r.side === 'RECEIPT' || r.row_type === 'RECEIPT') ? 'receipt' : 'disposal';
+      const secCols = getSectionColumnsForMaster(key, sec);
+      r.values = recalculateSectionValues(r.values, secCols);
 
       rows[globalIdx] = r;
       block.rows = rows;
@@ -1729,18 +1828,10 @@ export default function STGEntryForm({
     setBlocks(prev => {
       const copy = { ...prev };
       const block = { ...copy[key] };
-      const ob = { ...(block.opening_balance || {}), [field]: val };
+      let ob = { ...(block.opening_balance || {}), [field]: val };
 
-      if (['qty_lts', 'sp_gr', 'fat_pct', 'snf_pct'].includes(field)) {
-        const qtyLit = parseFloat(ob.qty_lts || '0') || 0;
-        const spGr = parseFloat(ob.sp_gr || '0') || 0;
-        const qtyKg = spGr > 0 ? qtyLit * spGr : qtyLit;
-        ob.qty_kg = qtyKg !== 0 ? String(qtyKg) : '';
-        const fatPct = parseFloat(ob.fat_pct || '0') || 0;
-        const snfPct = parseFloat(ob.snf_pct || '0') || 0;
-        ob.kg_fat = (qtyKg * fatPct) / 100 !== 0 ? String((qtyKg * fatPct) / 100) : '';
-        ob.kg_snf = (qtyKg * snfPct) / 100 !== 0 ? String((qtyKg * snfPct) / 100) : '';
-      }
+      const obCols = getSectionColumnsForMaster(key, 'ob');
+      ob = recalculateSectionValues(ob, obCols);
 
       block.opening_balance = ob;
       copy[key] = block;
@@ -1754,18 +1845,10 @@ export default function STGEntryForm({
     setBlocks(prev => {
       const copy = { ...prev };
       const block = { ...copy[key] };
-      const cb = { ...(block.physical_count || {}), [field]: val };
+      let cb = { ...(block.physical_count || {}), [field]: val };
 
-      if (['qty_lts', 'sp_gr', 'fat_pct', 'snf_pct'].includes(field)) {
-        const qtyLit = parseFloat(cb.qty_lts || '0') || 0;
-        const spGr = parseFloat(cb.sp_gr || '0') || 0;
-        const qtyKg = spGr > 0 ? qtyLit * spGr : qtyLit;
-        cb.qty_kg = qtyKg !== 0 ? String(qtyKg) : '';
-        const fatPct = parseFloat(cb.fat_pct || '0') || 0;
-        const snfPct = parseFloat(cb.snf_pct || '0') || 0;
-        cb.kg_fat = (qtyKg * fatPct) / 100 !== 0 ? String((qtyKg * fatPct) / 100) : '';
-        cb.kg_snf = (qtyKg * snfPct) / 100 !== 0 ? String((qtyKg * snfPct) / 100) : '';
-      }
+      const cbCols = getSectionColumnsForMaster(key, 'disposal');
+      cb = recalculateSectionValues(cb, cbCols);
 
       block.physical_count = cb;
       copy[key] = block;
@@ -1817,50 +1900,79 @@ export default function STGEntryForm({
     });
   };
 
-  // Reconciled Totals & Balances computed dynamically per statement
+  // Reconciled Totals & Balances computed dynamically per statement for all configured columns
   const getStatementTotals = useCallback((stmtKey: string) => {
     const block = blocks[stmtKey] || { rows: [], opening_balance: {}, physical_count: {}, cmpdd_norm: '' };
     const ob = block.opening_balance || {};
     const cb = block.physical_count || {};
-
-    const obLts = parseFloat(ob.qty_lts || '0') || 0;
-    const obKg = parseFloat(ob.qty_kg || '0') || 0;
-    const obFat = parseFloat(ob.kg_fat || '0') || 0;
-    const obSnf = parseFloat(ob.kg_snf || '0') || 0;
-
-    const cbLts = parseFloat(cb.qty_lts || '0') || 0;
-    const cbKg = parseFloat(cb.qty_kg || '0') || 0;
-    const cbFat = parseFloat(cb.kg_fat || '0') || 0;
-    const cbSnf = parseFloat(cb.kg_snf || '0') || 0;
-
     const rows = block.rows || [];
     const recRows = rows.filter(r => r.row_type === 'RECEIPT' || r.side === 'RECEIPT');
     const dispRows = rows.filter(r => r.row_type === 'DISPOSAL' || r.side === 'DISPOSAL');
 
-    const recLts = recRows.reduce((a, r) => a + (parseFloat(r.values?.qty_lts) || 0), 0);
-    const recKg = recRows.reduce((a, r) => a + (parseFloat(r.values?.qty_kg) || 0), 0);
-    const recFat = recRows.reduce((a, r) => a + (parseFloat(r.values?.kg_fat) || 0), 0);
-    const recSnf = recRows.reduce((a, r) => a + (parseFloat(r.values?.kg_snf) || 0), 0);
+    // Dynamically retrieve configured columns from DB schema for all sections
+    const obCols = getSectionColumnsForMaster(stmtKey, 'ob');
+    const recCols = getSectionColumnsForMaster(stmtKey, 'receipt');
+    const dispCols = getSectionColumnsForMaster(stmtKey, 'disposal');
 
-    const dispLts = dispRows.reduce((a, r) => a + (parseFloat(r.values?.qty_lts) || 0), 0);
-    const dispKg = dispRows.reduce((a, r) => a + (parseFloat(r.values?.qty_kg) || 0), 0);
-    const dispFat = dispRows.reduce((a, r) => a + (parseFloat(r.values?.kg_fat) || 0), 0);
-    const dispSnf = dispRows.reduce((a, r) => a + (parseFloat(r.values?.kg_snf) || 0), 0);
+    const allKeys = Array.from(new Set([
+      ...obCols.map(c => c.key),
+      ...recCols.map(c => c.key),
+      ...dispCols.map(c => c.key),
+      'qty_lts', 'qty_kg', 'kg_fat', 'kg_snf', 'fat_pct', 'snf_pct', 'sp_gr'
+    ]));
 
-    const grandRecLts = obLts + recLts;
-    const grandRecKg = obKg + recKg;
-    const grandRecFat = obFat + recFat;
-    const grandRecSnf = obSnf + recSnf;
+    const obMap: Record<string, number> = {};
+    const cbMap: Record<string, number> = {};
+    const recMap: Record<string, number> = {};
+    const dispMap: Record<string, number> = {};
+    const grandRecMap: Record<string, number> = {};
+    const grandDispMap: Record<string, number> = {};
+    const lossGainMap: Record<string, number> = {};
 
-    const grandDispLts = dispLts + cbLts;
-    const grandDispKg = dispKg + cbKg;
-    const grandDispFat = dispFat + cbFat;
-    const grandDispSnf = dispSnf + cbSnf;
+    allKeys.forEach(k => {
+      obMap[k] = parseFloat(String(ob[k] || '0')) || 0;
+      cbMap[k] = parseFloat(String(cb[k] || '0')) || 0;
+      recMap[k] = recRows.reduce((sum, r) => sum + (parseFloat(String(r.values?.[k] || '0')) || 0), 0);
+      dispMap[k] = dispRows.reduce((sum, r) => sum + (parseFloat(String(r.values?.[k] || '0')) || 0), 0);
+      grandRecMap[k] = (obMap[k] || 0) + (recMap[k] || 0);
+      grandDispMap[k] = (dispMap[k] || 0) + (cbMap[k] || 0);
+      lossGainMap[k] = (cbMap[k] || 0) - ((grandRecMap[k] || 0) - (dispMap[k] || 0));
+    });
 
-    const lossGainLts = cbLts - (grandRecLts - dispLts);
-    const lossGainKg = cbKg - (grandRecKg - dispKg);
-    const lossGainFat = cbFat - (grandRecFat - dispFat);
-    const lossGainSnf = cbSnf - (grandRecSnf - dispSnf);
+    const obLts = obMap['qty_lts'] || 0;
+    const obKg = obMap['qty_kg'] || 0;
+    const obFat = obMap['kg_fat'] || 0;
+    const obSnf = obMap['kg_snf'] || 0;
+
+    const cbLts = cbMap['qty_lts'] || 0;
+    const cbKg = cbMap['qty_kg'] || 0;
+    const cbFat = cbMap['kg_fat'] || 0;
+    const cbSnf = cbMap['kg_snf'] || 0;
+
+    const recLts = recMap['qty_lts'] || 0;
+    const recKg = recMap['qty_kg'] || 0;
+    const recFat = recMap['kg_fat'] || 0;
+    const recSnf = recMap['kg_snf'] || 0;
+
+    const dispLts = dispMap['qty_lts'] || 0;
+    const dispKg = dispMap['qty_kg'] || 0;
+    const dispFat = dispMap['kg_fat'] || 0;
+    const dispSnf = dispMap['kg_snf'] || 0;
+
+    const grandRecLts = grandRecMap['qty_lts'] || 0;
+    const grandRecKg = grandRecMap['qty_kg'] || 0;
+    const grandRecFat = grandRecMap['kg_fat'] || 0;
+    const grandRecSnf = grandRecMap['kg_snf'] || 0;
+
+    const grandDispLts = grandDispMap['qty_lts'] || 0;
+    const grandDispKg = grandDispMap['qty_kg'] || 0;
+    const grandDispFat = grandDispMap['kg_fat'] || 0;
+    const grandDispSnf = grandDispMap['kg_snf'] || 0;
+
+    const lossGainLts = lossGainMap['qty_lts'] || 0;
+    const lossGainKg = lossGainMap['qty_kg'] || 0;
+    const lossGainFat = lossGainMap['kg_fat'] || 0;
+    const lossGainSnf = lossGainMap['kg_snf'] || 0;
 
     const lossGainFatPct = grandRecFat !== 0 ? (lossGainFat / grandRecFat) * 100 : 0;
     const lossGainSnfPct = grandRecSnf !== 0 ? (lossGainSnf / grandRecSnf) * 100 : 0;
@@ -1870,17 +1982,17 @@ export default function STGEntryForm({
       : 0.5;
 
     return {
-      ob: { lts: obLts, kg: obKg, fat: obFat, snf: obSnf },
-      cb: { lts: cbLts, kg: cbKg, fat: cbFat, snf: cbSnf },
-      rec: { lts: recLts, kg: recKg, fat: recFat, snf: recSnf },
-      disp: { lts: dispLts, kg: dispKg, fat: dispFat, snf: dispSnf },
-      grandRec: { lts: grandRecLts, kg: grandRecKg, fat: grandRecFat, snf: grandRecSnf },
-      grandDisp: { lts: grandDispLts, kg: grandDispKg, fat: grandDispFat, snf: grandDispSnf },
-      lossGain: { lts: lossGainLts, kg: lossGainKg, fat: lossGainFat, snf: lossGainSnf },
+      ob: { ...obMap, lts: obLts, kg: obKg, fat: obFat, snf: obSnf } as Record<string, number> & { lts: number; kg: number; fat: number; snf: number },
+      cb: { ...cbMap, lts: cbLts, kg: cbKg, fat: cbFat, snf: cbSnf } as Record<string, number> & { lts: number; kg: number; fat: number; snf: number },
+      rec: { ...recMap, lts: recLts, kg: recKg, fat: recFat, snf: recSnf } as Record<string, number> & { lts: number; kg: number; fat: number; snf: number },
+      disp: { ...dispMap, lts: dispLts, kg: dispKg, fat: dispFat, snf: dispSnf } as Record<string, number> & { lts: number; kg: number; fat: number; snf: number },
+      grandRec: { ...grandRecMap, lts: grandRecLts, kg: grandRecKg, fat: grandRecFat, snf: grandRecSnf } as Record<string, number> & { lts: number; kg: number; fat: number; snf: number },
+      grandDisp: { ...grandDispMap, lts: grandDispLts, kg: grandDispKg, fat: grandDispFat, snf: grandDispSnf } as Record<string, number> & { lts: number; kg: number; fat: number; snf: number },
+      lossGain: { ...lossGainMap, lts: lossGainLts, kg: lossGainKg, fat: lossGainFat, snf: lossGainSnf } as Record<string, number> & { lts: number; kg: number; fat: number; snf: number },
       lossGainPct: { fat: lossGainFatPct, snf: lossGainSnfPct },
       norm,
     };
-  }, [blocks]);
+  }, [blocks, getSectionColumnsForMaster]);
 
   const totals = useMemo(() => {
     return getStatementTotals(activeBlock);
@@ -2192,7 +2304,7 @@ export default function STGEntryForm({
                               }}
                             >
                               {row.values[col.key]
-                                ? formatDisplayNum(row.values[col.key], col.key === 'qty_kg' ? 2 : 3, col.key)
+                                ? formatDisplayNum(row.values[col.key], col.decimals, col.key)
                                 : '-'}
                             </td>
                           );
@@ -2248,31 +2360,24 @@ export default function STGEntryForm({
                     Total {title}
                   </td>
                   {sectionCols.map(col => {
-                    if (col.key === 'qty_lts') {
+                    const isTotalable = col.type === 'number' || col.type === 'calculated';
+                    const isRateOrPct = ['sp_gr', 'fat_pct', 'snf_pct'].includes(col.key);
+                    const totalVal = side === 'RECEIPT' ? (sectionTotals.rec as Record<string, number>)[col.key] : (sectionTotals.disp as Record<string, number>)[col.key];
+
+                    if (isTotalable && !isRateOrPct) {
                       return (
-                        <td key={`tf_${col.key}`} style={{ textAlign: 'right', fontWeight: 800, padding: '6px 4px', fontFamily: 'var(--font-numbers)', color: colorScheme.text }}>
-                          {formatDisplayNum(side === 'RECEIPT' ? sectionTotals.rec.lts : sectionTotals.disp.lts, 0, 'qty_lts')}
-                        </td>
-                      );
-                    }
-                    if (col.key === 'qty_kg') {
-                      return (
-                        <td key={`tf_${col.key}`} style={{ textAlign: 'right', fontWeight: 800, padding: '6px 8px', fontFamily: 'var(--font-numbers)', color: colorScheme.text, background: '#f1f5f9' }}>
-                          {formatDisplayNum(side === 'RECEIPT' ? sectionTotals.rec.kg : sectionTotals.disp.kg, 2, 'qty_kg')}
-                        </td>
-                      );
-                    }
-                    if (col.key === 'kg_fat') {
-                      return (
-                        <td key={`tf_${col.key}`} style={{ textAlign: 'right', fontWeight: 800, padding: '6px 8px', fontFamily: 'var(--font-numbers)', color: colorScheme.text, background: '#f1f5f9' }}>
-                          {formatDisplayNum(side === 'RECEIPT' ? sectionTotals.rec.fat : sectionTotals.disp.fat, 3, 'kg_fat')}
-                        </td>
-                      );
-                    }
-                    if (col.key === 'kg_snf') {
-                      return (
-                        <td key={`tf_${col.key}`} style={{ textAlign: 'right', fontWeight: 800, padding: '6px 8px', fontFamily: 'var(--font-numbers)', color: colorScheme.text, background: '#f1f5f9' }}>
-                          {formatDisplayNum(side === 'RECEIPT' ? sectionTotals.rec.snf : sectionTotals.disp.snf, 3, 'kg_snf')}
+                        <td
+                          key={`tf_${col.key}`}
+                          style={{
+                            textAlign: 'right',
+                            fontWeight: 800,
+                            padding: '6px 8px',
+                            fontFamily: 'var(--font-numbers)',
+                            color: colorScheme.text,
+                            background: col.type === 'calculated' ? '#f1f5f9' : undefined,
+                          }}
+                        >
+                          {formatDisplayNum(totalVal, col.decimals, col.key)}
                         </td>
                       );
                     }
@@ -2992,7 +3097,7 @@ export default function STGEntryForm({
                                     background: '#f0f9ff',
                                   }}
                                 >
-                                  {val ? formatDisplayNum(val, col.key === 'qty_kg' ? 2 : 3, col.key) : '-'}
+                                  {val ? formatDisplayNum(val, col.decimals, col.key) : '-'}
                                 </td>
                               );
                             }
@@ -3258,7 +3363,7 @@ export default function STGEntryForm({
                                   const computedVal = isFormula
                                     ? evaluateReconCellFormula(rawVal, col.key, rIdx, stmtRecon.rows, stmtTotals)
                                     : (col.type === 'calculated'
-                                      ? computeCalculatedField(col.key, row.values || {})
+                                      ? computeCalculatedField(col.key, row.values || {}, col.formula)
                                       : rawVal);
 
                                   let displayStr = '—';
