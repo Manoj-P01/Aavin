@@ -3087,7 +3087,6 @@ function STGDefaultFormulationsContent() {
                   value={newMasterColsSource}
                   onChange={e => setNewMasterColsSource(e.target.value)}
                 >
-                  <option value="default">Standard TS Columns (Qty Lts, SP.G, Qty Kg, Fat%, Snf%, Kg Fat, Kg Snf)</option>
                   {masters.map(m => (
                     <option key={`col_src_${m.key}`} value={m.key}>
                       Copy from: {cleanStatementLabel(m.label || m.name || m.key)}

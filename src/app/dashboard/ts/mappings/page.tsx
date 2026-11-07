@@ -38,7 +38,13 @@ export default function STGStatementMappingPage() {
 
   const [receiptRows, setReceiptRows] = useState<Array<{ full_name: string; short_name: string }>>([]);
   const [disposalRows, setDisposalRows] = useState<Array<{ full_name: string; short_name: string }>>([]);
-  const [stgStatements, setStgStatements] = useState<Array<{ key: string; label: string }>>([]);
+  const [stgStatements, setStgStatements] = useState<Array<{
+    key: string;
+    label: string;
+    ob_rows?: any[];
+    receipt_rows?: any[];
+    disposal_rows?: any[];
+  }>>([]);
 
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -48,6 +54,9 @@ export default function STGStatementMappingPage() {
   // STG Form modal state
   const [isEditing, setIsEditing] = useState<boolean>(false);
   const [editingId, setEditingId] = useState<string | null>(null);
+
+  const [isCustomParticular, setIsCustomParticular] = useState(false);
+  const [isCustomStgItem, setIsCustomStgItem] = useState(false);
 
   const [formSourceStage, setFormSourceStage] = useState<'STAGE_1' | 'STAGE_2'>('STAGE_1');
   const [formStockProductKey, setFormStockProductKey] = useState<string>('delite_prep');
@@ -109,7 +118,7 @@ export default function STGStatementMappingPage() {
           }
         }
 
-        // 3. Load STG statement masters strictly from DB prep_chart_configs table
+        // 3. Load STG statement masters strictly from DB table
         const stgConfigRes = await fetch('/api/ts/masters');
         if (stgConfigRes.ok) {
           const json = await stgConfigRes.json();
@@ -118,6 +127,9 @@ export default function STGStatementMappingPage() {
               setStgStatements(json.masters.map((m: any) => ({
                 key: m.key,
                 label: m.label || m.name || m.key,
+                ob_rows: m.ob_rows || [],
+                receipt_rows: m.receipt_rows || [],
+                disposal_rows: m.disposal_rows || [],
               })));
             }
           }
@@ -197,6 +209,46 @@ export default function STGStatementMappingPage() {
     return Array.from(set).filter(v => v !== '');
   }, [formStockProductKey, rawPrepMasters, prepTemplates]);
 
+  // Dynamically compute available stock particulars for selected stock section
+  const availableStockParticulars = useMemo(() => {
+    if (formStockSection === 'OB') {
+      return ['Opening Balance'];
+    }
+    const sourceList = formStockSection === 'RECEIPT' ? receiptRows : disposalRows;
+    let labels = sourceList.map(r => (r.full_name || r.short_name || '').trim()).filter(Boolean);
+    if (labels.length === 0) {
+      labels = formStockSection === 'RECEIPT'
+        ? ['Receipts', 'Re-Processing', 'Butter Milk', 'Prepac RTN', 'Lab RTN/Lab Sample', 'WF', 'SMP', 'Rinse Milk']
+        : ['Separation', 'DLT Milk', 'FC.Milk', 'STD.Milk', 'TM Milk(Curd)', 'Cup Curd', 'Khoa', 'Lab Sample', 'To Metro', 'WF', 'SMP'];
+    }
+    return Array.from(new Set(labels));
+  }, [formStockSection, receiptRows, disposalRows]);
+
+  // Dynamically compute available STG particulars for selected STG statement and section
+  const availableStgItemNames = useMemo(() => {
+    const stmt = stgStatements.find(s => s.key === formStgBlockKey);
+    if (!stmt) return [];
+    if (formStgSection === 'OB') {
+      const obRows = (stmt as any).ob_rows || [];
+      const list = obRows.map((r: any) => r.variant || r.item_name || r.name).filter(Boolean);
+      return list.length > 0 ? list : ['Opening Balance', 'OB'];
+    }
+    if (formStgSection === 'RECEIPT') {
+      const recs = (stmt as any).receipt_rows || [];
+      const list = recs.map((r: any) => r.variant || r.item_name || r.name).filter(Boolean);
+      return list.length > 0 ? list : ['Receipt'];
+    }
+    if (formStgSection === 'DISPOSAL') {
+      const disps = (stmt as any).disposal_rows || [];
+      const list = disps.map((r: any) => r.variant || r.item_name || r.name).filter(Boolean);
+      return list.length > 0 ? list : ['Disposal'];
+    }
+    if (formStgSection === 'CB') {
+      return ['Closing Balance', 'CB', 'Physical Count'];
+    }
+    return [];
+  }, [formStgBlockKey, formStgSection, stgStatements]);
+
   // Save STG Mappings to API
   const saveStgToApi = async (listToSave: MappingRule[], alertSuccess: boolean = false) => {
     setSaving(true);
@@ -242,16 +294,23 @@ export default function STGStatementMappingPage() {
   const openNewStgForm = () => {
     setEditingId(null);
     setError('');
+    setIsCustomParticular(false);
+    setIsCustomStgItem(false);
 
     const isStage1 = formSourceStage === 'STAGE_1';
     const initialKey = isStage1 ? (prepMasters[0]?.key || '') : (stockProducts[0]?.key || '');
 
     setFormStockProductKey(initialKey);
     setFormStockSection('RECEIPT');
-    setFormStockParticular(isStage1 ? (availablePrepVariants[0] || '') : (receiptRows[0]?.full_name || 'Receipts:'));
+
+    const defaultParticular = isStage1
+      ? (availablePrepVariants[0] || '')
+      : (receiptRows[0]?.full_name || receiptRows[0]?.short_name || 'Receipts');
+    setFormStockParticular(defaultParticular);
     setFormSourceField('qty_lts');
 
-    setFormStgBlockKey(stgStatements[0]?.key || '');
+    const targetKey = stgStatements[0]?.key || 'WM';
+    setFormStgBlockKey(targetKey);
     setFormStgSection('RECEIPT');
     setFormStgItemName('Receipt');
     setFormStgTargetField('qty_lts');
@@ -271,6 +330,9 @@ export default function STGStatementMappingPage() {
     setFormStgSection(rule.stgSection);
     setFormStgItemName(rule.stgItemName);
     setFormStgTargetField(rule.stgTargetField);
+
+    setIsCustomParticular(false);
+    setIsCustomStgItem(false);
     setIsEditing(true);
   };
 
@@ -583,9 +645,16 @@ export default function STGStatementMappingPage() {
                             onChange={e => {
                               const sec = e.target.value as 'OB' | 'RECEIPT' | 'DISPOSAL';
                               setFormStockSection(sec);
-                              if (sec === 'OB') setFormStockParticular('Opening Balance');
-                              else if (sec === 'RECEIPT') setFormStockParticular('Receipts:');
-                              else setFormStockParticular('To DLT Milk');
+                              setIsCustomParticular(false);
+                              if (sec === 'OB') {
+                                setFormStockParticular('Opening Balance');
+                              } else if (sec === 'RECEIPT') {
+                                const first = receiptRows[0]?.full_name || receiptRows[0]?.short_name || 'Receipts';
+                                setFormStockParticular(first);
+                              } else {
+                                const first = disposalRows[0]?.full_name || disposalRows[0]?.short_name || 'Separation';
+                                setFormStockParticular(first);
+                              }
                             }}
                             style={{ width: '100%' }}
                           >
@@ -596,16 +665,80 @@ export default function STGStatementMappingPage() {
                         </div>
 
                         <div>
-                          <label className="form-label" style={{ fontSize: '0.75rem', marginBottom: 4 }}>Stock Particular Label</label>
-                          <input
-                            type="text"
-                            className="form-input"
-                            value={formStockParticular}
-                            onChange={e => setFormStockParticular(e.target.value)}
-                            placeholder="e.g. Opening Balance, From MDU-SSM, To DLT Milk..."
-                            style={{ width: '100%' }}
-                            required
-                          />
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+                            <label className="form-label" style={{ fontSize: '0.75rem', margin: 0 }}>
+                              Stock Particular Label *
+                            </label>
+                            <button
+                              type="button"
+                              onClick={() => setIsCustomParticular(!isCustomParticular)}
+                              style={{
+                                background: 'none',
+                                border: 'none',
+                                color: '#0284c7',
+                                fontSize: '0.72rem',
+                                fontWeight: 700,
+                                cursor: 'pointer',
+                                padding: 0,
+                              }}
+                            >
+                              {isCustomParticular ? '📋 Select from Dropdown' : '✏️ Custom Label'}
+                            </button>
+                          </div>
+
+                          {!isCustomParticular && availableStockParticulars.length > 0 ? (
+                            <select
+                              className="form-select"
+                              value={formStockParticular}
+                              onChange={e => {
+                                if (e.target.value === '__custom__') {
+                                  setIsCustomParticular(true);
+                                } else {
+                                  setFormStockParticular(e.target.value);
+                                }
+                              }}
+                              style={{ width: '100%', fontWeight: 700, color: '#0369a1' }}
+                              required
+                            >
+                              <option value="" disabled>-- Select Stock Particular ({formStockSection}) --</option>
+                              {availableStockParticulars.map(p => (
+                                <option key={p} value={p}>{p}</option>
+                              ))}
+                              {formStockParticular && !availableStockParticulars.includes(formStockParticular) && (
+                                <option value={formStockParticular}>{formStockParticular} (Custom / Saved)</option>
+                              )}
+                              <option value="__custom__">➕ Type Custom Particular...</option>
+                            </select>
+                          ) : (
+                            <div style={{ display: 'flex', gap: 6 }}>
+                              <input
+                                type="text"
+                                className="form-input"
+                                value={formStockParticular}
+                                onChange={e => setFormStockParticular(e.target.value)}
+                                placeholder={`e.g. ${formStockSection === 'OB' ? 'Opening Balance' : formStockSection === 'RECEIPT' ? 'From MDU-SSM' : 'To DLT Milk'}...`}
+                                style={{ width: '100%', fontWeight: 700 }}
+                                required
+                                autoFocus={isCustomParticular}
+                              />
+                              {availableStockParticulars.length > 0 && (
+                                <button
+                                  type="button"
+                                  className="btn btn-secondary btn-xs"
+                                  onClick={() => {
+                                    setIsCustomParticular(false);
+                                    if (!availableStockParticulars.includes(formStockParticular)) {
+                                      setFormStockParticular(availableStockParticulars[0] || 'Receipts');
+                                    }
+                                  }}
+                                  title="Return to predefined dropdown"
+                                  style={{ fontSize: '0.72rem', whiteSpace: 'nowrap' }}
+                                >
+                                  Dropdown
+                                </button>
+                              )}
+                            </div>
+                          )}
                         </div>
                       </>
                     )}
@@ -640,6 +773,7 @@ export default function STGStatementMappingPage() {
                         onChange={e => {
                           const sec = e.target.value as 'OB' | 'RECEIPT' | 'DISPOSAL' | 'CB';
                           setFormStgSection(sec);
+                          setIsCustomStgItem(false);
                           if (sec === 'OB') setFormStgItemName('OB');
                           else if (sec === 'CB') setFormStgItemName('CB');
                           else if (sec === 'RECEIPT') setFormStgItemName('Receipt');
@@ -656,16 +790,80 @@ export default function STGStatementMappingPage() {
 
                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
                       <div>
-                        <label className="form-label" style={{ fontSize: '0.75rem', marginBottom: 4 }}>STG Item / Particular</label>
-                        <input
-                          type="text"
-                          className="form-input"
-                          value={formStgItemName}
-                          onChange={e => setFormStgItemName(e.target.value)}
-                          placeholder="e.g. OB, Receipt, To DLT..."
-                          style={{ width: '100%' }}
-                          required
-                        />
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+                          <label className="form-label" style={{ fontSize: '0.75rem', margin: 0 }}>STG Item / Particular *</label>
+                          {availableStgItemNames.length > 0 && (
+                            <button
+                              type="button"
+                              onClick={() => setIsCustomStgItem(!isCustomStgItem)}
+                              style={{
+                                background: 'none',
+                                border: 'none',
+                                color: '#10b981',
+                                fontSize: '0.72rem',
+                                fontWeight: 700,
+                                cursor: 'pointer',
+                                padding: 0,
+                              }}
+                            >
+                              {isCustomStgItem ? '📋 Dropdown' : '✏️ Custom'}
+                            </button>
+                          )}
+                        </div>
+
+                        {!isCustomStgItem && availableStgItemNames.length > 0 ? (
+                          <select
+                            className="form-select"
+                            value={formStgItemName}
+                            onChange={e => {
+                              if (e.target.value === '__custom__') {
+                                setIsCustomStgItem(true);
+                              } else {
+                                setFormStgItemName(e.target.value);
+                              }
+                            }}
+                            style={{ width: '100%', fontWeight: 700, color: '#047857' }}
+                            required
+                          >
+                            <option value="" disabled>-- Select STG Particular --</option>
+                            {availableStgItemNames.map((item: string) => (
+                              <option key={item} value={item}>{item}</option>
+                            ))}
+                            {formStgItemName && !availableStgItemNames.includes(formStgItemName) && (
+                              <option value={formStgItemName}>{formStgItemName} (Custom / Saved)</option>
+                            )}
+                            <option value="__custom__">➕ Type Custom Item...</option>
+                          </select>
+                        ) : (
+                          <div style={{ display: 'flex', gap: 6 }}>
+                            <input
+                              type="text"
+                              className="form-input"
+                              value={formStgItemName}
+                              onChange={e => setFormStgItemName(e.target.value)}
+                              placeholder="e.g. Water Flush, SMP, DLT Milk..."
+                              style={{ width: '100%', fontWeight: 700 }}
+                              required
+                              autoFocus={isCustomStgItem}
+                            />
+                            {availableStgItemNames.length > 0 && (
+                              <button
+                                type="button"
+                                className="btn btn-secondary btn-xs"
+                                onClick={() => {
+                                  setIsCustomStgItem(false);
+                                  if (!availableStgItemNames.includes(formStgItemName)) {
+                                    setFormStgItemName(availableStgItemNames[0]);
+                                  }
+                                }}
+                                title="Return to predefined dropdown"
+                                style={{ fontSize: '0.72rem', whiteSpace: 'nowrap' }}
+                              >
+                                Dropdown
+                              </button>
+                            )}
+                          </div>
+                        )}
                       </div>
 
                       <div>

@@ -223,7 +223,7 @@ export async function GET(req: NextRequest) {
           reconciliation_rows: r.reconciliation_rows || [],
         }));
       }
-    } catch {}
+    } catch { }
 
     // 2. If stg_masters table not present or empty, fallback to prep_chart_configs (config_key = 'stg_masters')
     if (masters.length === 0) {
@@ -299,7 +299,7 @@ export async function POST(req: NextRequest) {
         updated_by: actorUsername,
         updated_at: new Date().toISOString(),
       }, { onConflict: 'config_key' });
-    } catch {}
+    } catch { }
 
     // 3. Also sync to entries table (report_type = 'TS') for backward compatibility
     try {
@@ -308,7 +308,7 @@ export async function POST(req: NextRequest) {
         notes: JSON.stringify(mastersList),
         created_by: actorUsername,
       });
-    } catch {}
+    } catch { }
 
     return NextResponse.json({ success: true, masters: mastersList });
   } catch (err: any) {
@@ -332,7 +332,7 @@ export async function DELETE(req: NextRequest) {
     // 1. Delete from dedicated stg_masters table if present
     try {
       await supabase.from('stg_masters').delete().eq('key', key);
-    } catch {}
+    } catch { }
 
     // 2. Delete from prep_chart_configs
     const { data: res } = await supabase
