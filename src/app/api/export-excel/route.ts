@@ -908,16 +908,30 @@ export async function GET(req: NextRequest) {
       // Fetch statement masters dynamically from database if not embedded in notes
       if (customStatements.length === 0) {
         try {
-          const { data: dbMasters } = await supabase
-            .from('prep_chart_configs')
-            .select('config_json')
-            .eq('config_key', 'stg_masters')
-            .maybeSingle();
-          if (dbMasters && Array.isArray(dbMasters.config_json)) {
-            customStatements = dbMasters.config_json.map((m: any) => ({
+          // 1. Try dedicated stg_masters table
+          const { data: stgTableRows, error: stgTableErr } = await supabase
+            .from('stg_masters')
+            .select('key, label, variant')
+            .order('sort_order', { ascending: true });
+
+          if (!stgTableErr && Array.isArray(stgTableRows) && stgTableRows.length > 0) {
+            customStatements = stgTableRows.map((m: any) => ({
               key: m.key,
-              label: m.label || m.name || m.key,
+              label: m.label || m.variant || m.key,
             }));
+          } else {
+            // 2. Fallback to prep_chart_configs
+            const { data: dbMasters } = await supabase
+              .from('prep_chart_configs')
+              .select('config_json')
+              .eq('config_key', 'stg_masters')
+              .maybeSingle();
+            if (dbMasters && Array.isArray(dbMasters.config_json)) {
+              customStatements = dbMasters.config_json.map((m: any) => ({
+                key: m.key,
+                label: m.label || m.name || m.key,
+              }));
+            }
           }
         } catch (e) {}
       }

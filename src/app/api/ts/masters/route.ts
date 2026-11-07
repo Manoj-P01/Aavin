@@ -192,22 +192,52 @@ export const DEFAULT_STG_MASTERS = [
   ]
 }));
 
-// GET /api/ts/masters - Fetch STG Statement Masters strictly from Supabase DB table prep_chart_configs
+// GET /api/ts/masters - Fetch STG Statement Masters from stg_masters table or prep_chart_configs
 export async function GET(req: NextRequest) {
   try {
     const supabase = getSupabaseServiceClient();
 
     let masters: any[] = [];
-    const { data: res, error } = await supabase
-      .from('prep_chart_configs')
-      .select('config_json')
-      .eq('config_key', 'stg_masters')
-      .maybeSingle();
 
-    if (!error && res && Array.isArray(res.config_json) && res.config_json.length > 0) {
-      masters = res.config_json;
-    } else {
-      masters = DEFAULT_STG_MASTERS;
+    // 1. First try reading from dedicated stg_masters table
+    try {
+      const { data: stgRows, error: stgErr } = await supabase
+        .from('stg_masters')
+        .select('*')
+        .order('sort_order', { ascending: true });
+
+      if (!stgErr && Array.isArray(stgRows) && stgRows.length > 0) {
+        masters = stgRows.map((r: any) => ({
+          key: r.key,
+          label: r.label,
+          variant: r.variant,
+          sort_order: r.sort_order,
+          is_active: r.is_active,
+          ob_columns: r.ob_columns || [],
+          receipt_columns: r.receipt_columns || [],
+          disposal_columns: r.disposal_columns || [],
+          recon_columns: r.recon_columns || [],
+          ob_rows: r.ob_rows || [],
+          receipt_rows: r.receipt_rows || [],
+          disposal_rows: r.disposal_rows || [],
+          reconciliation_rows: r.reconciliation_rows || [],
+        }));
+      }
+    } catch {}
+
+    // 2. If stg_masters table not present or empty, fallback to prep_chart_configs (config_key = 'stg_masters')
+    if (masters.length === 0) {
+      const { data: res, error } = await supabase
+        .from('prep_chart_configs')
+        .select('config_json')
+        .eq('config_key', 'stg_masters')
+        .maybeSingle();
+
+      if (!error && res && Array.isArray(res.config_json) && res.config_json.length > 0) {
+        masters = res.config_json;
+      } else {
+        masters = DEFAULT_STG_MASTERS;
+      }
     }
 
     return NextResponse.json({ success: true, masters });
@@ -217,7 +247,7 @@ export async function GET(req: NextRequest) {
   }
 }
 
-// POST /api/ts/masters - Save STG Statement Masters strictly to Supabase DB table prep_chart_configs
+// POST /api/ts/masters - Save STG Statement Masters to prep_chart_configs and stg_masters
 export async function POST(req: NextRequest) {
   try {
     const authUser = await getAuthUserFromRequest(req);
@@ -241,7 +271,29 @@ export async function POST(req: NextRequest) {
 
     if (upsertErr) throw upsertErr;
 
-    // 2. Also sync to entries table (report_type = 'TS') for backward compatibility
+    // 2. Also sync to dedicated stg_masters table if it exists
+    try {
+      const rowsToUpsert = mastersList.map((m: any, idx: number) => ({
+        key: m.key,
+        label: m.label || m.variant || 'Untitled Statement',
+        variant: m.variant || m.key || 'Statement',
+        sort_order: typeof m.sort_order === 'number' ? m.sort_order : idx + 1,
+        is_active: m.is_active !== undefined ? !!m.is_active : true,
+        ob_columns: m.ob_columns || [],
+        receipt_columns: m.receipt_columns || [],
+        disposal_columns: m.disposal_columns || [],
+        recon_columns: m.recon_columns || [],
+        ob_rows: m.ob_rows || [],
+        receipt_rows: m.receipt_rows || [],
+        disposal_rows: m.disposal_rows || [],
+        reconciliation_rows: m.reconciliation_rows || [],
+        updated_by: actorUsername,
+        updated_at: new Date().toISOString(),
+      }));
+      await supabase.from('stg_masters').upsert(rowsToUpsert, { onConflict: 'key' });
+    } catch {}
+
+    // 3. Also sync to entries table (report_type = 'TS') for backward compatibility
     try {
       await supabase.from('entries').insert({
         report_type: 'TS',
@@ -268,6 +320,13 @@ export async function DELETE(req: NextRequest) {
     if (!key) return NextResponse.json({ error: 'Statement master key required' }, { status: 400 });
 
     const supabase = getSupabaseServiceClient();
+
+    // 1. Delete from dedicated stg_masters table if present
+    try {
+      await supabase.from('stg_masters').delete().eq('key', key);
+    } catch {}
+
+    // 2. Delete from prep_chart_configs
     const { data: res } = await supabase
       .from('prep_chart_configs')
       .select('config_json')
