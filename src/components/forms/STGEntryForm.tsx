@@ -565,25 +565,33 @@ export default function STGEntryForm({
     if (activeBlock && reconciliations[activeBlock]) {
       return reconciliations[activeBlock];
     }
+    const stmtMaster = masters.find(m => m.key === activeBlock);
+    const masterRows = (stmtMaster?.reconciliation_rows && Array.isArray(stmtMaster.reconciliation_rows) && stmtMaster.reconciliation_rows.length > 0)
+      ? stmtMaster.reconciliation_rows
+      : getDefaultReconRows();
     return {
       columns: getDefaultReconColumns(),
-      rows: getDefaultReconRows(),
+      rows: masterRows,
     };
-  }, [activeBlock, reconciliations]);
+  }, [activeBlock, reconciliations, masters]);
 
   const updateActiveRecon = useCallback((updater: (prev: STGReconData) => STGReconData) => {
     if (!activeBlock) return;
     setReconciliations(prev => {
+      const stmtMaster = masters.find(m => m.key === activeBlock);
+      const defaultRows = (stmtMaster?.reconciliation_rows && Array.isArray(stmtMaster.reconciliation_rows) && stmtMaster.reconciliation_rows.length > 0)
+        ? stmtMaster.reconciliation_rows
+        : getDefaultReconRows();
       const current = prev[activeBlock] || {
         columns: getDefaultReconColumns(),
-        rows: getDefaultReconRows(),
+        rows: defaultRows,
       };
       return {
         ...prev,
         [activeBlock]: updater(current),
       };
     });
-  }, [activeBlock]);
+  }, [activeBlock, masters]);
 
   // Reconciliation Handlers
   const handleAddReconRowSubmit = (e: React.FormEvent) => {
@@ -674,16 +682,20 @@ export default function STGEntryForm({
   const handleResetReconTemplate = async () => {
     const confirmed = await confirm({
       title: 'Reset to Standard Reconciliation Template',
-      message: 'This will reset the Stock Balance & Reconciliation Summary rows and formulas to the standard 8-row template matching the sample TS sheet. Continue?',
+      message: 'This will reset the Stock Balance & Reconciliation Summary rows and formulas to the master default template. Continue?',
       confirmText: 'Reset Template',
       type: 'warning',
     });
     if (!confirmed) return;
+    const stmtMaster = masters.find(m => m.key === activeBlock);
+    const defaultRows = (stmtMaster?.reconciliation_rows && Array.isArray(stmtMaster.reconciliation_rows) && stmtMaster.reconciliation_rows.length > 0)
+      ? stmtMaster.reconciliation_rows
+      : getDefaultReconRows();
     updateActiveRecon(() => ({
       columns: getDefaultReconColumns(),
-      rows: getDefaultReconRows(),
+      rows: defaultRows,
     }));
-    await showSuccess('Standard Reconciliation Template loaded successfully!', 'Template Loaded');
+    await showSuccess('Reconciliation Template loaded successfully!', 'Template Loaded');
   };
 
   const handleAddReconColumnSubmit = (e: React.FormEvent) => {

@@ -18,6 +18,15 @@ export interface STGColumnDef {
   is_active?: boolean;
 }
 
+export interface STGReconRow {
+  id: string;
+  label: string;
+  row_type?: string;
+  values: Record<string, any>;
+  is_formula?: boolean;
+  color_hint?: 'green' | 'blue' | 'orange' | 'yellow' | 'purple' | 'dark' | 'default';
+}
+
 export interface STGMasterDef {
   key: string;
   label: string;
@@ -27,12 +36,168 @@ export interface STGMasterDef {
   is_split?: boolean;
   receipt_rows?: any[];
   disposal_rows?: any[];
+  reconciliation_rows?: STGReconRow[];
   default_rows?: any[];
   rows?: any[];
   custom_columns?: STGColumnDef[];
   sort_order?: number;
   is_active?: boolean;
 }
+
+export const getDefaultReconRows = (): STGReconRow[] => [
+  {
+    id: 'recon_row_1',
+    label: 'Total Receipts (+)',
+    row_type: 'TOTAL_RECEIPT',
+    is_formula: true,
+    color_hint: 'green',
+    values: {
+      qty_lts: '=RECEIPTS.lts',
+      lts: '=RECEIPTS.lts',
+      sp_gr: '—',
+      qty_kg: '=RECEIPTS.kg',
+      kg: '=RECEIPTS.kg',
+      fat_pct: '—',
+      snf_pct: '—',
+      kg_fat: '=RECEIPTS.kg_fat',
+      kg_snf: '=RECEIPTS.kg_snf',
+      note: 'Total of all Receipts',
+    },
+  },
+  {
+    id: 'recon_row_2',
+    label: 'Opening Balance (OB)',
+    row_type: 'OB',
+    is_formula: true,
+    color_hint: 'blue',
+    values: {
+      qty_lts: '=OB.lts',
+      lts: '=OB.lts',
+      sp_gr: '=OB.sp_gr',
+      qty_kg: '=OB.kg',
+      kg: '=OB.kg',
+      fat_pct: '=OB.fat_pct',
+      snf_pct: '=OB.snf_pct',
+      kg_fat: '=OB.kg_fat',
+      kg_snf: '=OB.kg_snf',
+      note: 'Beginning Inventory',
+    },
+  },
+  {
+    id: 'recon_row_3',
+    label: 'Grand Total Receipts (=)',
+    row_type: 'GRAND_TOTAL_RECEIPT',
+    is_formula: true,
+    color_hint: 'dark',
+    values: {
+      qty_lts: '=R1+R2',
+      lts: '=R1+R2',
+      sp_gr: '—',
+      qty_kg: '=R1+R2',
+      kg: '=R1+R2',
+      fat_pct: '—',
+      snf_pct: '—',
+      kg_fat: '=R1+R2',
+      kg_snf: '=R1+R2',
+      note: 'Total Receipts + OB',
+    },
+  },
+  {
+    id: 'recon_row_4',
+    label: 'Total Disposals (-)',
+    row_type: 'TOTAL_DISPOSAL',
+    is_formula: true,
+    color_hint: 'orange',
+    values: {
+      qty_lts: '=DISPOSALS.lts',
+      lts: '=DISPOSALS.lts',
+      sp_gr: '—',
+      qty_kg: '=DISPOSALS.kg',
+      kg: '=DISPOSALS.kg',
+      fat_pct: '—',
+      snf_pct: '—',
+      kg_fat: '=DISPOSALS.kg_fat',
+      kg_snf: '=DISPOSALS.kg_snf',
+      note: 'Total of all Disposals',
+    },
+  },
+  {
+    id: 'recon_row_5',
+    label: 'Closing Balance / Physical Count',
+    row_type: 'CB',
+    is_formula: true,
+    color_hint: 'yellow',
+    values: {
+      qty_lts: '=CB.lts',
+      lts: '=CB.lts',
+      sp_gr: '=CB.sp_gr',
+      qty_kg: '=CB.kg',
+      kg: '=CB.kg',
+      fat_pct: '=CB.fat_pct',
+      snf_pct: '=CB.snf_pct',
+      kg_fat: '=CB.kg_fat',
+      kg_snf: '=CB.kg_snf',
+      note: 'Physical stock at end of shift',
+    },
+  },
+  {
+    id: 'recon_row_6',
+    label: 'Grand Total Disposals (=)',
+    row_type: 'GRAND_TOTAL_DISPOSAL',
+    is_formula: true,
+    color_hint: 'dark',
+    values: {
+      qty_lts: '=R4+R5',
+      lts: '=R4+R5',
+      sp_gr: '—',
+      qty_kg: '=R4+R5',
+      kg: '=R4+R5',
+      fat_pct: '—',
+      snf_pct: '—',
+      kg_fat: '=R4+R5',
+      kg_snf: '=R4+R5',
+      note: 'Total Disposals + CB',
+    },
+  },
+  {
+    id: 'recon_row_7',
+    label: 'Operational Loss (-) / Gain (+)',
+    row_type: 'LOSS_GAIN',
+    is_formula: true,
+    color_hint: 'purple',
+    values: {
+      qty_lts: '=R3-R6',
+      lts: '=R3-R6',
+      sp_gr: '—',
+      qty_kg: '=R3-R6',
+      kg: '=R3-R6',
+      fat_pct: '—',
+      snf_pct: '—',
+      kg_fat: '=R3-R6',
+      kg_snf: '=R3-R6',
+      note: 'Grand Total Receipts - Grand Total Disposals',
+    },
+  },
+  {
+    id: 'recon_row_8',
+    label: 'Net Loss / Gain %',
+    row_type: 'LOSS_GAIN_PCT',
+    is_formula: true,
+    color_hint: 'purple',
+    values: {
+      qty_lts: '=(R7/R3)*100',
+      lts: '=(R7/R3)*100',
+      sp_gr: '—',
+      qty_kg: '=(R7/R3)*100',
+      kg: '=(R7/R3)*100',
+      fat_pct: '—',
+      snf_pct: '—',
+      kg_fat: '=(R7/R3)*100',
+      kg_snf: '=(R7/R3)*100',
+      note: 'Operational variance percentage',
+    },
+  },
+];
 
 export interface STGRowData {
   variant: string;
@@ -52,13 +217,14 @@ function STGDefaultFormulationsContent() {
 
   const [activeMasterKey, setActiveMasterKey] = useState<string | null>(null);
   const [rows, setRows] = useState<STGRowData[]>([]);
+  const [reconRows, setReconRows] = useState<STGReconRow[]>([]);
 
   const [loading, setLoading] = useState<boolean>(true);
   const [saving, setSaving] = useState<boolean>(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
-  const [selectedCell, setSelectedCell] = useState<{ rowIndex: number; colKey: string } | null>(null);
-  const [focusedCell, setFocusedCell] = useState<{ rowIndex: number; colKey: string } | null>(null);
+  const [selectedCell, setSelectedCell] = useState<{ rowIndex: number; colKey: string; isRecon?: boolean } | null>(null);
+  const [focusedCell, setFocusedCell] = useState<{ rowIndex: number; colKey: string; isRecon?: boolean } | null>(null);
   const [isColEditing, setIsColEditing] = useState<boolean>(false);
   const [viewDecimals, setViewDecimals] = useState<number | 'auto'>('auto');
 
@@ -226,6 +392,14 @@ function STGDefaultFormulationsContent() {
     }
 
     setRows(loadedRows);
+
+    // Load reconciliation rows for this statement master
+    if (master?.reconciliation_rows && Array.isArray(master.reconciliation_rows) && master.reconciliation_rows.length > 0) {
+      setReconRows(JSON.parse(JSON.stringify(master.reconciliation_rows)));
+    } else {
+      setReconRows(getDefaultReconRows());
+    }
+
     setSelectedCell(null);
     setFocusedCell(null);
   };
@@ -399,6 +573,18 @@ function STGDefaultFormulationsContent() {
     const recRows = initialRows.filter(r => r.row_type === 'RECEIPT' || r.side === 'RECEIPT');
     const dispRows = initialRows.filter(r => r.row_type === 'DISPOSAL' || r.side === 'DISPOSAL');
 
+    let initialReconRows: STGReconRow[] = [];
+    if (newMasterSource !== 'blank') {
+      const srcMaster = masters.find(m => m.key === newMasterSource);
+      if (srcMaster?.reconciliation_rows && Array.isArray(srcMaster.reconciliation_rows) && srcMaster.reconciliation_rows.length > 0) {
+        initialReconRows = JSON.parse(JSON.stringify(srcMaster.reconciliation_rows));
+      } else {
+        initialReconRows = getDefaultReconRows();
+      }
+    } else {
+      initialReconRows = getDefaultReconRows();
+    }
+
     const newMaster: STGMasterDef = {
       key: keyToUse,
       label: cleanLabel,
@@ -407,6 +593,7 @@ function STGDefaultFormulationsContent() {
       sort_order: masters.length + 1,
       receipt_rows: recRows,
       disposal_rows: dispRows,
+      reconciliation_rows: initialReconRows,
       default_rows: initialRows,
       rows: initialRows.map(r => ({ variant: r.variant || r.values.variant || '', values: r.values, row_type: r.row_type, side: r.side })),
       custom_columns: initialCols,
@@ -431,6 +618,7 @@ function STGDefaultFormulationsContent() {
         setIsNewMasterModalOpen(false);
         setActiveMasterKey(keyToUse);
         setRows(initialRows);
+        setReconRows(initialReconRows);
         setColumns(initialCols);
         showToast(`✅ Created new Statement Master "${newMaster.label}" with initial formulation template & configured columns!`);
       } else {
@@ -670,10 +858,77 @@ function STGDefaultFormulationsContent() {
     });
   };
 
+  // Calculation of totals
+  const totalReceipts = useMemo(() => {
+    const totals: Record<string, number> = {};
+    columns.forEach(col => {
+      if (col.type !== 'text') {
+        const sum = receiptRows.reduce((acc, row) => {
+          const globalIdx = rows.findIndex(r => r === row);
+          const computed = computeCell(col, row.values, globalIdx, rows);
+          const num = typeof computed === 'number' ? computed : parseFloat(String(computed || 0));
+          return acc + (isNaN(num) ? 0 : num);
+        }, 0);
+        totals[col.key] = sum;
+      }
+    });
+    return totals;
+  }, [columns, receiptRows, rows]);
+
+  const totalDisposals = useMemo(() => {
+    const totals: Record<string, number> = {};
+    columns.forEach(col => {
+      if (col.type !== 'text') {
+        const sum = disposalRows.reduce((acc, row) => {
+          const globalIdx = rows.findIndex(r => r === row);
+          const computed = computeCell(col, row.values, globalIdx, rows);
+          const num = typeof computed === 'number' ? computed : parseFloat(String(computed || 0));
+          return acc + (isNaN(num) ? 0 : num);
+        }, 0);
+        totals[col.key] = sum;
+      }
+    });
+    return totals;
+  }, [columns, disposalRows, rows]);
+
   const activeCellDetails = useMemo(() => {
     if (!selectedCell || !columns.length) {
       return { address: 'A1', colName: '', isCalculated: false, formulaText: '', value: '-' };
     }
+
+    if (selectedCell.isRecon) {
+      const colIdx = columns.findIndex(c => c.key === selectedCell.colKey);
+      const col = colIdx !== -1 ? columns[colIdx] : { key: selectedCell.colKey, name: selectedCell.colKey, type: 'number' as const, decimals: 2 };
+      const excelColLetter = colIdx !== -1 ? getExcelColName(colIdx) : 'R';
+      const address = `R${selectedCell.rowIndex + 1}.${excelColLetter}`;
+
+      const currentRow = reconRows[selectedCell.rowIndex] || { values: {}, label: '' };
+      let rawVal = currentRow.values?.[selectedCell.colKey];
+      if (rawVal === undefined) {
+        if (selectedCell.colKey === 'qty_lts') rawVal = currentRow.values?.['lts'];
+        else if (selectedCell.colKey === 'lts') rawVal = currentRow.values?.['qty_lts'];
+        else if (selectedCell.colKey === 'qty_kg') rawVal = currentRow.values?.['kg'];
+        else if (selectedCell.colKey === 'kg') rawVal = currentRow.values?.['qty_kg'];
+      }
+
+      let computedVal: any = rawVal ?? '';
+      if (typeof rawVal === 'string' && (rawVal.startsWith('=') || rawVal.startsWith('=+'))) {
+        computedVal = evaluateReconFormula(rawVal, selectedCell.colKey, selectedCell.rowIndex, reconRows, totalReceipts, totalDisposals);
+      }
+
+      const valueStr = typeof computedVal === 'number'
+        ? formatNumberValue(computedVal, (col as any).decimals, col.key)
+        : (computedVal || '-');
+
+      return {
+        address,
+        colName: `${currentRow.label || `Recon R${selectedCell.rowIndex + 1}`} → ${col.name}`,
+        isCalculated: false,
+        formulaText: rawVal !== undefined ? (String(rawVal).startsWith('=') ? String(rawVal) : `= ${rawVal}`) : '',
+        value: valueStr,
+      };
+    }
+
     const colIdx = columns.findIndex(c => c.key === selectedCell.colKey);
     if (colIdx === -1) {
       return { address: 'A1', colName: '', isCalculated: false, formulaText: '', value: '-' };
@@ -715,7 +970,7 @@ function STGDefaultFormulationsContent() {
       formulaText,
       value: valueStr,
     };
-  }, [selectedCell, columns, rows, viewDecimals]);
+  }, [selectedCell, columns, rows, reconRows, viewDecimals, totalReceipts, totalDisposals]);
 
   const handleCellChange = (rowIndex: number, colKey: string, val: string) => {
     setRows(prev => {
@@ -743,6 +998,212 @@ function STGDefaultFormulationsContent() {
       ...prev,
       { variant: '', row_type: 'DISPOSAL', side: 'DISPOSAL', values: {} }
     ]);
+  };
+
+  // Safe Excel Formula Evaluator for Reconciliation Summary
+  const evaluateReconFormula = (
+    formulaStr: any,
+    colKey: string,
+    rIdx: number,
+    reconList: STGReconRow[],
+    recTotals: Record<string, number>,
+    dispTotals: Record<string, number>,
+    depth: number = 0
+  ): number | string => {
+    if (depth > 10 || formulaStr === undefined || formulaStr === null || formulaStr === '') return 0;
+    let expr = String(formulaStr).trim();
+    if (expr === '—' || expr === '-') return '—';
+    if (!expr.startsWith('=')) {
+      const n = parseFloat(expr);
+      return isNaN(n) ? expr : n;
+    }
+    expr = expr.substring(1).trim();
+    if (expr.startsWith('+')) expr = expr.substring(1).trim();
+    if (!expr) return 0;
+
+    // Cross-references to RECEIPTS and DISPOSALS
+    expr = expr.replace(/\bRECEIPTS?(?:\.([a-z_0-9]+))?\b/gi, (_, key) => {
+      const targetK = (key || colKey).toLowerCase();
+      if (recTotals[targetK] !== undefined) return String(recTotals[targetK]);
+      if (targetK === 'qty_lts' && recTotals['lts'] !== undefined) return String(recTotals['lts']);
+      if (targetK === 'lts' && recTotals['qty_lts'] !== undefined) return String(recTotals['qty_lts']);
+      if (targetK === 'qty_kg' && recTotals['kg'] !== undefined) return String(recTotals['kg']);
+      if (targetK === 'kg' && recTotals['qty_kg'] !== undefined) return String(recTotals['qty_kg']);
+      if (targetK === 'fat' && recTotals['kg_fat'] !== undefined) return String(recTotals['kg_fat']);
+      if (targetK === 'snf' && recTotals['kg_snf'] !== undefined) return String(recTotals['kg_snf']);
+      return String(recTotals[colKey] || 0);
+    });
+
+    expr = expr.replace(/\bDISPOSALS?(?:\.([a-z_0-9]+))?\b/gi, (_, key) => {
+      const targetK = (key || colKey).toLowerCase();
+      if (dispTotals[targetK] !== undefined) return String(dispTotals[targetK]);
+      if (targetK === 'qty_lts' && dispTotals['lts'] !== undefined) return String(dispTotals['lts']);
+      if (targetK === 'lts' && dispTotals['qty_lts'] !== undefined) return String(dispTotals['qty_lts']);
+      if (targetK === 'qty_kg' && dispTotals['kg'] !== undefined) return String(dispTotals['kg']);
+      if (targetK === 'kg' && dispTotals['qty_kg'] !== undefined) return String(dispTotals['qty_kg']);
+      if (targetK === 'fat' && dispTotals['kg_fat'] !== undefined) return String(dispTotals['kg_fat']);
+      if (targetK === 'snf' && dispTotals['kg_snf'] !== undefined) return String(dispTotals['kg_snf']);
+      return String(dispTotals[colKey] || 0);
+    });
+
+    // Opening Balance references: OB or OB.col
+    expr = expr.replace(/\bOB(?:\.([a-z_0-9]+))?\b/gi, (_, key) => {
+      const targetK = (key || colKey).toLowerCase();
+      const obRow = rows.find(r => (r.row_type === 'OB' || (r.variant || '').toLowerCase().includes('opening')));
+      if (obRow) {
+        const val = obRow.values?.[targetK];
+        const num = parseFloat(String(val || 0));
+        return String(isNaN(num) ? 0 : num);
+      }
+      return '0';
+    });
+
+    // Closing Balance references: CB or CB.col
+    expr = expr.replace(/\bCB(?:\.([a-z_0-9]+))?\b/gi, (_, key) => {
+      const targetK = (key || colKey).toLowerCase();
+      const cbRow = rows.find(r => (r.row_type === 'DISPOSAL' && (r.variant || '').toLowerCase().includes('closing')));
+      if (cbRow) {
+        const val = cbRow.values?.[targetK];
+        const num = parseFloat(String(val || 0));
+        return String(isNaN(num) ? 0 : num);
+      }
+      const rec = recTotals[targetK] || 0;
+      const disp = dispTotals[targetK] || 0;
+      return String(rec - disp);
+    });
+
+    // Row references: R1, R2 or R1.kg, R2.lts
+    expr = expr.replace(/\bR([0-9]+)(?:\.([a-z_0-9]+))?\b/gi, (_, rowNum, targetColKey) => {
+      const targetRIdx = parseInt(rowNum, 10) - 1;
+      const targetRow = reconList[targetRIdx];
+      if (!targetRow) return '0';
+      const cKey = (targetColKey || colKey).toLowerCase();
+      let rawVal = targetRow.values?.[cKey];
+      if (rawVal === undefined) {
+        if (cKey === 'qty_lts') rawVal = targetRow.values?.['lts'];
+        else if (cKey === 'lts') rawVal = targetRow.values?.['qty_lts'];
+        else if (cKey === 'qty_kg') rawVal = targetRow.values?.['kg'];
+        else if (cKey === 'kg') rawVal = targetRow.values?.['qty_kg'];
+      }
+      if (rawVal === undefined || rawVal === null || rawVal === '' || rawVal === '—' || rawVal === '-') return '0';
+      if (typeof rawVal === 'string' && (rawVal.startsWith('=') || rawVal.startsWith('=+'))) {
+        const evalSub = evaluateReconFormula(rawVal, cKey, targetRIdx, reconList, recTotals, dispTotals, depth + 1);
+        return String(typeof evalSub === 'number' ? evalSub : (parseFloat(String(evalSub)) || 0));
+      }
+      const num = typeof rawVal === 'number' ? rawVal : parseFloat(String(rawVal));
+      return isNaN(num) ? '0' : String(num);
+    });
+
+    try {
+      if (!/^[0-9+\-*\/().\s,eEMath.minmaxroundabsfloorceil]+$/.test(expr)) return 0;
+      const result = new Function('return (' + expr + ');')();
+      return typeof result === 'number' && !isNaN(result) && isFinite(result) ? result : 0;
+    } catch {
+      return 0;
+    }
+  };
+
+  const handleAddReconRow = () => {
+    const newIdx = reconRows.length + 1;
+    const newRow: STGReconRow = {
+      id: `recon_${Date.now()}`,
+      label: `Reconciliation Row ${newIdx}`,
+      row_type: 'CUSTOM',
+      is_formula: true,
+      color_hint: 'default',
+      values: {},
+    };
+    setReconRows(prev => [...prev, newRow]);
+    const firstColKey = columns.filter(c => c.key !== 'variant')[0]?.key || 'qty_lts';
+    setSelectedCell({ rowIndex: reconRows.length, colKey: firstColKey, isRecon: true });
+    showToast(`➕ Added Reconciliation Row #${newIdx}`);
+  };
+
+  const handleDeleteReconRow = async (rIdx: number) => {
+    const rowToDelete = reconRows[rIdx];
+    const isConfirmed = await confirm({
+      title: 'Delete Reconciliation Row',
+      message: `Are you sure you want to delete row #${rIdx + 1} "${rowToDelete?.label || ''}"?`,
+      confirmText: 'Delete Row',
+      cancelText: 'Cancel',
+      type: 'danger',
+    });
+    if (!isConfirmed) return;
+    setReconRows(prev => prev.filter((_, idx) => idx !== rIdx));
+    if (selectedCell?.isRecon && selectedCell.rowIndex === rIdx) {
+      setSelectedCell(null);
+    }
+    showToast('Deleted reconciliation row.');
+  };
+
+  const handleMoveReconRow = (rIdx: number, direction: 'UP' | 'DOWN') => {
+    if (direction === 'UP' && rIdx === 0) return;
+    if (direction === 'DOWN' && rIdx === reconRows.length - 1) return;
+    const targetIdx = direction === 'UP' ? rIdx - 1 : rIdx + 1;
+    setReconRows(prev => {
+      const copy = [...prev];
+      const temp = copy[rIdx];
+      copy[rIdx] = copy[targetIdx];
+      copy[targetIdx] = temp;
+      return copy;
+    });
+    if (selectedCell?.isRecon) {
+      setSelectedCell({ ...selectedCell, rowIndex: targetIdx });
+    }
+  };
+
+  const handleReconCellChange = (rIdx: number, colKey: string, val: string) => {
+    setReconRows(prev => {
+      const copy = [...prev];
+      if (!copy[rIdx]) return prev;
+      const updatedVals = { ...copy[rIdx].values, [colKey]: val };
+      if (colKey === 'qty_lts') updatedVals['lts'] = val;
+      if (colKey === 'lts') updatedVals['qty_lts'] = val;
+      if (colKey === 'qty_kg') updatedVals['kg'] = val;
+      if (colKey === 'kg') updatedVals['qty_kg'] = val;
+      copy[rIdx] = {
+        ...copy[rIdx],
+        values: updatedVals,
+      };
+      return copy;
+    });
+  };
+
+  const handleReconLabelChange = (rIdx: number, label: string) => {
+    setReconRows(prev => {
+      const copy = [...prev];
+      if (!copy[rIdx]) return prev;
+      copy[rIdx] = {
+        ...copy[rIdx],
+        label,
+      };
+      return copy;
+    });
+  };
+
+  const handleReconColorChange = (rIdx: number, color: STGReconRow['color_hint']) => {
+    setReconRows(prev => {
+      const copy = [...prev];
+      if (!copy[rIdx]) return prev;
+      copy[rIdx] = {
+        ...copy[rIdx],
+        color_hint: color,
+      };
+      return copy;
+    });
+  };
+
+  const handleResetReconTemplate = async () => {
+    const isConfirmed = await confirm({
+      title: 'Reset Reconciliation Summary Template',
+      message: 'Reset reconciliation summary rows to the standard 8-row formulation template? Any custom formulas will be replaced.',
+      confirmText: 'Reset to Standard',
+      cancelText: 'Cancel',
+      type: 'warning',
+    });
+    if (!isConfirmed) return;
+    setReconRows(getDefaultReconRows());
+    showToast('Reset reconciliation summary to standard template.');
   };
 
   const handleMoveRow = (fromGlobalIdx: number, direction: 'UP' | 'DOWN', rowType: 'RECEIPT' | 'DISPOSAL') => {
@@ -965,6 +1426,7 @@ function STGDefaultFormulationsContent() {
             ...m,
             receipt_rows: recRows,
             disposal_rows: dispRows,
+            reconciliation_rows: reconRows,
             default_rows: rows,
             rows: rows.map(r => ({ variant: r.variant || r.values.variant || '', values: r.values, row_type: r.row_type || r.side, side: r.side || r.row_type })),
             custom_columns: columns,
@@ -1002,39 +1464,6 @@ function STGDefaultFormulationsContent() {
     }
     setSaving(false);
   };
-
-  // Calculation of totals
-  const totalReceipts = useMemo(() => {
-    const totals: Record<string, number> = {};
-    columns.forEach(col => {
-      if (col.type !== 'text') {
-        const sum = receiptRows.reduce((acc, row) => {
-          const globalIdx = rows.findIndex(r => r === row);
-          const computed = computeCell(col, row.values, globalIdx, rows);
-          const num = typeof computed === 'number' ? computed : parseFloat(String(computed || 0));
-          return acc + (isNaN(num) ? 0 : num);
-        }, 0);
-        totals[col.key] = sum;
-      }
-    });
-    return totals;
-  }, [columns, receiptRows, rows]);
-
-  const totalDisposals = useMemo(() => {
-    const totals: Record<string, number> = {};
-    columns.forEach(col => {
-      if (col.type !== 'text') {
-        const sum = disposalRows.reduce((acc, row) => {
-          const globalIdx = rows.findIndex(r => r === row);
-          const computed = computeCell(col, row.values, globalIdx, rows);
-          const num = typeof computed === 'number' ? computed : parseFloat(String(computed || 0));
-          return acc + (isNaN(num) ? 0 : num);
-        }, 0);
-        totals[col.key] = sum;
-      }
-    });
-    return totals;
-  }, [columns, disposalRows, rows]);
 
   // Render a specific table section (Receipts or Disposals)
   const renderRowTable = (
@@ -1518,6 +1947,14 @@ function STGDefaultFormulationsContent() {
             >
               ➕ Add Disposal Row
             </button>
+
+            <button
+              type="button"
+              onClick={handleAddReconRow}
+              style={{ background: '#7c3aed', border: 'none', color: '#ffffff', borderRadius: 6, padding: '5px 12px', fontSize: '0.8rem', fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4 }}
+            >
+              ➕ Add Reconciliation Row
+            </button>
           </div>
         </div>
 
@@ -1596,7 +2033,11 @@ function STGDefaultFormulationsContent() {
               placeholder="Click any table cell to view or enter formulas/values..."
               onChange={e => {
                 if (selectedCell && !activeCellDetails.isCalculated) {
-                  handleCellChange(selectedCell.rowIndex, selectedCell.colKey, e.target.value);
+                  if (selectedCell.isRecon) {
+                    handleReconCellChange(selectedCell.rowIndex, selectedCell.colKey, e.target.value);
+                  } else {
+                    handleCellChange(selectedCell.rowIndex, selectedCell.colKey, e.target.value);
+                  }
                 }
               }}
               style={{
@@ -1655,71 +2096,357 @@ function STGDefaultFormulationsContent() {
             handleAddDisposalRow
           )}
 
-          {/* Section 3: Reconciled Summary & Balance Rows */}
-          <div style={{ marginBottom: 20, border: '1px solid var(--border)', borderRadius: 8, overflow: 'hidden', background: '#ffffff', boxShadow: '0 1px 3px rgba(0,0,0,0.05)' }}>
-            <div style={{ background: '#f1f5f9', padding: '10px 16px', borderBottom: '1px solid var(--border)', fontWeight: 800, fontSize: '0.88rem', color: '#1e293b' }}>
-              ⚖️ Stock Balance & Reconciliation Summary (Auto-Computed)
+          {/* Section 3: Stock Balance & Reconciliation Summary (Dynamic Formulation Table) */}
+          <div style={{ marginBottom: 24, border: '1px solid #7c3aed40', borderRadius: 8, overflow: 'hidden', background: '#ffffff', boxShadow: '0 1px 3px rgba(0,0,0,0.05)' }}>
+            {/* Section Header */}
+            <div style={{ background: '#faf5ff', padding: '10px 16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid #7c3aed30' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                <span style={{ fontWeight: 800, fontSize: '0.95rem', color: '#6b21a8' }}>
+                  ⚖️ Stock Balance & Reconciliation Summary (Auto-Computed)
+                </span>
+                <span style={{ background: '#ffffff', border: '1px solid #d8b4fe', color: '#6b21a8', borderRadius: 12, padding: '1px 8px', fontSize: '0.72rem', fontWeight: 800 }}>
+                  {reconRows.length} rows
+                </span>
+              </div>
+
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <button
+                  type="button"
+                  onClick={handleResetReconTemplate}
+                  style={{
+                    background: '#ffffff',
+                    color: '#475569',
+                    border: '1px solid #cbd5e1',
+                    borderRadius: 6,
+                    padding: '5px 10px',
+                    fontSize: '0.78rem',
+                    fontWeight: 700,
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 4,
+                  }}
+                  title="Reset to default 8 standard reconciliation formula rows"
+                >
+                  ↺ Load Standard Template
+                </button>
+
+                <button
+                  type="button"
+                  onClick={handleAddReconRow}
+                  style={{
+                    background: '#7c3aed',
+                    color: '#ffffff',
+                    border: 'none',
+                    borderRadius: 6,
+                    padding: '5px 12px',
+                    fontSize: '0.78rem',
+                    fontWeight: 700,
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 4,
+                  }}
+                >
+                  ➕ Add Reconciliation Row
+                </button>
+              </div>
             </div>
 
+            {/* Section Table */}
             <div style={{ overflowX: 'auto' }}>
               <table className="inline-table" style={{ width: '100%', minWidth: 700, margin: 0 }}>
                 <thead>
                   <tr style={{ background: '#f8fafc', borderBottom: '1px solid var(--border)' }}>
-                    <th style={{ width: 44, textAlign: 'center', fontSize: '0.75rem' }}>#</th>
-                    <th style={{ width: 220, textAlign: 'left', fontSize: '0.78rem', fontWeight: 800 }}>Summary Row</th>
-                    {columns.filter(c => c.key !== 'variant').map(col => (
-                      <th key={`sum_th_${col.key}`} style={{ textAlign: 'right', fontSize: '0.78rem', padding: '6px 10px' }}>
-                        {col.name}
+                    <th style={{ width: 44, textAlign: 'center', fontSize: '0.75rem', color: '#64748b' }}>#</th>
+                    <th style={{ width: 220, textAlign: 'left', fontSize: '0.78rem', color: 'var(--text-primary)', fontWeight: 800 }}>
+                      Reconciliation Item / Summary Label
+                    </th>
+                    <th style={{ width: 110, textAlign: 'center', fontSize: '0.75rem', color: '#64748b' }}>
+                      Color Tint
+                    </th>
+                    {columns.filter(c => c.key !== 'variant').map((col, cIdx) => (
+                      <th
+                        key={`recon_th_${col.key}`}
+                        style={{
+                          textAlign: col.type === 'text' ? 'left' : 'right',
+                          background: col.type === 'calculated' ? '#e0f2fe' : '#f8fafc',
+                          color: col.type === 'calculated' ? '#0369a1' : 'var(--text-primary)',
+                          padding: '8px 10px',
+                          fontSize: '0.78rem',
+                          minWidth: 105,
+                        }}
+                      >
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 2 }}>
+                          <span style={{ fontSize: '0.65rem', color: '#7c3aed', fontWeight: 800, fontFamily: 'monospace' }}>
+                            {getExcelColName(cIdx + 1)}
+                          </span>
+                        </div>
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: col.type === 'text' ? 'flex-start' : 'space-between', gap: 4 }}>
+                          <span>{col.name} {col.unit ? `(${col.unit})` : ''}</span>
+                        </div>
                       </th>
                     ))}
-                    <th style={{ width: 110, textAlign: 'center', fontSize: '0.75rem' }}>Formula</th>
+                    <th style={{ width: 140, textAlign: 'left', fontSize: '0.75rem', color: '#64748b' }}>Note / Description</th>
+                    <th style={{ width: 110, textAlign: 'center', fontSize: '0.75rem' }}>Row Action</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {/* Row 1: Total Receipts */}
-                  <tr style={{ borderBottom: '1px solid #f1f5f9', background: '#f0fdf4' }}>
-                    <td style={{ textAlign: 'center', fontWeight: 700, color: '#166534', fontSize: '0.75rem' }}>1</td>
-                    <td style={{ fontWeight: 800, color: '#166534', fontSize: '0.82rem', padding: '6px 8px' }}>
-                      Total Receipts (+)
-                    </td>
-                    {columns.filter(c => c.key !== 'variant').map(col => (
-                      <td key={`tr_${col.key}`} style={{ textAlign: 'right', fontWeight: 800, fontSize: '0.82rem', color: '#166534', padding: '6px 8px', fontFamily: 'var(--font-numbers)' }}>
-                        {totalReceipts[col.key] ? formatNumberValue(totalReceipts[col.key], col.decimals, col.key) : '-'}
+                  {reconRows.length === 0 ? (
+                    <tr>
+                      <td colSpan={columns.length + 3} style={{ textAlign: 'center', padding: '24px 12px', color: '#94a3b8', fontStyle: 'italic', fontSize: '0.85rem' }}>
+                        No reconciliation rows configured yet. Click "➕ Add Reconciliation Row" or "↺ Load Standard Template" above.
                       </td>
-                    ))}
-                    <td style={{ textAlign: 'center', fontSize: '0.72rem', color: '#166534', fontWeight: 700 }}>Σ Receipts</td>
-                  </tr>
+                    </tr>
+                  ) : (
+                    reconRows.map((row, rIdx) => {
+                      const rowColor = row.color_hint || 'default';
+                      let rowBg = '#ffffff';
+                      let rowTextColor = 'var(--text-primary)';
+                      let rowBorderCol = '#f1f5f9';
 
-                  {/* Row 2: Total Disposals */}
-                  <tr style={{ borderBottom: '1px solid #f1f5f9', background: '#fff7ed' }}>
-                    <td style={{ textAlign: 'center', fontWeight: 700, color: '#c2410c', fontSize: '0.75rem' }}>2</td>
-                    <td style={{ fontWeight: 800, color: '#c2410c', fontSize: '0.82rem', padding: '6px 8px' }}>
-                      Total Disposals (-)
-                    </td>
-                    {columns.filter(c => c.key !== 'variant').map(col => (
-                      <td key={`td_${col.key}`} style={{ textAlign: 'right', fontWeight: 800, fontSize: '0.82rem', color: '#c2410c', padding: '6px 8px', fontFamily: 'var(--font-numbers)' }}>
-                        {totalDisposals[col.key] ? formatNumberValue(totalDisposals[col.key], col.decimals, col.key) : '-'}
-                      </td>
-                    ))}
-                    <td style={{ textAlign: 'center', fontSize: '0.72rem', color: '#c2410c', fontWeight: 700 }}>Σ Disposals</td>
-                  </tr>
+                      if (rowColor === 'green') {
+                        rowBg = '#f0fdf4';
+                        rowTextColor = '#166534';
+                        rowBorderCol = '#bbf7d0';
+                      } else if (rowColor === 'blue') {
+                        rowBg = '#eff6ff';
+                        rowTextColor = '#1d4ed8';
+                        rowBorderCol = '#bfdbfe';
+                      } else if (rowColor === 'orange') {
+                        rowBg = '#fff7ed';
+                        rowTextColor = '#c2410c';
+                        rowBorderCol = '#fed7aa';
+                      } else if (rowColor === 'yellow') {
+                        rowBg = '#fefce8';
+                        rowTextColor = '#854d0e';
+                        rowBorderCol = '#fef08a';
+                      } else if (rowColor === 'purple') {
+                        rowBg = '#faf5ff';
+                        rowTextColor = '#6b21a8';
+                        rowBorderCol = '#e9d5ff';
+                      } else if (rowColor === 'dark') {
+                        rowBg = '#f8fafc';
+                        rowTextColor = '#0f172a';
+                        rowBorderCol = '#cbd5e1';
+                      }
 
-                  {/* Row 3: Net Balance (Receipts - Disposals) */}
-                  <tr style={{ borderBottom: '1px solid #f1f5f9', background: '#f8fafc' }}>
-                    <td style={{ textAlign: 'center', fontWeight: 700, color: '#0369a1', fontSize: '0.75rem' }}>3</td>
-                    <td style={{ fontWeight: 800, color: '#0369a1', fontSize: '0.82rem', padding: '6px 8px' }}>
-                      Closing Balance (=)
-                    </td>
-                    {columns.filter(c => c.key !== 'variant').map(col => {
-                      const net = (totalReceipts[col.key] || 0) - (totalDisposals[col.key] || 0);
                       return (
-                        <td key={`net_${col.key}`} style={{ textAlign: 'right', fontWeight: 800, fontSize: '0.82rem', color: '#0369a1', padding: '6px 8px', fontFamily: 'var(--font-numbers)' }}>
-                          {net !== 0 ? formatNumberValue(net, col.decimals, col.key) : '-'}
-                        </td>
+                        <tr key={`recon_row_${row.id || rIdx}`} style={{ borderBottom: `1px solid ${rowBorderCol}`, background: rowBg }}>
+                          {/* Row Index */}
+                          <td style={{ textAlign: 'center', fontWeight: 800, color: rowTextColor, fontSize: '0.75rem', fontFamily: 'monospace' }}>
+                            R{rIdx + 1}
+                          </td>
+
+                          {/* Editable Row Label */}
+                          <td style={{ padding: '4px 8px' }}>
+                            <input
+                              type="text"
+                              className="form-input"
+                              value={row.label}
+                              placeholder="Enter reconciliation row label..."
+                              onChange={e => handleReconLabelChange(rIdx, e.target.value)}
+                              style={{
+                                height: 28,
+                                fontSize: '0.82rem',
+                                fontWeight: 800,
+                                padding: '3px 8px',
+                                background: '#ffffff',
+                                borderColor: rowBorderCol !== '#f1f5f9' ? rowBorderCol : 'var(--border)',
+                                color: rowTextColor,
+                              }}
+                            />
+                          </td>
+
+                          {/* Row Color Picker */}
+                          <td style={{ textAlign: 'center', padding: '4px 6px' }}>
+                            <select
+                              value={row.color_hint || 'default'}
+                              onChange={e => handleReconColorChange(rIdx, e.target.value as any)}
+                              style={{
+                                height: 26,
+                                fontSize: '0.7rem',
+                                fontWeight: 700,
+                                border: '1px solid #cbd5e1',
+                                borderRadius: 4,
+                                padding: '1px 4px',
+                                background: '#ffffff',
+                                color: '#334155',
+                                cursor: 'pointer',
+                                width: '100%',
+                              }}
+                              title="Row color highlight"
+                            >
+                              <option value="default">⚪ Default</option>
+                              <option value="green">🟢 Green (Rec)</option>
+                              <option value="blue">🔵 Blue (OB)</option>
+                              <option value="orange">🟠 Orange (Disp)</option>
+                              <option value="yellow">🟡 Yellow (CB)</option>
+                              <option value="purple">🟣 Purple (Loss)</option>
+                              <option value="dark">⚫ Dark (Total)</option>
+                            </select>
+                          </td>
+
+                          {/* Dynamic Column Cells with Formulas */}
+                          {columns.filter(c => c.key !== 'variant').map(col => {
+                            const isCellSelected = selectedCell?.isRecon && selectedCell?.rowIndex === rIdx && selectedCell?.colKey === col.key;
+                            let rawVal = row.values?.[col.key];
+                            if (rawVal === undefined) {
+                              if (col.key === 'qty_lts') rawVal = row.values?.['lts'];
+                              else if (col.key === 'lts') rawVal = row.values?.['qty_lts'];
+                              else if (col.key === 'qty_kg') rawVal = row.values?.['kg'];
+                              else if (col.key === 'kg') rawVal = row.values?.['qty_kg'];
+                            }
+
+                            const isFormula = typeof rawVal === 'string' && (rawVal.startsWith('=') || rawVal.startsWith('=+'));
+                            let computedVal: any = rawVal ?? '';
+                            if (isFormula) {
+                              computedVal = evaluateReconFormula(rawVal, col.key, rIdx, reconRows, totalReceipts, totalDisposals);
+                            }
+
+                            const displayFormatted = typeof computedVal === 'number'
+                              ? (computedVal !== 0 ? formatNumberValue(computedVal, col.decimals, col.key) : '0')
+                              : (computedVal || '-');
+
+                            return (
+                              <td
+                                key={`recon_cell_${rIdx}_${col.key}`}
+                                onClick={() => setSelectedCell({ rowIndex: rIdx, colKey: col.key, isRecon: true })}
+                                style={{
+                                  position: 'relative',
+                                  padding: 2,
+                                  background: isCellSelected ? '#faf5ff' : 'transparent',
+                                  outline: isCellSelected ? '2px solid #7c3aed' : 'none',
+                                  outlineOffset: -2,
+                                }}
+                              >
+                                <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
+                                  <input
+                                    type="text"
+                                    className="form-input"
+                                    value={rawVal ?? ''}
+                                    placeholder={displayFormatted !== '-' ? String(displayFormatted) : '-'}
+                                    onFocus={() => {
+                                      setSelectedCell({ rowIndex: rIdx, colKey: col.key, isRecon: true });
+                                      setFocusedCell({ rowIndex: rIdx, colKey: col.key, isRecon: true });
+                                    }}
+                                    onBlur={() => setFocusedCell(null)}
+                                    onClick={() => setSelectedCell({ rowIndex: rIdx, colKey: col.key, isRecon: true })}
+                                    onChange={e => handleReconCellChange(rIdx, col.key, e.target.value)}
+                                    title={isFormula ? `Formula: ${rawVal} | Value: ${displayFormatted}` : `Value: ${rawVal || '-'}`}
+                                    style={{
+                                      padding: isFormula ? '3px 22px 3px 6px' : '3px 6px',
+                                      fontSize: '0.8rem',
+                                      height: 28,
+                                      textAlign: col.type === 'text' ? 'left' : 'right',
+                                      fontFamily: col.type === 'text' ? 'inherit' : 'var(--font-numbers)',
+                                      fontWeight: isFormula ? 800 : 700,
+                                      background: isCellSelected ? '#f5f3ff' : isFormula ? '#faf5ff' : '#ffffff',
+                                      color: isFormula ? '#6b21a8' : rowTextColor,
+                                      borderColor: isCellSelected ? '#7c3aed' : isFormula ? '#d8b4fe' : 'var(--border)',
+                                    }}
+                                  />
+                                  {isFormula && (
+                                    <span
+                                      style={{
+                                        position: 'absolute',
+                                        right: 4,
+                                        fontSize: '0.62rem',
+                                        fontWeight: 900,
+                                        color: '#7c3aed',
+                                        background: '#ede9fe',
+                                        padding: '1px 3px',
+                                        borderRadius: 3,
+                                        fontFamily: 'serif',
+                                        fontStyle: 'italic',
+                                        pointerEvents: 'none',
+                                      }}
+                                    >
+                                      fx
+                                    </span>
+                                  )}
+                                </div>
+                              </td>
+                            );
+                          })}
+
+                          {/* Note / Description */}
+                          <td style={{ padding: '4px 6px' }}>
+                            <input
+                              type="text"
+                              className="form-input"
+                              value={row.values?.note ?? ''}
+                              placeholder="Summary note..."
+                              onChange={e => handleReconCellChange(rIdx, 'note', e.target.value)}
+                              style={{
+                                height: 28,
+                                fontSize: '0.75rem',
+                                padding: '3px 6px',
+                                background: '#ffffff',
+                                borderColor: 'var(--border)',
+                              }}
+                            />
+                          </td>
+
+                          {/* Row Action Buttons */}
+                          <td style={{ textAlign: 'center', background: '#fafafa' }}>
+                            <div style={{ display: 'flex', gap: 4, justifyContent: 'center' }}>
+                              <button
+                                type="button"
+                                disabled={rIdx === 0}
+                                onClick={() => handleMoveReconRow(rIdx, 'UP')}
+                                style={{
+                                  border: '1px solid var(--border)',
+                                  background: '#ffffff',
+                                  borderRadius: 4,
+                                  padding: '2px 6px',
+                                  fontSize: '0.72rem',
+                                  cursor: rIdx === 0 ? 'not-allowed' : 'pointer',
+                                  opacity: rIdx === 0 ? 0.3 : 1,
+                                }}
+                                title="Move Row Up"
+                              >
+                                ▲
+                              </button>
+                              <button
+                                type="button"
+                                disabled={rIdx === reconRows.length - 1}
+                                onClick={() => handleMoveReconRow(rIdx, 'DOWN')}
+                                style={{
+                                  border: '1px solid var(--border)',
+                                  background: '#ffffff',
+                                  borderRadius: 4,
+                                  padding: '2px 6px',
+                                  fontSize: '0.72rem',
+                                  cursor: rIdx === reconRows.length - 1 ? 'not-allowed' : 'pointer',
+                                  opacity: rIdx === reconRows.length - 1 ? 0.3 : 1,
+                                }}
+                                title="Move Row Down"
+                              >
+                                ▼
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handleDeleteReconRow(rIdx)}
+                                style={{
+                                  border: '1px solid #fecaca',
+                                  background: '#fef2f2',
+                                  color: '#dc2626',
+                                  borderRadius: 4,
+                                  padding: '2px 6px',
+                                  fontSize: '0.72rem',
+                                  cursor: 'pointer',
+                                }}
+                                title="Delete Reconciliation Row"
+                              >
+                                🗑️
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
                       );
-                    })}
-                    <td style={{ textAlign: 'center', fontSize: '0.72rem', color: '#0369a1', fontWeight: 700 }}>Receipts - Disposals</td>
-                  </tr>
+                    })
+                  )}
                 </tbody>
               </table>
             </div>

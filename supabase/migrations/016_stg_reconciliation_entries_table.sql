@@ -37,3 +37,4 @@ DROP TRIGGER IF EXISTS trg_stg_reconciliation_entries_audit ON public.stg_reconc
 CREATE TRIGGER trg_stg_reconciliation_entries_audit 
   BEFORE INSERT OR UPDATE ON public.stg_reconciliation_entries 
   FOR EACH ROW EXECUTE FUNCTION fn_set_audit_fields();
+
