@@ -18,6 +18,7 @@ export default function ChartColumnsConfigPage() {
   const [editingKey, setEditingKey] = useState<string | null>(null);
 
   const [formKey, setFormKey] = useState<string>('');
+  const [keyManuallyEdited, setKeyManuallyEdited] = useState<boolean>(false);
   const [formName, setFormName] = useState<string>('');
   const [formType, setFormType] = useState<'number' | 'text' | 'calculated'>('number');
   const [formFormula, setFormFormula] = useState<string>('');
@@ -54,6 +55,7 @@ export default function ChartColumnsConfigPage() {
   const handleOpenAdd = () => {
     setEditingKey(null);
     setFormKey('');
+    setKeyManuallyEdited(false);
     setFormName('');
     setFormType('number');
     setFormFormula('');
@@ -65,6 +67,7 @@ export default function ChartColumnsConfigPage() {
   const handleOpenEdit = (col: ChartColumnDef) => {
     setEditingKey(col.key);
     setFormKey(col.key);
+    setKeyManuallyEdited(true);
     setFormName(col.name);
     setFormType(col.type);
     setFormFormula(col.formula || '');
@@ -123,7 +126,11 @@ export default function ChartColumnsConfigPage() {
       return;
     }
 
-    const keyToUse = editingKey || formKey.trim().toLowerCase().replace(/[^a-z0-9_]/g, '_') || formName.trim().toLowerCase().replace(/[^a-z0-9_]/g, '_');
+    const keyToUse = formKey.trim().toLowerCase().replace(/[^a-z0-9_]/g, '_') || formName.trim().toLowerCase().replace(/[^a-z0-9_]/g, '_');
+    if (!keyToUse) {
+      alert('Please enter a Field Key');
+      return;
+    }
 
     const newCol: ChartColumnDef = {
       key: keyToUse,
@@ -138,11 +145,16 @@ export default function ChartColumnsConfigPage() {
 
     let updated: ChartColumnDef[];
     if (editingKey) {
-      updated = columns.map(c => (c.key === editingKey ? newCol : c));
+      const oldKey = editingKey;
+      if (keyToUse !== oldKey && columns.some(c => c.key === keyToUse)) {
+        alert(`Column key "${keyToUse}" already exists! Please use a unique Field Key.`);
+        return;
+      }
+      updated = columns.map(c => (c.key === oldKey ? newCol : c));
     } else {
       // Check duplicate
       if (columns.some(c => c.key === newCol.key)) {
-        alert(`Column key "${newCol.key}" already exists! Please use a unique column name.`);
+        alert(`Column key "${newCol.key}" already exists! Please use a unique Field Key.`);
         return;
       }
       updated = [...columns, newCol];
@@ -403,7 +415,7 @@ export default function ChartColumnsConfigPage() {
                   value={formName}
                   onChange={e => {
                     setFormName(e.target.value);
-                    if (!editingKey) {
+                    if (!editingKey && !keyManuallyEdited) {
                       setFormKey(e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, '_'));
                     }
                   }}
@@ -412,19 +424,31 @@ export default function ChartColumnsConfigPage() {
               </div>
 
               <div>
-                <label className="form-label" style={{ fontWeight: 600 }}>Field Key</label>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <label className="form-label" style={{ fontWeight: 600 }}>
+                    Field Key <span style={{ color: '#dc2626' }}>*</span>
+                  </label>
+                  {editingKey && (
+                    <span style={{ fontSize: '0.72rem', color: '#0369a1', fontWeight: 600 }}>
+                      Editable (updates key across column settings)
+                    </span>
+                  )}
+                </div>
                 <input
                   type="text"
                   className="form-input"
-                  placeholder="e.g. qty_lit, sp_gr, fat_pct"
+                  placeholder="e.g. qty_lit, sp_gr, fat_pct, kg_snf"
                   value={formKey}
-                  onChange={e => setFormKey(e.target.value)}
-                  disabled={!!editingKey}
-                  style={{ background: editingKey ? '#f1f5f9' : '#fff' }}
+                  onChange={e => {
+                    setFormKey(e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, '_'));
+                    setKeyManuallyEdited(true);
+                  }}
+                  required
+                  style={{ background: '#fff', fontFamily: 'monospace', fontWeight: 600 }}
                 />
-                <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>
-                  Unique identifier used in formulas and database storage.
-                </span>
+                <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: 3 }}>
+                  Unique identifier used in formulas and database storage (lowercase letters, numbers, underscores)
+                </div>
               </div>
 
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12 }}>

@@ -50,6 +50,27 @@ export async function GET(req: NextRequest) {
       .order('sort_order');
     if (rowsErr) throw rowsErr;
 
+    const effectiveRows: any[] = [];
+    (rows || []).forEach((r: any) => {
+      const entryJson = typeof r.entry_json === 'string' ? JSON.parse(r.entry_json) : (r.entry_json || {});
+      const isSectionParent = ['Opening Balance', 'Receipts', 'Disposals'].includes(r.row_label) && Array.isArray(entryJson?.rows);
+      if (isSectionParent && entryJson.rows.length > 0) {
+        entryJson.rows.forEach((inner: any, iIdx: number) => {
+          effectiveRows.push({
+            id: `${r.id}_${iIdx}`,
+            entry_id: r.entry_id,
+            row_type: inner.row_type || r.row_type,
+            row_label: inner.row_label || r.row_label,
+            values: inner.values || {},
+            sort_order: inner.sort_order ?? (r.sort_order * 100 + iIdx),
+            ...(inner.values || {}),
+          });
+        });
+      } else {
+        effectiveRows.push(r);
+      }
+    });
+
     // Dynamic product keys from products_master and standard defaults
     const defaultCols = ['wh_milk', 'dlt_milk', 'fc_milk', 'std_milk', 'dtm', 'skim_milk', 'cream', 'butter_milk', 'r_con', 'smp', 'water'];
 
@@ -67,12 +88,12 @@ export async function GET(req: NextRequest) {
       console.warn('Could not fetch products_master in GET /api/stock/query:', e);
     }
     const allProdKeys = Array.from(new Set([...defaultCols, ...dbCols]));
-    const metadataKeys = new Set(['id', 'entry_id', 'row_type', 'row_label', 'sort_order', 'created_at', 'created_by', 'updated_at', 'updated_by']);
+    const metadataKeys = new Set(['id', 'entry_id', 'row_type', 'row_label', 'sort_order', 'created_at', 'created_by', 'updated_at', 'updated_by', 'entry_json', 'values']);
 
     // Aggregate by row_type and row_label
     const aggregatedMap: Record<string, any> = {};
 
-    for (const r of rows) {
+    for (const r of effectiveRows) {
       const key = `${r.row_type}_${r.row_label}`;
       if (!aggregatedMap[key]) {
         const initObj: Record<string, any> = {
@@ -91,17 +112,24 @@ export async function GET(req: NextRequest) {
 
       // Process active product keys with generic alphanumeric lookup
       for (const pKey of allProdKeys) {
+        processedCols.add(pKey);
+        const normKey = pKey.replace(/\./g, '_').toLowerCase();
+        processedCols.add(normKey);
+
         const targetNorm = pKey.toLowerCase().replace(/[^a-z0-9]/g, '');
         let numVal = 0;
 
-        if (r[pKey] !== undefined && r[pKey] !== null && r[pKey] !== '') {
-          const num = typeof r[pKey] === 'number' ? r[pKey] : parseFloat(String(r[pKey]));
+        const directVal = r.values?.[pKey] ?? r.values?.[normKey] ?? r[pKey] ?? r[normKey];
+        if (directVal !== undefined && directVal !== null && directVal !== '') {
+          const num = typeof directVal === 'number' ? directVal : parseFloat(String(directVal));
           if (!isNaN(num) && num !== 0) numVal = num;
         }
 
         if (numVal === 0 && targetNorm) {
-          for (const [rk, rv] of Object.entries(r)) {
-            if (rv === undefined || rv === null || rv === '') continue;
+          const searchSource = r.values && Object.keys(r.values).length > 0 ? r.values : r;
+          for (const [rk, rv] of Object.entries(searchSource)) {
+            if (metadataKeys.has(rk)) continue;
+            if (rv === undefined || rv === null || rv === '' || typeof rv === 'object') continue;
             if (rk.toLowerCase().replace(/[^a-z0-9]/g, '') === targetNorm) {
               const num = typeof rv === 'number' ? rv : parseFloat(String(rv));
               if (!isNaN(num) && num !== 0) {
@@ -115,11 +143,11 @@ export async function GET(req: NextRequest) {
         target[pKey] = (target[pKey] || 0) + numVal;
       }
 
-
       // Process any remaining dynamic columns on r
-      for (const [col, val] of Object.entries(r)) {
+      const searchSource = r.values && Object.keys(r.values).length > 0 ? { ...r, ...r.values } : r;
+      for (const [col, val] of Object.entries(searchSource)) {
         if (metadataKeys.has(col) || processedCols.has(col)) continue;
-        if (val === undefined || val === null || val === '') continue;
+        if (val === undefined || val === null || val === '' || typeof val === 'object') continue;
 
         const numVal = typeof val === 'number' ? val : parseFloat(String(val));
         if (isNaN(numVal) || numVal === 0) continue;

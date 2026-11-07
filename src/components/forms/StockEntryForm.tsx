@@ -98,6 +98,7 @@ export default function StockEntryForm({
   const [disposalRowsConfig, setDisposalRowsConfig] = useState<any[]>([]);
   const [obUnlocked, setObUnlocked] = useState(false);
   const [receiptsUnlocked, setReceiptsUnlocked] = useState(false);
+  const [disposalsUnlocked, setDisposalsUnlocked] = useState(false);
   const [internalRules, setInternalRules] = useState<any[]>([]);
 
   // Partition / Split Mapping Modal State
@@ -145,6 +146,28 @@ export default function StockEntryForm({
   }, []);
   // Active/focused cursor row tracking and keyboard navigation
   const [focusedRowIdx, setFocusedRowIdx] = useState<number | null>(null);
+  const [focusedColKey, setFocusedColKey] = useState<string | null>(null);
+  const [viewDecimals, setViewDecimals] = useState<number | 'auto'>('auto');
+
+  const formatCellVal = (rawVal: string | undefined, decimals: number | 'auto'): string => {
+    if (rawVal === undefined || rawVal === null || rawVal.trim() === '') return '';
+    const num = parseFloat(rawVal);
+    if (isNaN(num)) return rawVal;
+    if (decimals === 'auto') return rawVal;
+    return num.toFixed(decimals);
+  };
+
+  const formatSummaryVal = (val: number, decimals: number | 'auto'): string => {
+    if (isNaN(val)) return '0';
+    if (val === 0) return decimals === 'auto' ? '0' : (0).toFixed(decimals);
+    if (decimals === 'auto') {
+      return val.toLocaleString('en-IN', { maximumFractionDigits: 3 });
+    }
+    return val.toLocaleString('en-IN', {
+      minimumFractionDigits: decimals,
+      maximumFractionDigits: decimals,
+    });
+  };
 
   const handleTableKeyDown = (
     e: React.KeyboardEvent<HTMLInputElement>,
@@ -570,6 +593,8 @@ export default function StockEntryForm({
     setError('');
     setSuccess('');
     setObUnlocked(false);
+    setReceiptsUnlocked(false);
+    setDisposalsUnlocked(false);
     let active = true;
 
     async function loadData() {
@@ -593,6 +618,27 @@ export default function StockEntryForm({
 
         // Helper to compute Closing Balance from rows
         const calcClosingBalanceFromRows = (dbRows: any[], cols: any[], prevCustomValues: any = {}): Record<string, string> => {
+          const effectiveDbRows: any[] = [];
+          (dbRows || []).forEach((r: any) => {
+            const entryJson = typeof r.entry_json === 'string' ? JSON.parse(r.entry_json) : (r.entry_json || {});
+            const isSectionParent = ['Opening Balance', 'Receipts', 'Disposals'].includes(r.row_label) && Array.isArray(entryJson?.rows);
+            if (isSectionParent && entryJson.rows.length > 0) {
+              entryJson.rows.forEach((inner: any, iIdx: number) => {
+                effectiveDbRows.push({
+                  id: `${r.id}_${iIdx}`,
+                  entry_id: r.entry_id,
+                  row_type: inner.row_type || r.row_type,
+                  row_label: inner.row_label || r.row_label,
+                  values: inner.values || {},
+                  sort_order: inner.sort_order ?? (r.sort_order * 100 + iIdx),
+                  ...(inner.values || {}),
+                });
+              });
+            } else {
+              effectiveDbRows.push(r);
+            }
+          });
+
           const obSum: Record<string, number> = {};
           const recSum: Record<string, number> = {};
           const dispSum: Record<string, number> = {};
@@ -606,7 +652,7 @@ export default function StockEntryForm({
             }
           });
 
-          dbRows.forEach((r: any) => {
+          effectiveDbRows.forEach((r: any) => {
             const label = (r.row_label || '').trim();
             const rowVals = prevCustomValues[label] || prevCustomValues[r.row_label];
 
@@ -616,15 +662,16 @@ export default function StockEntryForm({
 
               let val = 0;
               const normKey = col.key.trim().replace(/\.+/g, '_').replace(/_+/g, '_').toLowerCase();
-              const direct = r[col.key] ?? r[normKey];
+              const direct = r.values?.[col.key] ?? r.values?.[normKey] ?? r[col.key] ?? r[normKey];
               if (direct !== undefined && direct !== null && direct !== '') {
                 const num = parseFloat(String(direct));
                 if (!isNaN(num)) val = num;
               }
 
               if (val === 0 && targetNorm) {
-                for (const [rk, rv] of Object.entries(r)) {
-                  if (rv === undefined || rv === null || rv === '') continue;
+                const searchSource = r.values && Object.keys(r.values).length > 0 ? { ...r, ...r.values } : r;
+                for (const [rk, rv] of Object.entries(searchSource)) {
+                  if (rv === undefined || rv === null || rv === '' || typeof rv === 'object') continue;
                   if (rk.toLowerCase().replace(/[^a-z0-9]/g, '') === targetNorm) {
                     const num = parseFloat(String(rv));
                     if (!isNaN(num)) {
@@ -637,7 +684,7 @@ export default function StockEntryForm({
 
               if (val === 0 && rowVals && targetNorm) {
                 for (const [ck, cv] of Object.entries(rowVals)) {
-                  if (cv === undefined || cv === null || cv === '') continue;
+                  if (cv === undefined || cv === null || cv === '' || typeof cv === 'object') continue;
                   if (ck.toLowerCase().replace(/[^a-z0-9]/g, '') === targetNorm) {
                     const num = parseFloat(String(cv));
                     if (!isNaN(num)) {
@@ -665,11 +712,10 @@ export default function StockEntryForm({
             const valStr = val === 0 ? '' : String(Math.round((val + Number.EPSILON) * 1000) / 1000);
 
             const normKey = col.key.trim().replace(/\.+/g, '_').replace(/_+/g, '_').toLowerCase();
-            const dotKey = normKey.replace(/_/g, '.');
-
             cb[col.key] = valStr;
-            cb[normKey] = valStr;
-            cb[dotKey] = valStr;
+            if (col.key !== normKey) {
+              cb[normKey] = valStr;
+            }
           });
           return cb;
         };
@@ -799,7 +845,27 @@ export default function StockEntryForm({
           setColumnsUnique(parsedCols);
           setNotes(cleanNotes);
 
-          const sortedDbRows = [...(json.data.stock_rows || [])].sort((a: any, b: any) => (a.sort_order ?? 0) - (b.sort_order ?? 0));
+          const rawDbRows = [...(json.data.stock_rows || [])].sort((a: any, b: any) => (a.sort_order ?? 0) - (b.sort_order ?? 0));
+          const sortedDbRows: any[] = [];
+          rawDbRows.forEach((r: any) => {
+            const entryJson = typeof r.entry_json === 'string' ? JSON.parse(r.entry_json) : (r.entry_json || {});
+            const isSectionParent = ['Opening Balance', 'Receipts', 'Disposals'].includes(r.row_label) && Array.isArray(entryJson?.rows);
+            if (isSectionParent && entryJson.rows.length > 0) {
+              entryJson.rows.forEach((inner: any, iIdx: number) => {
+                sortedDbRows.push({
+                  id: `${r.id}_${iIdx}`,
+                  entry_id: r.entry_id,
+                  row_type: inner.row_type || r.row_type,
+                  row_label: inner.row_label || r.row_label,
+                  values: inner.values || {},
+                  sort_order: inner.sort_order ?? (r.sort_order * 100 + iIdx),
+                  ...(inner.values || {}),
+                });
+              });
+            } else {
+              sortedDbRows.push(r);
+            }
+          });
 
           // Base template contains OB, Receipts, and Disposals
           const loadedRows = makeDefaultRows(receiptRowsConfig, disposalRowsConfig);
@@ -813,13 +879,12 @@ export default function StockEntryForm({
               const values: Record<string, string> = {};
               parsedCols.forEach(col => {
                 const normKey = col.key.trim().replace(/\.+/g, '_').replace(/_+/g, '_').toLowerCase();
-                const dotKey = normKey.replace(/_/g, '.');
                 const targetNorm = col.key.toLowerCase().replace(/[^a-z0-9]/g, '');
 
                 let foundVal = '';
 
-                // Direct exact lookup first
-                const directVal = dbRow[col.key] ?? dbRow[normKey];
+                // Direct exact lookup first (checking dbRow.values, then dbRow root properties)
+                const directVal = dbRow.values?.[col.key] ?? dbRow.values?.[normKey] ?? dbRow[col.key] ?? dbRow[normKey];
                 if (directVal !== undefined && directVal !== null && directVal !== '') {
                   const numVal = typeof directVal === 'number' ? directVal : parseFloat(String(directVal));
                   if (!isNaN(numVal) && numVal !== 0) {
@@ -829,8 +894,9 @@ export default function StockEntryForm({
 
                 // Generic alphanumeric normalized lookup
                 if (!foundVal && targetNorm) {
-                  for (const [rk, rv] of Object.entries(dbRow)) {
-                    if (rv === undefined || rv === null || rv === '') continue;
+                  const searchSource = dbRow.values && Object.keys(dbRow.values).length > 0 ? { ...dbRow, ...dbRow.values } : dbRow;
+                  for (const [rk, rv] of Object.entries(searchSource)) {
+                    if (rv === undefined || rv === null || rv === '' || typeof rv === 'object') continue;
                     if (rk.toLowerCase().replace(/[^a-z0-9]/g, '') === targetNorm) {
                       const numVal = typeof rv === 'number' ? rv : parseFloat(String(rv));
                       if (!isNaN(numVal) && numVal !== 0) {
@@ -844,7 +910,7 @@ export default function StockEntryForm({
                 // Custom metadata fallback check
                 if (!foundVal && customValsRow && targetNorm) {
                   for (const [ck, cv] of Object.entries(customValsRow)) {
-                    if (cv === undefined || cv === null || cv === '') continue;
+                    if (cv === undefined || cv === null || cv === '' || typeof cv === 'object') continue;
                     if (ck.toLowerCase().replace(/[^a-z0-9]/g, '') === targetNorm) {
                       const numVal = typeof cv === 'number' ? cv : parseFloat(String(cv));
                       if (!isNaN(numVal) && numVal !== 0) {
@@ -857,10 +923,20 @@ export default function StockEntryForm({
 
                 if (foundVal) {
                   values[col.key] = foundVal;
-                  values[normKey] = foundVal;
-                  values[dotKey] = foundVal;
                 }
               });
+
+              // Merge any remaining explicit properties from dbRow.values avoiding dot duplicates
+              if (dbRow.values && typeof dbRow.values === 'object') {
+                Object.entries(dbRow.values).forEach(([colKey, val]) => {
+                  if (val !== undefined && val !== null && val !== '' && typeof val !== 'object') {
+                    const normK = colKey.trim().replace(/\.+/g, '_').replace(/_+/g, '_').toLowerCase();
+                    if (values[colKey] === undefined && values[normK] === undefined) {
+                      values[normK] = String(val);
+                    }
+                  }
+                });
+              }
 
               if (customValsRow) {
                 Object.entries(customValsRow).forEach(([colKey, val]) => {
@@ -969,7 +1045,6 @@ export default function StockEntryForm({
           }
 
           setRows(loadedRows);
-          await syncFromPreparationCharts();
         }
       } catch (err) {
         console.error('Error loading existing stock data:', err);
@@ -984,7 +1059,7 @@ export default function StockEntryForm({
     setRows(prev => {
       const next = [...prev];
       next[rowIdx] = { ...next[rowIdx], values: { ...next[rowIdx].values, [col]: val } };
-      return applyInternalMappings(next, internalRules);
+      return next;
     });
   };
 
@@ -1511,10 +1586,24 @@ export default function StockEntryForm({
 
       // 3. Map ALL columns dynamically to stock rows
       const stockRows = rows.map((r, i) => {
+        // Build clean normalized values object without duplicate dotted keys
+        const cleanValues: Record<string, string> = {};
+        if (r.values && typeof r.values === 'object') {
+          Object.entries(r.values).forEach(([k, v]) => {
+            const canonicalKey = k.trim().replace(/\.+/g, '_').replace(/_+/g, '_').toLowerCase();
+            if (v !== undefined && v !== null && v !== '') {
+              if (cleanValues[canonicalKey] === undefined || cleanValues[canonicalKey] === '0') {
+                cleanValues[canonicalKey] = String(v);
+              }
+            }
+          });
+        }
+
         const rowObj: Record<string, any> = {
           row_type: r.row_type,
           row_label: r.row_label,
           sort_order: i,
+          values: cleanValues,
         };
 
         columns.forEach(col => {
@@ -1522,22 +1611,21 @@ export default function StockEntryForm({
           const targetNorm = col.key.toLowerCase().replace(/[^a-z0-9]/g, '');
 
           let numVal = 0;
-          if (r.values) {
-            const direct = r.values[col.key] ?? r.values[normKey];
-            if (direct !== undefined && direct !== null && direct !== '') {
-              const parsed = typeof direct === 'number' ? direct : parseFloat(String(direct));
-              if (!isNaN(parsed) && parsed !== 0) numVal = parsed;
-            }
+          if (cleanValues[normKey] !== undefined) {
+            const parsed = parseFloat(String(cleanValues[normKey]));
+            if (!isNaN(parsed) && parsed !== 0) numVal = parsed;
+          } else if (cleanValues[col.key] !== undefined) {
+            const parsed = parseFloat(String(cleanValues[col.key]));
+            if (!isNaN(parsed) && parsed !== 0) numVal = parsed;
+          }
 
-            if (numVal === 0 && targetNorm) {
-              for (const [vk, vv] of Object.entries(r.values)) {
-                if (vv === undefined || vv === null || vv === '') continue;
-                if (vk.toLowerCase().replace(/[^a-z0-9]/g, '') === targetNorm) {
-                  const parsed = typeof vv === 'number' ? vv : parseFloat(String(vv));
-                  if (!isNaN(parsed) && parsed !== 0) {
-                    numVal = parsed;
-                    break;
-                  }
+          if (numVal === 0 && targetNorm) {
+            for (const [vk, vv] of Object.entries(cleanValues)) {
+              if (vk.toLowerCase().replace(/[^a-z0-9]/g, '') === targetNorm) {
+                const parsed = typeof vv === 'number' ? vv : parseFloat(String(vv));
+                if (!isNaN(parsed) && parsed !== 0) {
+                  numVal = parsed;
+                  break;
                 }
               }
             }
@@ -1662,10 +1750,11 @@ export default function StockEntryForm({
                     const nextUnlocked = !receiptsUnlocked;
                     setReceiptsUnlocked(nextUnlocked);
                     if (nextUnlocked) {
-                      setSuccess('Mapped Receipt cells unlocked. You can now update receipt values manually.');
+                      setSuccess('Receipts unlocked. You can now update receipt values manually.');
                       setTimeout(() => setSuccess(''), 4000);
                     } else {
-                      setRows(prev => applyInternalMappings(prev, internalRules, true));
+                      setSuccess('Receipts locked. Manual changes are saved.');
+                      setTimeout(() => setSuccess(''), 4000);
                     }
                   }}
                   style={{
@@ -1684,13 +1773,27 @@ export default function StockEntryForm({
                     cursor: 'pointer',
                   }}
                 >
-                  {receiptsUnlocked ? '🔒 Lock Mapped Receipts' : '✏️ Edit Mapped Receipts'}
+                  {receiptsUnlocked ? '🔒 Lock Receipts' : '✏️ Edit Receipts'}
                 </button>
                 <button
                   type="button"
                   className="btn btn-secondary btn-sm no-print"
-                  onClick={() => setRows(prev => applyInternalMappings(prev, internalRules, true))}
-                  title="Recalculate mapped Receipts from Disposals row totals"
+                  onClick={async () => {
+                    const count = await syncFromPreparationCharts();
+                    if (count > 0) {
+                      setReceiptsUnlocked(true);
+                      await showSuccess(
+                        `Synced ${count} preparation formulation batch quantity(ies) into Stock Statement Entry! Receipts unlocked for editing.`,
+                        'Preparation Charts Synced'
+                      );
+                    } else {
+                      await showWarning(
+                        `No saved preparation charts data found for ${entryDate}. Please ensure preparation charts are saved for this date.`,
+                        'No Preparation Charts Found'
+                      );
+                    }
+                  }}
+                  title="Auto-fill receipt quantities from saved Preparation Charts"
                   style={{
                     padding: '4px 10px',
                     fontSize: '0.72rem',
@@ -1700,14 +1803,50 @@ export default function StockEntryForm({
                     alignItems: 'center',
                     gap: 4,
                     borderRadius: 4,
-                    border: '1px solid #10b981',
-                    background: 'rgba(16, 185, 129, 0.1)',
-                    color: '#059669',
+                    border: '1px solid #0284c7',
+                    background: 'rgba(14, 165, 233, 0.1)',
+                    color: '#0284c7',
                     fontWeight: 600,
                     cursor: 'pointer',
                   }}
                 >
-                  ⚡ Sync Mapped Receipts
+                  ⚡ Sync from Prep Charts
+                </button>
+              </div>
+            )}
+            {isDisposalsSection && (
+              <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                <button
+                  type="button"
+                  className="btn btn-secondary btn-sm no-print"
+                  onClick={() => {
+                    const nextUnlocked = !disposalsUnlocked;
+                    setDisposalsUnlocked(nextUnlocked);
+                    if (nextUnlocked) {
+                      setSuccess('Disposals unlocked. You can now update disposal values manually.');
+                      setTimeout(() => setSuccess(''), 4000);
+                    } else {
+                      setSuccess('Disposals locked. Manual changes are saved.');
+                      setTimeout(() => setSuccess(''), 4000);
+                    }
+                  }}
+                  style={{
+                    padding: '4px 10px',
+                    fontSize: '0.72rem',
+                    height: 24,
+                    lineHeight: 1,
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: 4,
+                    borderRadius: 4,
+                    border: '1px solid var(--border)',
+                    background: disposalsUnlocked ? 'rgba(239, 68, 68, 0.1)' : 'rgba(245, 158, 11, 0.15)',
+                    color: disposalsUnlocked ? '#ef4444' : '#b45309',
+                    fontWeight: 600,
+                    cursor: 'pointer',
+                  }}
+                >
+                  {disposalsUnlocked ? '🔒 Lock Disposals' : '✏️ Edit Disposals'}
                 </button>
               </div>
             )}
@@ -1871,29 +2010,50 @@ export default function StockEntryForm({
                       )}
                     </td>
                     {columns.map(col => {
-                      const isMappedReceiptCell = isReceiptsSection && (
-                        internalRules.some(rule => rule.enabled !== false && (rule.targetReceiptProductKey || rule.sourceProductKey) === col.key) ||
-                        (internalRules.length === 0 && col.key === 'dlt_milk')
-                      );
-                      const isReadOnly = (isBalanceSection && !obUnlocked) || (isMappedReceiptCell && !receiptsUnlocked);
+                      const isReadOnly = (isBalanceSection && !obUnlocked) ||
+                                         (isReceiptsSection && !receiptsUnlocked) ||
+                                         (isDisposalsSection && !disposalsUnlocked);
+                      const isCellFocused = focusedRowIdx === i && focusedColKey === col.key;
+                      const displayVal = isCellFocused
+                        ? (r.values[col.key] || '')
+                        : formatCellVal(r.values[col.key], viewDecimals);
+
+                      const cellTitle = isReadOnly
+                        ? (isBalanceSection
+                            ? 'Opening Balance locked. Click ✏️ Edit OB to unlock.'
+                            : isReceiptsSection
+                            ? 'Receipts locked. Click ✏️ Edit Receipts to edit manually, or ⚡ Sync from Prep Charts to sync.'
+                            : 'Disposals locked. Click ✏️ Edit Disposals to edit manually.')
+                        : (isBalanceSection
+                            ? 'Opening Balance unlocked for manual editing.'
+                            : isReceiptsSection
+                            ? 'Receipts unlocked for manual editing.'
+                            : 'Disposals unlocked for manual editing.');
 
                       return (
                         <td key={col.key}>
                           <input
                             id={`stock-input-${i}-${col.key}`}
-                            type="number"
+                            type={isCellFocused ? 'number' : (viewDecimals === 'auto' ? 'number' : 'text')}
                             step="any"
+                            inputMode="decimal"
                             placeholder="0"
-                            value={r.values[col.key] || ''}
+                            value={displayVal}
                             onChange={e => updateCell(i, col.key, e.target.value)}
-                            onFocus={() => setFocusedRowIdx(i)}
+                            onFocus={() => {
+                              setFocusedRowIdx(i);
+                              setFocusedColKey(col.key);
+                            }}
+                            onBlur={() => {
+                              setFocusedColKey(prev => (prev === col.key ? null : prev));
+                            }}
                             onKeyDown={e => handleTableKeyDown(e, i, col.key)}
-                            title={isMappedReceiptCell ? (receiptsUnlocked ? 'Unlocked for manual edit' : 'Auto-calculated from Disposals row total. Click ✏️ Edit Mapped Receipts to unlock.') : undefined}
+                            title={cellTitle}
                             style={{
                               fontFamily: 'var(--font-numbers)',
                               backgroundColor: isReadOnly ? '#f8fafc' : (isFocusedRow ? 'rgba(255, 255, 255, 0.8)' : 'transparent'),
-                              color: isReadOnly ? (isMappedReceiptCell ? '#047857' : '#64748b') : 'inherit',
-                              fontWeight: isMappedReceiptCell ? 700 : (isFocusedRow ? 600 : 'normal'),
+                              color: isReadOnly ? '#64748b' : 'inherit',
+                              fontWeight: isFocusedRow ? 600 : 'normal',
                               cursor: isReadOnly ? 'not-allowed' : 'text',
                             }}
                             readOnly={isReadOnly}
@@ -1907,7 +2067,7 @@ export default function StockEntryForm({
                         type="text"
                         value={(() => {
                           const total = columns.reduce((sum, col) => sum + (parseFloat(r.values[col.key] || '0') || 0), 0);
-                          return total === 0 ? '' : total.toLocaleString('en-IN', { maximumFractionDigits: 3 });
+                          return total === 0 ? '' : formatSummaryVal(total, viewDecimals);
                         })()}
                         disabled
                         style={{
@@ -1984,14 +2144,14 @@ export default function StockEntryForm({
                   const val = getSectionSum('OB', col.key);
                   return (
                     <td key={col.key} style={{ textAlign: 'center', fontSize: '0.8rem', padding: '8px 4px', fontFamily: 'var(--font-numbers)' }}>
-                      {val === 0 ? '0' : val.toLocaleString('en-IN', { maximumFractionDigits: 3 })}
+                      {formatSummaryVal(val, viewDecimals)}
                     </td>
                   );
                 })}
                 <td style={{ textAlign: 'center', fontSize: '0.8rem', padding: '8px 4px', fontFamily: 'var(--font-numbers)', fontWeight: 700 }}>
                   {(() => {
                     const rowSum = columns.reduce((sum, col) => sum + getSectionSum('OB', col.key), 0);
-                    return rowSum === 0 ? '0' : rowSum.toLocaleString('en-IN', { maximumFractionDigits: 3 });
+                    return formatSummaryVal(rowSum, viewDecimals);
                   })()}
                 </td>
                 <td></td>
@@ -2003,14 +2163,14 @@ export default function StockEntryForm({
                   const val = getSectionSum('RECEIPT', col.key);
                   return (
                     <td key={col.key} style={{ textAlign: 'center', fontSize: '0.8rem', padding: '8px 4px', fontFamily: 'var(--font-numbers)' }}>
-                      {val === 0 ? '0' : val.toLocaleString('en-IN', { maximumFractionDigits: 3 })}
+                      {formatSummaryVal(val, viewDecimals)}
                     </td>
                   );
                 })}
                 <td style={{ textAlign: 'center', fontSize: '0.8rem', padding: '8px 4px', fontFamily: 'var(--font-numbers)', fontWeight: 700 }}>
                   {(() => {
                     const rowSum = columns.reduce((sum, col) => sum + getSectionSum('RECEIPT', col.key), 0);
-                    return rowSum === 0 ? '0' : rowSum.toLocaleString('en-IN', { maximumFractionDigits: 3 });
+                    return formatSummaryVal(rowSum, viewDecimals);
                   })()}
                 </td>
                 <td></td>
@@ -2024,14 +2184,14 @@ export default function StockEntryForm({
                   const val = obVal + recVal;
                   return (
                     <td key={col.key} style={{ textAlign: 'center', fontSize: '0.8rem', fontWeight: 700, padding: '8px 4px', fontFamily: 'var(--font-numbers)' }}>
-                      {val === 0 ? '0' : val.toLocaleString('en-IN', { maximumFractionDigits: 3 })}
+                      {formatSummaryVal(val, viewDecimals)}
                     </td>
                   );
                 })}
                 <td style={{ textAlign: 'center', fontSize: '0.8rem', padding: '8px 4px', fontFamily: 'var(--font-numbers)', fontWeight: 700 }}>
                   {(() => {
                     const rowSum = columns.reduce((sum, col) => sum + (getSectionSum('OB', col.key) + getSectionSum('RECEIPT', col.key)), 0);
-                    return rowSum === 0 ? '0' : rowSum.toLocaleString('en-IN', { maximumFractionDigits: 3 });
+                    return formatSummaryVal(rowSum, viewDecimals);
                   })()}
                 </td>
                 <td></td>
@@ -2043,14 +2203,14 @@ export default function StockEntryForm({
                   const val = getSectionSum('DISPOSAL', col.key);
                   return (
                     <td key={col.key} style={{ textAlign: 'center', fontSize: '0.8rem', padding: '8px 4px', fontFamily: 'var(--font-numbers)' }}>
-                      {val === 0 ? '0' : val.toLocaleString('en-IN', { maximumFractionDigits: 3 })}
+                      {formatSummaryVal(val, viewDecimals)}
                     </td>
                   );
                 })}
                 <td style={{ textAlign: 'center', fontSize: '0.8rem', padding: '8px 4px', fontFamily: 'var(--font-numbers)', fontWeight: 700 }}>
                   {(() => {
                     const rowSum = columns.reduce((sum, col) => sum + getSectionSum('DISPOSAL', col.key), 0);
-                    return rowSum === 0 ? '0' : rowSum.toLocaleString('en-IN', { maximumFractionDigits: 3 });
+                    return formatSummaryVal(rowSum, viewDecimals);
                   })()}
                 </td>
                 <td></td>
@@ -2065,7 +2225,7 @@ export default function StockEntryForm({
                   const val = obVal + recVal - dispVal;
                   return (
                     <td key={col.key} style={{ textAlign: 'center', fontSize: '0.8rem', fontWeight: 700, padding: '8px 4px', color: val < 0 ? '#ef4444' : 'inherit', fontFamily: 'var(--font-numbers)' }}>
-                      {val === 0 ? '0' : val.toLocaleString('en-IN', { maximumFractionDigits: 3 })}
+                      {formatSummaryVal(val, viewDecimals)}
                     </td>
                   );
                 })}
@@ -2077,7 +2237,7 @@ export default function StockEntryForm({
                       const dispVal = getSectionSum('DISPOSAL', col.key);
                       return sum + (obVal + recVal - dispVal);
                     }, 0);
-                    return rowSum === 0 ? '0' : rowSum.toLocaleString('en-IN', { maximumFractionDigits: 3 });
+                    return formatSummaryVal(rowSum, viewDecimals);
                   })()}
                 </td>
                 <td></td>
@@ -2105,9 +2265,9 @@ export default function StockEntryForm({
         router.push(`/dashboard/stock/preparation-charts?date=${entryDate}&shift=${s}`);
       }
     } else if (key === 'stg') {
-      router.push(`/dashboard/ts/new-stg?date=${entryDate}&shift=${s}`);
+      router.push(`/dashboard/stock/new?step=stg&date=${entryDate}&shift=${s}`);
     } else if (key === 'ts') {
-      router.push(`/dashboard/ts/new?date=${entryDate}&shift=${s}`);
+      router.push(`/dashboard/stock/new?step=ts&date=${entryDate}&shift=${s}`);
     } else if (key === 'reports') {
       router.push(`/dashboard/ts/${entryDate}?shift=${s}`);
     }
@@ -2484,8 +2644,9 @@ export default function StockEntryForm({
                   onClick={async () => {
                     const count = await syncFromPreparationCharts();
                     if (count > 0) {
+                      setReceiptsUnlocked(true);
                       await showSuccess(
-                        `Synced ${count} preparation formulation batch quantity(ies) into Stock Statement Entry Receipts!`,
+                        `Synced ${count} preparation formulation batch quantity(ies) into Stock Statement Entry! Receipts unlocked for editing.`,
                         'Preparation Charts Synced'
                       );
                     } else {
@@ -2515,6 +2676,55 @@ export default function StockEntryForm({
                 >
                   📥 Excel
                 </button>
+
+                {/* Decimal View Precision Selector */}
+                <div
+                  style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    backgroundColor: '#f8fafc',
+                    border: '1px solid #cbd5e1',
+                    borderRadius: 6,
+                    padding: '2px 4px',
+                    gap: 2,
+                    marginLeft: 4,
+                  }}
+                  title="Toggle decimal precision across all cells and totals in the statement"
+                >
+                  <span style={{ fontSize: '0.7rem', fontWeight: 700, color: '#475569', padding: '0 4px', display: 'flex', alignItems: 'center', gap: 3 }}>
+                    🔢 View:
+                  </span>
+                  {([
+                    { key: 'auto', label: 'Auto' },
+                    { key: 0, label: '.0 Whole' },
+                    { key: 1, label: '.1 Dec' },
+                    { key: 2, label: '.2 Decs' },
+                    { key: 3, label: '.3 Decs' },
+                  ] as const).map(opt => {
+                    const active = viewDecimals === opt.key;
+                    return (
+                      <button
+                        key={String(opt.key)}
+                        type="button"
+                        onClick={() => setViewDecimals(opt.key)}
+                        style={{
+                          border: active ? '1px solid #0284c7' : '1px solid transparent',
+                          borderRadius: 4,
+                          padding: '2px 7px',
+                          fontSize: '0.72rem',
+                          fontWeight: active ? 700 : 500,
+                          backgroundColor: active ? '#0284c7' : 'transparent',
+                          color: active ? '#ffffff' : '#64748b',
+                          cursor: 'pointer',
+                          boxShadow: active ? '0 1px 2px rgba(2,132,199,0.2)' : 'none',
+                          transition: 'all 0.15s ease',
+                        }}
+                      >
+                        {opt.label}
+                      </button>
+                    );
+                  })}
+                </div>
               </div>
             </div>
             <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
@@ -2537,7 +2747,11 @@ export default function StockEntryForm({
                     await handleSave('next');
                   } else {
                     await handleSave('stay');
-                    router.push(`/dashboard/ts/new-stg?date=${entryDate}${shift ? `&shift=${shift}` : ''}`);
+                    if (onStepChange) {
+                      onStepChange('stg');
+                    } else {
+                      router.push(`/dashboard/stock/new?step=stg&date=${entryDate}${shift ? `&shift=${shift}` : ''}`);
+                    }
                   }
                 }}
                 style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 16px', fontWeight: 600, background: 'linear-gradient(135deg, #0284c7 0%, #0d9488 100%)', borderColor: '#0284c7' }}
@@ -2688,7 +2902,11 @@ export default function StockEntryForm({
                   className="btn btn-primary"
                   onClick={async () => {
                     await handleSave('stay');
-                    router.push(`/dashboard/ts/new-stg?date=${entryDate}${shift ? `&shift=${shift}` : ''}`);
+                    if (onStepChange) {
+                      onStepChange('stg');
+                    } else {
+                      router.push(`/dashboard/stock/new?step=stg&date=${entryDate}${shift ? `&shift=${shift}` : ''}`);
+                    }
                   }}
                   disabled={saving}
                   style={{ display: 'flex', alignItems: 'center', gap: 6, background: 'linear-gradient(135deg, #0284c7 0%, #0d9488 100%)', borderColor: '#0284c7' }}

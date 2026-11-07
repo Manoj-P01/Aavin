@@ -67,19 +67,32 @@ export interface StockRow {
   entry_id: string;
   row_type: StockRowType;
   row_label: string;
-  wh_milk: number;
-  dlt_milk: number;
-  fc_milk: number;
-  std_milk: number;
-  toned_curd: number;
-  dtm: number;
-  skim_milk: number;
-  cream: number;
-  butter_milk: number;
-  r_con: number;
-  smp: number;
-  water: number;
+  entry_json?: {
+    rows: Array<{
+      row_label?: string;
+      values?: Record<string, number | string>;
+      sort_order?: number;
+      [key: string]: any;
+    }>;
+    [key: string]: any;
+  };
+  values?: Record<string, number | string>;
   sort_order: number;
+  // Optional legacy numeric columns for backwards compatibility
+  wh_milk?: number;
+  dlt_milk?: number;
+  fc_milk?: number;
+  std_milk?: number;
+  toned_milk?: number;
+  toned_curd?: number;
+  dtm?: number;
+  skim_milk?: number;
+  cream?: number;
+  butter_milk?: number;
+  r_con?: number;
+  smp?: number;
+  water?: number;
+  [key: string]: any;
 }
 
 export interface SeparationDetails {

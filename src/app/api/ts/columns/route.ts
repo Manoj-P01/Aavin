@@ -13,6 +13,17 @@ export interface STGColumnDef {
   is_active?: boolean;
 }
 
+export const DEFAULT_STG_COLUMNS: STGColumnDef[] = [
+  { key: 'variant', name: 'VARIANT', type: 'text', sort_order: 1 },
+  { key: 'qty_lts', name: 'QTY (LTS)', type: 'number', decimals: 0, sort_order: 2 },
+  { key: 'sp_gr', name: 'SP.GR', type: 'number', decimals: 4, sort_order: 3 },
+  { key: 'qty_kg', name: 'QTY (KG)', type: 'calculated', formula: 'qty_lts * sp_gr', decimals: 2, sort_order: 4 },
+  { key: 'fat_pct', name: 'FAT (%)', type: 'number', decimals: 2, sort_order: 5 },
+  { key: 'snf_pct', name: 'SNF (%)', type: 'number', decimals: 2, sort_order: 6 },
+  { key: 'kg_fat', name: 'KG FAT', type: 'calculated', formula: 'qty_kg * fat_pct / 100', decimals: 3, sort_order: 7 },
+  { key: 'kg_snf', name: 'KG SNF', type: 'calculated', formula: 'qty_kg * snf_pct / 100', decimals: 3, sort_order: 8 },
+];
+
 // GET /api/ts/columns - Fetch STG column definitions strictly from DB table prep_chart_configs
 export async function GET(req: NextRequest) {
   try {
@@ -25,14 +36,16 @@ export async function GET(req: NextRequest) {
       .maybeSingle();
 
     let columns: STGColumnDef[] = [];
-    if (!error && res && Array.isArray(res.config_json)) {
+    if (!error && res && Array.isArray(res.config_json) && res.config_json.length > 0) {
       columns = res.config_json;
+    } else {
+      columns = DEFAULT_STG_COLUMNS;
     }
 
     return NextResponse.json({ success: true, columns });
   } catch (err: any) {
     console.error('GET /api/ts/columns error:', err);
-    return NextResponse.json({ error: err.message || 'Failed to fetch STG columns' }, { status: 500 });
+    return NextResponse.json({ success: true, columns: DEFAULT_STG_COLUMNS });
   }
 }
 

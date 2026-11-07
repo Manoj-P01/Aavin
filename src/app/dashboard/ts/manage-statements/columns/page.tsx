@@ -128,7 +128,7 @@ export default function STGColumnsPage() {
       key: keyToUse,
       name: formName.trim().toUpperCase(),
       type: formType,
-      formula: formType === 'calculated' ? formFormula.trim() : undefined,
+      formula: undefined,
       unit: formUnit.trim() || undefined,
       decimals: formDecimals,
       sort_order: editingKey ? (columns.find(c => c.key === editingKey)?.sort_order || columns.length + 1) : columns.length + 1,
@@ -195,7 +195,7 @@ export default function STGColumnsPage() {
           <div style={{ fontWeight: 700, fontSize: '0.9rem', color: 'var(--brand-primary)', marginBottom: 4 }}>⚙️ Dynamic STG Column Engine</div>
           <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', lineHeight: 1.5 }}>
             Columns defined here appear in all <strong>RECEIPT AND DISPOSAL STATEMENT</strong> tables for every statement master (WM, SSM, CREAM, SMP, etc.).
-            Calculated columns like <code>Qty (Kg) = Qty (Lts) × Sp.Gr</code> execute formulas live during entry.
+            Formulas (=...) are entered directly into Statement Master cells and computed live.
           </div>
         </div>
 
@@ -222,7 +222,6 @@ export default function STGColumnsPage() {
                     <th>Column Name</th>
                     <th>Field Key</th>
                     <th>Data Type</th>
-                    <th>Formula / Rule</th>
                     <th>Unit</th>
                     <th>Decimal Places</th>
                     <th style={{ width: 150, textAlign: 'center' }}>Actions</th>
@@ -237,14 +236,11 @@ export default function STGColumnsPage() {
                       <td>
                         <span style={{
                           padding: '2px 8px', borderRadius: 10, fontSize: '0.72rem', fontWeight: 700,
-                          background: col.type === 'calculated' ? '#e0e7ff' : col.type === 'number' ? '#e0f2fe' : '#f1f5f9',
-                          color: col.type === 'calculated' ? '#3730a3' : col.type === 'number' ? '#0369a1' : '#475569',
+                          background: col.type === 'text' ? '#f1f5f9' : '#e0f2fe',
+                          color: col.type === 'text' ? '#475569' : '#0369a1',
                         }}>
-                          {col.type.toUpperCase()}
+                          {col.type === 'text' ? 'TEXT' : 'NUMERIC'}
                         </span>
-                      </td>
-                      <td style={{ fontSize: '0.8rem', fontFamily: col.type === 'calculated' ? 'monospace' : 'inherit', color: col.type === 'calculated' ? '#4338ca' : 'var(--text-muted)' }}>
-                        {col.formula || '—'}
                       </td>
                       <td style={{ fontSize: '0.8rem' }}>{col.unit || '—'}</td>
                       <td>
@@ -292,10 +288,9 @@ export default function STGColumnsPage() {
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12 }}>
                 <div>
                   <label className="form-label" style={{ fontWeight: 600 }}>Data Type</label>
-                  <select className="form-select" value={formType} onChange={e => setFormType(e.target.value as any)}>
-                    <option value="number">Number (Input)</option>
+                  <select className="form-select" value={formType === 'text' ? 'text' : 'number'} onChange={e => setFormType(e.target.value as any)}>
+                    <option value="number">Number</option>
                     <option value="text">Text (Label)</option>
-                    <option value="calculated">Calculated (Formula)</option>
                   </select>
                 </div>
                 <div>
@@ -314,16 +309,9 @@ export default function STGColumnsPage() {
                   <input type="text" className="form-input" placeholder="e.g. Lts, Kg, %" value={formUnit} onChange={e => setFormUnit(e.target.value)} />
                 </div>
               </div>
-              {formType === 'calculated' && (
-                <div>
-                  <label className="form-label" style={{ fontWeight: 600 }}>Formula Expression</label>
-                  <input type="text" className="form-input" placeholder="e.g. qty_lts * sp_gr or qty_kg * fat_pct / 100" value={formFormula}
-                    onChange={e => setFormFormula(e.target.value)} style={{ fontFamily: 'monospace' }} />
-                  <div style={{ fontSize: '0.72rem', color: '#0369a1', marginTop: 4 }}>
-                    Use field keys: <code>qty_lts * sp_gr</code> or <code>qty_kg * fat_pct / 100</code>
-                  </div>
-                </div>
-              )}
+              <div style={{ fontSize: '0.75rem', color: '#64748b' }}>
+                Formulas (=...) are added directly in Statement Master cells.
+              </div>
               <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, paddingTop: 10, borderTop: '1px solid var(--border)' }}>
                 <button type="button" className="btn btn-secondary btn-sm" onClick={() => setIsModalOpen(false)}>Cancel</button>
                 <button type="submit" className="btn btn-primary btn-sm">{editingKey ? '💾 Update Column' : '➕ Save Column'}</button>

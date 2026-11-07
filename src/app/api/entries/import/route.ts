@@ -340,9 +340,66 @@ export async function POST(req: NextRequest) {
             supabase.from('separation_details').delete().eq('entry_id', entryId),
           ]);
 
-          await supabase.from('stock_rows').insert(
-            stockRows.map((r, sort_order) => ({ ...r, entry_id: entryId, sort_order }))
-          );
+          const sectionTypes: Array<{ type: 'OB' | 'RECEIPT' | 'DISPOSAL'; label: string; order: number }> = [
+            { type: 'OB', label: 'Opening Balance', order: 0 },
+            { type: 'RECEIPT', label: 'Receipts', order: 1 },
+            { type: 'DISPOSAL', label: 'Disposals', order: 2 },
+          ];
+
+          const rowsToInsert: any[] = [];
+          sectionTypes.forEach(sec => {
+            const matching = stockRows.filter((r: any) => r.row_type === sec.type);
+            if (matching.length === 0 && sec.type !== 'OB') return;
+
+            const innerRows = matching.map((r: any, idx: number) => {
+              const vals: Record<string, number> = {};
+              Object.entries(r).forEach(([k, v]) => {
+                if (!['entry_id', 'row_type', 'row_label', 'sort_order', 'entry_json', 'values', 'id', 'created_at', 'updated_at', 'created_by', 'updated_by'].includes(k) && typeof v !== 'object') {
+                  const normK = k.trim().replace(/\.+/g, '_').replace(/_+/g, '_').toLowerCase();
+                  vals[normK] = Number(v) || 0;
+                }
+              });
+
+              if (r.values && typeof r.values === 'object') {
+                Object.entries(r.values).forEach(([vk, vv]) => {
+                  const normVK = vk.trim().replace(/\.+/g, '_').replace(/_+/g, '_').toLowerCase();
+                  const num = Number(vv) || 0;
+                  if (vals[normVK] === undefined || (vals[normVK] === 0 && num !== 0)) {
+                    vals[normVK] = num;
+                  }
+                });
+              }
+
+              return {
+                row_label: r.row_label || '',
+                values: vals,
+                sort_order: idx,
+              };
+            });
+
+            rowsToInsert.push({
+              entry_id: entryId,
+              row_type: sec.type,
+              row_label: sec.label,
+              sort_order: sec.order,
+              entry_json: {
+                rows: innerRows,
+              },
+            });
+          });
+
+          if (rowsToInsert.length > 0) {
+            const { error: insertErr } = await supabase.from('stock_rows').insert(rowsToInsert);
+            if (insertErr && String(insertErr.message || '').toLowerCase().includes('entry_json')) {
+              const fallbackRows = (stockRows || []).map((r: any, idx: number) => ({
+                entry_id: entryId,
+                row_type: r.row_type,
+                row_label: r.row_label,
+                sort_order: r.sort_order ?? idx,
+              }));
+              await supabase.from('stock_rows').insert(fallbackRows);
+            }
+          }
         }
         importedCount++;
       }

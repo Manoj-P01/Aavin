@@ -59,7 +59,7 @@ export default function TSListPage() {
         subtitle="Daily TS report history"
         actions={
           <div style={{ display: 'flex', gap: 8 }}>
-            <Link href="/dashboard/ts/new-stg" className="btn btn-secondary btn-sm">➕ New STG Entry</Link>
+            <Link href="/dashboard/stock/new?step=stg" className="btn btn-secondary btn-sm">➕ New STG Entry</Link>
             <Link href="/dashboard/ts/new" className="btn btn-primary btn-sm">➕ New TS Entry</Link>
           </div>
         }

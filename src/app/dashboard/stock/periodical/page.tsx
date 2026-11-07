@@ -291,7 +291,24 @@ export default function PeriodicalSummaryReportPage() {
       try {
         const rawPayload = (e as any).stock_rows || (e as any).rows || (e as any).data || e.notes;
         if (Array.isArray(rawPayload)) {
-          rowsData = rawPayload;
+          const unpacked: any[] = [];
+          rawPayload.forEach((r: any) => {
+            const entryJson = typeof r.entry_json === 'string' ? JSON.parse(r.entry_json) : (r.entry_json || {});
+            const isSectionParent = ['Opening Balance', 'Receipts', 'Disposals'].includes(r.row_label) && Array.isArray(entryJson?.rows);
+            if (isSectionParent && entryJson.rows.length > 0) {
+              entryJson.rows.forEach((inner: any) => {
+                unpacked.push({
+                  ...inner,
+                  row_type: inner.row_type || r.row_type,
+                  row_label: inner.row_label || r.row_label,
+                  values: inner.values || {},
+                });
+              });
+            } else {
+              unpacked.push(r);
+            }
+          });
+          rowsData = unpacked;
         } else if (typeof rawPayload === 'string') {
           if (!rawPayload.includes('__METADATA__:')) {
             const parsed = JSON.parse(rawPayload);

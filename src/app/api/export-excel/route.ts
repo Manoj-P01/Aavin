@@ -5,12 +5,13 @@ import { generateDynamicBalanceRows, calcTSTotals } from '@/lib/calculations';
 import type { Shift, TSMilkRow, STGRow, StockRow } from '@/lib/types';
 
 // Helper to create styled cell objects
-function cell(value: any, opts?: { isHeader?: boolean; isBold?: boolean; isNum?: boolean; isTitle?: boolean; alignment?: string; noBorder?: boolean }) {
+function cell(value: any, opts?: { isHeader?: boolean; isBold?: boolean; isNum?: boolean; isTitle?: boolean; alignment?: string; noBorder?: boolean; noColor?: boolean }) {
   const isHeader = opts?.isHeader ?? false;
   const isBold = opts?.isBold ?? false;
   const isNum = opts?.isNum ?? false;
   const isTitle = opts?.isTitle ?? false;
   const noBorder = opts?.noBorder ?? false;
+  const noColor = opts?.noColor ?? false;
 
   let type = 's';
   if (typeof value === 'number') {
@@ -40,10 +41,12 @@ function cell(value: any, opts?: { isHeader?: boolean; isBold?: boolean; isNum?:
     };
   }
 
-  if (isTitle) {
-    style.fill = { fgColor: { rgb: 'F1F5F9' } };
-  } else if (isHeader) {
-    style.fill = { fgColor: { rgb: 'E2E8F0' } };
+  if (!noColor) {
+    if (isTitle) {
+      style.fill = { fgColor: { rgb: 'F1F5F9' } };
+    } else if (isHeader) {
+      style.fill = { fgColor: { rgb: 'E2E8F0' } };
+    }
   }
 
   return { v: value === null || value === undefined ? '' : value, t: type, s: style };
@@ -401,7 +404,22 @@ async function getStockEntriesForPeriod(startDate: string, endDate: string) {
   const rowsByEntryId: Record<string, StockRow[]> = {};
   (allRows || []).forEach((r: any) => {
     if (!rowsByEntryId[r.entry_id]) rowsByEntryId[r.entry_id] = [];
-    rowsByEntryId[r.entry_id].push(r);
+    const entryJson = typeof r.entry_json === 'string' ? JSON.parse(r.entry_json) : (r.entry_json || {});
+    if (Array.isArray(entryJson.rows) && entryJson.rows.length > 0) {
+      entryJson.rows.forEach((inner: any, iIdx: number) => {
+        rowsByEntryId[r.entry_id].push({
+          id: `${r.id}_${iIdx}`,
+          entry_id: r.entry_id,
+          row_type: inner.row_type || r.row_type,
+          row_label: inner.row_label || r.row_label,
+          values: inner.values || {},
+          sort_order: inner.sort_order ?? (r.sort_order * 100 + iIdx),
+          ...(inner.values || {}),
+        } as any);
+      });
+    } else {
+      rowsByEntryId[r.entry_id].push(r);
+    }
   });
 
   return entries.map((entry: any) => ({
@@ -554,7 +572,28 @@ export async function GET(req: NextRequest) {
           .select('*')
           .in('entry_id', stockEntryIds)
           .order('sort_order', { ascending: true });
-        if (stockRes.data) stockRowsData = stockRes.data as StockRow[];
+        if (stockRes.data) {
+          const unpacked: any[] = [];
+          stockRes.data.forEach((r: any) => {
+            const entryJson = typeof r.entry_json === 'string' ? JSON.parse(r.entry_json) : (r.entry_json || {});
+            if (Array.isArray(entryJson.rows) && entryJson.rows.length > 0) {
+              entryJson.rows.forEach((inner: any, iIdx: number) => {
+                unpacked.push({
+                  id: `${r.id}_${iIdx}`,
+                  entry_id: r.entry_id,
+                  row_type: inner.row_type || r.row_type,
+                  row_label: inner.row_label || r.row_label,
+                  values: inner.values || {},
+                  sort_order: inner.sort_order ?? (r.sort_order * 100 + iIdx),
+                  ...(inner.values || {}),
+                });
+              });
+            } else {
+              unpacked.push(r);
+            }
+          });
+          stockRowsData = unpacked as StockRow[];
+        }
       }
     }
 
@@ -843,8 +882,10 @@ export async function GET(req: NextRequest) {
       XLSX.utils.book_append_sheet(wb, tsWs, 'TS');
     }
 
-    // 4. Build STG Report Sheet (All blocks inside a single sheet named 'STG')
-    if (includeStg && stgRowsData.length > 0) {
+        // 4. Build STG Report Sheet (All blocks inside a single sheet named 'STG', plain uncolored style matching 01-05-2026-TS.xlsx)
+    if (includeStg) {
+      const stgCell = (value: any, opts?: Parameters<typeof cell>[1]) => cell(value, { ...opts, noColor: true });
+
       let customStatements: Array<{ key: string; label: string }> = [];
       let customBlocks: Record<string, any> = {};
       let cmpddNorms: Record<string, string> = {};
@@ -864,6 +905,37 @@ export async function GET(req: NextRequest) {
         });
       }
 
+      // Fetch statement masters dynamically from database if not embedded in notes
+      if (customStatements.length === 0) {
+        try {
+          // 1. Try dedicated stg_masters table
+          const { data: stgTableRows, error: stgTableErr } = await supabase
+            .from('stg_masters')
+            .select('key, label, variant')
+            .order('sort_order', { ascending: true });
+
+          if (!stgTableErr && Array.isArray(stgTableRows) && stgTableRows.length > 0) {
+            customStatements = stgTableRows.map((m: any) => ({
+              key: m.key,
+              label: m.label || m.variant || m.key,
+            }));
+          } else {
+            // 2. Fallback to prep_chart_configs
+            const { data: dbMasters } = await supabase
+              .from('prep_chart_configs')
+              .select('config_json')
+              .eq('config_key', 'stg_masters')
+              .maybeSingle();
+            if (dbMasters && Array.isArray(dbMasters.config_json)) {
+              customStatements = dbMasters.config_json.map((m: any) => ({
+                key: m.key,
+                label: m.label || m.name || m.key,
+              }));
+            }
+          }
+        } catch (e) {}
+      }
+
       const blockMap = new Map<string, { key: string; label: string }>();
       if (customStatements && customStatements.length > 0) {
         customStatements.forEach(s => { if (s && s.key) blockMap.set(s.key, s); });
@@ -876,263 +948,278 @@ export async function GET(req: NextRequest) {
       });
       const allBlocks = Array.from(blockMap.values());
 
-      // Master array for single STG sheet data
-      const stgSheetData: any[][] = [
-        [
-          cell('NAMAKKAL DISTRICT CO-OPERATIVE MILK PRODUCERS\' UNION LTD', { isBold: true, noBorder: true })
-        ],
-        [
-          cell('SOLID BALANCE DETAILS (STG)', { isBold: true, noBorder: true }),
-          ...new Array(16).fill(cell('', { noBorder: true })),
-          cell(new Date(date).toLocaleDateString('en-IN'), { isBold: true, noBorder: true, alignment: 'right' })
-        ]
-      ];
+      if (allBlocks.length > 0 || stgRowsData.length > 0) {
+        // Master array for single STG sheet data (uncolored, plain matching 01-05-2026-TS.xlsx)
+        const stgSheetData: any[][] = [
+          [
+            stgCell('NAMAKKAL DISTRICT CO-OPERATIVE MILK PRODUCER\'S UNION LTD., NAMAKKAL', { isBold: true, noBorder: true })
+          ],
+          [
+            stgCell('NAMAKKAL UNION- SOLID BALANCE DETAILS', { isBold: true, noBorder: true }),
+            ...new Array(16).fill(stgCell('', { noBorder: true })),
+            stgCell('DATE', { isBold: true, noBorder: true, alignment: 'right' })
+          ]
+        ];
 
-      const stgMerges: XLSX.Range[] = [
-        { s: { r: 0, c: 0 }, e: { r: 0, c: 17 } },
-        { s: { r: 1, c: 0 }, e: { r: 1, c: 15 } }
-      ];
+        const stgMerges: XLSX.Range[] = [
+          { s: { r: 0, c: 0 }, e: { r: 0, c: 17 } },
+          { s: { r: 1, c: 0 }, e: { r: 1, c: 15 } }
+        ];
 
-      allBlocks.forEach((blockInfo, blockIndex) => {
-        const block = blockInfo.key;
-        let blockRows = stgRowsData.filter(r => r.product_block === block);
+        allBlocks.forEach((blockInfo, blockIndex) => {
+          const block = blockInfo.key;
+          let blockRows = stgRowsData.filter(r => r.product_block === block);
 
-        if (customBlocks[block]) {
-          const bState = customBlocks[block];
-          const makeRow = (itemName: string, side: 'RECEIPT' | 'DISPOSAL', itemState: any): STGRow => ({
-            id: '',
-            entry_id: '',
-            product_block: block,
-            side,
-            item_name: itemName,
-            qty_lts: parseFloat(itemState.qty_lts) || 0,
-            qty_kg: parseFloat(itemState.qty_kg) || 0,
-            fat_pct: parseFloat(itemState.fat_pct) || 0,
-            snf_pct: parseFloat(itemState.snf_pct) || 0,
-            sp_gr: parseFloat(itemState.sp_gr) || 0,
-            kg_fat: parseFloat(itemState.kg_fat) || 0,
-            kg_snf: parseFloat(itemState.kg_snf) || 0,
-            sort_order: 0,
+          if (customBlocks[block]) {
+            const bState = customBlocks[block];
+            const makeRowFromState = (itemName: string, side: 'RECEIPT' | 'DISPOSAL', itemState: any): STGRow => ({
+              id: '',
+              entry_id: '',
+              product_block: block,
+              side,
+              item_name: itemName,
+              qty_lts: parseFloat(itemState?.qty_lts) || 0,
+              qty_kg: parseFloat(itemState?.qty_kg) || 0,
+              fat_pct: parseFloat(itemState?.fat_pct) || 0,
+              snf_pct: parseFloat(itemState?.snf_pct) || 0,
+              sp_gr: parseFloat(itemState?.sp_gr) || 0,
+              kg_fat: parseFloat(itemState?.kg_fat) || 0,
+              kg_snf: parseFloat(itemState?.kg_snf) || 0,
+              sort_order: 0,
+            });
+
+            const constructedRows: STGRow[] = [];
+            if (bState.opening_balance) {
+              constructedRows.push(makeRowFromState('OB', 'RECEIPT', bState.opening_balance));
+            }
+
+            if (Array.isArray(bState.rows) && bState.rows.length > 0) {
+              bState.rows.forEach((r: any) => {
+                const varName = r.variant || r.values?.variant || '';
+                const side = (r.side || r.row_type || 'RECEIPT') as 'RECEIPT' | 'DISPOSAL';
+                constructedRows.push(makeRowFromState(varName, side, r.values || r));
+              });
+            } else {
+              if (Array.isArray(bState.receipts)) {
+                bState.receipts.forEach((r: any) => constructedRows.push(makeRowFromState(r.item_name || r.variant, 'RECEIPT', r)));
+              }
+              if (Array.isArray(bState.disposals)) {
+                bState.disposals.forEach((d: any) => constructedRows.push(makeRowFromState(d.item_name || d.variant, 'DISPOSAL', d)));
+              }
+            }
+
+            if (bState.physical_count) {
+              constructedRows.push(makeRowFromState('CB', 'DISPOSAL', bState.physical_count));
+            }
+
+            if (constructedRows.length > 0) {
+              blockRows = constructedRows;
+            }
+          }
+
+          if (blockRows.length === 0) return;
+
+          const obRow = blockRows.find(r => r.item_name === 'OB');
+          const cbRow = blockRows.find(r => r.item_name === 'CB');
+          const receipts = blockRows.filter(r => r.side === 'RECEIPT' && r.item_name !== 'OB');
+          const disposals = blockRows.filter(r => r.side === 'DISPOSAL' && r.item_name !== 'CB');
+
+          const maxLen = Math.max(receipts.length, disposals.length);
+          const alignedRows: { r?: STGRow; d?: STGRow }[] = [];
+          for (let i = 0; i < maxLen; i++) {
+            alignedRows.push({ r: receipts[i], d: disposals[i] });
+          }
+
+          const totRec = {
+            lts: receipts.reduce((a, r) => a + r.qty_lts, 0),
+            kg: receipts.reduce((a, r) => a + r.qty_kg, 0),
+            fat: receipts.reduce((a, r) => a + r.kg_fat, 0),
+            snf: receipts.reduce((a, r) => a + r.kg_snf, 0),
+          };
+          const totDisp = {
+            lts: disposals.reduce((a, r) => a + r.qty_lts, 0),
+            kg: disposals.reduce((a, r) => a + r.qty_kg, 0),
+            fat: disposals.reduce((a, r) => a + r.kg_fat, 0),
+            snf: disposals.reduce((a, r) => a + r.kg_snf, 0),
+          };
+
+          const obVal = {
+            lts: obRow ? obRow.qty_lts : 0,
+            kg: obRow ? obRow.qty_kg : 0,
+            fat_pct: obRow ? obRow.fat_pct : 0,
+            snf_pct: obRow ? obRow.snf_pct : 0,
+            sp_gr: obRow ? obRow.sp_gr : 0,
+            fat: obRow ? obRow.kg_fat : 0,
+            snf: obRow ? obRow.kg_snf : 0,
+          };
+
+          const physicalCB = {
+            lts: cbRow ? cbRow.qty_lts : 0,
+            kg: cbRow ? cbRow.qty_kg : 0,
+            fat_pct: cbRow ? cbRow.fat_pct : 0,
+            snf_pct: cbRow ? cbRow.snf_pct : 0,
+            sp_gr: cbRow ? cbRow.sp_gr : 0,
+            fat: cbRow ? cbRow.kg_fat : 0,
+            snf: cbRow ? cbRow.kg_snf : 0,
+          };
+
+          const grandRec = {
+            lts: obVal.lts + totRec.lts,
+            kg: obVal.kg + totRec.kg,
+            fat: obVal.fat + totRec.fat,
+            snf: obVal.snf + totRec.snf,
+          };
+
+          const cbCalculated = {
+            lts: grandRec.lts - totDisp.lts,
+            kg: grandRec.kg - totDisp.kg,
+            fat: grandRec.fat - totDisp.fat,
+            snf: grandRec.snf - totDisp.snf,
+          };
+
+          const grandDisp = {
+            lts: totDisp.lts + physicalCB.lts,
+            kg: totDisp.kg + physicalCB.kg,
+            fat: totDisp.fat + physicalCB.fat,
+            snf: totDisp.snf + physicalCB.snf,
+          };
+
+          const lossGain = {
+            lts: physicalCB.lts - cbCalculated.lts,
+            kg: physicalCB.kg - cbCalculated.kg,
+            fat: physicalCB.fat - cbCalculated.fat,
+            snf: physicalCB.snf - cbCalculated.snf,
+          };
+
+          const lossGainPct = {
+            lts: cbCalculated.lts !== 0 ? (lossGain.lts / cbCalculated.lts) * 100 : 0,
+            kg: cbCalculated.kg !== 0 ? (lossGain.kg / cbCalculated.kg) * 100 : 0,
+            fat: cbCalculated.fat !== 0 ? (lossGain.fat / cbCalculated.fat) * 100 : 0,
+            snf: cbCalculated.snf !== 0 ? (lossGain.snf / cbCalculated.snf) * 100 : 0,
+          };
+
+          // Spacer row between blocks
+          if (blockIndex > 0) {
+            stgSheetData.push(new Array(18).fill(stgCell('', { noBorder: true })));
+          }
+
+          // Block Title Header (Col A to Q, Col R has date)
+          const startRowIdx = stgSheetData.length;
+          const rawLabel = (blockInfo.label || (customStatements.find(s => s.key === block)?.label) || '').trim();
+          let blockLabel = rawLabel ? (rawLabel.toUpperCase().includes('STATEMENT') ? rawLabel.toUpperCase() : `${rawLabel.toUpperCase()} - RECEIPT AND DISPOSAL STATEMENT`) : `${block.toUpperCase()} - RECEIPT AND DISPOSAL STATEMENT`;
+          stgSheetData.push([
+            stgCell(blockLabel, { isBold: true, noBorder: true }),
+            ...new Array(16).fill(stgCell('', { noBorder: true })),
+            stgCell(new Date(date).toLocaleDateString('en-IN'), { isBold: true, noBorder: true, alignment: 'right' })
+          ]);
+          stgMerges.push({ s: { r: startRowIdx, c: 0 }, e: { r: startRowIdx, c: 16 } });
+
+          // Headers row (Side-by-side Receipts and Disposals)
+          stgSheetData.push([
+            stgCell('S.No.', { isHeader: true }), stgCell('Receipt', { isHeader: true }), stgCell('Qty (Lts)', { isHeader: true }), stgCell('Qty (Kg)', { isHeader: true }), stgCell('Fat%', { isHeader: true }), stgCell('Snf%', { isHeader: true }), stgCell('SP.G', { isHeader: true }), stgCell('Kg.Fat', { isHeader: true }), stgCell('Kg.Snf', { isHeader: true }),
+            stgCell('S.No.', { isHeader: true }), stgCell('Disposal', { isHeader: true }), stgCell('Qty (Lts)', { isHeader: true }), stgCell('Qty (Kg)', { isHeader: true }), stgCell('Fat%', { isHeader: true }), stgCell('Snf%', { isHeader: true }), stgCell('SP.G', { isHeader: true }), stgCell('Kg.Fat', { isHeader: true }), stgCell('Kg.Snf', { isHeader: true })
+          ]);
+
+          // Aligned rows
+          alignedRows.forEach((row, i) => {
+            const rowVal: any[] = new Array(18).fill('');
+
+            // Left: Receipt
+            if (row.r) {
+              rowVal[0] = stgCell(i + 1, { alignment: 'center' });
+              rowVal[1] = stgCell(row.r.item_name);
+              rowVal[2] = stgCell(val(row.r.qty_lts, 0), { isNum: true });
+              rowVal[3] = stgCell(val(row.r.qty_kg, 2), { isNum: true });
+              rowVal[4] = stgCell(val(row.r.fat_pct, 4), { isNum: true });
+              rowVal[5] = stgCell(val(row.r.snf_pct, 4), { isNum: true });
+              rowVal[6] = stgCell(val(row.r.sp_gr, 4), { isNum: true });
+              rowVal[7] = stgCell(val(row.r.kg_fat, 3), { isNum: true });
+              rowVal[8] = stgCell(val(row.r.kg_snf, 3), { isNum: true });
+            } else {
+              for (let c = 0; c < 9; c++) rowVal[c] = stgCell('');
+            }
+
+            // Right: Disposal
+            if (row.d) {
+              rowVal[9] = stgCell(i + 1, { alignment: 'center' });
+              rowVal[10] = stgCell(row.d.item_name);
+              rowVal[11] = stgCell(val(row.d.qty_lts, 0), { isNum: true });
+              rowVal[12] = stgCell(val(row.d.qty_kg, 2), { isNum: true });
+              rowVal[13] = stgCell(val(row.d.fat_pct, 4), { isNum: true });
+              rowVal[14] = stgCell(val(row.d.snf_pct, 4), { isNum: true });
+              rowVal[15] = stgCell(val(row.d.sp_gr, 4), { isNum: true });
+              rowVal[16] = stgCell(val(row.d.kg_fat, 3), { isNum: true });
+              rowVal[17] = stgCell(val(row.d.kg_snf, 3), { isNum: true });
+            } else {
+              for (let c = 9; c < 18; c++) rowVal[c] = stgCell('');
+            }
+
+            stgSheetData.push(rowVal);
           });
 
-          blockRows = [
-            makeRow('OB', 'RECEIPT', bState.opening_balance),
-            ...bState.receipts.map((r: any) => makeRow(r.item_name, 'RECEIPT', r)),
-            ...bState.disposals.map((d: any) => makeRow(d.item_name, 'DISPOSAL', d)),
-            makeRow('CB', 'DISPOSAL', bState.physical_count),
-          ];
-        }
+          // Summary Rows
+          // Row D1: Disposal Total row (on the right)
+          const d1Idx = stgSheetData.length;
+          stgSheetData.push([
+            stgCell('', { noBorder: true }), stgCell('', { noBorder: true }), stgCell('', { noBorder: true }), stgCell('', { noBorder: true }), stgCell('', { noBorder: true }), stgCell('', { noBorder: true }), stgCell('', { noBorder: true }), stgCell('', { noBorder: true }), stgCell('', { noBorder: true }),
+            stgCell('Total', { isBold: true }), stgCell(''), stgCell(val(totDisp.lts, 0), { isBold: true, isNum: true }), stgCell(val(totDisp.kg, 2), { isBold: true, isNum: true }), stgCell(''), stgCell(''), stgCell(''), stgCell(val(totDisp.fat, 3), { isBold: true, isNum: true }), stgCell(val(totDisp.snf, 3), { isBold: true, isNum: true })
+          ]);
+          stgMerges.push({ s: { r: d1Idx, c: 9 }, e: { r: d1Idx, c: 10 } });
 
-        if (blockRows.length === 0) return;
+          // Row D2: CB row (on the right)
+          const d2Idx = stgSheetData.length;
+          stgSheetData.push([
+            stgCell('', { noBorder: true }), stgCell('', { noBorder: true }), stgCell('', { noBorder: true }), stgCell('', { noBorder: true }), stgCell('', { noBorder: true }), stgCell('', { noBorder: true }), stgCell('', { noBorder: true }), stgCell('', { noBorder: true }), stgCell('', { noBorder: true }),
+            stgCell('CB', { isBold: true }), stgCell(''), stgCell(val(physicalCB.lts, 0), { isBold: true, isNum: true }), stgCell(val(physicalCB.kg, 2), { isBold: true, isNum: true }), stgCell(val(physicalCB.fat_pct, 4), { isBold: true, isNum: true }), stgCell(val(physicalCB.snf_pct, 4), { isBold: true, isNum: true }), stgCell(val(physicalCB.sp_gr, 4), { isBold: true, isNum: true }), stgCell(val(physicalCB.fat, 3), { isBold: true, isNum: true }), stgCell(val(physicalCB.snf, 3), { isBold: true, isNum: true })
+          ]);
+          stgMerges.push({ s: { r: d2Idx, c: 9 }, e: { r: d2Idx, c: 10 } });
 
-        const obRow = blockRows.find(r => r.item_name === 'OB');
-        const cbRow = blockRows.find(r => r.item_name === 'CB');
-        const receipts = blockRows.filter(r => r.side === 'RECEIPT' && r.item_name !== 'OB');
-        const disposals = blockRows.filter(r => r.side === 'DISPOSAL' && r.item_name !== 'CB');
+          // Row D3: Grand Total row (on the right)
+          const d3Idx = stgSheetData.length;
+          stgSheetData.push([
+            stgCell('', { noBorder: true }), stgCell('', { noBorder: true }), stgCell('', { noBorder: true }), stgCell('', { noBorder: true }), stgCell('', { noBorder: true }), stgCell('', { noBorder: true }), stgCell('', { noBorder: true }), stgCell('', { noBorder: true }), stgCell('', { noBorder: true }),
+            stgCell('Grand Total', { isBold: true }), stgCell(''), stgCell(val(grandDisp.lts, 0), { isBold: true, isNum: true }), stgCell(val(grandDisp.kg, 2), { isBold: true, isNum: true }), stgCell(''), stgCell(''), stgCell(''), stgCell(val(grandDisp.fat, 3), { isBold: true, isNum: true }), stgCell(val(grandDisp.snf, 3), { isBold: true, isNum: true })
+          ]);
+          stgMerges.push({ s: { r: d3Idx, c: 9 }, e: { r: d3Idx, c: 10 } });
 
-        const maxLen = Math.max(receipts.length, disposals.length);
-        const alignedRows: { r?: STGRow; d?: STGRow }[] = [];
-        for (let i = 0; i < maxLen; i++) {
-          alignedRows.push({ r: receipts[i], d: disposals[i] });
-        }
+          // Row R1: Receipt Total (left) / Loss/Gain (right)
+          const r1Idx = stgSheetData.length;
+          stgSheetData.push([
+            stgCell('Total', { isBold: true }), stgCell(''), stgCell(val(totRec.lts, 0), { isBold: true, isNum: true }), stgCell(val(totRec.kg, 2), { isBold: true, isNum: true }), stgCell(''), stgCell(''), stgCell(''), stgCell(val(totRec.fat, 3), { isBold: true, isNum: true }), stgCell(val(totRec.snf, 3), { isBold: true, isNum: true }),
+            stgCell('Loss/Gain', { isBold: true }), stgCell(''), stgCell(val(lossGain.lts, 0), { isBold: true, isNum: true }), stgCell(val(lossGain.kg, 2), { isBold: true, isNum: true }), stgCell(''), stgCell(''), stgCell(''), stgCell(val(lossGain.fat, 3), { isBold: true, isNum: true }), stgCell(val(lossGain.snf, 3), { isBold: true, isNum: true })
+          ]);
+          stgMerges.push({ s: { r: r1Idx, c: 0 }, e: { r: r1Idx, c: 1 } });
+          stgMerges.push({ s: { r: r1Idx, c: 9 }, e: { r: r1Idx, c: 10 } });
 
-        const totRec = {
-          lts: receipts.reduce((a, r) => a + r.qty_lts, 0),
-          kg: receipts.reduce((a, r) => a + r.qty_kg, 0),
-          fat: receipts.reduce((a, r) => a + r.kg_fat, 0),
-          snf: receipts.reduce((a, r) => a + r.kg_snf, 0),
-        };
-        const totDisp = {
-          lts: disposals.reduce((a, r) => a + r.qty_lts, 0),
-          kg: disposals.reduce((a, r) => a + r.qty_kg, 0),
-          fat: disposals.reduce((a, r) => a + r.kg_fat, 0),
-          snf: disposals.reduce((a, r) => a + r.kg_snf, 0),
-        };
+          // Row R2: OB (left) / Loss/Gain % (right)
+          const r2Idx = stgSheetData.length;
+          stgSheetData.push([
+            stgCell('OB', { isBold: true }), stgCell(''), stgCell(val(obVal.lts, 0), { isBold: true, isNum: true }), stgCell(val(obVal.kg, 2), { isBold: true, isNum: true }), stgCell(val(obVal.fat_pct, 4), { isBold: true, isNum: true }), stgCell(val(obVal.snf_pct, 4), { isBold: true, isNum: true }), stgCell(val(obVal.sp_gr, 4), { isBold: true, isNum: true }), stgCell(val(obVal.fat, 3), { isBold: true, isNum: true }), stgCell(val(obVal.snf, 3), { isBold: true, isNum: true }),
+            stgCell('Loss/Gain %', { isBold: true }), stgCell(''), stgCell(''), stgCell(''), stgCell(''), stgCell(''), stgCell(''), stgCell(`${val(lossGainPct.fat, 4)}%`, { isBold: true, alignment: 'right' }), stgCell(`${val(lossGainPct.snf, 4)}%`, { isBold: true, alignment: 'right' })
+          ]);
+          stgMerges.push({ s: { r: r2Idx, c: 0 }, e: { r: r2Idx, c: 1 } });
+          stgMerges.push({ s: { r: r2Idx, c: 9 }, e: { r: r2Idx, c: 10 } });
 
-        const obVal = {
-          lts: obRow ? obRow.qty_lts : 0,
-          kg: obRow ? obRow.qty_kg : 0,
-          fat_pct: obRow ? obRow.fat_pct : 0,
-          snf_pct: obRow ? obRow.snf_pct : 0,
-          sp_gr: obRow ? obRow.sp_gr : 0,
-          fat: obRow ? obRow.kg_fat : 0,
-          snf: obRow ? obRow.kg_snf : 0,
-        };
+          // Row R3: Grand Total (left) / CMPDD Norms (right)
+          const bCmpddNormStr = (customBlocks[block] && customBlocks[block].cmpdd_norm)
+            ? customBlocks[block].cmpdd_norm
+            : (cmpddNorms[block] || '0.5');
+          const bCmpddNorm = parseFloat(bCmpddNormStr) || 0.5;
 
-        const physicalCB = {
-          lts: cbRow ? cbRow.qty_lts : 0,
-          kg: cbRow ? cbRow.qty_kg : 0,
-          fat_pct: cbRow ? cbRow.fat_pct : 0,
-          snf_pct: cbRow ? cbRow.snf_pct : 0,
-          sp_gr: cbRow ? cbRow.sp_gr : 0,
-          fat: cbRow ? cbRow.kg_fat : 0,
-          snf: cbRow ? cbRow.kg_snf : 0,
-        };
-
-        const grandRec = {
-          lts: obVal.lts + totRec.lts,
-          kg: obVal.kg + totRec.kg,
-          fat: obVal.fat + totRec.fat,
-          snf: obVal.snf + totRec.snf,
-        };
-
-        const cbCalculated = {
-          lts: grandRec.lts - totDisp.lts,
-          kg: grandRec.kg - totDisp.kg,
-          fat: grandRec.fat - totDisp.fat,
-          snf: grandRec.snf - totDisp.snf,
-        };
-
-        const grandDisp = {
-          lts: totDisp.lts + physicalCB.lts,
-          kg: totDisp.kg + physicalCB.kg,
-          fat: totDisp.fat + physicalCB.fat,
-          snf: totDisp.snf + physicalCB.snf,
-        };
-
-        const lossGain = {
-          lts: physicalCB.lts - cbCalculated.lts,
-          kg: physicalCB.kg - cbCalculated.kg,
-          fat: physicalCB.fat - cbCalculated.fat,
-          snf: physicalCB.snf - cbCalculated.snf,
-        };
-
-        const lossGainPct = {
-          lts: cbCalculated.lts !== 0 ? (lossGain.lts / cbCalculated.lts) * 100 : 0,
-          kg: cbCalculated.kg !== 0 ? (lossGain.kg / cbCalculated.kg) * 100 : 0,
-          fat: cbCalculated.fat !== 0 ? (lossGain.fat / cbCalculated.fat) * 100 : 0,
-          snf: cbCalculated.snf !== 0 ? (lossGain.snf / cbCalculated.snf) * 100 : 0,
-        };
-
-        // Add spacer empty row if not first block
-        if (blockIndex > 0) {
-          stgSheetData.push(new Array(18).fill(cell('', { noBorder: true })));
-        }
-
-        // Add Block Header
-        const startRowIdx = stgSheetData.length;
-        const rawLabel = (blockInfo.label || (customStatements.find(s => s.key === block)?.label) || '').trim();
-        let blockLabel = rawLabel ? (rawLabel.toUpperCase().includes('STATEMENT') ? rawLabel.toUpperCase() : `${rawLabel.toUpperCase()} – RECEIPT AND DISPOSAL STATEMENT`) : `${block.toUpperCase()} – RECEIPT AND DISPOSAL STATEMENT`;
-        stgSheetData.push([
-          cell(blockLabel, { isBold: true, noBorder: true }),
-          ...new Array(17).fill(cell('', { noBorder: true }))
-        ]);
-        stgMerges.push({ s: { r: startRowIdx, c: 0 }, e: { r: startRowIdx, c: 17 } });
-
-        // Add Headers row
-        stgSheetData.push([
-          cell('S.No.', { isHeader: true }), cell('Receipt', { isHeader: true }), cell('Qty (Lts)', { isHeader: true }), cell('Qty (Kg)', { isHeader: true }), cell('Fat%', { isHeader: true }), cell('Snf%', { isHeader: true }), cell('SP.G', { isHeader: true }), cell('Kg.Fat', { isHeader: true }), cell('Kg.SNF', { isHeader: true }),
-          cell('S.No.', { isHeader: true }), cell('Disposal', { isHeader: true }), cell('Qty (Lts)', { isHeader: true }), cell('Qty (Kg)', { isHeader: true }), cell('Fat%', { isHeader: true }), cell('Snf%', { isHeader: true }), cell('SP.G', { isHeader: true }), cell('Kg.Fat', { isHeader: true }), cell('Kg.SNF', { isHeader: true })
-        ]);
-
-        // Add aligned rows
-        alignedRows.forEach((row, i) => {
-          const rowVal: any[] = new Array(18).fill('');
-
-          // Left: Receipt
-          if (row.r) {
-            rowVal[0] = cell(i + 1);
-            rowVal[1] = cell(row.r.item_name);
-            rowVal[2] = cell(val(row.r.qty_lts), { isNum: true });
-            rowVal[3] = cell(val(row.r.qty_kg), { isNum: true });
-            rowVal[4] = cell(val(row.r.fat_pct, 4), { isNum: true });
-            rowVal[5] = cell(val(row.r.snf_pct, 4), { isNum: true });
-            rowVal[6] = cell(val(row.r.sp_gr, 4), { isNum: true });
-            rowVal[7] = cell(val(row.r.kg_fat, 4), { isNum: true });
-            rowVal[8] = cell(val(row.r.kg_snf, 4), { isNum: true });
-          } else {
-            for (let c = 0; c < 9; c++) rowVal[c] = cell('');
-          }
-
-          // Right: Disposal
-          if (row.d) {
-            rowVal[9] = cell(i + 1);
-            rowVal[10] = cell(row.d.item_name);
-            rowVal[11] = cell(val(row.d.qty_lts), { isNum: true });
-            rowVal[12] = cell(val(row.d.qty_kg), { isNum: true });
-            rowVal[13] = cell(val(row.d.fat_pct, 4), { isNum: true });
-            rowVal[14] = cell(val(row.d.snf_pct, 4), { isNum: true });
-            rowVal[15] = cell(val(row.d.sp_gr, 4), { isNum: true });
-            rowVal[16] = cell(val(row.d.kg_fat, 4), { isNum: true });
-            rowVal[17] = cell(val(row.d.kg_snf, 4), { isNum: true });
-          } else {
-            for (let c = 9; c < 18; c++) rowVal[c] = cell('');
-          }
-
-          stgSheetData.push(rowVal);
+          const r3Idx = stgSheetData.length;
+          stgSheetData.push([
+            stgCell('Grand Total', { isBold: true }), stgCell(''), stgCell(val(grandRec.lts, 0), { isBold: true, isNum: true }), stgCell(val(grandRec.kg, 2), { isBold: true, isNum: true }), stgCell(''), stgCell(''), stgCell(''), stgCell(val(grandRec.fat, 3), { isBold: true, isNum: true }), stgCell(val(grandRec.snf, 3), { isBold: true, isNum: true }),
+            stgCell(`CMPDD Norms (${bCmpddNorm}%)`, { isBold: true }), stgCell(''), stgCell(''), stgCell(''), stgCell(''), stgCell(''), stgCell(''), stgCell(`${bCmpddNorm}%`, { isBold: true, alignment: 'right' }), stgCell(`${bCmpddNorm}%`, { isBold: true, alignment: 'right' })
+          ]);
+          stgMerges.push({ s: { r: r3Idx, c: 0 }, e: { r: r3Idx, c: 1 } });
+          stgMerges.push({ s: { r: r3Idx, c: 9 }, e: { r: r3Idx, c: 10 } });
         });
 
-        // Add Staggered totals
-        // Row D1: Disposal Total row (on the right)
-        // Merge is J to K (9 to 10), so label goes into index 9, index 10 is empty!
-        const d1Idx = stgSheetData.length;
-        stgSheetData.push([
-          cell('', { noBorder: true }), cell('', { noBorder: true }), cell('', { noBorder: true }), cell('', { noBorder: true }), cell('', { noBorder: true }), cell('', { noBorder: true }), cell('', { noBorder: true }), cell('', { noBorder: true }), cell('', { noBorder: true }), // Left empty
-          cell('Total', { isBold: true }), cell(''), cell(val(totDisp.lts), { isBold: true, isNum: true }), cell(val(totDisp.kg), { isBold: true, isNum: true }), cell(''), cell(''), cell(''), cell(val(totDisp.fat, 4), { isBold: true, isNum: true }), cell(val(totDisp.snf, 4), { isBold: true, isNum: true })
-        ]);
-        stgMerges.push({ s: { r: d1Idx, c: 9 }, e: { r: d1Idx, c: 10 } });
-
-        // Row D2: CB row (on the right)
-        // Merge is J to K (9 to 10), so label goes into index 9, index 10 is empty!
-        const d2Idx = stgSheetData.length;
-        stgSheetData.push([
-          cell('', { noBorder: true }), cell('', { noBorder: true }), cell('', { noBorder: true }), cell('', { noBorder: true }), cell('', { noBorder: true }), cell('', { noBorder: true }), cell('', { noBorder: true }), cell('', { noBorder: true }), cell('', { noBorder: true }), // Left empty
-          cell('CB', { isBold: true }), cell(''), cell(val(physicalCB.lts), { isBold: true, isNum: true }), cell(val(physicalCB.kg), { isBold: true, isNum: true }), cell(val(physicalCB.fat_pct, 4), { isBold: true, isNum: true }), cell(val(physicalCB.snf_pct, 4), { isBold: true, isNum: true }), cell(val(physicalCB.sp_gr, 4), { isBold: true, isNum: true }), cell(val(physicalCB.fat, 4), { isBold: true, isNum: true }), cell(val(physicalCB.snf, 4), { isBold: true, isNum: true })
-        ]);
-        stgMerges.push({ s: { r: d2Idx, c: 9 }, e: { r: d2Idx, c: 10 } });
-
-        // Row D3: Grand Total row (on the right)
-        // Merge is J to K (9 to 10), so label goes into index 9, index 10 is empty!
-        const d3Idx = stgSheetData.length;
-        stgSheetData.push([
-          cell('', { noBorder: true }), cell('', { noBorder: true }), cell('', { noBorder: true }), cell('', { noBorder: true }), cell('', { noBorder: true }), cell('', { noBorder: true }), cell('', { noBorder: true }), cell('', { noBorder: true }), cell('', { noBorder: true }), // Left empty
-          cell('Grand Total', { isBold: true }), cell(''), cell(val(grandDisp.lts), { isBold: true, isNum: true }), cell(val(grandDisp.kg), { isBold: true, isNum: true }), cell(''), cell(''), cell(''), cell(val(grandDisp.fat, 4), { isBold: true, isNum: true }), cell(val(grandDisp.snf, 4), { isBold: true, isNum: true })
-        ]);
-        stgMerges.push({ s: { r: d3Idx, c: 9 }, e: { r: d3Idx, c: 10 } });
-
-        // Row R1: Receipt Total (left) / Loss/Gain (right)
-        // Left merge 0 to 1, label goes to index 0, index 1 is empty!
-        // Right merge 9 to 10, label goes to index 9, index 10 is empty!
-        const r1Idx = stgSheetData.length;
-        stgSheetData.push([
-          cell('Total', { isBold: true }), cell(''), cell(val(totRec.lts), { isBold: true, isNum: true }), cell(val(totRec.kg), { isBold: true, isNum: true }), cell(''), cell(''), cell(''), cell(val(totRec.fat, 4), { isBold: true, isNum: true }), cell(val(totRec.snf, 4), { isBold: true, isNum: true }),
-          cell('Loss/Gain', { isBold: true }), cell(''), cell(val(lossGain.lts), { isBold: true, isNum: true }), cell(val(lossGain.kg), { isBold: true, isNum: true }), cell(''), cell(''), cell(''), cell(val(lossGain.fat, 4), { isBold: true, isNum: true }), cell(val(lossGain.snf, 4), { isBold: true, isNum: true })
-        ]);
-        stgMerges.push({ s: { r: r1Idx, c: 0 }, e: { r: r1Idx, c: 1 } });
-        stgMerges.push({ s: { r: r1Idx, c: 9 }, e: { r: r1Idx, c: 10 } });
-
-        // Row R2: OB (left) / Loss/Gain % (right)
-        // Left merge 0 to 1, label goes to index 0, index 1 is empty!
-        // Right merge 9 to 10, label goes to index 9, index 10 is empty!
-        const r2Idx = stgSheetData.length;
-        stgSheetData.push([
-          cell('OB', { isBold: true }), cell(''), cell(val(obVal.lts), { isBold: true, isNum: true }), cell(val(obVal.kg), { isBold: true, isNum: true }), cell(val(obVal.fat_pct, 4), { isBold: true, isNum: true }), cell(val(obVal.snf_pct, 4), { isBold: true, isNum: true }), cell(val(obVal.sp_gr, 4), { isBold: true, isNum: true }), cell(val(obVal.fat, 4), { isBold: true, isNum: true }), cell(val(obVal.snf, 4), { isBold: true, isNum: true }),
-          cell('Loss/Gain %', { isBold: true }), cell(''), cell(''), cell(''), cell(''), cell(''), cell(''), cell(`${val(lossGainPct.fat)}%`, { isBold: true, alignment: 'right' }), cell(`${val(lossGainPct.snf)}%`, { isBold: true, alignment: 'right' })
-        ]);
-        stgMerges.push({ s: { r: r2Idx, c: 0 }, e: { r: r2Idx, c: 1 } });
-        stgMerges.push({ s: { r: r2Idx, c: 9 }, e: { r: r2Idx, c: 10 } });
-
-        // Row R3: Grand Total (left) / CMPDD Norms (right)
-        // Left merge 0 to 1, label goes to index 0, index 1 is empty!
-        // Right merge 9 to 10, label goes to index 9, index 10 is empty!
-        const bCmpddNormStr = (customBlocks[block] && customBlocks[block].cmpdd_norm)
-          ? customBlocks[block].cmpdd_norm
-          : (cmpddNorms[block] || '0.5');
-        const bCmpddNorm = parseFloat(bCmpddNormStr) || 0.5;
-
-        const r3Idx = stgSheetData.length;
-        stgSheetData.push([
-          cell('Grand Total', { isBold: true }), cell(''), cell(val(grandRec.lts), { isBold: true, isNum: true }), cell(val(grandRec.kg), { isBold: true, isNum: true }), cell(''), cell(''), cell(''), cell(val(grandRec.fat, 4), { isBold: true, isNum: true }), cell(val(grandRec.snf, 4), { isBold: true, isNum: true }),
-          cell(`CMPDD Norms (${bCmpddNorm}%)`, { isBold: true }), cell(''), cell(''), cell(''), cell(''), cell(''), cell(''), cell(`${bCmpddNorm}%`, { isBold: true, alignment: 'right' }), cell(`${bCmpddNorm}%`, { isBold: true, alignment: 'right' })
-        ]);
-        stgMerges.push({ s: { r: r3Idx, c: 0 }, e: { r: r3Idx, c: 1 } });
-        stgMerges.push({ s: { r: r3Idx, c: 9 }, e: { r: r3Idx, c: 10 } });
-      });
-
-      const stgWs = XLSX.utils.aoa_to_sheet(stgSheetData);
-      stgWs['!cols'] = colWidths;
-      stgWs['!merges'] = stgMerges;
-      XLSX.utils.book_append_sheet(wb, stgWs, 'STG');
+        const stgWs = XLSX.utils.aoa_to_sheet(stgSheetData);
+        stgWs['!cols'] = colWidths;
+        stgWs['!merges'] = stgMerges;
+        XLSX.utils.book_append_sheet(wb, stgWs, 'STG');
+      }
     }
 
     // 5. Build Stock Statement Sheet
