@@ -37,28 +37,13 @@ export default function ReceiptsInternalPartitionsPage() {
 
   // Form / Modal State
   const [isEditing, setIsEditing] = useState(false);
+  const [disposalParticularsList, setDisposalParticularsList] = useState<string[]>([]);
   const [editingId, setEditingId] = useState<string | null>(null);
-  const [formSourceParticular, setFormSourceParticular] = useState('To DLT Milk');
-  const [formTargetReceiptKey, setFormTargetReceiptKey] = useState('dlt_milk');
+  const [formSourceParticular, setFormSourceParticular] = useState('');
+  const [formTargetReceiptKey, setFormTargetReceiptKey] = useState('');
   const [formPartitions, setFormPartitions] = useState<PartitionItem[]>([]);
 
   const { confirm } = useConfirm();
-
-  const ALL_DISPOSAL_PARTICULARS = [
-    'To DLT Milk',
-    'To FC Milk',
-    'To STD Milk',
-    'To MKT',
-    'To R.CON Milk',
-    'To Separation',
-    'To HMST',
-    'To Convension',
-    'To Khoa',
-    'To Curd',
-    'To CUP Curd',
-    'To Lab Sampling',
-    'To other Dairies',
-  ];
 
   // Load configuration on mount
   useEffect(() => {
@@ -79,6 +64,32 @@ export default function ReceiptsInternalPartitionsPage() {
               })));
             }
           }
+          if (Array.isArray(stockCfg.disposal_rows) && stockCfg.disposal_rows.length > 0) {
+            const list = stockCfg.disposal_rows.map((r: any) => r.full_name || r.particular_name || r.short_name).filter(Boolean);
+            if (active && list.length > 0) {
+              setDisposalParticularsList(list);
+            }
+          }
+        }
+
+        // Fetch fallback particulars from particulars_master
+        try {
+          const partRes = await fetch('/api/master/particulars');
+          if (partRes.ok) {
+            const json = await partRes.json();
+            const list = json.data || [];
+            if (Array.isArray(list) && list.length > 0) {
+              const disps = list
+                .filter((r: any) => (r.section_type || '').toUpperCase() === 'DISPOSAL')
+                .map((r: any) => r.particular_name || r.code || r.full_name)
+                .filter(Boolean);
+              if (active && disps.length > 0) {
+                setDisposalParticularsList(prev => prev.length > 0 ? prev : disps);
+              }
+            }
+          }
+        } catch (e) {
+          console.error('Error fetching particulars master:', e);
         }
 
         // 2. Load Internal Stock Mappings (Disposals ➔ Receipts rules)
@@ -147,7 +158,7 @@ export default function ReceiptsInternalPartitionsPage() {
     .filter(r => r.id !== editingId)
     .map(r => (r.sourceDisposalParticular || '').trim().toLowerCase());
 
-  const availableDisposalParticulars = ALL_DISPOSAL_PARTICULARS.filter(
+  const availableDisposalParticulars = disposalParticularsList.filter(
     dRow => !mappedSourceParticulars.includes(dRow.trim().toLowerCase())
   );
 
@@ -157,12 +168,12 @@ export default function ReceiptsInternalPartitionsPage() {
 
   const openNewForm = () => {
     const mapped = rules.map(r => (r.sourceDisposalParticular || '').trim().toLowerCase());
-    const avail = ALL_DISPOSAL_PARTICULARS.filter(d => !mapped.includes(d.trim().toLowerCase()));
-    const initialParticular = avail[0] || 'To Separation';
+    const avail = disposalParticularsList.filter(d => !mapped.includes(d.trim().toLowerCase()));
+    const initialParticular = avail[0] || (disposalParticularsList[0] || '');
 
     const mappedTargetKeys = rules.map(r => (r.targetReceiptProductKey || '').trim().toLowerCase());
     const availProds = stockProducts.filter(p => !mappedTargetKeys.includes((p.key || '').trim().toLowerCase()));
-    const initialTargetKey = availProds[0]?.key || stockProducts[0]?.key || 'dlt_milk';
+    const initialTargetKey = availProds[0]?.key || stockProducts[0]?.key || '';
 
     setEditingId(null);
     setFormSourceParticular(initialParticular);

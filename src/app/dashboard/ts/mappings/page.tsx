@@ -81,11 +81,13 @@ export default function STGStatementMappingPage() {
               })));
             }
           }
-          if (active && Array.isArray(stockCfg.receiptRows)) {
-            setReceiptRows(stockCfg.receiptRows);
+          const recList = Array.isArray(stockCfg.receipt_rows) ? stockCfg.receipt_rows : (Array.isArray(stockCfg.receiptRows) ? stockCfg.receiptRows : []);
+          const dispList = Array.isArray(stockCfg.disposal_rows) ? stockCfg.disposal_rows : (Array.isArray(stockCfg.disposalRows) ? stockCfg.disposalRows : []);
+          if (active && recList.length > 0) {
+            setReceiptRows(recList);
           }
-          if (active && Array.isArray(stockCfg.disposalRows)) {
-            setDisposalRows(stockCfg.disposalRows);
+          if (active && dispList.length > 0) {
+            setDisposalRows(dispList);
           }
         }
 
@@ -242,14 +244,14 @@ export default function STGStatementMappingPage() {
     setError('');
 
     const isStage1 = formSourceStage === 'STAGE_1';
-    const initialKey = isStage1 ? (prepMasters[0]?.key || 'delite_prep') : (stockProducts[0]?.key || 'wh_milk');
+    const initialKey = isStage1 ? (prepMasters[0]?.key || '') : (stockProducts[0]?.key || '');
 
     setFormStockProductKey(initialKey);
     setFormStockSection('RECEIPT');
-    setFormStockParticular(isStage1 ? (availablePrepVariants[0] || 'DELITE') : 'Receipts:');
+    setFormStockParticular(isStage1 ? (availablePrepVariants[0] || '') : (receiptRows[0]?.full_name || 'Receipts:'));
     setFormSourceField('qty_lts');
 
-    setFormStgBlockKey(stgStatements[0]?.key || 'WM');
+    setFormStgBlockKey(stgStatements[0]?.key || '');
     setFormStgSection('RECEIPT');
     setFormStgItemName('Receipt');
     setFormStgTargetField('qty_lts');
