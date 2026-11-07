@@ -204,41 +204,58 @@ export const computeCalculatedField = (colKey: string, vals: Record<string, any>
   return 0;
 };
 
-// Candidate stock keys resolver for intelligent matching fallback
-export const resolveStockCandidateKeys = (stmtKey: string, stmtLabel: string = ''): string[] => {
-  const normKey = (stmtKey + ' ' + stmtLabel).toLowerCase().replace(/[^a-z0-9]/g, ' ');
-  const tokens = normKey.split(/\s+/).filter(Boolean);
+// Dynamic candidate keys resolver derived purely from statement DB table fields (key, variant, label)
+export const resolveStockCandidateKeys = (
+  stmtKey: string,
+  stmtLabel: string = '',
+  stmtVariant: string = ''
+): string[] => {
   const keys: string[] = [];
+  if (!stmtKey && !stmtLabel && !stmtVariant) return keys;
 
-  const has = (...terms: string[]) => terms.some(t => tokens.includes(t) || normKey.includes(t));
+  const addDynamicVariants = (val: string) => {
+    if (!val) return;
+    const clean = val.trim();
+    if (!clean) return;
 
-  if (has('wh', 'wm', 'whole', 'tentative whole milk', 'whole milk')) {
-    keys.push('wh.milk', 'wh_milk', 'whole_milk', 'wm');
-  }
-  if (has('delite', 'dlt')) {
-    keys.push('dlt.milk', 'dlt_milk', 'delite', 'delite_milk', 'dlt');
-  }
-  if (has('fc', 'fcm', 'full cream')) {
-    keys.push('fc.milk', 'fc_milk', 'fcm', 'fc', 'full_cream_milk');
-  }
-  if (has('std', 'standard', 'standardised')) {
-    keys.push('std.milk', 'std_milk', 'std', 'standardised_milk');
-  }
-  if (has('cream', 'crm')) {
-    keys.push('cream', 'crm');
-  }
-  if (has('skim', 'skimmed', 'ssm')) {
-    keys.push('skim_milk', 'skimmed_milk', 'ssm', 'skim.milk', 'skim');
-  }
-  if (has('smp')) {
-    keys.push('smp');
-  }
-  if (has('curd', 'tm')) {
-    keys.push('curd', 'tm_milk', 'tm.milk', 'toned_milk');
+    keys.push(clean);
+    keys.push(clean.toLowerCase());
+    keys.push(clean.toUpperCase());
+
+    // Dynamically replace delimiters (spaces, hyphens, underscores, dots)
+    keys.push(clean.toLowerCase().replace(/[\s-]+/g, '.'));
+    keys.push(clean.toLowerCase().replace(/[\s-]+/g, '_'));
+    keys.push(clean.toLowerCase().replace(/\./g, '_'));
+    keys.push(clean.toLowerCase().replace(/_/g, '.'));
+
+    // Alphanumeric normalized form
+    const alpha = clean.toLowerCase().replace(/[^a-z0-9]/g, '');
+    if (alpha) keys.push(alpha);
+  };
+
+  // 1. From statement key in DB (e.g. "wh_milk" -> ["wh_milk", "wh.milk", "whmilk"])
+  addDynamicVariants(stmtKey);
+
+  // 2. From statement variant in DB (e.g. "WHOLE MILK" -> ["WHOLE MILK", "whole milk", "whole.milk", "whole_milk", "wholemilk"])
+  if (stmtVariant) {
+    addDynamicVariants(stmtVariant);
   }
 
-  keys.push(stmtKey.toLowerCase());
-  return Array.from(new Set(keys));
+  // 3. From statement label in DB (extract clean product name without boilerplate words)
+  if (stmtLabel) {
+    const cleanLabel = stmtLabel
+      .replace(/\bstatement\b/gi, '')
+      .replace(/\breceipt\b/gi, '')
+      .replace(/\bdisposal\b/gi, '')
+      .replace(/\band\b/gi, '')
+      .trim();
+    if (cleanLabel) {
+      addDynamicVariants(cleanLabel);
+      cleanLabel.split(/[-–—/]/).forEach(seg => addDynamicVariants(seg.trim()));
+    }
+  }
+
+  return Array.from(new Set(keys.filter(Boolean)));
 };
 
 // Populate block defaults from statement master
@@ -990,9 +1007,9 @@ export default function STGEntryForm({
         }
       }
 
-      // If no explicit rule or rule didn't produce a value, use intelligent candidate keys
+      // If no explicit rule or rule didn't produce a value, check dynamic statement candidates against obRow
       if (!obSynced && obRow) {
-        const candidateKeys = resolveStockCandidateKeys(stmtKey, stmt.label || '');
+        const candidateKeys = resolveStockCandidateKeys(stmtKey, stmt.label || '', stmt.variant || '');
         for (const cKey of candidateKeys) {
           const val = getStockVal(obRow, cKey);
           if (val !== undefined) {
@@ -1034,9 +1051,9 @@ export default function STGEntryForm({
         }
       }
 
-      // If no explicit rule or rule didn't produce a value, check candidate keys against cbRow
+      // If no explicit rule or rule didn't produce a value, check dynamic statement candidates against cbRow
       if (!cbSynced && cbRow) {
-        const candidateKeys = resolveStockCandidateKeys(stmtKey, stmt.label || '');
+        const candidateKeys = resolveStockCandidateKeys(stmtKey, stmt.label || '', stmt.variant || '');
         for (const cKey of candidateKeys) {
           const val = getStockVal(cbRow, cKey);
           if (val !== undefined) {
@@ -1096,9 +1113,9 @@ export default function STGEntryForm({
           }
         }
 
-        // Fallback matching by candidate keys and particular name
+        // Fallback matching by dynamic candidate keys and particular name
         if (!rowSynced) {
-          const candidateKeys = resolveStockCandidateKeys(stmtKey, stmt.label || '');
+          const candidateKeys = resolveStockCandidateKeys(stmtKey, stmt.label || '', stmt.variant || '');
           const rLabelNorm = (rowCopy.variant || '').toLowerCase().replace(/[^a-z0-9]/g, '');
 
           if (rLabelNorm) {
@@ -1279,7 +1296,35 @@ export default function STGEntryForm({
         let stockRows: any[] = [];
         if (stockRes.ok) {
           const stockJson = await stockRes.json();
-          stockRows = stockJson.data?.stock_rows || [];
+          const rawRows: any[] = stockJson.data?.stock_rows || [];
+          const sumRows: any[] = (stockJson.data?.stock_summary_rows || []).map((sr: any) => ({
+            row_type: sr.summary_type || 'CB',
+            row_label: sr.row_label || (sr.summary_type === 'CB' ? 'Closing Balance' : sr.summary_type),
+            values: sr.summary_data || {},
+            ...(sr.summary_data || {}),
+          }));
+          const hasCB = sumRows.some((sr: any) => sr.row_type === 'CB');
+          if (!hasCB && rawRows.length > 0) {
+            const cbVals: Record<string, any> = {};
+            rawRows.forEach((r: any) => {
+              const rVals = r.values || {};
+              Object.entries(rVals).forEach(([k, v]) => {
+                const num = parseFloat(String(v)) || 0;
+                if (r.row_type === 'OB' || r.row_type === 'RECEIPT') {
+                  cbVals[k] = (cbVals[k] || 0) + num;
+                } else if (r.row_type === 'DISPOSAL') {
+                  cbVals[k] = (cbVals[k] || 0) - num;
+                }
+              });
+            });
+            sumRows.push({
+              row_type: 'CB',
+              row_label: 'Closing Balance',
+              values: cbVals,
+              ...cbVals,
+            });
+          }
+          stockRows = [...rawRows, ...sumRows];
         }
 
         if (stgRes.ok) {

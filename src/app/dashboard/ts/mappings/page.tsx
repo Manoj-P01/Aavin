@@ -279,7 +279,7 @@ export default function STGStatementMappingPage() {
     return Array.from(set).filter(v => v !== '');
   }, [formStockProductKey, rawPrepMasters, prepTemplates]);
 
-  // Dynamically compute available stock particulars for selected stock section
+  // Dynamically compute available stock particulars for selected stock section strictly from DB table rows
   const availableStockParticulars = useMemo(() => {
     if (formStockSection === 'OB') {
       return ['Opening Balance'];
@@ -288,12 +288,7 @@ export default function STGStatementMappingPage() {
       return ['Closing Balance', 'CB', 'Physical Count', 'Physical Balance', 'Book Balance'];
     }
     const sourceList = formStockSection === 'RECEIPT' ? receiptRows : disposalRows;
-    let labels = sourceList.map(r => (r.full_name || r.short_name || '').trim()).filter(Boolean);
-    if (labels.length === 0) {
-      labels = formStockSection === 'RECEIPT'
-        ? ['Receipts', 'Re-Processing', 'Butter Milk', 'Prepac RTN', 'Lab RTN/Lab Sample', 'WF', 'SMP', 'Rinse Milk']
-        : ['Separation', 'DLT Milk', 'FC.Milk', 'STD.Milk', 'TM Milk(Curd)', 'Cup Curd', 'Khoa', 'Lab Sample', 'To Metro', 'WF', 'SMP'];
-    }
+    const labels = sourceList.map(r => (r.full_name || r.short_name || '').trim()).filter(Boolean);
     return Array.from(new Set(labels));
   }, [formStockSection, receiptRows, disposalRows]);
 
