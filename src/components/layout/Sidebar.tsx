@@ -43,10 +43,13 @@ const NAV_SECTIONS = [
     ],
   },
   {
-    label: 'TS Entry',
+    label: 'Total Solids (TS)',
     items: [
       { href: '/dashboard/stock/new?step=ts', icon: '🧪', label: 'New TS Entry' },
-      { href: '/dashboard/ts', icon: '📄', label: 'Total Solids (TS)' },
+      { href: '/dashboard/ts/defaults', icon: '⭐', label: 'Master Default Statement' },
+      { href: '/dashboard/ts/columns', icon: '⚙️', label: 'Statement Columns Config' },
+      { href: '/dashboard/ts/ts-mappings', icon: '🔗', label: 'STG ➔ TS Mapping' },
+      { href: '/dashboard/ts', icon: '📄', label: 'Total Solids Register' },
     ],
   },
   {
@@ -56,6 +59,7 @@ const NAV_SECTIONS = [
       { href: '/dashboard/stock/mappings', icon: '🔄', label: 'Disposals ➔ Receipts Mappings' },
       { href: '/dashboard/stock/partitions', icon: '🔀', label: 'Receipts Internal Partitions' },
       { href: '/dashboard/ts/mappings', icon: '🔗', label: 'Solid Balance STG Mapping' },
+      { href: '/dashboard/ts/ts-mappings', icon: '🔗', label: 'STG ➔ TS Statement Mapping' },
     ],
   },
   {
@@ -85,7 +89,7 @@ const checkItemActive = (href: string, pathname: string, currentStep?: string | 
   if (href === '/dashboard/ts') {
     return pathSegments[1] === 'dashboard' && 
            pathSegments[2] === 'ts' && 
-           !['new', 'new-stg', 'config', 'mappings', 'manage-statements'].includes(pathSegments[3]);
+           !['new', 'new-stg', 'config', 'mappings', 'manage-statements', 'defaults', 'columns', 'ts-mappings'].includes(pathSegments[3]);
   }
   if (href === '/dashboard/stock') {
     return pathSegments[1] === 'dashboard' && 
