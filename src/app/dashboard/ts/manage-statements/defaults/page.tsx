@@ -1825,15 +1825,23 @@ function STGDefaultFormulationsContent() {
         body: JSON.stringify({ masters: updatedMasters }),
       });
 
-      if (masterRes.ok) {
+      const resJson = await masterRes.json();
+
+      if (masterRes.ok && resJson.success) {
         setMasters(updatedMasters);
-        showToast('✅ All 4 sections, columns, particulars, and formulation formulas saved successfully to database!');
+        if (resJson.savedToStgMasters) {
+          showToast('✅ Saved directly to stg_masters table in database!');
+        } else if (resJson.savedToPrepChartConfigs) {
+          showToast('⚠️ Saved to prep_chart_configs fallback. Notice: stg_masters table missing in Supabase. Run 017_stg_masters_table.sql.');
+        } else {
+          showToast('✅ All 4 sections, columns, particulars, and formulation formulas saved successfully!');
+        }
       } else {
-        showToast('❌ Failed to save default formulation tables');
+        showToast(`❌ Failed to save default formulation tables: ${resJson.error || 'Server error'}`);
       }
-    } catch (err) {
+    } catch (err: any) {
       console.error('Save error:', err);
-      showToast('❌ Server error saving default formulation tables');
+      showToast(`❌ Server error saving default formulation tables: ${err?.message || ''}`);
     }
     setSaving(false);
   };
@@ -3018,7 +3026,7 @@ function STGDefaultFormulationsContent() {
         {/* Bottom Footer Bar */}
         <div style={{ padding: '12px 18px', background: '#f8fafc', borderTop: '1px solid var(--border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexShrink: 0 }}>
           <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
-            ⭐ Changes saved here will be stored in database as the Master Default Formulation Table for <b>{activeMasterKey || 'None'}</b>.
+            ⭐ Changes saved here will be stored in database table <b>public.stg_masters</b> as the Master Default Formulation Table for <b>{activeMasterKey || 'None'}</b>.
           </div>
 
           <div style={{ display: 'flex', gap: 10 }}>

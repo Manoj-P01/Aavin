@@ -5,13 +5,34 @@ import { getAuthUserFromRequest } from '@/lib/auth';
 // Default empty fallback array (all statement masters are strictly fetched from DB table stg_masters)
 export const DEFAULT_STG_MASTERS: any[] = [];
 
+// Cleanse prohibited artificial names from column definitions
+const PROHIBITED_NAMES = new Set([
+  'Opening Balance Particular',
+  'Receipt Particular',
+  'Disposal Particular',
+  'Reconciliation Item / Summary Label',
+]);
+
+const cleanseCols = (cols: any[] | undefined) => {
+  if (!Array.isArray(cols)) return [];
+  return cols.map((col: any) => {
+    if (PROHIBITED_NAMES.has(col.name)) {
+      return {
+        ...col,
+        name: col.key === 'variant' ? 'VARIANT' : (col.key === 'label' ? 'LABEL' : col.key),
+      };
+    }
+    return col;
+  });
+};
+
 // GET /api/ts/masters - Fetch STG Statement Masters strictly from stg_masters table or prep_chart_configs
 export async function GET(req: NextRequest) {
   try {
     const supabase = getSupabaseServiceClient();
 
     let masters: any[] = [];
-    let stgTableQueried = false;
+    let sourceTable = 'none';
 
     // 1. Fetch strictly from dedicated stg_masters table
     try {
@@ -20,8 +41,8 @@ export async function GET(req: NextRequest) {
         .select('*')
         .order('sort_order', { ascending: true });
 
-      if (!stgErr && Array.isArray(stgRows)) {
-        stgTableQueried = true;
+      if (!stgErr && Array.isArray(stgRows) && stgRows.length > 0) {
+        sourceTable = 'stg_masters';
         masters = stgRows.map((r: any) => ({
           key: r.key,
           label: r.label,
@@ -30,93 +51,54 @@ export async function GET(req: NextRequest) {
           sort_order: r.sort_order,
           is_active: r.is_active,
           cmpdd_norm: r.cmpdd_norm || '',
-          ob_columns: r.ob_columns || [],
-          receipt_columns: r.receipt_columns || [],
-          disposal_columns: r.disposal_columns || [],
-          recon_columns: r.recon_columns || [],
+          ob_columns: cleanseCols(r.ob_columns),
+          receipt_columns: cleanseCols(r.receipt_columns),
+          disposal_columns: cleanseCols(r.disposal_columns),
+          recon_columns: cleanseCols(r.recon_columns),
           ob_rows: r.ob_rows || [],
           receipt_rows: r.receipt_rows || [],
           disposal_rows: r.disposal_rows || [],
           reconciliation_rows: r.reconciliation_rows || [],
         }));
+      } else if (stgErr) {
+        console.warn('stg_masters table read error (falling back to prep_chart_configs):', stgErr.message || stgErr);
       }
     } catch (e) {
-      console.warn('stg_masters table read warning:', e);
+      console.warn('stg_masters table read exception:', e);
     }
 
-    // 2. If stg_masters was not queried/available, check prep_chart_configs
-    if (!stgTableQueried || masters.length === 0) {
+    // 2. If stg_masters was not available or empty, check prep_chart_configs
+    if (masters.length === 0) {
       try {
-        const { data: res, error } = await supabase
+        const { data: res, error: cfgErr } = await supabase
           .from('prep_chart_configs')
           .select('config_json')
           .eq('config_key', 'stg_masters')
           .maybeSingle();
 
-        if (!error && res && Array.isArray(res.config_json)) {
-          masters = res.config_json;
+        if (!cfgErr && res && Array.isArray(res.config_json) && res.config_json.length > 0) {
+          sourceTable = 'prep_chart_configs';
+          masters = res.config_json.map((m: any) => ({
+            ...m,
+            ob_columns: cleanseCols(m.ob_columns),
+            receipt_columns: cleanseCols(m.receipt_columns),
+            disposal_columns: cleanseCols(m.disposal_columns),
+            recon_columns: cleanseCols(m.recon_columns),
+          }));
         }
       } catch (e) {
-        console.warn('prep_chart_configs read warning:', e);
+        console.warn('prep_chart_configs read exception:', e);
       }
-    } else {
-      // Merge any metadata properties (such as cmpdd_norm) from prep_chart_configs
-      try {
-        const { data: cfgRes } = await supabase
-          .from('prep_chart_configs')
-          .select('config_json')
-          .eq('config_key', 'stg_masters')
-          .maybeSingle();
-        if (cfgRes && Array.isArray(cfgRes.config_json)) {
-          const cfgMap = new Map(cfgRes.config_json.map((c: any) => [c.key, c]));
-          masters = masters.map((m: any) => {
-            const extra = cfgMap.get(m.key);
-            return {
-              ...m,
-              cmpdd_norm: m.cmpdd_norm || extra?.cmpdd_norm || '',
-            };
-          });
-        }
-      } catch { }
     }
 
-    // 3. Cleanse prohibited artificial names from existing columns
-    const PROHIBITED_NAMES = new Set([
-      'Opening Balance Particular',
-      'Receipt Particular',
-      'Disposal Particular',
-      'Reconciliation Item / Summary Label',
-    ]);
-
-    const cleanseCols = (cols: any[] | undefined) => {
-      if (!Array.isArray(cols)) return [];
-      return cols.map((col: any) => {
-        if (PROHIBITED_NAMES.has(col.name)) {
-          return {
-            ...col,
-            name: col.key === 'variant' ? 'VARIANT' : (col.key === 'label' ? 'LABEL' : col.key),
-          };
-        }
-        return col;
-      });
-    };
-
-    masters = masters.map((m: any) => ({
-      ...m,
-      ob_columns: cleanseCols(m.ob_columns),
-      receipt_columns: cleanseCols(m.receipt_columns),
-      disposal_columns: cleanseCols(m.disposal_columns),
-      recon_columns: cleanseCols(m.recon_columns),
-    }));
-
-    return NextResponse.json({ success: true, masters });
+    return NextResponse.json({ success: true, masters, sourceTable });
   } catch (err: any) {
     console.error('GET /api/ts/masters error:', err);
-    return NextResponse.json({ success: true, masters: [] });
+    return NextResponse.json({ success: true, masters: [], error: err.message });
   }
 }
 
-// POST /api/ts/masters - Save STG Statement Masters to prep_chart_configs and stg_masters
+// POST /api/ts/masters - Save STG Statement Masters directly to stg_masters table and prep_chart_configs
 export async function POST(req: NextRequest) {
   try {
     const authUser = await getAuthUserFromRequest(req);
@@ -131,43 +113,51 @@ export async function POST(req: NextRequest) {
 
     // Handle reset to table data request
     if (body.action === 'reset') {
-      const { data: stgRows } = await supabase
+      const { data: stgRows, error: resetErr } = await supabase
         .from('stg_masters')
         .select('*')
         .order('sort_order', { ascending: true });
-      return NextResponse.json({ success: true, masters: stgRows || [] });
+
+      if (!resetErr && Array.isArray(stgRows)) {
+        return NextResponse.json({ success: true, masters: stgRows });
+      }
+
+      // Fallback reset to prep_chart_configs
+      const { data: cfgRow } = await supabase
+        .from('prep_chart_configs')
+        .select('config_json')
+        .eq('config_key', 'stg_masters')
+        .maybeSingle();
+
+      return NextResponse.json({ success: true, masters: cfgRow?.config_json || [] });
     }
 
     if (!Array.isArray(mastersList)) {
       return NextResponse.json({ error: 'Invalid payload, expected array of statement masters' }, { status: 400 });
     }
 
-    const PROHIBITED_NAMES = new Set([
-      'Opening Balance Particular',
-      'Receipt Particular',
-      'Disposal Particular',
-      'Reconciliation Item / Summary Label',
-    ]);
-
-    const cleanseCols = (cols: any[]) => {
-      if (!Array.isArray(cols)) return [];
-      return cols.map((c: any) => {
-        if (PROHIBITED_NAMES.has(c.name)) {
-          return { ...c, name: 'VARIANT' };
-        }
-        return c;
-      });
-    };
+    let stgTableSaved = false;
+    let stgTableError: string | null = null;
+    let prepChartConfigsSaved = false;
+    let prepChartConfigsError: string | null = null;
 
     // 1. Primary Store: Save directly into dedicated separate stg_masters table
     try {
       const currentKeys = mastersList.map((m: any) => m.key).filter(Boolean);
-      if (currentKeys.length > 0) {
-        // Clean up any deleted statements from stg_masters table
-        await supabase.from('stg_masters').delete().not('key', 'in', `(${currentKeys.map((k: string) => `"${k}"`).join(',')})`);
-      } else {
-        // When empty (all deleted), clear all rows from stg_masters
-        await supabase.from('stg_masters').delete().neq('key', '');
+
+      // Clean up any deleted statements from stg_masters table cleanly using key difference
+      const { data: existingRows } = await supabase
+        .from('stg_masters')
+        .select('key');
+
+      if (Array.isArray(existingRows)) {
+        const keysToDelete = existingRows
+          .map((r: any) => r.key)
+          .filter((k: string) => k && !currentKeys.includes(k));
+
+        if (keysToDelete.length > 0) {
+          await supabase.from('stg_masters').delete().in('key', keysToDelete);
+        }
       }
 
       if (mastersList.length > 0) {
@@ -190,13 +180,28 @@ export async function POST(req: NextRequest) {
           updated_by: actorUsername,
           updated_at: new Date().toISOString(),
         }));
-        await supabase.from('stg_masters').upsert(rowsToUpsert, { onConflict: 'key' });
+
+        const { error: upsertErr } = await supabase
+          .from('stg_masters')
+          .upsert(rowsToUpsert, { onConflict: 'key' });
+
+        if (!upsertErr) {
+          stgTableSaved = true;
+        } else {
+          stgTableError = upsertErr.message;
+          console.warn('stg_masters table write warning:', upsertErr.message);
+        }
+      } else {
+        // When empty (all deleted), clear all rows from stg_masters
+        const { error: delErr } = await supabase.from('stg_masters').delete().neq('key', '');
+        if (!delErr) stgTableSaved = true;
       }
-    } catch (e) {
-      console.warn('stg_masters table write warning:', e);
+    } catch (e: any) {
+      stgTableError = e.message || String(e);
+      console.warn('stg_masters table write exception:', e);
     }
 
-    // 2. Secondary/Fallback Sync: Keep prep_chart_configs updated for compatibility
+    // 2. Secondary Sync: Keep prep_chart_configs updated as resilient sync / fallback
     try {
       const cleansedMasters = mastersList.map((m: any) => ({
         ...m,
@@ -207,24 +212,38 @@ export async function POST(req: NextRequest) {
         custom_columns: cleanseCols(m.receipt_columns || m.custom_columns),
       }));
 
-      await supabase.from('prep_chart_configs').upsert({
+      const { error: cfgErr } = await supabase.from('prep_chart_configs').upsert({
         config_key: 'stg_masters',
         config_json: cleansedMasters,
         updated_by: actorUsername,
         updated_at: new Date().toISOString(),
       }, { onConflict: 'config_key' });
-    } catch { }
 
-    // 3. Also sync to entries table (report_type = 'TS') for backward compatibility
-    try {
-      await supabase.from('entries').insert({
-        report_type: 'TS',
-        notes: JSON.stringify(mastersList),
-        created_by: actorUsername,
-      });
-    } catch { }
+      if (!cfgErr) {
+        prepChartConfigsSaved = true;
+      } else {
+        prepChartConfigsError = cfgErr.message;
+        console.warn('prep_chart_configs write warning:', cfgErr.message);
+      }
+    } catch (e: any) {
+      prepChartConfigsError = e.message || String(e);
+      console.warn('prep_chart_configs write exception:', e);
+    }
 
-    return NextResponse.json({ success: true, masters: mastersList });
+    // If both writes failed, throw an informative error
+    if (!stgTableSaved && !prepChartConfigsSaved) {
+      return NextResponse.json({
+        error: `Failed to save statement formulation tables to database. stg_masters error: ${stgTableError || 'unknown'}. prep_chart_configs error: ${prepChartConfigsError || 'unknown'}. Please make sure migration 017_stg_masters_table.sql has been executed in Supabase SQL Editor.`,
+      }, { status: 500 });
+    }
+
+    return NextResponse.json({
+      success: true,
+      masters: mastersList,
+      savedToStgMasters: stgTableSaved,
+      savedToPrepChartConfigs: prepChartConfigsSaved,
+      stgTableError: stgTableError,
+    });
   } catch (err: any) {
     console.error('POST /api/ts/masters error:', err);
     return NextResponse.json({ error: err.message || 'Failed to save statement masters' }, { status: 500 });
@@ -270,7 +289,7 @@ export async function DELETE(req: NextRequest) {
 
     const supabase = getSupabaseServiceClient();
 
-    // 1. Delete from dedicated stg_masters table if present
+    // 1. Delete from dedicated stg_masters table
     try {
       if (deleteAll) {
         await supabase.from('stg_masters').delete().neq('key', '');
@@ -304,15 +323,6 @@ export async function DELETE(req: NextRequest) {
     } catch (e) {
       console.warn('stg_masters / prep_chart_configs delete sync error:', e);
     }
-
-    // 3. Sync to entries table
-    try {
-      await supabase.from('entries').insert({
-        report_type: 'TS',
-        notes: JSON.stringify(remaining),
-        created_by: actorUsername,
-      });
-    } catch { }
 
     return NextResponse.json({
       success: true,

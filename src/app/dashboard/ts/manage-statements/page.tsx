@@ -179,11 +179,18 @@ export default function StatementMastersConfigPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ masters: mastersToSave }),
       });
-      if (res.ok) {
-        showToast(`✅ ${successMsg}`);
+      const resJson = await res.json();
+      if (res.ok && resJson.success) {
+        if (resJson.savedToStgMasters) {
+          showToast(`✅ ${successMsg} (stored in public.stg_masters)`);
+        } else if (resJson.savedToPrepChartConfigs) {
+          showToast(`⚠️ Saved to prep_chart_configs. stg_masters table missing in Supabase! Run 017_stg_masters_table.sql.`);
+        } else {
+          showToast(`✅ ${successMsg}`);
+        }
         setHasUnsavedChanges(false);
       } else {
-        showToast('❌ Failed to save statement masters');
+        showToast(`❌ Failed to save statement masters: ${resJson.error || 'Database error'}`);
       }
     } catch (err) {
       console.error('Error saving masters:', err);
