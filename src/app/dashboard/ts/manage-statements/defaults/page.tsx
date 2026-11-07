@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useMemo, useCallback, Suspense } from 'react';
+import { useState, useEffect, useMemo, useCallback, useRef, Suspense } from 'react';
 import Header from '@/components/layout/Header';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
@@ -23,6 +23,7 @@ export interface STGColumnDef {
 export interface STGReconRow {
   id: string;
   label: string;
+  variant?: string;
   row_type?: string;
   values: Record<string, any>;
   is_formula?: boolean;
@@ -43,6 +44,8 @@ export interface STGMasterDef {
   variant?: string;
   description?: string;
   is_split?: boolean;
+  cmpdd_norm?: string;
+  metadata?: Record<string, any>;
   ob_rows?: STGRowData[];
   receipt_rows?: STGRowData[];
   disposal_rows?: STGRowData[];
@@ -59,52 +62,136 @@ export interface STGMasterDef {
 }
 
 // Default columns for each section with editable Column A (Particular / Label)
-export const getDefaultOBColumns = (): STGColumnDef[] => [
-  { key: 'variant', name: 'Opening Balance Particular', type: 'text', sort_order: 1 },
-  { key: 'qty_lts', name: 'Qty (Lts)', type: 'number', decimals: 0, sort_order: 2 },
-  { key: 'sp_gr', name: 'SP.G', type: 'number', decimals: 4, sort_order: 3 },
-  { key: 'qty_kg', name: 'Qty (Kg)', type: 'calculated', formula: 'qty_lts * sp_gr', decimals: 2, sort_order: 4 },
-  { key: 'fat_pct', name: 'Fat%', type: 'number', decimals: 2, sort_order: 5 },
-  { key: 'snf_pct', name: 'Snf%', type: 'number', decimals: 2, sort_order: 6 },
-  { key: 'kg_fat', name: 'Kg.Fat', type: 'calculated', formula: 'qty_kg * fat_pct / 100', decimals: 3, sort_order: 7 },
-  { key: 'kg_snf', name: 'Kg.Snf', type: 'calculated', formula: 'qty_kg * snf_pct / 100', decimals: 3, sort_order: 8 },
-];
+export const getDefaultOBColumns = (baseCols?: STGColumnDef[]): STGColumnDef[] => {
+  if (baseCols && baseCols.length > 0) return JSON.parse(JSON.stringify(baseCols));
+  return [
+    { key: 'variant', name: 'VARIANT', type: 'text', sort_order: 1 },
+    { key: 'qty_lts', name: 'Qty (Lts)', type: 'number', decimals: 0, sort_order: 2 },
+    { key: 'qty_kg', name: 'Qty (Kg)', type: 'number', decimals: 2, sort_order: 3 },
+    { key: 'fat_pct', name: 'Fat%', type: 'number', decimals: 2, sort_order: 4 },
+    { key: 'snf_pct', name: 'Snf%', type: 'number', decimals: 2, sort_order: 5 },
+    { key: 'sp_gr', name: 'SP.G', type: 'number', decimals: 4, sort_order: 6 },
+    { key: 'kg_fat', name: 'Kg.Fat', type: 'number', decimals: 3, sort_order: 7 },
+    { key: 'kg_snf', name: 'Kg.Snf', type: 'number', decimals: 3, sort_order: 8 },
+  ];
+};
 
-export const getDefaultReceiptColumns = (): STGColumnDef[] => [
-  { key: 'variant', name: 'Receipt Particular', type: 'text', sort_order: 1 },
-  { key: 'qty_lts', name: 'Qty (Lts)', type: 'number', decimals: 0, sort_order: 2 },
-  { key: 'sp_gr', name: 'SP.G', type: 'number', decimals: 4, sort_order: 3 },
-  { key: 'qty_kg', name: 'Qty (Kg)', type: 'calculated', formula: 'qty_lts * sp_gr', decimals: 2, sort_order: 4 },
-  { key: 'fat_pct', name: 'Fat%', type: 'number', decimals: 2, sort_order: 5 },
-  { key: 'snf_pct', name: 'Snf%', type: 'number', decimals: 2, sort_order: 6 },
-  { key: 'kg_fat', name: 'Kg.Fat', type: 'calculated', formula: 'qty_kg * fat_pct / 100', decimals: 3, sort_order: 7 },
-  { key: 'kg_snf', name: 'Kg.Snf', type: 'calculated', formula: 'qty_kg * snf_pct / 100', decimals: 3, sort_order: 8 },
-];
+export const getDefaultReceiptColumns = (baseCols?: STGColumnDef[]): STGColumnDef[] => {
+  if (baseCols && baseCols.length > 0) return JSON.parse(JSON.stringify(baseCols));
+  return [
+    { key: 'variant', name: 'VARIANT', type: 'text', sort_order: 1 },
+    { key: 'qty_lts', name: 'Qty (Lts)', type: 'number', decimals: 0, sort_order: 2 },
+    { key: 'qty_kg', name: 'Qty (Kg)', type: 'number', decimals: 2, sort_order: 3 },
+    { key: 'fat_pct', name: 'Fat%', type: 'number', decimals: 2, sort_order: 4 },
+    { key: 'snf_pct', name: 'Snf%', type: 'number', decimals: 2, sort_order: 5 },
+    { key: 'sp_gr', name: 'SP.G', type: 'number', decimals: 4, sort_order: 6 },
+    { key: 'kg_fat', name: 'Kg.Fat', type: 'number', decimals: 3, sort_order: 7 },
+    { key: 'kg_snf', name: 'Kg.Snf', type: 'number', decimals: 3, sort_order: 8 },
+  ];
+};
 
-export const getDefaultDisposalColumns = (): STGColumnDef[] => [
-  { key: 'variant', name: 'Disposal Particular', type: 'text', sort_order: 1 },
-  { key: 'qty_lts', name: 'Qty (Lts)', type: 'number', decimals: 0, sort_order: 2 },
-  { key: 'sp_gr', name: 'SP.G', type: 'number', decimals: 4, sort_order: 3 },
-  { key: 'qty_kg', name: 'Qty (Kg)', type: 'calculated', formula: 'qty_lts * sp_gr', decimals: 2, sort_order: 4 },
-  { key: 'fat_pct', name: 'Fat%', type: 'number', decimals: 2, sort_order: 5 },
-  { key: 'snf_pct', name: 'Snf%', type: 'number', decimals: 2, sort_order: 6 },
-  { key: 'kg_fat', name: 'Kg.Fat', type: 'calculated', formula: 'qty_kg * fat_pct / 100', decimals: 3, sort_order: 7 },
-  { key: 'kg_snf', name: 'Kg.Snf', type: 'calculated', formula: 'qty_kg * snf_pct / 100', decimals: 3, sort_order: 8 },
-];
+export const getDefaultDisposalColumns = (baseCols?: STGColumnDef[]): STGColumnDef[] => {
+  if (baseCols && baseCols.length > 0) return JSON.parse(JSON.stringify(baseCols));
+  return [
+    { key: 'variant', name: 'VARIANT', type: 'text', sort_order: 1 },
+    { key: 'qty_lts', name: 'Qty (Lts)', type: 'number', decimals: 0, sort_order: 2 },
+    { key: 'qty_kg', name: 'Qty (Kg)', type: 'number', decimals: 2, sort_order: 3 },
+    { key: 'fat_pct', name: 'Fat%', type: 'number', decimals: 2, sort_order: 4 },
+    { key: 'snf_pct', name: 'Snf%', type: 'number', decimals: 2, sort_order: 5 },
+    { key: 'sp_gr', name: 'SP.G', type: 'number', decimals: 4, sort_order: 6 },
+    { key: 'kg_fat', name: 'Kg.Fat', type: 'number', decimals: 3, sort_order: 7 },
+    { key: 'kg_snf', name: 'Kg.Snf', type: 'number', decimals: 3, sort_order: 8 },
+  ];
+};
 
-export const getDefaultReconColumns = (): STGColumnDef[] => [
-  { key: 'label', name: 'Reconciliation Item / Summary Label', type: 'text', sort_order: 1 },
-  { key: 'qty_lts', name: 'Qty (Lts)', type: 'number', decimals: 0, sort_order: 2 },
-  { key: 'sp_gr', name: 'SP.G', type: 'number', decimals: 4, sort_order: 3 },
-  { key: 'qty_kg', name: 'Qty (Kg)', type: 'calculated', formula: 'qty_lts * sp_gr', decimals: 2, sort_order: 4 },
-  { key: 'fat_pct', name: 'Fat%', type: 'number', decimals: 2, sort_order: 5 },
-  { key: 'snf_pct', name: 'Snf%', type: 'number', decimals: 2, sort_order: 6 },
-  { key: 'kg_fat', name: 'Kg.Fat', type: 'calculated', formula: 'qty_kg * fat_pct / 100', decimals: 3, sort_order: 7 },
-  { key: 'kg_snf', name: 'Kg.Snf', type: 'calculated', formula: 'qty_kg * snf_pct / 100', decimals: 3, sort_order: 8 },
-  { key: 'note', name: 'Note / Description', type: 'text', sort_order: 9 },
-];
+export const getDefaultReconColumns = (baseCols?: STGColumnDef[]): STGColumnDef[] => {
+  if (baseCols && baseCols.length > 0) {
+    return baseCols.map((c, i) => ({
+      ...c,
+      key: c.key === 'variant' ? 'label' : c.key,
+      sort_order: i + 1,
+    }));
+  }
+  return [
+    { key: 'label', name: 'VARIANT', type: 'text', sort_order: 1 },
+    { key: 'qty_lts', name: 'Qty (Lts)', type: 'number', decimals: 0, sort_order: 2 },
+    { key: 'qty_kg', name: 'Qty (Kg)', type: 'number', decimals: 2, sort_order: 3 },
+    { key: 'fat_pct', name: 'Fat%', type: 'number', decimals: 2, sort_order: 4 },
+    { key: 'snf_pct', name: 'Snf%', type: 'number', decimals: 2, sort_order: 5 },
+    { key: 'sp_gr', name: 'SP.G', type: 'number', decimals: 4, sort_order: 6 },
+    { key: 'kg_fat', name: 'Kg.Fat', type: 'number', decimals: 3, sort_order: 7 },
+    { key: 'kg_snf', name: 'Kg.Snf', type: 'number', decimals: 3, sort_order: 8 },
+    { key: 'note', name: 'Note / Description', type: 'text', sort_order: 9 },
+  ];
+};
 
 export const getDefaultReconRows = (): STGReconRow[] => [];
+
+const PROHIBITED_COLUMN_NAMES = new Set([
+  'Opening Balance Particular',
+  'Receipt Particular',
+  'Disposal Particular',
+  'Reconciliation Item / Summary Label',
+]);
+
+// Helper to synchronize a section's columns with configured columns from STG Statement Column Configuration:
+// 1. Removes any column that was removed from configured columns.
+// 2. Orders columns strictly in the exact order placed in STG Statement Column Configuration.
+// 3. Completely prevents artificial particular names and unwanted forced calculated types from being injected.
+export const syncSectionColumnsWithConfig = (
+  existingCols: STGColumnDef[] | undefined,
+  activeConfigCols: STGColumnDef[],
+  isRecon: boolean = false
+): STGColumnDef[] => {
+  const configCols = activeConfigCols && activeConfigCols.length > 0
+    ? activeConfigCols
+    : getDefaultReceiptColumns();
+
+  if (!Array.isArray(existingCols) || existingCols.length === 0) {
+    return configCols.map((c, idx) => ({
+      ...c,
+      key: isRecon && c.key === 'variant' ? 'label' : c.key,
+      sort_order: idx + 1,
+    }));
+  }
+
+  // Map strictly over configCols to respect order & removals from STG Statement Column Configuration
+  return configCols.map((cfgCol, idx) => {
+    const existing = existingCols.find(
+      c => c.key === cfgCol.key || (isRecon && cfgCol.key === 'variant' && c.key === 'label')
+    );
+
+    const name = existing?.name && !PROHIBITED_COLUMN_NAMES.has(existing.name)
+      ? existing.name
+      : cfgCol.name;
+
+    const isHardcodedCalc = (existing?.formula === 'qty_lts * sp_gr' || cfgCol.formula === 'qty_lts * sp_gr' ||
+                             existing?.formula === 'qty_kg * fat_pct / 100' || cfgCol.formula === 'qty_kg * fat_pct / 100' ||
+                             existing?.formula === 'qty_kg * snf_pct / 100' || cfgCol.formula === 'qty_kg * snf_pct / 100');
+
+    const colType = (cfgCol.key === 'variant' || cfgCol.key === 'label' || existing?.key === 'variant' || existing?.key === 'label')
+      ? 'text'
+      : (isHardcodedCalc ? 'number' : (existing?.type || cfgCol.type || 'number'));
+
+    const formula = isHardcodedCalc ? undefined : (existing?.formula || cfgCol.formula || undefined);
+
+    const res: STGColumnDef = {
+      ...cfgCol,
+      key: isRecon && (existing?.key === 'label' || cfgCol.key === 'label') ? 'label' : cfgCol.key,
+      name,
+      type: colType,
+      decimals: existing?.decimals !== undefined ? existing.decimals : cfgCol.decimals,
+      unit: existing?.unit || cfgCol.unit,
+      sort_order: idx + 1,
+      is_active: existing?.is_active !== undefined ? existing.is_active : (cfgCol.is_active !== undefined ? cfgCol.is_active : true),
+    };
+
+    if (formula) res.formula = formula;
+    else delete res.formula;
+
+    return res;
+  });
+};
 
 // Helper to ensure Column A (Particular or Label) exists in a column list
 const ensureParticularColumn = (cols: STGColumnDef[], defaultName: string, keyName: string = 'variant'): STGColumnDef[] => {
@@ -138,16 +225,16 @@ function STGDefaultFormulationsContent() {
   const [disposalColumns, setDisposalColumns] = useState<STGColumnDef[]>(getDefaultDisposalColumns());
   const [reconColumns, setReconColumns] = useState<STGColumnDef[]>(getDefaultReconColumns());
 
+  // Global authoritative configured columns from STG Statement Column Configuration (/api/ts/columns)
+  const [configuredColumns, setConfiguredColumns] = useState<STGColumnDef[]>([]);
+  const configuredColumnsRef = useRef<STGColumnDef[]>([]);
+
   // Per-section Rows
   const [obRows, setObRows] = useState<STGRowData[]>([
     { variant: 'Opening Balance', row_type: 'OB', side: 'RECEIPT', values: { variant: 'Opening Balance' } }
   ]);
-  const [receiptRows, setReceiptRows] = useState<STGRowData[]>([
-    { variant: 'Receipt 1', row_type: 'RECEIPT', side: 'RECEIPT', values: { variant: 'Receipt 1' } }
-  ]);
-  const [disposalRows, setDisposalRows] = useState<STGRowData[]>([
-    { variant: 'Disposal 1', row_type: 'DISPOSAL', side: 'DISPOSAL', values: { variant: 'Disposal 1' } }
-  ]);
+  const [receiptRows, setReceiptRows] = useState<STGRowData[]>([]);
+  const [disposalRows, setDisposalRows] = useState<STGRowData[]>([]);
   const [reconRows, setReconRows] = useState<STGReconRow[]>(getDefaultReconRows());
 
   // Per-section Column Editing state (toggle button on each table header)
@@ -194,6 +281,7 @@ function STGDefaultFormulationsContent() {
 
   // Manage Statement Master Names Modal (Update, Delete, Insert)
   const [isManageMastersModalOpen, setIsManageMastersModalOpen] = useState<boolean>(false);
+  const [selectedMasterKeys, setSelectedMasterKeys] = useState<string[]>([]);
   const [editingMasterKey, setEditingMasterKey] = useState<string | null>(null);
   const [editMasterLabel, setEditMasterLabel] = useState<string>('');
   const [editMasterVariant, setEditMasterVariant] = useState<string>('');
@@ -630,10 +718,10 @@ function STGDefaultFormulationsContent() {
   const getRowCellValue = (row: any, colKey: string): string => {
     if (!row) return '';
     if (colKey === 'variant') {
-      return row.variant !== undefined ? row.variant : (row.values?.['variant'] !== undefined ? row.values['variant'] : '');
+      return row.variant !== undefined ? row.variant : (row.label !== undefined ? row.label : (row.values?.['variant'] !== undefined ? row.values['variant'] : (row.values?.['label'] !== undefined ? row.values['label'] : '')));
     }
     if (colKey === 'label') {
-      return row.label !== undefined ? row.label : (row.values?.['label'] !== undefined ? row.values['label'] : '');
+      return row.label !== undefined ? row.label : (row.variant !== undefined ? row.variant : (row.values?.['label'] !== undefined ? row.values['label'] : (row.values?.['variant'] !== undefined ? row.values['variant'] : '')));
     }
     let raw = row.values?.[colKey];
     if (raw === undefined) {
@@ -732,40 +820,61 @@ function STGDefaultFormulationsContent() {
   // Loading data from API
   const loadMasterDefaults = useCallback((
     masterKey: string,
-    mastersList: STGMasterDef[]
+    mastersList: STGMasterDef[],
+    activeConfigCols?: STGColumnDef[]
   ) => {
     const targetMaster = mastersList.find(m => m.key === masterKey);
 
-    // Ensure Column A (Particular or Label) exists in each section's columns
-    const loadedOBCols = ensureParticularColumn(
-      targetMaster?.ob_columns && targetMaster.ob_columns.length > 0 ? targetMaster.ob_columns : getDefaultOBColumns(),
-      'Opening Balance Particular',
-      'variant'
+    const activeCols = (activeConfigCols && activeConfigCols.length > 0)
+      ? activeConfigCols
+      : (configuredColumnsRef.current.length > 0 ? configuredColumnsRef.current : configuredColumns);
+
+    if (!masterKey || !targetMaster) {
+      setObColumns(syncSectionColumnsWithConfig(undefined, activeCols, false));
+      setReceiptColumns(syncSectionColumnsWithConfig(undefined, activeCols, false));
+      setDisposalColumns(syncSectionColumnsWithConfig(undefined, activeCols, false));
+      setReconColumns(syncSectionColumnsWithConfig(undefined, activeCols, true));
+      setObRows([]);
+      setReceiptRows([]);
+      setDisposalRows([]);
+      setReconRows([]);
+      setSelectedCell(null);
+      setFocusedCell(null);
+      return;
+    }
+
+    // Synchronize Column lists strictly with STG Statement Column Configuration:
+    // 1. Columns removed in STG Statement Column Configuration are removed.
+    // 2. Columns follow the exact order configured in STG Statement Column Configuration.
+    const loadedOBCols = syncSectionColumnsWithConfig(
+      targetMaster.ob_columns,
+      activeCols,
+      false
     );
     setObColumns(loadedOBCols);
 
-    const loadedRecCols = ensureParticularColumn(
-      targetMaster?.receipt_columns && targetMaster.receipt_columns.length > 0 ? targetMaster.receipt_columns : getDefaultReceiptColumns(),
-      'Receipt Particular',
-      'variant'
+    const loadedRecCols = syncSectionColumnsWithConfig(
+      targetMaster.receipt_columns,
+      activeCols,
+      false
     );
     setReceiptColumns(loadedRecCols);
 
-    const loadedDispCols = ensureParticularColumn(
-      targetMaster?.disposal_columns && targetMaster.disposal_columns.length > 0 ? targetMaster.disposal_columns : getDefaultDisposalColumns(),
-      'Disposal Particular',
-      'variant'
+    const loadedDispCols = syncSectionColumnsWithConfig(
+      targetMaster.disposal_columns,
+      activeCols,
+      false
     );
     setDisposalColumns(loadedDispCols);
 
-    const loadedReconCols = ensureParticularColumn(
-      targetMaster?.recon_columns && targetMaster.recon_columns.length > 0 ? targetMaster.recon_columns : getDefaultReconColumns(),
-      'Reconciliation Item / Summary Label',
-      'label'
+    const loadedReconCols = syncSectionColumnsWithConfig(
+      targetMaster.recon_columns,
+      activeCols,
+      true
     );
     setReconColumns(loadedReconCols);
 
-    // Section Rows
+    // Section Rows strictly from saved rows of targetMaster in table
     // 1. Opening Balance Rows
     if (targetMaster?.ob_rows && Array.isArray(targetMaster.ob_rows) && targetMaster.ob_rows.length > 0) {
       setObRows(JSON.parse(JSON.stringify(targetMaster.ob_rows)));
@@ -778,28 +887,24 @@ function STGDefaultFormulationsContent() {
       ]);
     }
 
-    // 2. Receipt Rows
+    // 2. Receipt Rows strictly from saved rows of table
     if (targetMaster?.receipt_rows && Array.isArray(targetMaster.receipt_rows) && targetMaster.receipt_rows.length > 0) {
       setReceiptRows(JSON.parse(JSON.stringify(targetMaster.receipt_rows)));
     } else {
       const extractedRec = (targetMaster?.default_rows || targetMaster?.rows || []).filter((r: any) =>
         (r.row_type === 'RECEIPT' || r.side === 'RECEIPT') && r.row_type !== 'OB' && !(r.variant || '').toLowerCase().includes('opening')
       );
-      setReceiptRows(extractedRec.length > 0 ? JSON.parse(JSON.stringify(extractedRec)) : [
-        { variant: 'Receipt 1', row_type: 'RECEIPT', side: 'RECEIPT', values: { variant: 'Receipt 1' } }
-      ]);
+      setReceiptRows(extractedRec.length > 0 ? JSON.parse(JSON.stringify(extractedRec)) : []);
     }
 
-    // 3. Disposal Rows
+    // 3. Disposal Rows strictly from saved rows of table
     if (targetMaster?.disposal_rows && Array.isArray(targetMaster.disposal_rows) && targetMaster.disposal_rows.length > 0) {
       setDisposalRows(JSON.parse(JSON.stringify(targetMaster.disposal_rows)));
     } else {
       const extractedDisp = (targetMaster?.default_rows || targetMaster?.rows || []).filter((r: any) =>
         r.row_type === 'DISPOSAL' || r.side === 'DISPOSAL'
       );
-      setDisposalRows(extractedDisp.length > 0 ? JSON.parse(JSON.stringify(extractedDisp)) : [
-        { variant: 'Disposal 1', row_type: 'DISPOSAL', side: 'DISPOSAL', values: { variant: 'Disposal 1' } }
-      ]);
+      setDisposalRows(extractedDisp.length > 0 ? JSON.parse(JSON.stringify(extractedDisp)) : []);
     }
 
     // 4. Reconciliation Rows
@@ -811,14 +916,28 @@ function STGDefaultFormulationsContent() {
 
     setSelectedCell(null);
     setFocusedCell(null);
-  }, []);
+  }, [configuredColumns]);
 
   const loadData = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await fetch('/api/ts/masters');
-      if (res.ok) {
-        const json = await res.json();
+      const [mastersRes, colsRes] = await Promise.all([
+        fetch('/api/ts/masters'),
+        fetch('/api/ts/columns'),
+      ]);
+
+      let loadedCols: STGColumnDef[] = [];
+      if (colsRes.ok) {
+        const colJson = await colsRes.json();
+        if (Array.isArray(colJson.columns) && colJson.columns.length > 0) {
+          loadedCols = colJson.columns;
+        }
+      }
+      setConfiguredColumns(loadedCols);
+      configuredColumnsRef.current = loadedCols;
+
+      if (mastersRes.ok) {
+        const json = await mastersRes.json();
         const loadedMasters: STGMasterDef[] = json.masters || [];
         setMasters(loadedMasters);
 
@@ -829,11 +948,14 @@ function STGDefaultFormulationsContent() {
               ? activeMasterKey
               : loadedMasters[0].key);
           setActiveMasterKey(initialKey);
-          loadMasterDefaults(initialKey, loadedMasters);
+          loadMasterDefaults(initialKey, loadedMasters, loadedCols);
+        } else {
+          setActiveMasterKey(null);
+          loadMasterDefaults('', [], loadedCols);
         }
       }
     } catch (err) {
-      console.error('Failed to load STG masters:', err);
+      console.error('Failed to load STG masters and columns:', err);
     }
     setLoading(false);
   }, [activeMasterKey, paramMaster, loadMasterDefaults]);
@@ -1056,8 +1178,11 @@ function STGDefaultFormulationsContent() {
       if (colKey === 'qty_kg') updatedVals['kg'] = val;
       if (colKey === 'kg') updatedVals['qty_kg'] = val;
       const updatedRow = { ...copy[rIdx], values: updatedVals };
-      if (colKey === 'label') {
+      if (colKey === 'label' || colKey === 'variant') {
         updatedRow.label = val;
+        updatedRow.variant = val;
+        updatedVals['label'] = val;
+        updatedVals['variant'] = val;
       }
       copy[rIdx] = updatedRow;
       return copy;
@@ -1125,7 +1250,107 @@ function STGDefaultFormulationsContent() {
     setIsColModalOpen(true);
   };
 
-  const handleSaveColumnModal = (e: React.FormEvent) => {
+  // Helper to persist column modifications (edit, delete, move, add) directly to database
+  const persistColumnModification = async (
+    sec: STGSectionType,
+    updatedCols: STGColumnDef[],
+    deletedKey?: string,
+    updatedRowsPayload?: {
+      obRows?: STGRowData[];
+      receiptRows?: STGRowData[];
+      disposalRows?: STGRowData[];
+      reconRows?: STGReconRow[];
+    },
+    modifiedCol?: STGColumnDef
+  ) => {
+    if (!activeMasterKey) return;
+
+    const colField = sec === 'OB' ? 'ob_columns'
+      : sec === 'RECEIPT' ? 'receipt_columns'
+      : sec === 'DISPOSAL' ? 'disposal_columns'
+      : 'recon_columns';
+
+    const effectiveOBRows = updatedRowsPayload?.obRows ?? obRows;
+    const effectiveRecRows = updatedRowsPayload?.receiptRows ?? receiptRows;
+    const effectiveDispRows = updatedRowsPayload?.disposalRows ?? disposalRows;
+    const effectiveReconRows = updatedRowsPayload?.reconRows ?? reconRows;
+
+    const combinedRows = [
+      ...effectiveOBRows.map(r => ({ ...r, row_type: 'OB' as const, side: 'RECEIPT' as const })),
+      ...effectiveRecRows.map(r => ({ ...r, row_type: 'RECEIPT' as const, side: 'RECEIPT' as const })),
+      ...effectiveDispRows.map(r => ({ ...r, row_type: 'DISPOSAL' as const, side: 'DISPOSAL' as const })),
+    ];
+
+    const updatedMasters = masters.map(m => {
+      if (m.key === activeMasterKey) {
+        return {
+          ...m,
+          [colField]: updatedCols,
+          ...(sec === 'RECEIPT' ? { custom_columns: updatedCols } : {}),
+          ob_rows: effectiveOBRows,
+          receipt_rows: effectiveRecRows,
+          disposal_rows: effectiveDispRows,
+          reconciliation_rows: effectiveReconRows,
+          default_rows: combinedRows,
+          rows: combinedRows,
+        };
+      }
+      return m;
+    });
+
+    setMasters(updatedMasters);
+
+    try {
+      // 1. Immediately persist statement master section columns to DB (/api/ts/masters -> stg_masters table)
+      await fetch('/api/ts/masters', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ masters: updatedMasters }),
+      });
+
+      // 2. Keep STG Statement Column Configuration (/api/ts/columns) synchronized if deleted or edited
+      if (deletedKey) {
+        const remainingConfig = configuredColumns.filter(c => c.key !== deletedKey);
+        if (remainingConfig.length !== configuredColumns.length) {
+          setConfiguredColumns(remainingConfig);
+          configuredColumnsRef.current = remainingConfig;
+          await fetch('/api/ts/columns', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ columns: remainingConfig }),
+          });
+        }
+      } else if (modifiedCol) {
+        let hasMatch = false;
+        const syncedConfig = configuredColumns.map(cfgCol => {
+          if (cfgCol.key === modifiedCol.key || (cfgCol.key === 'variant' && modifiedCol.key === 'label')) {
+            hasMatch = true;
+            return {
+              ...cfgCol,
+              name: modifiedCol.name,
+              decimals: modifiedCol.decimals,
+              type: modifiedCol.type,
+              unit: modifiedCol.unit,
+            };
+          }
+          return cfgCol;
+        });
+        if (hasMatch) {
+          setConfiguredColumns(syncedConfig);
+          configuredColumnsRef.current = syncedConfig;
+          await fetch('/api/ts/columns', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ columns: syncedConfig }),
+          });
+        }
+      }
+    } catch (err) {
+      console.error('Error persisting column modification to DB:', err);
+    }
+  };
+
+  const handleSaveColumnModal = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!formColName.trim()) {
       showWarning('Please enter a column name');
@@ -1156,19 +1381,21 @@ function STGDefaultFormulationsContent() {
     let updatedCols: STGColumnDef[] = [];
     if (colModalEditingKey) {
       updatedCols = currentCols.map(c => (c.key === colModalEditingKey ? newCol : c));
-      showToast(`✅ Updated column "${newCol.name}" in ${sec} section!`);
+      showToast(`✅ Saved column "${newCol.name}" in ${sec} section to database!`);
     } else if (colModalInsertIdx !== null && colModalInsertIdx >= 0) {
       const copy = [...currentCols];
       copy.splice(colModalInsertIdx, 0, newCol);
       updatedCols = copy.map((c, idx) => ({ ...c, sort_order: idx + 1 }));
-      showToast(`✅ Inserted column "${newCol.name}" into ${sec} section!`);
+      showToast(`✅ Inserted column "${newCol.name}" into ${sec} section and saved to database!`);
     } else {
       updatedCols = [...currentCols, newCol].map((c, idx) => ({ ...c, sort_order: idx + 1 }));
-      showToast(`✅ Added column "${newCol.name}" to ${sec} section!`);
+      showToast(`✅ Added column "${newCol.name}" to ${sec} section and saved to database!`);
     }
 
     setSectionColumns(sec, updatedCols);
     setIsColModalOpen(false);
+
+    await persistColumnModification(sec, updatedCols, undefined, undefined, newCol);
   };
 
   const handleDeleteColumn = async (sec: STGSectionType, key: string) => {
@@ -1178,7 +1405,7 @@ function STGDefaultFormulationsContent() {
 
     const ok = await confirm({
       title: `Delete Column from ${sec}`,
-      message: `Are you sure you want to delete column "${col.name}" from the ${sec} section? Any row values in this column will be cleared.`,
+      message: `Are you sure you want to delete column "${col.name}" from the ${sec} section? Any row values in this column will be cleared and changes saved to database.`,
       confirmText: 'Delete Column',
       cancelText: 'Cancel',
       type: 'danger',
@@ -1189,36 +1416,52 @@ function STGDefaultFormulationsContent() {
     setSectionColumns(sec, updatedCols);
 
     // Clear that key from rows of this section
+    let updatedOB = obRows;
+    let updatedRec = receiptRows;
+    let updatedDisp = disposalRows;
+    let updatedRecon = reconRows;
+
     if (sec === 'OB') {
-      setObRows(prev => prev.map(r => {
+      updatedOB = obRows.map(r => {
         const copy = { ...r.values };
         delete copy[key];
         return { ...r, values: copy };
-      }));
+      });
+      setObRows(updatedOB);
     } else if (sec === 'RECEIPT') {
-      setReceiptRows(prev => prev.map(r => {
+      updatedRec = receiptRows.map(r => {
         const copy = { ...r.values };
         delete copy[key];
         return { ...r, values: copy };
-      }));
+      });
+      setReceiptRows(updatedRec);
     } else if (sec === 'DISPOSAL') {
-      setDisposalRows(prev => prev.map(r => {
+      updatedDisp = disposalRows.map(r => {
         const copy = { ...r.values };
         delete copy[key];
         return { ...r, values: copy };
-      }));
+      });
+      setDisposalRows(updatedDisp);
     } else if (sec === 'RECON') {
-      setReconRows(prev => prev.map(r => {
+      updatedRecon = reconRows.map(r => {
         const copy = { ...r.values };
         delete copy[key];
         return { ...r, values: copy };
-      }));
+      });
+      setReconRows(updatedRecon);
     }
 
-    showToast(`Deleted column "${col.name}" from ${sec}.`);
+    showToast(`✅ Deleted column "${col.name}" from ${sec} and saved to database.`);
+
+    await persistColumnModification(sec, updatedCols, key, {
+      obRows: updatedOB,
+      receiptRows: updatedRec,
+      disposalRows: updatedDisp,
+      reconRows: updatedRecon,
+    });
   };
 
-  const handleMoveColumn = (sec: STGSectionType, index: number, direction: 'LEFT' | 'RIGHT') => {
+  const handleMoveColumn = async (sec: STGSectionType, index: number, direction: 'LEFT' | 'RIGHT') => {
     const currentCols = getSectionColumns(sec);
     if (direction === 'LEFT' && index === 0) return;
     if (direction === 'RIGHT' && index === currentCols.length - 1) return;
@@ -1229,6 +1472,9 @@ function STGDefaultFormulationsContent() {
     copy[targetIdx] = temp;
     const reindexed = copy.map((c, i) => ({ ...c, sort_order: i + 1 }));
     setSectionColumns(sec, reindexed);
+
+    showToast(`✅ Column order saved to database.`);
+    await persistColumnModification(sec, reindexed);
   };
 
   // Statement Master Management Handlers
@@ -1278,14 +1524,13 @@ function STGDefaultFormulationsContent() {
   };
 
   const handleDeleteMaster = async (key: string, name: string) => {
-    if (masters.length <= 1) {
-      showWarning('Cannot delete the only statement master in the system.');
-      return;
-    }
+    const isLast = masters.length <= 1;
     const isConfirmed = await confirm({
       title: 'Delete Statement Master',
-      message: `Are you sure you want to delete Statement Master "${name}"? This will delete the statement and all its configured columns and formulation tables.`,
-      confirmText: 'Delete Statement Master',
+      message: isLast
+        ? `Are you sure you want to delete the last Statement Master "${name}"? This will leave no statement masters in the system until new ones are created.`
+        : `Are you sure you want to delete Statement Master "${name}"? This will delete the statement and all its configured columns and formulation tables.`,
+      confirmText: isLast ? 'Delete Last Master' : 'Delete Statement Master',
       cancelText: 'Cancel',
       type: 'warning',
     });
@@ -1299,10 +1544,15 @@ function STGDefaultFormulationsContent() {
       if (res.ok) {
         const updatedMasters = masters.filter(m => m.key !== key);
         setMasters(updatedMasters);
+        setSelectedMasterKeys(prev => prev.filter(k => k !== key));
         if (activeMasterKey === key) {
           const nextKey = updatedMasters[0]?.key || null;
           setActiveMasterKey(nextKey);
-          if (nextKey) loadMasterDefaults(nextKey, updatedMasters);
+          if (nextKey) {
+            loadMasterDefaults(nextKey, updatedMasters);
+          } else {
+            loadMasterDefaults('', []);
+          }
         }
         showToast(`✅ Deleted Statement Master "${name}"`);
       } else {
@@ -1310,6 +1560,138 @@ function STGDefaultFormulationsContent() {
       }
     } catch {
       showToast('❌ Server error deleting statement master');
+    }
+    setSaving(false);
+  };
+
+  const handleToggleSelectAllMasters = () => {
+    if (selectedMasterKeys.length === masters.length) {
+      setSelectedMasterKeys([]);
+    } else {
+      setSelectedMasterKeys(masters.map(m => m.key));
+    }
+  };
+
+  const handleToggleSelectMaster = (key: string) => {
+    setSelectedMasterKeys(prev =>
+      prev.includes(key) ? prev.filter(k => k !== key) : [...prev, key]
+    );
+  };
+
+  const handleBulkDeleteMasters = async () => {
+    if (selectedMasterKeys.length === 0) {
+      showWarning('Please select at least one statement master to delete.');
+      return;
+    }
+
+    const count = selectedMasterKeys.length;
+    const isAll = count === masters.length;
+    const isConfirmed = await confirm({
+      title: isAll ? 'Delete All Statement Masters' : `Delete Selected (${count}) Statement Masters`,
+      message: isAll
+        ? `Are you sure you want to delete ALL ${count} Statement Masters? All statement masters and their configured formulation tables will be permanently deleted.`
+        : `Are you sure you want to delete the ${count} selected Statement Masters? This will permanently remove them and all their configured formulation tables.`,
+      confirmText: isAll ? 'Delete All Masters' : `Delete ${count} Masters`,
+      cancelText: 'Cancel',
+      type: 'warning',
+    });
+    if (!isConfirmed) return;
+
+    setSaving(true);
+    try {
+      const res = await fetch('/api/ts/masters', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ keys: selectedMasterKeys, all: isAll }),
+      });
+      if (res.ok) {
+        const updatedMasters = masters.filter(m => !selectedMasterKeys.includes(m.key));
+        setMasters(updatedMasters);
+        setSelectedMasterKeys([]);
+        if (selectedMasterKeys.includes(activeMasterKey || '')) {
+          const nextKey = updatedMasters[0]?.key || null;
+          setActiveMasterKey(nextKey);
+          if (nextKey) {
+            loadMasterDefaults(nextKey, updatedMasters);
+          } else {
+            loadMasterDefaults('', []);
+          }
+        }
+        showToast(`✅ Successfully deleted ${count} Statement Master${count > 1 ? 's' : ''}`);
+      } else {
+        showToast('❌ Failed to delete selected statement masters');
+      }
+    } catch {
+      showToast('❌ Server error deleting statement masters');
+    }
+    setSaving(false);
+  };
+
+  const handleDeleteAllMasters = async () => {
+    if (masters.length === 0) return;
+    const isConfirmed = await confirm({
+      title: 'Delete All Statement Masters',
+      message: `Are you sure you want to delete ALL ${masters.length} Statement Masters? All statements and their configured formulation tables will be permanently removed from the database.`,
+      confirmText: `Yes, Delete All (${masters.length})`,
+      cancelText: 'Cancel',
+      type: 'warning',
+    });
+    if (!isConfirmed) return;
+
+    setSaving(true);
+    try {
+      const res = await fetch('/api/ts/masters', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ all: true }),
+      });
+      if (res.ok) {
+        setMasters([]);
+        setSelectedMasterKeys([]);
+        setActiveMasterKey(null);
+        loadMasterDefaults('', []);
+        showToast('✅ All Statement Masters have been deleted');
+      } else {
+        showToast('❌ Failed to delete all statement masters');
+      }
+    } catch {
+      showToast('❌ Server error deleting all statement masters');
+    }
+    setSaving(false);
+  };
+
+  const handleRestoreDefaultMasters = async () => {
+    const isConfirmed = await confirm({
+      title: 'Restore Default Statement Masters',
+      message: 'Restore the standard 9 statement masters (Whole Milk, Skimmed Milk, Cream, Separation, Delite, FCM, STD, Curd, SMP for RSM)?',
+      confirmText: 'Restore Defaults',
+      cancelText: 'Cancel',
+      type: 'info',
+    });
+    if (!isConfirmed) return;
+
+    setSaving(true);
+    try {
+      const res = await fetch('/api/ts/masters', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'reset' }),
+      });
+      if (res.ok) {
+        const json = await res.json();
+        const loaded: STGMasterDef[] = json.masters || [];
+        setMasters(loaded);
+        setSelectedMasterKeys([]);
+        if (loaded.length > 0) {
+          setActiveMasterKey(loaded[0].key);
+          loadMasterDefaults(loaded[0].key, loaded);
+        }
+        showToast('✅ Restored default Statement Masters successfully!');
+      } else {
+        showToast('❌ Failed to restore default statement masters');
+      }
+    } catch {
+      showToast('❌ Server error restoring default statement masters');
     }
     setSaving(false);
   };
@@ -1346,8 +1728,8 @@ function STGDefaultFormulationsContent() {
     let initReconCols: STGColumnDef[] = getDefaultReconColumns();
 
     let initOBRows: STGRowData[] = [{ variant: 'Opening Balance', row_type: 'OB', side: 'RECEIPT', values: { variant: 'Opening Balance' } }];
-    let initRecRows: STGRowData[] = [{ variant: 'Receipt 1', row_type: 'RECEIPT', side: 'RECEIPT', values: { variant: 'Receipt 1' } }];
-    let initDispRows: STGRowData[] = [{ variant: 'Disposal 1', row_type: 'DISPOSAL', side: 'DISPOSAL', values: { variant: 'Disposal 1' } }];
+    let initRecRows: STGRowData[] = [];
+    let initDispRows: STGRowData[] = [];
     let initReconRows: STGReconRow[] = getDefaultReconRows();
 
     if (newMasterSource !== 'blank') {
@@ -1453,28 +1835,29 @@ function STGDefaultFormulationsContent() {
         return m;
       });
 
-      const [colRes, masterRes] = await Promise.all([
-        fetch('/api/ts/columns', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ columns: receiptColumns }),
-        }),
-        fetch('/api/ts/masters', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ masters: updatedMasters }),
-        }),
-      ]);
+      const masterRes = await fetch('/api/ts/masters', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ masters: updatedMasters }),
+      });
 
-      if (colRes.ok && masterRes.ok) {
+      const resJson = await masterRes.json();
+
+      if (masterRes.ok && resJson.success) {
         setMasters(updatedMasters);
-        showToast('✅ All 4 sections, columns, particulars, and formulation formulas saved successfully to database!');
+        if (resJson.savedToStgMasters) {
+          showToast('✅ Saved directly to stg_masters table in database!');
+        } else if (resJson.savedToPrepChartConfigs) {
+          showToast('⚠️ Saved to prep_chart_configs fallback. Notice: stg_masters table missing in Supabase. Run 017_stg_masters_table.sql.');
+        } else {
+          showToast('✅ All 4 sections, columns, particulars, and formulation formulas saved successfully!');
+        }
       } else {
-        showToast('❌ Failed to save default formulation tables');
+        showToast(`❌ Failed to save default formulation tables: ${resJson.error || 'Server error'}`);
       }
-    } catch (err) {
+    } catch (err: any) {
       console.error('Save error:', err);
-      showToast('❌ Server error saving default formulation tables');
+      showToast(`❌ Server error saving default formulation tables: ${err?.message || ''}`);
     }
     setSaving(false);
   };
@@ -1901,13 +2284,18 @@ function STGDefaultFormulationsContent() {
               className="form-select"
               value={activeMasterKey || ''}
               onChange={e => handleSwitchMaster(e.target.value)}
+              disabled={masters.length === 0}
               style={{ width: 260, fontWeight: 700, fontSize: '0.88rem', borderColor: '#0284c7', background: '#f0f9ff', color: '#0369a1' }}
             >
-              {masters.map(m => (
-                <option key={m.key} value={m.key}>
-                  {cleanStatementLabel(m.label || m.name || m.key)}
-                </option>
-              ))}
+              {masters.length === 0 ? (
+                <option value="">-- No Statement Masters --</option>
+              ) : (
+                masters.map(m => (
+                  <option key={m.key} value={m.key}>
+                    {cleanStatementLabel(m.label || m.name || m.key)}
+                  </option>
+                ))
+              )}
             </select>
 
             <button
@@ -1932,7 +2320,10 @@ function STGDefaultFormulationsContent() {
 
             <button
               type="button"
-              onClick={() => setIsManageMastersModalOpen(true)}
+              onClick={() => {
+                setSelectedMasterKeys([]);
+                setIsManageMastersModalOpen(true);
+              }}
               style={{
                 background: '#ffffff',
                 border: '1px solid #cbd5e1',
@@ -1950,6 +2341,26 @@ function STGDefaultFormulationsContent() {
             >
               📋 Statement Master Names
             </button>
+
+            <Link
+              href="/dashboard/ts/manage-statements/columns"
+              style={{
+                background: '#f8fafc',
+                border: '1px solid #cbd5e1',
+                color: '#334155',
+                borderRadius: 6,
+                padding: '6px 12px',
+                fontSize: '0.8rem',
+                fontWeight: 700,
+                textDecoration: 'none',
+                display: 'flex',
+                alignItems: 'center',
+                gap: 5,
+              }}
+              title="Configure global dynamic columns and order for all STG statement tables"
+            >
+              ⚙️ Column Configuration
+            </Link>
 
             <Link
               href="/dashboard/ts/mappings"
@@ -1977,7 +2388,8 @@ function STGDefaultFormulationsContent() {
             <button
               type="button"
               onClick={handleAddOBRow}
-              style={{ background: '#2563eb', border: 'none', color: '#ffffff', borderRadius: 6, padding: '5px 12px', fontSize: '0.8rem', fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4 }}
+              disabled={!activeMasterKey}
+              style={{ background: '#2563eb', border: 'none', color: '#ffffff', borderRadius: 6, padding: '5px 12px', fontSize: '0.8rem', fontWeight: 700, cursor: activeMasterKey ? 'pointer' : 'not-allowed', opacity: activeMasterKey ? 1 : 0.6, display: 'flex', alignItems: 'center', gap: 4 }}
               title="Add a new row to Opening Balance"
             >
               ➕ Add OB Row
@@ -1986,7 +2398,8 @@ function STGDefaultFormulationsContent() {
             <button
               type="button"
               onClick={handleAddReceiptRow}
-              style={{ background: '#16a34a', border: 'none', color: '#ffffff', borderRadius: 6, padding: '5px 12px', fontSize: '0.8rem', fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4 }}
+              disabled={!activeMasterKey}
+              style={{ background: '#16a34a', border: 'none', color: '#ffffff', borderRadius: 6, padding: '5px 12px', fontSize: '0.8rem', fontWeight: 700, cursor: activeMasterKey ? 'pointer' : 'not-allowed', opacity: activeMasterKey ? 1 : 0.6, display: 'flex', alignItems: 'center', gap: 4 }}
               title="Add a new row to Receipts"
             >
               ➕ Add Receipt Row
@@ -1995,7 +2408,8 @@ function STGDefaultFormulationsContent() {
             <button
               type="button"
               onClick={handleAddDisposalRow}
-              style={{ background: '#ea580c', border: 'none', color: '#ffffff', borderRadius: 6, padding: '5px 12px', fontSize: '0.8rem', fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4 }}
+              disabled={!activeMasterKey}
+              style={{ background: '#ea580c', border: 'none', color: '#ffffff', borderRadius: 6, padding: '5px 12px', fontSize: '0.8rem', fontWeight: 700, cursor: activeMasterKey ? 'pointer' : 'not-allowed', opacity: activeMasterKey ? 1 : 0.6, display: 'flex', alignItems: 'center', gap: 4 }}
               title="Add a new row to Disposals"
             >
               ➕ Add Disposal Row
@@ -2004,7 +2418,8 @@ function STGDefaultFormulationsContent() {
             <button
               type="button"
               onClick={handleAddReconRow}
-              style={{ background: '#7c3aed', border: 'none', color: '#ffffff', borderRadius: 6, padding: '5px 12px', fontSize: '0.8rem', fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4 }}
+              disabled={!activeMasterKey}
+              style={{ background: '#7c3aed', border: 'none', color: '#ffffff', borderRadius: 6, padding: '5px 12px', fontSize: '0.8rem', fontWeight: 700, cursor: activeMasterKey ? 'pointer' : 'not-allowed', opacity: activeMasterKey ? 1 : 0.6, display: 'flex', alignItems: 'center', gap: 4 }}
               title="Add a new row to Reconciliation Summary"
             >
               ➕ Add Reconciliation Row
@@ -2013,14 +2428,46 @@ function STGDefaultFormulationsContent() {
             <button
               type="button"
               onClick={handleSaveDefaultTemplate}
-              disabled={saving}
+              disabled={saving || !activeMasterKey}
               className="btn btn-primary btn-sm"
-              style={{ background: 'var(--primary)', fontWeight: 800, padding: '6px 14px' }}
+              style={{ background: 'var(--primary)', fontWeight: 800, padding: '6px 14px', opacity: activeMasterKey ? 1 : 0.6, cursor: activeMasterKey ? 'pointer' : 'not-allowed' }}
             >
               {saving ? 'Saving Master...' : '⭐ Save Master Default Table'}
             </button>
           </div>
         </div>
+
+        {masters.length === 0 ? (
+          <div style={{ padding: '60px 24px', textAlign: 'center', background: '#ffffff' }}>
+            <div style={{ fontSize: '3rem', marginBottom: 12 }}>📋</div>
+            <h3 style={{ fontSize: '1.2rem', fontWeight: 800, color: '#1e293b', marginBottom: 6 }}>
+              No Statement Masters Configured
+            </h3>
+            <p style={{ fontSize: '0.85rem', color: '#64748b', maxWidth: 480, margin: '0 auto 20px' }}>
+              All statement masters have been removed from the database. Create a new Statement Master or restore defaults to configure default formulation tables.
+            </p>
+            <div style={{ display: 'flex', justifyContent: 'center', gap: 12 }}>
+              <button
+                type="button"
+                onClick={handleOpenNewMasterModal}
+                className="btn btn-primary"
+                style={{ fontWeight: 800, padding: '8px 18px' }}
+              >
+                ➕ Create Statement Master
+              </button>
+              <button
+                type="button"
+                onClick={handleRestoreDefaultMasters}
+                disabled={saving}
+                className="btn btn-secondary"
+                style={{ fontWeight: 800, padding: '8px 18px', background: '#f8fafc' }}
+              >
+                🔄 Restore Default Statements
+              </button>
+            </div>
+          </div>
+        ) : (
+          <>
 
         {/* Excel Formula Bar */}
         <div
@@ -2595,7 +3042,7 @@ function STGDefaultFormulationsContent() {
         {/* Bottom Footer Bar */}
         <div style={{ padding: '12px 18px', background: '#f8fafc', borderTop: '1px solid var(--border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexShrink: 0 }}>
           <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
-            ⭐ Changes saved here will be stored in database as the Master Default Formulation Table for <b>{activeMasterKey}</b>.
+            ⭐ Changes saved here will be stored in database table <b>public.stg_masters</b> as the Master Default Formulation Table for <b>{activeMasterKey || 'None'}</b>.
           </div>
 
           <div style={{ display: 'flex', gap: 10 }}>
@@ -2605,7 +3052,7 @@ function STGDefaultFormulationsContent() {
             <button
               type="button"
               onClick={handleSaveDefaultTemplate}
-              disabled={saving}
+              disabled={saving || !activeMasterKey}
               className="btn btn-primary btn-sm"
               style={{ fontWeight: 800 }}
             >
@@ -2613,6 +3060,8 @@ function STGDefaultFormulationsContent() {
             </button>
           </div>
         </div>
+        </>
+      )}
       </div>
 
       {/* MODAL 1: Section Column Configuration Modal (view, reorder, edit, delete all columns for a section) */}
@@ -2875,129 +3324,286 @@ function STGDefaultFormulationsContent() {
       {/* MODAL 3: Manage Statement Master Names Modal */}
       {isManageMastersModalOpen && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-          <div className="card" style={{ width: 680, maxHeight: '85vh', display: 'flex', flexDirection: 'column', padding: 24, boxShadow: '0 20px 25px -5px rgba(0,0,0,0.2)' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+          <div className="card" style={{ width: 750, maxHeight: '88vh', display: 'flex', flexDirection: 'column', padding: 24, boxShadow: '0 20px 25px -5px rgba(0,0,0,0.2)' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
               <div>
                 <h3 style={{ margin: 0, fontSize: '1.15rem', fontWeight: 800, color: '#1e293b' }}>
                   📋 Manage Statement Master Names
                 </h3>
                 <p style={{ margin: '3px 0 0', fontSize: '0.78rem', color: '#64748b' }}>
-                  Update, delete, or create new Statement Master templates.
+                  Update, individual delete, bulk select to delete, or delete all Statement Master templates.
                 </p>
               </div>
 
-              <button
-                type="button"
-                onClick={() => setIsManageMastersModalOpen(false)}
-                style={{ background: 'transparent', border: 'none', fontSize: '1.2rem', cursor: 'pointer', color: '#64748b' }}
-              >
-                ✕
-              </button>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                {masters.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={handleDeleteAllMasters}
+                    disabled={saving}
+                    style={{
+                      background: '#fef2f2',
+                      color: '#dc2626',
+                      border: '1px solid #fecaca',
+                      borderRadius: 6,
+                      padding: '5px 12px',
+                      fontSize: '0.75rem',
+                      fontWeight: 800,
+                      cursor: 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 4,
+                    }}
+                    title="Delete all statement masters from database"
+                  >
+                    🗑️ Delete All ({masters.length})
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={() => setIsManageMastersModalOpen(false)}
+                  style={{ background: 'transparent', border: 'none', fontSize: '1.2rem', cursor: 'pointer', color: '#64748b', padding: '0 4px' }}
+                >
+                  ✕
+                </button>
+              </div>
             </div>
 
-            <div style={{ flex: 1, overflowY: 'auto', marginBottom: 16 }}>
-              <table className="inline-table" style={{ width: '100%', margin: 0 }}>
-                <thead>
-                  <tr style={{ background: '#f8fafc', borderBottom: '1px solid var(--border)' }}>
-                    <th style={{ width: 44, textAlign: 'center', fontSize: '0.75rem' }}>#</th>
-                    <th style={{ textAlign: 'left', fontSize: '0.78rem', fontWeight: 800 }}>Statement Label</th>
-                    <th style={{ textAlign: 'left', fontSize: '0.78rem', fontWeight: 700 }}>Identifier Key</th>
-                    <th style={{ width: 140, textAlign: 'center', fontSize: '0.75rem' }}>Actions</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {masters.map((m, idx) => {
-                    const isEditing = editingMasterKey === m.key;
-                    const isActive = activeMasterKey === m.key;
+            {/* Bulk Selection Bar */}
+            {selectedMasterKeys.length > 0 && (
+              <div
+                style={{
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                  background: '#fef2f2',
+                  border: '1px solid #fecaca',
+                  borderRadius: 6,
+                  padding: '8px 12px',
+                  marginBottom: 12,
+                }}
+              >
+                <div style={{ fontSize: '0.8rem', fontWeight: 700, color: '#991b1b', display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <span>☑️ <b>{selectedMasterKeys.length}</b> of <b>{masters.length}</b> statement{masters.length > 1 ? 's' : ''} selected</span>
+                  <button
+                    type="button"
+                    onClick={() => setSelectedMasterKeys([])}
+                    style={{ background: 'none', border: 'none', color: '#64748b', fontSize: '0.74rem', textDecoration: 'underline', cursor: 'pointer', padding: 0 }}
+                  >
+                    Clear selection
+                  </button>
+                  {selectedMasterKeys.length < masters.length && (
+                    <button
+                      type="button"
+                      onClick={() => setSelectedMasterKeys(masters.map(m => m.key))}
+                      style={{ background: 'none', border: 'none', color: '#0369a1', fontSize: '0.74rem', textDecoration: 'underline', cursor: 'pointer', padding: 0 }}
+                    >
+                      Select all ({masters.length})
+                    </button>
+                  )}
+                </div>
 
-                    return (
-                      <tr key={m.key} style={{ borderBottom: '1px solid #f1f5f9', background: isActive ? '#f0f9ff' : '#ffffff' }}>
-                        <td style={{ textAlign: 'center', fontWeight: 700, color: '#94a3b8', fontSize: '0.75rem' }}>
-                          {idx + 1}
-                        </td>
-                        <td style={{ padding: '6px 8px' }}>
-                          {isEditing ? (
+                <button
+                  type="button"
+                  onClick={handleBulkDeleteMasters}
+                  disabled={saving}
+                  style={{
+                    background: '#dc2626',
+                    color: '#ffffff',
+                    border: 'none',
+                    borderRadius: 5,
+                    padding: '5px 12px',
+                    fontSize: '0.76rem',
+                    fontWeight: 800,
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 5,
+                    boxShadow: '0 1px 2px rgba(0,0,0,0.1)'
+                  }}
+                >
+                  🗑️ Delete Selected ({selectedMasterKeys.length})
+                </button>
+              </div>
+            )}
+
+            <div style={{ flex: 1, overflowY: 'auto', marginBottom: 16 }}>
+              {masters.length === 0 ? (
+                <div style={{ textAlign: 'center', padding: '36px 16px', background: '#f8fafc', borderRadius: 8, border: '1px dashed #cbd5e1' }}>
+                  <div style={{ fontSize: '2.2rem', marginBottom: 8 }}>📭</div>
+                  <div style={{ fontWeight: 800, fontSize: '0.95rem', color: '#334155', marginBottom: 4 }}>
+                    No Statement Masters in Database
+                  </div>
+                  <p style={{ fontSize: '0.8rem', color: '#64748b', maxWidth: 420, margin: '0 auto 16px' }}>
+                    All statement master definitions have been deleted. You can create a new statement master or restore default statement templates.
+                  </p>
+                  <div style={{ display: 'flex', justifyContent: 'center', gap: 10 }}>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsManageMastersModalOpen(false);
+                        handleOpenNewMasterModal();
+                      }}
+                      className="btn btn-primary btn-sm"
+                      style={{ fontWeight: 800 }}
+                    >
+                      ➕ Create New Statement Master
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleRestoreDefaultMasters}
+                      disabled={saving}
+                      className="btn btn-secondary btn-sm"
+                      style={{ fontWeight: 800, background: '#ffffff' }}
+                    >
+                      🔄 Restore Defaults
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <table className="inline-table" style={{ width: '100%', margin: 0 }}>
+                  <thead>
+                    <tr style={{ background: '#f8fafc', borderBottom: '1px solid var(--border)' }}>
+                      <th style={{ width: 38, textAlign: 'center' }}>
+                        <input
+                          type="checkbox"
+                          checked={masters.length > 0 && selectedMasterKeys.length === masters.length}
+                          onChange={handleToggleSelectAllMasters}
+                          title="Select / Deselect All Statements"
+                          style={{ cursor: 'pointer', width: 15, height: 15 }}
+                        />
+                      </th>
+                      <th style={{ width: 38, textAlign: 'center', fontSize: '0.75rem' }}>#</th>
+                      <th style={{ textAlign: 'left', fontSize: '0.78rem', fontWeight: 800 }}>Statement Label</th>
+                      <th style={{ textAlign: 'left', fontSize: '0.78rem', fontWeight: 700 }}>Identifier Key</th>
+                      <th style={{ width: 140, textAlign: 'center', fontSize: '0.75rem' }}>Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {masters.map((m, idx) => {
+                      const isEditing = editingMasterKey === m.key;
+                      const isActive = activeMasterKey === m.key;
+                      const isSelected = selectedMasterKeys.includes(m.key);
+
+                      return (
+                        <tr
+                          key={m.key}
+                          style={{
+                            borderBottom: '1px solid #f1f5f9',
+                            background: isSelected ? '#fff1f2' : (isActive ? '#f0f9ff' : '#ffffff'),
+                          }}
+                        >
+                          <td style={{ textAlign: 'center', padding: '6px 4px' }}>
                             <input
-                              type="text"
-                              className="form-input"
-                              value={editMasterLabel}
-                              onChange={e => setEditMasterLabel(e.target.value)}
-                              style={{ height: 28, fontSize: '0.82rem', fontWeight: 700 }}
-                              autoFocus
+                              type="checkbox"
+                              checked={isSelected}
+                              onChange={() => handleToggleSelectMaster(m.key)}
+                              style={{ cursor: 'pointer', width: 15, height: 15 }}
+                              title={`Select ${cleanStatementLabel(m.label || m.name || m.key)}`}
                             />
-                          ) : (
-                            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                              <span style={{ fontWeight: 800, color: '#0f172a', fontSize: '0.85rem' }}>
-                                {cleanStatementLabel(m.label || m.name || m.key)}
-                              </span>
-                              {isActive && (
-                                <span style={{ fontSize: '0.65rem', background: '#0284c7', color: '#ffffff', padding: '1px 5px', borderRadius: 3, fontWeight: 800 }}>
-                                  Active
+                          </td>
+                          <td style={{ textAlign: 'center', fontWeight: 700, color: '#94a3b8', fontSize: '0.75rem' }}>
+                            {idx + 1}
+                          </td>
+                          <td style={{ padding: '6px 8px' }}>
+                            {isEditing ? (
+                              <input
+                                type="text"
+                                className="form-input"
+                                value={editMasterLabel}
+                                onChange={e => setEditMasterLabel(e.target.value)}
+                                style={{ height: 28, fontSize: '0.82rem', fontWeight: 700 }}
+                                autoFocus
+                              />
+                            ) : (
+                              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                                <span style={{ fontWeight: 800, color: '#0f172a', fontSize: '0.85rem' }}>
+                                  {cleanStatementLabel(m.label || m.name || m.key)}
                                 </span>
-                              )}
-                            </div>
-                          )}
-                        </td>
-                        <td style={{ fontFamily: 'monospace', fontSize: '0.78rem', color: '#64748b' }}>
-                          {m.key}
-                        </td>
-                        <td style={{ textAlign: 'center' }}>
-                          {isEditing ? (
-                            <div style={{ display: 'flex', gap: 4, justifyContent: 'center' }}>
-                              <button
-                                type="button"
-                                onClick={handleSaveEditMaster}
-                                disabled={saving}
-                                style={{ background: '#16a34a', color: '#ffffff', border: 'none', borderRadius: 4, padding: '3px 8px', fontSize: '0.72rem', fontWeight: 700, cursor: 'pointer' }}
-                              >
-                                Save
-                              </button>
-                              <button
-                                type="button"
-                                onClick={handleCancelEditMaster}
-                                style={{ background: '#ffffff', color: '#475569', border: '1px solid #cbd5e1', borderRadius: 4, padding: '3px 8px', fontSize: '0.72rem', fontWeight: 700, cursor: 'pointer' }}
-                              >
-                                Cancel
-                              </button>
-                            </div>
-                          ) : (
-                            <div style={{ display: 'flex', gap: 4, justifyContent: 'center' }}>
-                              <button
-                                type="button"
-                                onClick={() => handleStartEditMaster(m)}
-                                style={{ background: '#f1f5f9', color: '#0369a1', border: '1px solid #bae6fd', borderRadius: 4, padding: '3px 8px', fontSize: '0.72rem', fontWeight: 700, cursor: 'pointer' }}
-                              >
-                                ✏️ Edit
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => handleDeleteMaster(m.key, m.label || m.name || m.key)}
-                                style={{ background: '#fef2f2', color: '#dc2626', border: '1px solid #fecaca', borderRadius: 4, padding: '3px 8px', fontSize: '0.72rem', fontWeight: 700, cursor: 'pointer' }}
-                              >
-                                🗑️ Delete
-                              </button>
-                            </div>
-                          )}
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
+                                {isActive && (
+                                  <span style={{ fontSize: '0.65rem', background: '#0284c7', color: '#ffffff', padding: '1px 5px', borderRadius: 3, fontWeight: 800 }}>
+                                    Active
+                                  </span>
+                                )}
+                              </div>
+                            )}
+                          </td>
+                          <td style={{ fontFamily: 'monospace', fontSize: '0.78rem', color: '#64748b' }}>
+                            {m.key}
+                          </td>
+                          <td style={{ textAlign: 'center' }}>
+                            {isEditing ? (
+                              <div style={{ display: 'flex', gap: 4, justifyContent: 'center' }}>
+                                <button
+                                  type="button"
+                                  onClick={handleSaveEditMaster}
+                                  disabled={saving}
+                                  style={{ background: '#16a34a', color: '#ffffff', border: 'none', borderRadius: 4, padding: '3px 8px', fontSize: '0.72rem', fontWeight: 700, cursor: 'pointer' }}
+                                >
+                                  Save
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={handleCancelEditMaster}
+                                  style={{ background: '#ffffff', color: '#475569', border: '1px solid #cbd5e1', borderRadius: 4, padding: '3px 8px', fontSize: '0.72rem', fontWeight: 700, cursor: 'pointer' }}
+                                >
+                                  Cancel
+                                </button>
+                              </div>
+                            ) : (
+                              <div style={{ display: 'flex', gap: 4, justifyContent: 'center' }}>
+                                <button
+                                  type="button"
+                                  onClick={() => handleStartEditMaster(m)}
+                                  style={{ background: '#f1f5f9', color: '#0369a1', border: '1px solid #bae6fd', borderRadius: 4, padding: '3px 8px', fontSize: '0.72rem', fontWeight: 700, cursor: 'pointer' }}
+                                >
+                                  ✏️ Edit
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => handleDeleteMaster(m.key, m.label || m.name || m.key)}
+                                  style={{ background: '#fef2f2', color: '#dc2626', border: '1px solid #fecaca', borderRadius: 4, padding: '3px 8px', fontSize: '0.72rem', fontWeight: 700, cursor: 'pointer' }}
+                                  title="Delete statement master"
+                                >
+                                  🗑️ Delete
+                                </button>
+                              </div>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              )}
             </div>
 
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderTop: '1px solid var(--border)', paddingTop: 14 }}>
-              <button
-                type="button"
-                onClick={() => {
-                  setIsManageMastersModalOpen(false);
-                  handleOpenNewMasterModal();
-                }}
-                className="btn btn-secondary btn-sm"
-                style={{ fontWeight: 800 }}
-              >
-                ➕ Create New Statement Master
-              </button>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsManageMastersModalOpen(false);
+                    handleOpenNewMasterModal();
+                  }}
+                  className="btn btn-secondary btn-sm"
+                  style={{ fontWeight: 800 }}
+                >
+                  ➕ Create New Statement Master
+                </button>
+                {masters.length < 9 && (
+                  <button
+                    type="button"
+                    onClick={handleRestoreDefaultMasters}
+                    disabled={saving}
+                    className="btn btn-secondary btn-sm"
+                    style={{ fontWeight: 700, background: '#f8fafc' }}
+                    title="Restore standard 9 statement masters"
+                  >
+                    🔄 Restore Defaults
+                  </button>
+                )}
+              </div>
 
               <button
                 type="button"
@@ -3087,7 +3693,6 @@ function STGDefaultFormulationsContent() {
                   value={newMasterColsSource}
                   onChange={e => setNewMasterColsSource(e.target.value)}
                 >
-                  <option value="default">Standard TS Columns (Qty Lts, SP.G, Qty Kg, Fat%, Snf%, Kg Fat, Kg Snf)</option>
                   {masters.map(m => (
                     <option key={`col_src_${m.key}`} value={m.key}>
                       Copy from: {cleanStatementLabel(m.label || m.name || m.key)}

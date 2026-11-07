@@ -43,9 +43,11 @@ export default function StockQueryPage() {
     }
   };
 
+  // Only fetch once on initial mount; subsequent queries trigger explicitly on button click
   useEffect(() => {
     fetchQuery();
-  }, [filterType, date, month, year, from, to]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const getReportMeta = () => {
     if (filterType === 'day') return `Date: ${date}`;
@@ -146,8 +148,8 @@ export default function StockQueryPage() {
               </>
             )}
 
-            <button className="btn btn-primary btn-sm" onClick={fetchQuery} disabled={loading} style={{ height: 38 }}>
-              🔄 Refresh Data
+            <button className="btn btn-primary" onClick={fetchQuery} disabled={loading} style={{ height: 38, padding: '0 20px', fontWeight: 800 }}>
+              {loading ? '⏳ Searching...' : '🔍 Run Search Query'}
             </button>
           </div>
         </div>

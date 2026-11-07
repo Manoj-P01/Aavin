@@ -75,44 +75,91 @@ export const evaluateReconCellFormula = (
   // Cross-references
   expr = expr.replace(/\bRECEIPTS?\.([a-z_0-9]+)\b/gi, (_, key) => {
     const k = key.toLowerCase();
-    if (k === 'lts' || k === 'qty_lts') return String(contextTotals.rec?.lts || 0);
-    if (k === 'kg' || k === 'qty_kg') return String(contextTotals.rec?.kg || 0);
-    if (k === 'fat' || k === 'kg_fat') return String(contextTotals.rec?.fat || 0);
-    if (k === 'snf' || k === 'kg_snf') return String(contextTotals.rec?.snf || 0);
-    return '0';
+    const val = contextTotals.rec?.[k] !== undefined
+      ? contextTotals.rec[k]
+      : (k === 'lts' || k === 'qty_lts' ? contextTotals.rec?.lts
+        : k === 'kg' || k === 'qty_kg' ? contextTotals.rec?.kg
+        : k === 'fat' || k === 'kg_fat' ? contextTotals.rec?.fat
+        : k === 'snf' || k === 'kg_snf' ? contextTotals.rec?.snf
+        : 0);
+    return String(val ?? 0);
   });
 
   expr = expr.replace(/\bDISPOSALS?\.([a-z_0-9]+)\b/gi, (_, key) => {
     const k = key.toLowerCase();
-    if (k === 'lts' || k === 'qty_lts') return String(contextTotals.disp?.lts || 0);
-    if (k === 'kg' || k === 'qty_kg') return String(contextTotals.disp?.kg || 0);
-    if (k === 'fat' || k === 'kg_fat') return String(contextTotals.disp?.fat || 0);
-    if (k === 'snf' || k === 'kg_snf') return String(contextTotals.disp?.snf || 0);
-    return '0';
+    const val = contextTotals.disp?.[k] !== undefined
+      ? contextTotals.disp[k]
+      : (k === 'lts' || k === 'qty_lts' ? contextTotals.disp?.lts
+        : k === 'kg' || k === 'qty_kg' ? contextTotals.disp?.kg
+        : k === 'fat' || k === 'kg_fat' ? contextTotals.disp?.fat
+        : k === 'snf' || k === 'kg_snf' ? contextTotals.disp?.snf
+        : 0);
+    return String(val ?? 0);
   });
 
   expr = expr.replace(/\bOB\.([a-z_0-9]+)\b/gi, (_, key) => {
     const k = key.toLowerCase();
-    if (k === 'lts' || k === 'qty_lts') return String(contextTotals.ob?.lts || 0);
-    if (k === 'kg' || k === 'qty_kg') return String(contextTotals.ob?.kg || 0);
-    if (k === 'fat' || k === 'kg_fat') return String(contextTotals.ob?.fat || 0);
-    if (k === 'snf' || k === 'kg_snf') return String(contextTotals.ob?.snf || 0);
-    if (k === 'fat_pct') return String(contextTotals.ob?.fat_pct || 0);
-    if (k === 'snf_pct') return String(contextTotals.ob?.snf_pct || 0);
-    if (k === 'sp_gr') return String(contextTotals.ob?.sp_gr || 0);
-    return '0';
+    const val = contextTotals.ob?.[k] !== undefined
+      ? contextTotals.ob[k]
+      : (k === 'lts' || k === 'qty_lts' ? contextTotals.ob?.lts
+        : k === 'kg' || k === 'qty_kg' ? contextTotals.ob?.kg
+        : k === 'fat' || k === 'kg_fat' ? contextTotals.ob?.fat
+        : k === 'snf' || k === 'kg_snf' ? contextTotals.ob?.snf
+        : 0);
+    return String(val ?? 0);
   });
 
   expr = expr.replace(/\bCB\.([a-z_0-9]+)\b/gi, (_, key) => {
     const k = key.toLowerCase();
-    if (k === 'lts' || k === 'qty_lts') return String(contextTotals.cb?.lts || 0);
-    if (k === 'kg' || k === 'qty_kg') return String(contextTotals.cb?.kg || 0);
-    if (k === 'fat' || k === 'kg_fat') return String(contextTotals.cb?.fat || 0);
-    if (k === 'snf' || k === 'kg_snf') return String(contextTotals.cb?.snf || 0);
-    if (k === 'fat_pct') return String(contextTotals.cb?.fat_pct || 0);
-    if (k === 'snf_pct') return String(contextTotals.cb?.snf_pct || 0);
-    if (k === 'sp_gr') return String(contextTotals.cb?.sp_gr || 0);
-    return '0';
+    const val = contextTotals.cb?.[k] !== undefined
+      ? contextTotals.cb[k]
+      : (k === 'lts' || k === 'qty_lts' ? contextTotals.cb?.lts
+        : k === 'kg' || k === 'qty_kg' ? contextTotals.cb?.kg
+        : k === 'fat' || k === 'kg_fat' ? contextTotals.cb?.fat
+        : k === 'snf' || k === 'kg_snf' ? contextTotals.cb?.snf
+        : 0);
+    return String(val ?? 0);
+  });
+
+  expr = expr.replace(/\bGRAND_REC(?:EIPTS?)?\.([a-z_0-9]+)\b/gi, (_, key) => {
+    const k = key.toLowerCase();
+    const val = contextTotals.grandRec?.[k] !== undefined
+      ? contextTotals.grandRec[k]
+      : (k === 'lts' || k === 'qty_lts' ? contextTotals.grandRec?.lts
+        : k === 'kg' || k === 'qty_kg' ? contextTotals.grandRec?.kg
+        : k === 'fat' || k === 'kg_fat' ? contextTotals.grandRec?.fat
+        : k === 'snf' || k === 'kg_snf' ? contextTotals.grandRec?.snf
+        : 0);
+    return String(val ?? 0);
+  });
+
+  expr = expr.replace(/\bGRAND_DISP(?:OSALS?)?\.([a-z_0-9]+)\b/gi, (_, key) => {
+    const k = key.toLowerCase();
+    const val = contextTotals.grandDisp?.[k] !== undefined
+      ? contextTotals.grandDisp[k]
+      : (k === 'lts' || k === 'qty_lts' ? contextTotals.grandDisp?.lts
+        : k === 'kg' || k === 'qty_kg' ? contextTotals.grandDisp?.kg
+        : k === 'fat' || k === 'kg_fat' ? contextTotals.grandDisp?.fat
+        : k === 'snf' || k === 'kg_snf' ? contextTotals.grandDisp?.snf
+        : 0);
+    return String(val ?? 0);
+  });
+
+  expr = expr.replace(/\bLOSS_GAIN\.([a-z_0-9]+)\b/gi, (_, key) => {
+    const k = key.toLowerCase();
+    const val = contextTotals.lossGain?.[k] !== undefined
+      ? contextTotals.lossGain[k]
+      : (k === 'lts' || k === 'qty_lts' ? contextTotals.lossGain?.lts
+        : k === 'kg' || k === 'qty_kg' ? contextTotals.lossGain?.kg
+        : k === 'fat' || k === 'kg_fat' ? contextTotals.lossGain?.fat
+        : k === 'snf' || k === 'kg_snf' ? contextTotals.lossGain?.snf
+        : 0);
+    return String(val ?? 0);
+  });
+
+  // Norm references: NORM or CMPDD_NORM
+  expr = expr.replace(/\b(?:CMPDD_)?NORM(?:\.([a-z_0-9]+))?\b/gi, () => {
+    return String(contextTotals?.norm ?? 0.5);
   });
 
   // Row references: R1, R2 or R1.kg, R2.lts or R1.B, R1.C
@@ -163,6 +210,7 @@ export interface STGOpeningBalance {
   sp_gr?: string;
   kg_fat?: string;
   kg_snf?: string;
+  [key: string]: string | undefined;
 }
 
 export interface STGPhysicalCount {
@@ -173,6 +221,7 @@ export interface STGPhysicalCount {
   sp_gr?: string;
   kg_fat?: string;
   kg_snf?: string;
+  [key: string]: string | undefined;
 }
 
 export interface STGBlockState {
@@ -182,6 +231,188 @@ export interface STGBlockState {
   opening_balance?: STGOpeningBalance;
   physical_count?: STGPhysicalCount;
 }
+
+// Safe formula evaluator for row calculations
+export const evaluateRowFormula = (formula: string, vals: Record<string, any>): number => {
+  if (!formula || typeof formula !== 'string') return 0;
+  let expr = formula.trim();
+  if (expr.startsWith('=')) expr = expr.substring(1).trim();
+  if (expr.startsWith('+')) expr = expr.substring(1).trim();
+  if (!expr) return 0;
+
+  // Substitute column identifiers with their numeric value from vals
+  expr = expr.replace(/[a-zA-Z_][a-zA-Z0-9_]*/g, (match) => {
+    const k = match.toLowerCase();
+    // Allow Math functions
+    if (['math', 'min', 'max', 'round', 'abs', 'floor', 'ceil'].includes(k)) {
+      return match;
+    }
+    const rawVal = vals[match] ?? vals[k] ?? vals[match.toUpperCase()];
+    const num = rawVal !== undefined && rawVal !== null && rawVal !== '' ? parseFloat(String(rawVal)) : NaN;
+
+    if (k === 'sp_gr' && (isNaN(num) || num === 0)) {
+      return '1'; // Default SP.GR to 1 if not specified
+    }
+
+    return isNaN(num) ? '0' : String(num);
+  });
+
+  try {
+    if (!/^[0-9+\-*\/().\s,eEMath.minmaxroundabsfloorceil]+$/.test(expr)) return 0;
+    const result = new Function('return (' + expr + ');')();
+    return typeof result === 'number' && !isNaN(result) && isFinite(result) ? result : 0;
+  } catch {
+    return 0;
+  }
+};
+
+// Safe formula computation for any dynamic column key
+export const computeCalculatedField = (
+  colKey: string,
+  vals: Record<string, any>,
+  customFormula?: string
+): number => {
+  if (customFormula) {
+    const res = evaluateRowFormula(customFormula, vals);
+    if (!isNaN(res)) return res;
+  }
+  const qtyLit = parseFloat(vals.qty_lts) || 0;
+  const spGr = parseFloat(vals.sp_gr) || 0;
+  const qtyKg = vals.qty_kg !== undefined && vals.qty_kg !== '' ? parseFloat(vals.qty_kg) : (spGr > 0 ? qtyLit * spGr : qtyLit);
+  const fatPct = parseFloat(vals.fat_pct) || 0;
+  const snfPct = parseFloat(vals.snf_pct) || 0;
+
+  if (colKey === 'qty_kg') return spGr > 0 ? qtyLit * spGr : qtyLit;
+  if (colKey === 'kg_fat') return (qtyKg * fatPct) / 100;
+  if (colKey === 'kg_snf') return (qtyKg * snfPct) / 100;
+  return 0;
+};
+
+// Dynamic candidate keys resolver derived purely from statement DB table fields (key, variant, label)
+export const resolveStockCandidateKeys = (
+  stmtKey: string,
+  stmtLabel: string = '',
+  stmtVariant: string = ''
+): string[] => {
+  const keys: string[] = [];
+  if (!stmtKey && !stmtLabel && !stmtVariant) return keys;
+
+  const addDynamicVariants = (val: string) => {
+    if (!val) return;
+    const clean = val.trim();
+    if (!clean) return;
+
+    keys.push(clean);
+    keys.push(clean.toLowerCase());
+    keys.push(clean.toUpperCase());
+
+    // Dynamically replace delimiters (spaces, hyphens, underscores, dots)
+    keys.push(clean.toLowerCase().replace(/[\s-]+/g, '.'));
+    keys.push(clean.toLowerCase().replace(/[\s-]+/g, '_'));
+    keys.push(clean.toLowerCase().replace(/\./g, '_'));
+    keys.push(clean.toLowerCase().replace(/_/g, '.'));
+
+    // Alphanumeric normalized form
+    const alpha = clean.toLowerCase().replace(/[^a-z0-9]/g, '');
+    if (alpha) keys.push(alpha);
+  };
+
+  // 1. From statement key in DB (e.g. "wh_milk" -> ["wh_milk", "wh.milk", "whmilk"])
+  addDynamicVariants(stmtKey);
+
+  // 2. From statement variant in DB (e.g. "WHOLE MILK" -> ["WHOLE MILK", "whole milk", "whole.milk", "whole_milk", "wholemilk"])
+  if (stmtVariant) {
+    addDynamicVariants(stmtVariant);
+  }
+
+  // 3. From statement label in DB (extract clean product name without boilerplate words)
+  if (stmtLabel) {
+    const cleanLabel = stmtLabel
+      .replace(/\bstatement\b/gi, '')
+      .replace(/\breceipt\b/gi, '')
+      .replace(/\bdisposal\b/gi, '')
+      .replace(/\band\b/gi, '')
+      .trim();
+    if (cleanLabel) {
+      addDynamicVariants(cleanLabel);
+      cleanLabel.split(/[-–—/]/).forEach(seg => addDynamicVariants(seg.trim()));
+    }
+  }
+
+  return Array.from(new Set(keys.filter(Boolean)));
+};
+
+// Populate block defaults from statement master
+export const populateBlockDefaultsFromMaster = (stmtMaster: any): STGBlockState => {
+  const rows: STGRowData[] = [];
+
+  if (Array.isArray(stmtMaster?.receipt_rows) && stmtMaster.receipt_rows.length > 0) {
+    stmtMaster.receipt_rows.forEach((r: any) => {
+      const name = r.variant || r.short_name || r.full_name || (r.values?.variant || 'Particular');
+      rows.push({ variant: name, row_type: 'RECEIPT', side: 'RECEIPT', values: { variant: name, ...(r.values || {}) } });
+    });
+  }
+
+  if (Array.isArray(stmtMaster?.disposal_rows) && stmtMaster.disposal_rows.length > 0) {
+    stmtMaster.disposal_rows.forEach((d: any) => {
+      const name = d.variant || d.short_name || d.full_name || (d.values?.variant || 'Particular');
+      rows.push({ variant: name, row_type: 'DISPOSAL', side: 'DISPOSAL', values: { variant: name, ...(d.values || {}) } });
+    });
+  }
+
+  if (rows.length === 0 && Array.isArray(stmtMaster?.default_rows) && stmtMaster.default_rows.length > 0) {
+    stmtMaster.default_rows.forEach((r: any) => {
+      const name = r.variant || r.short_name || r.full_name || (r.values?.variant || 'Particular');
+      rows.push({
+        variant: name,
+        row_type: r.row_type || r.side || 'RECEIPT',
+        side: r.side || r.row_type || 'RECEIPT',
+        values: { variant: name, ...(r.values || {}) }
+      });
+    });
+  }
+
+  // Load opening balance strictly from master defaults if configured in stg_masters (ob_rows or opening_balance)
+  const masterOb = Array.isArray(stmtMaster?.ob_rows) && stmtMaster.ob_rows.length > 0
+    ? (stmtMaster.ob_rows[0]?.values || stmtMaster.ob_rows[0])
+    : (stmtMaster?.opening_balance || {});
+
+  const opening_balance: STGOpeningBalance = {
+    qty_lts: masterOb?.qty_lts !== undefined && masterOb?.qty_lts !== null ? String(masterOb.qty_lts) : '',
+    sp_gr: masterOb?.sp_gr !== undefined && masterOb?.sp_gr !== null ? String(masterOb.sp_gr) : '',
+    qty_kg: masterOb?.qty_kg !== undefined && masterOb?.qty_kg !== null ? String(masterOb.qty_kg) : '',
+    fat_pct: masterOb?.fat_pct !== undefined && masterOb?.fat_pct !== null ? String(masterOb.fat_pct) : '',
+    snf_pct: masterOb?.snf_pct !== undefined && masterOb?.snf_pct !== null ? String(masterOb.snf_pct) : '',
+    kg_fat: masterOb?.kg_fat !== undefined && masterOb?.kg_fat !== null ? String(masterOb.kg_fat) : '',
+    kg_snf: masterOb?.kg_snf !== undefined && masterOb?.kg_snf !== null ? String(masterOb.kg_snf) : '',
+  };
+
+  // Load physical count strictly from master defaults if configured (cb_rows or physical_count)
+  const masterCb = Array.isArray(stmtMaster?.cb_rows) && stmtMaster.cb_rows.length > 0
+    ? (stmtMaster.cb_rows[0]?.values || stmtMaster.cb_rows[0])
+    : (stmtMaster?.physical_count || {});
+
+  const physical_count: STGPhysicalCount = {
+    qty_lts: masterCb?.qty_lts !== undefined && masterCb?.qty_lts !== null ? String(masterCb.qty_lts) : '',
+    sp_gr: masterCb?.sp_gr !== undefined && masterCb?.sp_gr !== null ? String(masterCb.sp_gr) : '',
+    qty_kg: masterCb?.qty_kg !== undefined && masterCb?.qty_kg !== null ? String(masterCb.qty_kg) : '',
+    fat_pct: masterCb?.fat_pct !== undefined && masterCb?.fat_pct !== null ? String(masterCb.fat_pct) : '',
+    snf_pct: masterCb?.snf_pct !== undefined && masterCb?.snf_pct !== null ? String(masterCb.snf_pct) : '',
+    kg_fat: masterCb?.kg_fat !== undefined && masterCb?.kg_fat !== null ? String(masterCb.kg_fat) : '',
+    kg_snf: masterCb?.kg_snf !== undefined && masterCb?.kg_snf !== null ? String(masterCb.kg_snf) : '',
+  };
+
+  const cmpdd_norm = stmtMaster?.cmpdd_norm !== undefined && stmtMaster?.cmpdd_norm !== null && stmtMaster?.cmpdd_norm !== ''
+    ? String(stmtMaster.cmpdd_norm)
+    : '';
+
+  return {
+    rows,
+    opening_balance,
+    physical_count,
+    cmpdd_norm,
+  };
+};
 
 export interface STGEntryFormProps {
   onRegisterActions?: (actions: { handleSave: () => void; saving: boolean }) => void;
@@ -269,104 +500,42 @@ export default function STGEntryForm({
     }
   };
 
-  const handleSyncFromStock = async () => {
-    try {
-      const s = shift || 'F';
-      const res = await fetch(`/api/stock?date=${entryDate}${shift ? `&shift=${shift}` : ''}`);
-      if (!res.ok) {
-        await showWarning(`No saved Stock Statement found for date ${entryDate}. Please save the Stock Statement first.`, 'No Stock Data');
-        return;
-      }
-      const json = await res.json();
-      const stockRows: any[] = json.data?.stock_rows || [];
-      if (!stockRows || stockRows.length === 0) {
-        await showWarning(`No stock rows found for ${entryDate}.`, 'Empty Stock Data');
-        return;
-      }
-
-      const targetColKeys = [activeBlock.toLowerCase()];
-      if (activeBlock.toUpperCase() === 'WM') targetColKeys.push('wh_milk', 'whole_milk', 'wm');
-      if (activeBlock.toUpperCase() === 'SSM') targetColKeys.push('skim_milk', 'ssm');
-      if (activeBlock.toUpperCase() === 'CREAM') targetColKeys.push('cream');
-      if (activeBlock.toUpperCase() === 'SMP') targetColKeys.push('smp');
-
-      let syncedCount = 0;
-      setBlocks(prev => {
-        const copy = { ...prev };
-        const currentBlockState = copy[activeBlock] || { rows: [], opening_balance: {}, physical_count: {} };
-        const nextRows = [...(currentBlockState.rows || [])];
-
-        const obRow = stockRows.find(r => r.row_type === 'OB');
-        if (obRow) {
-          for (const key of targetColKeys) {
-            const val = obRow.values?.[key] ?? obRow[key];
-            if (val !== undefined && val !== null && !isNaN(parseFloat(val))) {
-              const numVal = parseFloat(val);
-              if (numVal > 0) {
-                currentBlockState.opening_balance = {
-                  ...(currentBlockState.opening_balance || {}),
-                  qty_lts: String(numVal),
-                };
-                syncedCount++;
-                break;
-              }
-            }
-          }
-        }
-
-        nextRows.forEach(r => {
-          const rLabelNorm = (r.variant || '').toLowerCase().replace(/[^a-z0-9]/g, '');
-          const matchingStockRow = stockRows.find(sr => {
-            if (r.row_type && sr.row_type && r.row_type !== sr.row_type) return false;
-            const srLabelNorm = (sr.row_label || '').toLowerCase().replace(/[^a-z0-9]/g, '');
-            return srLabelNorm === rLabelNorm || srLabelNorm.includes(rLabelNorm) || rLabelNorm.includes(srLabelNorm);
-          });
-
-          if (matchingStockRow) {
-            for (const key of targetColKeys) {
-              const val = matchingStockRow.values?.[key] ?? matchingStockRow[key];
-              if (val !== undefined && val !== null && !isNaN(parseFloat(val))) {
-                const numVal = parseFloat(val);
-                if (numVal > 0) {
-                  r.values = { ...(r.values || {}), qty_lts: numVal };
-                  syncedCount++;
-                  break;
-                }
-              }
-            }
-          }
-        });
-
-        currentBlockState.rows = nextRows;
-        copy[activeBlock] = currentBlockState;
-        return copy;
-      });
-
-      setReceiptsUnlocked(true);
-      setDisposalsUnlocked(true);
-      if (syncedCount > 0) {
-        await showSuccess(`Synced ${syncedCount} quantity value(s) from Stock Statement into ${currentStatement?.label || activeBlock}! Receipts & Disposals unlocked for editing.`, 'Stock Statement Synced');
-      } else {
-        await showWarning(`Found Stock Statement for ${entryDate}, but no matching rows found for ${currentStatement?.label || activeBlock}. You can enter values manually.`, 'Sync Notice');
-      }
-    } catch (err) {
-      console.error(err);
-      await showError('Failed to sync from Stock Statement.', 'Sync Error');
-    }
-  };
   const [masters, setMasters] = useState<any[]>([]);
   const [statements, setStatements] = useState<Array<{ key: string; label: string; variant?: string }>>([]);
   const [enabledBlockKeys, setEnabledBlockKeys] = useState<string[]>([]);
+  const [selectedStatementKeys, setSelectedStatementKeys] = useState<string[]>([]);
   const [activeBlock, setActiveBlock] = useState<string>('');
   const [blocks, setBlocks] = useState<Record<string, STGBlockState>>({});
   const [saving, setSaving] = useState(false);
   const [exporting, setExporting] = useState(false);
   const [error, setError] = useState('');
 
-  // Lock / Edit states
+  // Mapping rules from STG Mapping configuration
+  const [mappingRules, setMappingRules] = useState<any[]>([]);
+
+  // Compact Statement Dropdown state
+  const [isStatementDropdownOpen, setIsStatementDropdownOpen] = useState(false);
+  const statementDropdownRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (statementDropdownRef.current && !statementDropdownRef.current.contains(e.target as Node)) {
+        setIsStatementDropdownOpen(false);
+      }
+    };
+    if (isStatementDropdownOpen) {
+      document.addEventListener('mousedown', handleClickOutside);
+    }
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, [isStatementDropdownOpen]);
+
+  // Lock / Edit states (global fallback and per-statement tracking)
   const [obUnlocked, setObUnlocked] = useState(false);
   const [receiptsUnlocked, setReceiptsUnlocked] = useState(false);
   const [disposalsUnlocked, setDisposalsUnlocked] = useState(false);
+  const [unlockedSections, setUnlockedSections] = useState<Record<string, { ob?: boolean; receipts?: boolean; disposals?: boolean }>>({});
 
   // View decimals
   const [viewDecimals, setViewDecimals] = useState<number | 'auto'>('auto');
@@ -386,12 +555,13 @@ export default function STGEntryForm({
 
   // Modal: Rename Active Statement Master
   const [isRenameModalOpen, setIsRenameModalOpen] = useState(false);
+  const [renameKey, setRenameKey] = useState<string>('');
   const [renameValue, setRenameValue] = useState('');
   const [renameVariant, setRenameVariant] = useState('');
 
   // ⚖️ Stock Balance & Reconciliation Summary State (stored per statement_key)
   const [reconciliations, setReconciliations] = useState<Record<string, STGReconData>>({});
-  const [editingReconCell, setEditingReconCell] = useState<{ rIdx: number; colKey: string } | null>(null);
+  const [editingReconCell, setEditingReconCell] = useState<{ stmtKey?: string; rIdx: number; colKey: string } | null>(null);
 
   // Modal: Add Custom Recon Row
   const [isAddReconRowModalOpen, setIsAddReconRowModalOpen] = useState(false);
@@ -414,9 +584,20 @@ export default function STGEntryForm({
     return statements.filter(s => enabledBlockKeys.includes(s.key));
   }, [statements, enabledBlockKeys]);
 
+  const displayedStatements = useMemo(() => {
+    return availableStatements.filter(s => selectedStatementKeys.includes(s.key));
+  }, [availableStatements, selectedStatementKeys]);
+
   const currentStatement = useMemo(() => {
-    return availableStatements.find(s => s.key === activeBlock) || availableStatements[0] || null;
-  }, [availableStatements, activeBlock]);
+    return displayedStatements[0] || availableStatements.find(s => s.key === activeBlock) || availableStatements[0] || null;
+  }, [displayedStatements, availableStatements, activeBlock]);
+
+  // Initial selection of statements to view - default to all available
+  useEffect(() => {
+    if (availableStatements.length > 0 && selectedStatementKeys.length === 0) {
+      setSelectedStatementKeys(availableStatements.map(s => s.key));
+    }
+  }, [availableStatements, selectedStatementKeys.length]);
 
   useEffect(() => {
     if (availableStatements.length > 0 && (!activeBlock || !availableStatements.some(s => s.key === activeBlock))) {
@@ -424,19 +605,39 @@ export default function STGEntryForm({
     }
   }, [availableStatements, activeBlock]);
 
+  // Checkbox selection handlers for viewing one or more statements
+  const handleToggleStatement = (stmtKey: string) => {
+    setSelectedStatementKeys(prev => {
+      if (prev.includes(stmtKey)) {
+        return prev.filter(k => k !== stmtKey);
+      } else {
+        return [...prev, stmtKey];
+      }
+    });
+    setActiveBlock(stmtKey);
+  };
+
+  const handleSelectAllStatements = () => {
+    setSelectedStatementKeys(availableStatements.map(s => s.key));
+  };
+
+  const handleDeselectAllStatements = () => {
+    setSelectedStatementKeys([]);
+  };
+
   const activeBlockState = useMemo(() => {
     if (!activeBlock || !blocks[activeBlock]) {
-      return { rows: [], opening_balance: {}, physical_count: {}, cmpdd_norm: '0.5' };
+      return { rows: [], opening_balance: {}, physical_count: {}, cmpdd_norm: '' };
     }
     return blocks[activeBlock];
   }, [activeBlock, blocks]);
 
-  // Active Reconciliation Summary for currently selected statement
-  const activeRecon = useMemo<STGReconData>(() => {
-    if (activeBlock && reconciliations[activeBlock]) {
-      return reconciliations[activeBlock];
+  // Statement-specific Reconciliation Summary getter
+  const getReconForStatement = useCallback((stmtKey: string): STGReconData => {
+    if (stmtKey && reconciliations[stmtKey]) {
+      return reconciliations[stmtKey];
     }
-    const stmtMaster = masters.find(m => m.key === activeBlock);
+    const stmtMaster = masters.find(m => m.key === stmtKey);
     const masterRows = (stmtMaster?.reconciliation_rows && Array.isArray(stmtMaster.reconciliation_rows) && stmtMaster.reconciliation_rows.length > 0)
       ? stmtMaster.reconciliation_rows
       : getDefaultReconRows();
@@ -444,22 +645,48 @@ export default function STGEntryForm({
       columns: getDefaultReconColumns(),
       rows: masterRows,
     };
-  }, [activeBlock, reconciliations, masters]);
+  }, [reconciliations, masters]);
 
-  const updateActiveRecon = useCallback((updater: (prev: STGReconData) => STGReconData) => {
-    if (!activeBlock) return;
+  // Active Reconciliation Summary for currently selected statement
+  const activeRecon = useMemo<STGReconData>(() => {
+    return getReconForStatement(activeBlock);
+  }, [getReconForStatement, activeBlock]);
+
+  // Section Lock / Unlock Helpers per statement
+  const isSectionUnlocked = (stmtKey: string, section: 'ob' | 'receipts' | 'disposals') => {
+    const secObj = unlockedSections[stmtKey];
+    if (secObj && secObj[section] !== undefined) return !!secObj[section];
+    if (section === 'ob') return obUnlocked;
+    if (section === 'receipts') return receiptsUnlocked;
+    return disposalsUnlocked;
+  };
+
+  const toggleSectionUnlocked = (stmtKey: string, section: 'ob' | 'receipts' | 'disposals') => {
+    const current = isSectionUnlocked(stmtKey, section);
+    setUnlockedSections(prev => ({
+      ...prev,
+      [stmtKey]: {
+        ...(prev[stmtKey] || {}),
+        [section]: !current,
+      },
+    }));
+  };
+
+  const updateActiveRecon = useCallback((updater: (prev: STGReconData) => STGReconData, targetStmtKey?: string) => {
+    const blockKey = targetStmtKey || activeBlock;
+    if (!blockKey) return;
     setReconciliations(prev => {
-      const stmtMaster = masters.find(m => m.key === activeBlock);
+      const stmtMaster = masters.find(m => m.key === blockKey);
       const defaultRows = (stmtMaster?.reconciliation_rows && Array.isArray(stmtMaster.reconciliation_rows) && stmtMaster.reconciliation_rows.length > 0)
         ? stmtMaster.reconciliation_rows
         : getDefaultReconRows();
-      const current = prev[activeBlock] || {
+      const current = prev[blockKey] || {
         columns: getDefaultReconColumns(),
         rows: defaultRows,
       };
       return {
         ...prev,
-        [activeBlock]: updater(current),
+        [blockKey]: updater(current),
       };
     });
   }, [activeBlock, masters]);
@@ -486,11 +713,13 @@ export default function STGEntryForm({
     setNewReconRowColor('default');
   };
 
-  const handleDeleteReconRow = async (rIdx: number) => {
-    const row = activeRecon.rows[rIdx];
+  const handleDeleteReconRow = async (rIdx: number, targetStmtKey?: string) => {
+    const key = targetStmtKey || activeBlock;
+    const currentRecon = reconciliations[key] || activeRecon;
+    const row = currentRecon.rows[rIdx];
     const confirmed = await confirm({
       title: 'Delete Reconciliation Row',
-      message: `Are you sure you want to delete row "${row.label}" from this reconciliation summary?`,
+      message: `Are you sure you want to delete row "${row?.label || `Row ${rIdx + 1}`}" from this reconciliation summary?`,
       confirmText: 'Delete',
       type: 'danger',
     });
@@ -498,22 +727,24 @@ export default function STGEntryForm({
     updateActiveRecon(prev => ({
       ...prev,
       rows: prev.rows.filter((_, idx) => idx !== rIdx),
-    }));
+    }), key);
   };
 
-  const handleMoveReconRow = (rIdx: number, dir: 'up' | 'down') => {
-    const targetIdx = dir === 'up' ? rIdx - 1 : rIdx + 1;
-    if (targetIdx < 0 || targetIdx >= activeRecon.rows.length) return;
+  const handleMoveReconRow = (rIdx: number, dir: 'up' | 'down', targetStmtKey?: string) => {
+    const key = targetStmtKey || activeBlock;
     updateActiveRecon(prev => {
+      const targetIdx = dir === 'up' ? rIdx - 1 : rIdx + 1;
+      if (targetIdx < 0 || targetIdx >= prev.rows.length) return prev;
       const nextRows = [...prev.rows];
       const temp = nextRows[rIdx];
       nextRows[rIdx] = nextRows[targetIdx];
       nextRows[targetIdx] = temp;
       return { ...prev, rows: nextRows };
-    });
+    }, key);
   };
 
-  const handleReconCellChange = (rIdx: number, colKey: string, val: any) => {
+  const handleReconCellChange = (rIdx: number, colKey: string, val: any, targetStmtKey?: string) => {
+    const key = targetStmtKey || activeBlock;
     updateActiveRecon(prev => {
       const nextRows = [...prev.rows];
       const targetRow = { ...nextRows[rIdx], values: { ...(nextRows[rIdx]?.values || {}) } };
@@ -524,7 +755,7 @@ export default function STGEntryForm({
       if (targetRow.row_type === 'CB' && ['lts', 'qty_lts', 'fat_pct', 'snf_pct', 'sp_gr'].includes(colKey)) {
         const numVal = parseFloat(val);
         if (!isNaN(numVal) && !String(val).startsWith('=')) {
-          const fieldMap: Record<string, keyof STGPhysicalCount> = {
+          const fieldMap: Record<string, string> = {
             lts: 'qty_lts',
             qty_lts: 'qty_lts',
             fat_pct: 'fat_pct',
@@ -533,24 +764,26 @@ export default function STGEntryForm({
           };
           const mappedField = fieldMap[colKey];
           if (mappedField) {
-            handlePhysicalCountChange(mappedField, String(val));
+            handlePhysicalCountChange(mappedField, String(val), key);
           }
         }
       }
 
       return { ...prev, rows: nextRows };
-    });
+    }, key);
   };
 
-  const handleReconLabelChange = (rIdx: number, label: string) => {
+  const handleReconLabelChange = (rIdx: number, label: string, targetStmtKey?: string) => {
+    const key = targetStmtKey || activeBlock;
     updateActiveRecon(prev => {
       const nextRows = [...prev.rows];
       nextRows[rIdx] = { ...nextRows[rIdx], label };
       return { ...prev, rows: nextRows };
-    });
+    }, key);
   };
 
-  const handleResetReconTemplate = async () => {
+  const handleResetReconTemplate = async (targetStmtKey?: string) => {
+    const key = targetStmtKey || activeBlock;
     const confirmed = await confirm({
       title: 'Reset to Standard Reconciliation Template',
       message: 'This will reset the Stock Balance & Reconciliation Summary rows and formulas to the master default template. Continue?',
@@ -558,14 +791,14 @@ export default function STGEntryForm({
       type: 'warning',
     });
     if (!confirmed) return;
-    const stmtMaster = masters.find(m => m.key === activeBlock);
+    const stmtMaster = masters.find(m => m.key === key);
     const defaultRows = (stmtMaster?.reconciliation_rows && Array.isArray(stmtMaster.reconciliation_rows) && stmtMaster.reconciliation_rows.length > 0)
       ? stmtMaster.reconciliation_rows
       : getDefaultReconRows();
     updateActiveRecon(() => ({
       columns: getDefaultReconColumns(),
       rows: defaultRows,
-    }));
+    }), key);
     await showSuccess('Reconciliation Template loaded successfully!', 'Template Loaded');
   };
 
@@ -742,75 +975,404 @@ export default function STGEntryForm({
     });
   };
 
-  // Safe formula computation
-  const computeCalculatedField = (colKey: string, vals: Record<string, any>) => {
-    const qtyLit = parseFloat(vals.qty_lts) || 0;
-    const spGr = parseFloat(vals.sp_gr) || 0;
-    const qtyKg = vals.qty_kg !== undefined && vals.qty_kg !== '' ? parseFloat(vals.qty_kg) : (spGr > 0 ? qtyLit * spGr : qtyLit);
-    const fatPct = parseFloat(vals.fat_pct) || 0;
-    const snfPct = parseFloat(vals.snf_pct) || 0;
+  // Helper to dynamically get configured columns for OB, Receipts, or Disposals for any statement master
+  const getSectionColumnsForMaster = useCallback((stmtKey: string, section: 'ob' | 'receipt' | 'disposal') => {
+    const master = masters.find(m => m.key === stmtKey);
+    let rawCols: any[] | undefined;
+    if (master) {
+      if (section === 'ob') rawCols = master.ob_columns || master.columns;
+      else if (section === 'receipt') rawCols = master.receipt_columns || master.columns;
+      else if (section === 'disposal') rawCols = master.disposal_columns || master.columns;
+    }
+    // If this master doesn't have columns configured, check other masters from DB
+    if (!Array.isArray(rawCols) || rawCols.length === 0) {
+      const fallbackMaster = masters.find(m => {
+        const c = section === 'ob' ? m.ob_columns : section === 'receipt' ? m.receipt_columns : m.disposal_columns;
+        return Array.isArray(c) && c.length > 0;
+      }) || masters.find(m => Array.isArray(m.columns) && m.columns.length > 0);
+      if (fallbackMaster) {
+        if (section === 'ob') rawCols = fallbackMaster.ob_columns || fallbackMaster.columns;
+        else if (section === 'receipt') rawCols = fallbackMaster.receipt_columns || fallbackMaster.columns;
+        else if (section === 'disposal') rawCols = fallbackMaster.disposal_columns || fallbackMaster.columns;
+      }
+    }
 
-    if (colKey === 'qty_kg') return qtyKg;
-    if (colKey === 'kg_fat') return (qtyKg * fatPct) / 100;
-    if (colKey === 'kg_snf') return (qtyKg * snfPct) / 100;
-    return 0;
+    if (Array.isArray(rawCols) && rawCols.length > 0) {
+      const filtered = rawCols.filter((c: any) => {
+        const k = (c.key || '').toLowerCase();
+        return k && !['variant', 'label', 'particular', 'name', 'item_name', 'id', '#'].includes(k) && c.is_active !== false;
+      });
+      if (filtered.length > 0) {
+        const sorted = [...filtered].sort((a: any, b: any) => (a.sort_order ?? 0) - (b.sort_order ?? 0));
+        return sorted.map((c: any) => ({
+          key: c.key,
+          name: c.name || c.label || c.key,
+          type: c.type || (c.formula ? 'calculated' : (['qty_kg', 'kg_fat', 'kg_snf'].includes(c.key) ? 'calculated' : 'number')),
+          formula: c.formula,
+          decimals: c.decimals,
+          sort_order: c.sort_order,
+          unit: c.unit,
+          is_active: c.is_active,
+        }));
+      }
+    }
+    return [
+      { key: 'qty_lts', name: 'Qty (Lts)', type: 'number', decimals: 0, sort_order: 1 },
+      { key: 'sp_gr', name: 'SP.G', type: 'number', decimals: 4, sort_order: 2 },
+      { key: 'qty_kg', name: 'Qty (Kg)', type: 'number', decimals: 2, sort_order: 3 },
+      { key: 'fat_pct', name: 'Fat%', type: 'number', decimals: 2, sort_order: 4 },
+      { key: 'snf_pct', name: 'Snf%', type: 'number', decimals: 2, sort_order: 5 },
+      { key: 'kg_fat', name: 'Kg.Fat', type: 'number', decimals: 3, sort_order: 6 },
+      { key: 'kg_snf', name: 'Kg.Snf', type: 'number', decimals: 3, sort_order: 7 },
+    ];
+  }, [masters]);
+
+  // Helper to dynamically recompute all calculated columns for a section based on configured formulas
+  const recalculateSectionValues = useCallback((
+    vals: Record<string, any>,
+    sectionCols: Array<{ key: string; type?: string; formula?: string; decimals?: number }>
+  ): Record<string, any> => {
+    const updated = { ...vals };
+    for (let pass = 0; pass < 3; pass++) {
+      for (const col of sectionCols) {
+        if (col.type === 'calculated' || col.formula || ['qty_kg', 'kg_fat', 'kg_snf'].includes(col.key)) {
+          const computed = computeCalculatedField(col.key, updated, col.formula);
+          updated[col.key] = computed !== 0 ? String(computed) : '';
+        }
+      }
+    }
+    return updated;
+  }, []);
+
+  // Sync stock values from Stock Statement and Mapping Rules into blocks
+  const syncStockValuesToBlocks = useCallback((
+    stockRows: any[],
+    rules: any[],
+    stmtsToSync: Array<{ key: string; label: string; variant?: string }>,
+    currentBlocks: Record<string, STGBlockState>
+  ) => {
+    const copy: Record<string, STGBlockState> = { ...currentBlocks };
+    let syncedCount = 0;
+
+    const obRow = stockRows.find(r => r.row_type === 'OB');
+
+    const getStockVal = (row: any, productKey: string): number | undefined => {
+      if (!row || !productKey) return undefined;
+      const cleanTarget = productKey.toLowerCase().replace(/[^a-z0-9]/g, '');
+
+      // 1. Direct key lookups
+      const directVals = [row.values?.[productKey], row[productKey]];
+      for (const v of directVals) {
+        if (v !== undefined && v !== null && v !== '') {
+          const n = parseFloat(String(v));
+          if (!isNaN(n)) return n;
+        }
+      }
+
+      // 2. Normalized key in row.values
+      if (row.values && typeof row.values === 'object') {
+        for (const [k, v] of Object.entries(row.values)) {
+          if (k.toLowerCase().replace(/[^a-z0-9]/g, '') === cleanTarget) {
+            if (v !== undefined && v !== null && v !== '') {
+              const n = parseFloat(String(v));
+              if (!isNaN(n)) return n;
+            }
+          }
+        }
+      }
+
+      // 3. Normalized key on row root
+      for (const [k, v] of Object.entries(row)) {
+        if (k.toLowerCase().replace(/[^a-z0-9]/g, '') === cleanTarget) {
+          if (v !== undefined && v !== null && v !== '') {
+            const n = parseFloat(String(v));
+            if (!isNaN(n)) return n;
+          }
+        }
+      }
+
+      return undefined;
+    };
+
+    stmtsToSync.forEach(stmt => {
+      const stmtKey = stmt.key;
+      const currentBlockState = copy[stmtKey]
+        ? {
+            ...copy[stmtKey],
+            opening_balance: { ...(copy[stmtKey].opening_balance || {}) },
+            physical_count: { ...(copy[stmtKey].physical_count || {}) },
+            rows: (copy[stmtKey].rows || []).map(r => ({ ...r, values: { ...(r.values || {}) } })),
+          }
+        : { rows: [], opening_balance: {}, physical_count: {}, cmpdd_norm: '' };
+
+      // Find user-defined mapping rules for this statement
+      const matchingRules = (rules || []).filter((r: any) => {
+        const bKey = (r.stgBlockKey || '').toLowerCase();
+        const sKey = stmtKey.toLowerCase();
+        return bKey === sKey || bKey.replace(/[^a-z0-9]/g, '') === sKey.replace(/[^a-z0-9]/g, '');
+      });
+
+      // 1. Opening Balance Sync
+      let obSynced = false;
+      const obRule = matchingRules.find((r: any) => r.stgSection === 'OB');
+
+      if (obRule && obRow) {
+        const mappedVal = getStockVal(obRow, obRule.stockProductKey);
+        if (mappedVal !== undefined) {
+          const targetField = obRule.stgTargetField || 'qty_lts';
+          (currentBlockState.opening_balance as any)[targetField] = String(mappedVal);
+          obSynced = true;
+          syncedCount++;
+        }
+      }
+
+      // If no explicit rule or rule didn't produce a value, check dynamic statement candidates against obRow
+      if (!obSynced && obRow) {
+        const candidateKeys = resolveStockCandidateKeys(stmtKey, stmt.label || '', stmt.variant || '');
+        for (const cKey of candidateKeys) {
+          const val = getStockVal(obRow, cKey);
+          if (val !== undefined) {
+            currentBlockState.opening_balance = {
+              ...(currentBlockState.opening_balance || {}),
+              qty_lts: String(val),
+            };
+            obSynced = true;
+            syncedCount++;
+            break;
+          }
+        }
+      }
+
+      // Recalculate OB calculated fields dynamically based on master columns
+      if (currentBlockState.opening_balance?.qty_lts) {
+        const obCols = getSectionColumnsForMaster(stmtKey, 'ob');
+        currentBlockState.opening_balance = recalculateSectionValues(currentBlockState.opening_balance, obCols);
+      }
+
+      // 2. Physical Count / Closing Balance Sync
+      let cbSynced = false;
+      const cbRule = matchingRules.find((r: any) => r.stgSection === 'CB');
+      const cbRow = stockRows.find(r => r.row_type === 'CB');
+
+      if (cbRule && cbRow) {
+        const mappedVal = getStockVal(cbRow, cbRule.stockProductKey);
+        if (mappedVal !== undefined) {
+          const targetField = cbRule.stgTargetField || 'qty_lts';
+          (currentBlockState.physical_count as any)[targetField] = String(mappedVal);
+          cbSynced = true;
+          syncedCount++;
+        }
+      }
+
+      // If no explicit rule or rule didn't produce a value, check dynamic statement candidates against cbRow
+      if (!cbSynced && cbRow) {
+        const candidateKeys = resolveStockCandidateKeys(stmtKey, stmt.label || '', stmt.variant || '');
+        for (const cKey of candidateKeys) {
+          const val = getStockVal(cbRow, cKey);
+          if (val !== undefined) {
+            currentBlockState.physical_count = {
+              ...(currentBlockState.physical_count || {}),
+              qty_lts: String(val),
+            };
+            cbSynced = true;
+            syncedCount++;
+            break;
+          }
+        }
+      }
+
+      // Recalculate CB calculated fields dynamically based on master columns
+      if (currentBlockState.physical_count?.qty_lts) {
+        const cbCols = getSectionColumnsForMaster(stmtKey, 'disposal');
+        currentBlockState.physical_count = recalculateSectionValues(currentBlockState.physical_count, cbCols);
+      }
+
+      // 3. Particulars Rows Sync (Receipts & Disposals)
+      const nextRows = currentBlockState.rows.map(r => {
+        const rowCopy = { ...r, values: { ...(r.values || {}) } };
+        let rowSynced = false;
+
+        // Check if a mapping rule matches this particular item
+        const itemRule = matchingRules.find((mr: any) => {
+          const rName = (rowCopy.variant || '').trim().toLowerCase();
+          const ruleItem = (mr.stgItemName || '').trim().toLowerCase();
+          return (mr.stgSection === rowCopy.side || mr.stgSection === rowCopy.row_type) &&
+            (ruleItem === rName || ruleItem.replace(/[^a-z0-9]/g, '') === rName.replace(/[^a-z0-9]/g, ''));
+        });
+
+        if (itemRule) {
+          const matchingStockRow = stockRows.find(sr => {
+            if (itemRule.stockSection && sr.row_type && itemRule.stockSection !== sr.row_type) return false;
+            if (itemRule.stockSection === 'CB' && sr.row_type === 'CB') return true;
+            const srLabel = (sr.row_label || '').trim().toLowerCase();
+            const targetPart = (itemRule.stockParticular || '').trim().toLowerCase();
+            return srLabel === targetPart || srLabel.replace(/[^a-z0-9]/g, '') === targetPart.replace(/[^a-z0-9]/g, '');
+          });
+
+          if (matchingStockRow) {
+            const val = getStockVal(matchingStockRow, itemRule.stockProductKey);
+            if (val !== undefined) {
+              const targetField = itemRule.stgTargetField || 'qty_lts';
+              rowCopy.values[targetField] = val;
+              rowSynced = true;
+              syncedCount++;
+            }
+          }
+        }
+
+        // Fallback matching by dynamic candidate keys and particular name
+        if (!rowSynced) {
+          const candidateKeys = resolveStockCandidateKeys(stmtKey, stmt.label || '', stmt.variant || '');
+          const rLabelNorm = (rowCopy.variant || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+
+          if (rLabelNorm) {
+            const matchingStockRow = stockRows.find(sr => {
+              if (rowCopy.row_type && sr.row_type && rowCopy.row_type !== sr.row_type) return false;
+              const srLabelNorm = (sr.row_label || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+              return srLabelNorm === rLabelNorm || srLabelNorm.includes(rLabelNorm) || rLabelNorm.includes(srLabelNorm);
+            });
+
+            if (matchingStockRow) {
+              for (const cKey of candidateKeys) {
+                const val = getStockVal(matchingStockRow, cKey);
+                if (val !== undefined && val > 0) {
+                  rowCopy.values.qty_lts = val;
+                  rowSynced = true;
+                  syncedCount++;
+                  break;
+                }
+              }
+            }
+          }
+        }
+
+        // Recompute calculated fields dynamically based on master columns
+        if (rowCopy.values.qty_lts !== undefined && rowCopy.values.qty_lts !== '') {
+          const sec = (rowCopy.side === 'RECEIPT' || rowCopy.row_type === 'RECEIPT') ? 'receipt' : 'disposal';
+          const secCols = getSectionColumnsForMaster(stmtKey, sec);
+          rowCopy.values = recalculateSectionValues(rowCopy.values, secCols);
+        }
+
+        return rowCopy;
+      });
+
+      currentBlockState.rows = nextRows;
+      copy[stmtKey] = currentBlockState;
+    });
+
+    return { updatedBlocks: copy, syncedCount };
+  }, []);
+
+  // Handle Sync From Stock button click
+  const handleSyncFromStock = async () => {
+    try {
+      let loadedRules = mappingRules;
+      if (!loadedRules || loadedRules.length === 0) {
+        const mapRes = await fetch('/api/entries?report_type=STOCK_MAPPING');
+        if (mapRes.ok) {
+          const mapJson = await mapRes.json();
+          const entries: any[] = mapJson.data || [];
+          const entry = entries.find((e: any) => {
+            if (!e.notes) return false;
+            try { return Array.isArray(JSON.parse(e.notes)); } catch { return false; }
+          }) || entries[0];
+          if (entry && entry.notes) {
+            try {
+              loadedRules = JSON.parse(entry.notes);
+              setMappingRules(loadedRules);
+            } catch {}
+          }
+        }
+      }
+
+      const res = await fetch(`/api/stock?date=${entryDate}${shift ? `&shift=${shift}` : ''}`);
+      if (!res.ok) {
+        await showWarning(`No saved Stock Statement found for date ${entryDate}. Please save the Stock Statement first.`, 'No Stock Data');
+        return;
+      }
+      const json = await res.json();
+      const rawStockRows: any[] = json.data?.stock_rows || [];
+      const summaryRows: any[] = (json.data?.stock_summary_rows || []).map((sr: any) => ({
+        row_type: sr.summary_type || 'CB',
+        row_label: sr.row_label || (sr.summary_type === 'CB' ? 'Closing Balance' : sr.summary_type),
+        values: sr.summary_data || {},
+        ...(sr.summary_data || {}),
+      }));
+
+      // Calculate Closing Balance row if not explicitly present in summaryRows
+      const hasCB = summaryRows.some((sr: any) => sr.row_type === 'CB');
+      if (!hasCB && rawStockRows.length > 0) {
+        const cbValues: Record<string, any> = {};
+        rawStockRows.forEach((r: any) => {
+          const rVals = r.values || {};
+          Object.entries(rVals).forEach(([k, v]) => {
+            const num = parseFloat(String(v)) || 0;
+            if (r.row_type === 'OB' || r.row_type === 'RECEIPT') {
+              cbValues[k] = (cbValues[k] || 0) + num;
+            } else if (r.row_type === 'DISPOSAL') {
+              cbValues[k] = (cbValues[k] || 0) - num;
+            }
+          });
+        });
+        summaryRows.push({
+          row_type: 'CB',
+          row_label: 'Closing Balance',
+          values: cbValues,
+          ...cbValues,
+        });
+      }
+
+      const stockRows: any[] = [...rawStockRows, ...summaryRows];
+      if (!stockRows || stockRows.length === 0) {
+        await showWarning(`No stock rows found for ${entryDate}.`, 'Empty Stock Data');
+        return;
+      }
+
+      const stmtsToSync = displayedStatements.length > 0 ? displayedStatements : availableStatements;
+      const { updatedBlocks, syncedCount } = syncStockValuesToBlocks(stockRows, loadedRules, stmtsToSync, blocks);
+
+      setBlocks(updatedBlocks);
+      setReceiptsUnlocked(true);
+      setDisposalsUnlocked(true);
+      if (syncedCount > 0) {
+        await showSuccess(`Synced ${syncedCount} quantity value(s) from Stock Statement into selected statement(s)! Receipts & Disposals unlocked for editing.`, 'Stock Statement Synced');
+      } else {
+        await showWarning(`Found Stock Statement for ${entryDate}, but no matching rows found for selected statements. You can enter values manually.`, 'Sync Notice');
+      }
+    } catch (err) {
+      console.error(err);
+      await showError('Failed to sync from Stock Statement.', 'Sync Error');
+    }
   };
 
-  // Populate block defaults from statement master
-  const populateBlockDefaultsFromMaster = useCallback((stmtMaster: any): STGBlockState => {
-    const rows: STGRowData[] = [];
-    if (Array.isArray(stmtMaster.receipt_rows) && stmtMaster.receipt_rows.length > 0) {
-      stmtMaster.receipt_rows.forEach((r: any) => {
-        const name = r.variant || r.short_name || r.full_name || 'Particular';
-        rows.push({ variant: name, row_type: 'RECEIPT', side: 'RECEIPT', values: { variant: name, ...(r.values || {}) } });
-      });
-    }
-    if (Array.isArray(stmtMaster.disposal_rows) && stmtMaster.disposal_rows.length > 0) {
-      stmtMaster.disposal_rows.forEach((d: any) => {
-        const name = d.variant || d.short_name || d.full_name || 'Particular';
-        rows.push({ variant: name, row_type: 'DISPOSAL', side: 'DISPOSAL', values: { variant: name, ...(d.values || {}) } });
-      });
-    }
-
-    if (rows.length === 0 && Array.isArray(stmtMaster.default_rows) && stmtMaster.default_rows.length > 0) {
-      stmtMaster.default_rows.forEach((r: any) => {
-        const name = r.variant || r.short_name || r.full_name || 'Particular';
-        rows.push({
-          variant: name,
-          row_type: r.row_type || r.side || 'RECEIPT',
-          side: r.side || r.row_type || 'RECEIPT',
-          values: { variant: name, ...(r.values || {}) }
-        });
-      });
-    }
-
-    if (rows.length === 0) {
-      rows.push(
-        { variant: 'Receipt 1', row_type: 'RECEIPT', side: 'RECEIPT', values: { variant: 'Receipt 1' } },
-        { variant: 'Disposal 1', row_type: 'DISPOSAL', side: 'DISPOSAL', values: { variant: 'Disposal 1' } }
-      );
-    }
-
-    return {
-      rows,
-      opening_balance: { qty_lts: '', sp_gr: '', qty_kg: '', fat_pct: '', snf_pct: '', kg_fat: '', kg_snf: '' },
-      physical_count: { qty_lts: '', sp_gr: '', qty_kg: '', fat_pct: '', snf_pct: '', kg_fat: '', kg_snf: '' },
-      cmpdd_norm: '0.5'
-    };
-  }, []);
+  const lastLoadedRef = useRef<string>('');
 
   // Fetch statement masters and data
   useEffect(() => {
     if (!entryDate) return;
+    const currentKey = `${entryDate}_${shift || 'F'}`;
+    if (lastLoadedRef.current === currentKey) return;
+    lastLoadedRef.current = currentKey;
+
     let active = true;
 
     async function loadData() {
       try {
-        const configRes = await fetch('/api/ts/masters');
+        const s = shift ? `&shift=${shift}` : '';
+        const [configRes, stgRes, mapRes, stockRes, reconRes] = await Promise.all([
+          fetch('/api/ts/masters'),
+          fetch(`/api/ts?date=${entryDate}${s}`),
+          fetch('/api/entries?report_type=STOCK_MAPPING'),
+          fetch(`/api/stock?date=${entryDate}${s}`),
+          fetch(`/api/ts/reconciliation?date=${entryDate}&shift=${shift || 'F'}`),
+        ]);
+
+        if (!active) return;
+
         let globalStatements: any[] = [];
         if (configRes.ok) {
           const configJson = await configRes.json();
-          if (Array.isArray(configJson.masters) && configJson.masters.length > 0) {
+          if (Array.isArray(configJson.masters)) {
             setMasters(configJson.masters);
             globalStatements = configJson.masters.map((s: any) => ({
               ...s,
@@ -819,9 +1381,58 @@ export default function STGEntryForm({
           }
         }
 
-        const res = await fetch(`/api/ts?date=${entryDate}${shift ? `&shift=${shift}` : ''}`);
-        if (res.ok) {
-          const data = await res.json();
+        let loadedRules: any[] = [];
+        if (mapRes.ok) {
+          const mapJson = await mapRes.json();
+          const entries: any[] = mapJson.data || [];
+          const entry = entries.find((e: any) => {
+            if (!e.notes) return false;
+            try { return Array.isArray(JSON.parse(e.notes)); } catch { return false; }
+          }) || entries[0];
+          if (entry && entry.notes) {
+            try {
+              loadedRules = JSON.parse(entry.notes);
+              setMappingRules(loadedRules);
+            } catch {}
+          }
+        }
+
+        let stockRows: any[] = [];
+        if (stockRes.ok) {
+          const stockJson = await stockRes.json();
+          const rawRows: any[] = stockJson.data?.stock_rows || [];
+          const sumRows: any[] = (stockJson.data?.stock_summary_rows || []).map((sr: any) => ({
+            row_type: sr.summary_type || 'CB',
+            row_label: sr.row_label || (sr.summary_type === 'CB' ? 'Closing Balance' : sr.summary_type),
+            values: sr.summary_data || {},
+            ...(sr.summary_data || {}),
+          }));
+          const hasCB = sumRows.some((sr: any) => sr.row_type === 'CB');
+          if (!hasCB && rawRows.length > 0) {
+            const cbVals: Record<string, any> = {};
+            rawRows.forEach((r: any) => {
+              const rVals = r.values || {};
+              Object.entries(rVals).forEach(([k, v]) => {
+                const num = parseFloat(String(v)) || 0;
+                if (r.row_type === 'OB' || r.row_type === 'RECEIPT') {
+                  cbVals[k] = (cbVals[k] || 0) + num;
+                } else if (r.row_type === 'DISPOSAL') {
+                  cbVals[k] = (cbVals[k] || 0) - num;
+                }
+              });
+            });
+            sumRows.push({
+              row_type: 'CB',
+              row_label: 'Closing Balance',
+              values: cbVals,
+              ...cbVals,
+            });
+          }
+          stockRows = [...rawRows, ...sumRows];
+        }
+
+        if (stgRes.ok) {
+          const data = await stgRes.json();
           if (active && data.data) {
             let todayCustomStatements: any[] = [];
             let customBlocksState: Record<string, any> = {};
@@ -837,6 +1448,12 @@ export default function STGEntryForm({
                   if (meta.custom_statements) todayCustomStatements = meta.custom_statements;
                   if (meta.custom_blocks) customBlocksState = meta.custom_blocks;
                   if (meta.enabled_blocks) savedEnabledKeys = meta.enabled_blocks;
+                  if (meta.cmpdd_norms && typeof meta.cmpdd_norms === 'object') {
+                    Object.entries(meta.cmpdd_norms).forEach(([k, v]) => {
+                      if (!customBlocksState[k]) customBlocksState[k] = { rows: [] };
+                      customBlocksState[k].cmpdd_norm = String(v);
+                    });
+                  }
                 } catch (e) {
                   console.error('Failed to parse STG metadata:', e);
                 }
@@ -879,16 +1496,23 @@ export default function STGEntryForm({
             }
             setNotes(cleanNotes);
 
-            const newBlocks: Record<string, STGBlockState> = {};
+            let newBlocks: Record<string, STGBlockState> = {};
             combinedStatements.forEach((s: any) => {
               const matchedMaster = globalStatements.find((g: any) => g.key === s.key);
-              newBlocks[s.key] = matchedMaster ? populateBlockDefaultsFromMaster(matchedMaster) : { rows: [] };
+              newBlocks[s.key] = matchedMaster ? populateBlockDefaultsFromMaster(matchedMaster) : { rows: [], opening_balance: {}, physical_count: {}, cmpdd_norm: '' };
             });
 
             // Restore from custom_blocks state if present
             Object.entries(customBlocksState).forEach(([key, state]) => {
               if (newBlocks[key] && state.rows && Array.isArray(state.rows)) {
-                newBlocks[key] = state;
+                newBlocks[key] = {
+                  ...state,
+                  opening_balance: state.opening_balance || newBlocks[key].opening_balance || {},
+                  physical_count: state.physical_count || newBlocks[key].physical_count || {},
+                  cmpdd_norm: state.cmpdd_norm !== undefined && state.cmpdd_norm !== null && state.cmpdd_norm !== ''
+                    ? String(state.cmpdd_norm)
+                    : (newBlocks[key].cmpdd_norm || ''),
+                };
               }
             });
 
@@ -952,19 +1576,26 @@ export default function STGEntryForm({
               });
             }
 
+            // Auto-sync from stock if opening balance is not yet saved
+            if (stockRows.length > 0) {
+              const needsSync = combinedStatements.some(s => {
+                const obLts = newBlocks[s.key]?.opening_balance?.qty_lts;
+                return obLts === undefined || obLts === null || obLts === '' || obLts === '0';
+              });
+              if (needsSync) {
+                const { updatedBlocks } = syncStockValuesToBlocks(stockRows, loadedRules, combinedStatements, newBlocks);
+                newBlocks = updatedBlocks;
+              }
+            }
+
             setBlocks(newBlocks);
 
             // Load Reconciliation Summaries from dedicated table stg_reconciliation_entries
-            try {
-              const reconRes = await fetch(`/api/ts/reconciliation?date=${entryDate}&shift=${shift || 'F'}`);
-              if (reconRes.ok) {
-                const reconJson = await reconRes.json();
-                if (reconJson.data && typeof reconJson.data === 'object' && Object.keys(reconJson.data).length > 0) {
-                  setReconciliations(reconJson.data);
-                }
+            if (reconRes.ok) {
+              const reconJson = await reconRes.json();
+              if (reconJson.data && typeof reconJson.data === 'object' && Object.keys(reconJson.data).length > 0) {
+                setReconciliations(reconJson.data);
               }
-            } catch (rErr) {
-              console.warn('Could not load reconciliation data:', rErr);
             }
           }
         }
@@ -975,7 +1606,7 @@ export default function STGEntryForm({
 
     loadData();
     return () => { active = false; };
-  }, [entryDate, shift, populateBlockDefaultsFromMaster]);
+  }, [entryDate, shift]);
 
   // Handle Create Statement Master from Modal
   const handleCreateStatementMaster = async (e: React.FormEvent) => {
@@ -1007,11 +1638,11 @@ export default function STGEntryForm({
 
       initialReceipts = customRecs.length > 0
         ? customRecs.map(name => ({ variant: name, row_type: 'RECEIPT', side: 'RECEIPT', values: { variant: name } }))
-        : [{ variant: 'Receipt 1', row_type: 'RECEIPT', side: 'RECEIPT', values: { variant: 'Receipt 1' } }];
+        : [];
 
       initialDisposals = customDisps.length > 0
         ? customDisps.map(name => ({ variant: name, row_type: 'DISPOSAL', side: 'DISPOSAL', values: { variant: name } }))
-        : [{ variant: 'Disposal 1', row_type: 'DISPOSAL', side: 'DISPOSAL', values: { variant: 'Disposal 1' } }];
+        : [];
     } else {
       const srcMaster = masters.find(m => m.key === newStmtSource);
       if (srcMaster) {
@@ -1051,13 +1682,14 @@ export default function STGEntryForm({
         setMasters(updatedMasters);
         setStatements(prev => [...prev, { key: keyToUse, label: cleanLabel, variant: newMasterObj.variant }]);
         setEnabledBlockKeys(prev => Array.from(new Set([...prev, keyToUse])));
+        setSelectedStatementKeys(prev => Array.from(new Set([...prev, keyToUse])));
         setBlocks(prev => ({
           ...prev,
           [keyToUse]: {
             rows: allRows,
             opening_balance: { qty_lts: '', sp_gr: '', qty_kg: '', fat_pct: '', snf_pct: '', kg_fat: '', kg_snf: '' },
             physical_count: { qty_lts: '', sp_gr: '', qty_kg: '', fat_pct: '', snf_pct: '', kg_fat: '', kg_snf: '' },
-            cmpdd_norm: '0.5'
+            cmpdd_norm: ''
           }
         }));
         setActiveBlock(keyToUse);
@@ -1080,12 +1712,13 @@ export default function STGEntryForm({
   // Handle Rename Statement Master
   const handleRenameStatementMaster = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!renameValue.trim() || !activeBlock) return;
+    const targetKey = renameKey || activeBlock;
+    if (!renameValue.trim() || !targetKey) return;
     const cleanLabel = cleanStatementLabel(renameValue.trim());
 
     try {
       const updatedMasters = masters.map(m => {
-        if (m.key === activeBlock) {
+        if (m.key === targetKey) {
           return {
             ...m,
             label: cleanLabel,
@@ -1105,7 +1738,7 @@ export default function STGEntryForm({
 
       if (res.ok) {
         setMasters(updatedMasters);
-        setStatements(prev => prev.map(s => s.key === activeBlock ? { ...s, label: cleanLabel, variant: renameVariant } : s));
+        setStatements(prev => prev.map(s => s.key === targetKey ? { ...s, label: cleanLabel, variant: renameVariant } : s));
         setIsRenameModalOpen(false);
         showSuccess(`Updated Statement Master to "${cleanLabel}"`);
       } else {
@@ -1116,13 +1749,13 @@ export default function STGEntryForm({
     }
   };
 
-  // Handle Delete Active Statement
-  const handleDeleteActiveStatement = async () => {
-    if (!activeBlock) return;
-    const stmt = statements.find(s => s.key === activeBlock);
+  // Handle Delete Specific Statement Master
+  const handleDeleteSpecificStatement = async (keyToDelete: string) => {
+    if (!keyToDelete) return;
+    const stmt = statements.find(s => s.key === keyToDelete);
     const isConfirmed = await confirm({
       title: 'Delete Statement Master',
-      message: `Are you sure you want to delete "${stmt?.label || activeBlock}"? This will remove its master template definition and rows from this entry.`,
+      message: `Are you sure you want to delete "${stmt?.label || keyToDelete}"? This will remove its master template definition and rows from this entry.`,
       confirmText: 'Delete Statement Master',
       cancelText: 'Cancel',
       type: 'danger',
@@ -1130,18 +1763,24 @@ export default function STGEntryForm({
     if (!isConfirmed) return;
 
     try {
-      await fetch(`/api/ts/masters?key=${encodeURIComponent(activeBlock)}`, { method: 'DELETE' });
-      const remainingStmts = statements.filter(s => s.key !== activeBlock);
-      const remainingMasters = masters.filter(m => m.key !== activeBlock);
+      await fetch(`/api/ts/masters?key=${encodeURIComponent(keyToDelete)}`, { method: 'DELETE' });
+      const remainingStmts = statements.filter(s => s.key !== keyToDelete);
+      const remainingMasters = masters.filter(m => m.key !== keyToDelete);
       setMasters(remainingMasters);
       setStatements(remainingStmts);
-      setEnabledBlockKeys(prev => prev.filter(k => k !== activeBlock));
+      setEnabledBlockKeys(prev => prev.filter(k => k !== keyToDelete));
+      setSelectedStatementKeys(prev => prev.filter(k => k !== keyToDelete));
       setBlocks(prev => {
         const copy = { ...prev };
-        delete copy[activeBlock];
+        delete copy[keyToDelete];
         return copy;
       });
-      if (remainingStmts.length > 0) {
+      setReconciliations(prev => {
+        const copy = { ...prev };
+        delete copy[keyToDelete];
+        return copy;
+      });
+      if (activeBlock === keyToDelete && remainingStmts.length > 0) {
         setActiveBlock(remainingStmts[0].key);
       }
       showSuccess('Statement Master removed successfully.');
@@ -1150,90 +1789,81 @@ export default function STGEntryForm({
     }
   };
 
+  // Handle Delete Active Statement
+  const handleDeleteActiveStatement = async () => {
+    if (activeBlock) {
+      await handleDeleteSpecificStatement(activeBlock);
+    }
+  };
+
   // Particulars cell change handlers
-  const handleParticularCellChange = (globalIdx: number, colKey: string, val: string) => {
-    if (!activeBlock) return;
+  const handleParticularCellChange = (globalIdx: number, colKey: string, val: string, stmtKeyParam?: string) => {
+    const key = stmtKeyParam || activeBlock;
+    if (!key) return;
     setBlocks(prev => {
       const copy = { ...prev };
-      const block = { ...copy[activeBlock] };
-      const rows = [...block.rows];
-      const r = { ...rows[globalIdx], values: { ...rows[globalIdx].values } };
+      const block = { ...copy[key] };
+      const rows = [...(block.rows || [])];
+      if (!rows[globalIdx]) return prev;
+      const r = { ...rows[globalIdx], values: { ...(rows[globalIdx].values || {}) } };
       if (colKey === 'variant') {
         r.variant = val;
       }
       r.values[colKey] = val;
 
-      if (['qty_lts', 'sp_gr', 'fat_pct', 'snf_pct'].includes(colKey)) {
-        const qtyKg = computeCalculatedField('qty_kg', r.values);
-        r.values.qty_kg = qtyKg !== 0 ? String(qtyKg) : '';
-        const kgFat = computeCalculatedField('kg_fat', r.values);
-        r.values.kg_fat = kgFat !== 0 ? String(kgFat) : '';
-        const kgSnf = computeCalculatedField('kg_snf', r.values);
-        r.values.kg_snf = kgSnf !== 0 ? String(kgSnf) : '';
-      }
+      const sec: 'receipt' | 'disposal' = (r.side === 'RECEIPT' || r.row_type === 'RECEIPT') ? 'receipt' : 'disposal';
+      const secCols = getSectionColumnsForMaster(key, sec);
+      r.values = recalculateSectionValues(r.values, secCols);
 
       rows[globalIdx] = r;
       block.rows = rows;
-      copy[activeBlock] = block;
+      copy[key] = block;
       return copy;
     });
   };
 
-  const handleOpeningBalanceChange = (field: keyof STGOpeningBalance, val: string) => {
-    if (!activeBlock) return;
+  const handleOpeningBalanceChange = (field: string, val: string, stmtKeyParam?: string) => {
+    const key = stmtKeyParam || activeBlock;
+    if (!key) return;
     setBlocks(prev => {
       const copy = { ...prev };
-      const block = { ...copy[activeBlock] };
-      const ob = { ...(block.opening_balance || {}), [field]: val };
+      const block = { ...copy[key] };
+      let ob = { ...(block.opening_balance || {}), [field]: val };
 
-      if (['qty_lts', 'sp_gr', 'fat_pct', 'snf_pct'].includes(field)) {
-        const qtyLit = parseFloat(ob.qty_lts || '0') || 0;
-        const spGr = parseFloat(ob.sp_gr || '0') || 0;
-        const qtyKg = spGr > 0 ? qtyLit * spGr : qtyLit;
-        ob.qty_kg = qtyKg !== 0 ? String(qtyKg) : '';
-        const fatPct = parseFloat(ob.fat_pct || '0') || 0;
-        const snfPct = parseFloat(ob.snf_pct || '0') || 0;
-        ob.kg_fat = (qtyKg * fatPct) / 100 !== 0 ? String((qtyKg * fatPct) / 100) : '';
-        ob.kg_snf = (qtyKg * snfPct) / 100 !== 0 ? String((qtyKg * snfPct) / 100) : '';
-      }
+      const obCols = getSectionColumnsForMaster(key, 'ob');
+      ob = recalculateSectionValues(ob, obCols);
 
       block.opening_balance = ob;
-      copy[activeBlock] = block;
+      copy[key] = block;
       return copy;
     });
   };
 
-  const handlePhysicalCountChange = (field: keyof STGPhysicalCount, val: string) => {
-    if (!activeBlock) return;
+  const handlePhysicalCountChange = (field: string, val: string, stmtKeyParam?: string) => {
+    const key = stmtKeyParam || activeBlock;
+    if (!key) return;
     setBlocks(prev => {
       const copy = { ...prev };
-      const block = { ...copy[activeBlock] };
-      const cb = { ...(block.physical_count || {}), [field]: val };
+      const block = { ...copy[key] };
+      let cb = { ...(block.physical_count || {}), [field]: val };
 
-      if (['qty_lts', 'sp_gr', 'fat_pct', 'snf_pct'].includes(field)) {
-        const qtyLit = parseFloat(cb.qty_lts || '0') || 0;
-        const spGr = parseFloat(cb.sp_gr || '0') || 0;
-        const qtyKg = spGr > 0 ? qtyLit * spGr : qtyLit;
-        cb.qty_kg = qtyKg !== 0 ? String(qtyKg) : '';
-        const fatPct = parseFloat(cb.fat_pct || '0') || 0;
-        const snfPct = parseFloat(cb.snf_pct || '0') || 0;
-        cb.kg_fat = (qtyKg * fatPct) / 100 !== 0 ? String((qtyKg * fatPct) / 100) : '';
-        cb.kg_snf = (qtyKg * snfPct) / 100 !== 0 ? String((qtyKg * snfPct) / 100) : '';
-      }
+      const cbCols = getSectionColumnsForMaster(key, 'disposal');
+      cb = recalculateSectionValues(cb, cbCols);
 
       block.physical_count = cb;
-      copy[activeBlock] = block;
+      copy[key] = block;
       return copy;
     });
   };
 
-  const handleAddRow = (side: 'RECEIPT' | 'DISPOSAL') => {
-    if (!activeBlock) return;
+  const handleAddRow = (side: 'RECEIPT' | 'DISPOSAL', stmtKeyParam?: string) => {
+    const key = stmtKeyParam || activeBlock;
+    if (!key) return;
     setBlocks(prev => {
       const copy = { ...prev };
-      const block = { ...copy[activeBlock] };
+      const block = { ...copy[key] };
       block.rows = [
-        ...block.rows,
+        ...(block.rows || []),
         {
           variant: side === 'RECEIPT' ? 'New Receipt' : 'New Disposal',
           row_type: side,
@@ -1241,79 +1871,132 @@ export default function STGEntryForm({
           values: { variant: side === 'RECEIPT' ? 'New Receipt' : 'New Disposal' }
         }
       ];
-      copy[activeBlock] = block;
+      copy[key] = block;
       return copy;
     });
   };
 
-  const handleDeleteRow = (globalIdx: number) => {
-    if (!activeBlock) return;
+  const handleDeleteRow = (globalIdx: number, stmtKeyParam?: string) => {
+    const key = stmtKeyParam || activeBlock;
+    if (!key) return;
     setBlocks(prev => {
       const copy = { ...prev };
-      const block = { ...copy[activeBlock] };
-      block.rows = block.rows.filter((_, idx) => idx !== globalIdx);
-      copy[activeBlock] = block;
+      const block = { ...copy[key] };
+      block.rows = (block.rows || []).filter((_, idx) => idx !== globalIdx);
+      copy[key] = block;
       return copy;
     });
   };
 
-  // Reconciled Totals & Balances
-  const totals = useMemo(() => {
-    const ob = activeBlockState.opening_balance || {};
-    const cb = activeBlockState.physical_count || {};
+  const handleCmpddNormChange = (val: string, stmtKeyParam?: string) => {
+    const key = stmtKeyParam || activeBlock;
+    if (!key) return;
+    setBlocks(prev => {
+      const copy = { ...prev };
+      const block = { ...(copy[key] || { rows: [], opening_balance: {}, physical_count: {} }) };
+      block.cmpdd_norm = val;
+      copy[key] = block;
+      return copy;
+    });
+  };
 
-    const obLts = parseFloat(ob.qty_lts || '0') || 0;
-    const obKg = parseFloat(ob.qty_kg || '0') || 0;
-    const obFat = parseFloat(ob.kg_fat || '0') || 0;
-    const obSnf = parseFloat(ob.kg_snf || '0') || 0;
+  // Reconciled Totals & Balances computed dynamically per statement for all configured columns
+  const getStatementTotals = useCallback((stmtKey: string) => {
+    const block = blocks[stmtKey] || { rows: [], opening_balance: {}, physical_count: {}, cmpdd_norm: '' };
+    const ob = block.opening_balance || {};
+    const cb = block.physical_count || {};
+    const rows = block.rows || [];
+    const recRows = rows.filter(r => r.row_type === 'RECEIPT' || r.side === 'RECEIPT');
+    const dispRows = rows.filter(r => r.row_type === 'DISPOSAL' || r.side === 'DISPOSAL');
 
-    const cbLts = parseFloat(cb.qty_lts || '0') || 0;
-    const cbKg = parseFloat(cb.qty_kg || '0') || 0;
-    const cbFat = parseFloat(cb.kg_fat || '0') || 0;
-    const cbSnf = parseFloat(cb.kg_snf || '0') || 0;
+    // Dynamically retrieve configured columns from DB schema for all sections
+    const obCols = getSectionColumnsForMaster(stmtKey, 'ob');
+    const recCols = getSectionColumnsForMaster(stmtKey, 'receipt');
+    const dispCols = getSectionColumnsForMaster(stmtKey, 'disposal');
 
-    const recLts = receiptRows.reduce((a, r) => a + (parseFloat(r.values.qty_lts) || 0), 0);
-    const recKg = receiptRows.reduce((a, r) => a + (parseFloat(r.values.qty_kg) || 0), 0);
-    const recFat = receiptRows.reduce((a, r) => a + (parseFloat(r.values.kg_fat) || 0), 0);
-    const recSnf = receiptRows.reduce((a, r) => a + (parseFloat(r.values.kg_snf) || 0), 0);
+    const allKeys = Array.from(new Set([
+      ...obCols.map(c => c.key),
+      ...recCols.map(c => c.key),
+      ...dispCols.map(c => c.key),
+      'qty_lts', 'qty_kg', 'kg_fat', 'kg_snf', 'fat_pct', 'snf_pct', 'sp_gr'
+    ]));
 
-    const dispLts = disposalRows.reduce((a, r) => a + (parseFloat(r.values.qty_lts) || 0), 0);
-    const dispKg = disposalRows.reduce((a, r) => a + (parseFloat(r.values.qty_kg) || 0), 0);
-    const dispFat = disposalRows.reduce((a, r) => a + (parseFloat(r.values.kg_fat) || 0), 0);
-    const dispSnf = disposalRows.reduce((a, r) => a + (parseFloat(r.values.kg_snf) || 0), 0);
+    const obMap: Record<string, number> = {};
+    const cbMap: Record<string, number> = {};
+    const recMap: Record<string, number> = {};
+    const dispMap: Record<string, number> = {};
+    const grandRecMap: Record<string, number> = {};
+    const grandDispMap: Record<string, number> = {};
+    const lossGainMap: Record<string, number> = {};
 
-    const grandRecLts = obLts + recLts;
-    const grandRecKg = obKg + recKg;
-    const grandRecFat = obFat + recFat;
-    const grandRecSnf = obSnf + recSnf;
+    allKeys.forEach(k => {
+      obMap[k] = parseFloat(String(ob[k] || '0')) || 0;
+      cbMap[k] = parseFloat(String(cb[k] || '0')) || 0;
+      recMap[k] = recRows.reduce((sum, r) => sum + (parseFloat(String(r.values?.[k] || '0')) || 0), 0);
+      dispMap[k] = dispRows.reduce((sum, r) => sum + (parseFloat(String(r.values?.[k] || '0')) || 0), 0);
+      grandRecMap[k] = (obMap[k] || 0) + (recMap[k] || 0);
+      grandDispMap[k] = (dispMap[k] || 0) + (cbMap[k] || 0);
+      lossGainMap[k] = (cbMap[k] || 0) - ((grandRecMap[k] || 0) - (dispMap[k] || 0));
+    });
 
-    const grandDispLts = dispLts + cbLts;
-    const grandDispKg = dispKg + cbKg;
-    const grandDispFat = dispFat + cbFat;
-    const grandDispSnf = dispSnf + cbSnf;
+    const obLts = obMap['qty_lts'] || 0;
+    const obKg = obMap['qty_kg'] || 0;
+    const obFat = obMap['kg_fat'] || 0;
+    const obSnf = obMap['kg_snf'] || 0;
 
-    const lossGainLts = cbLts - (grandRecLts - dispLts);
-    const lossGainKg = cbKg - (grandRecKg - dispKg);
-    const lossGainFat = cbFat - (grandRecFat - dispFat);
-    const lossGainSnf = cbSnf - (grandRecSnf - dispSnf);
+    const cbLts = cbMap['qty_lts'] || 0;
+    const cbKg = cbMap['qty_kg'] || 0;
+    const cbFat = cbMap['kg_fat'] || 0;
+    const cbSnf = cbMap['kg_snf'] || 0;
+
+    const recLts = recMap['qty_lts'] || 0;
+    const recKg = recMap['qty_kg'] || 0;
+    const recFat = recMap['kg_fat'] || 0;
+    const recSnf = recMap['kg_snf'] || 0;
+
+    const dispLts = dispMap['qty_lts'] || 0;
+    const dispKg = dispMap['qty_kg'] || 0;
+    const dispFat = dispMap['kg_fat'] || 0;
+    const dispSnf = dispMap['kg_snf'] || 0;
+
+    const grandRecLts = grandRecMap['qty_lts'] || 0;
+    const grandRecKg = grandRecMap['qty_kg'] || 0;
+    const grandRecFat = grandRecMap['kg_fat'] || 0;
+    const grandRecSnf = grandRecMap['kg_snf'] || 0;
+
+    const grandDispLts = grandDispMap['qty_lts'] || 0;
+    const grandDispKg = grandDispMap['qty_kg'] || 0;
+    const grandDispFat = grandDispMap['kg_fat'] || 0;
+    const grandDispSnf = grandDispMap['kg_snf'] || 0;
+
+    const lossGainLts = lossGainMap['qty_lts'] || 0;
+    const lossGainKg = lossGainMap['qty_kg'] || 0;
+    const lossGainFat = lossGainMap['kg_fat'] || 0;
+    const lossGainSnf = lossGainMap['kg_snf'] || 0;
 
     const lossGainFatPct = grandRecFat !== 0 ? (lossGainFat / grandRecFat) * 100 : 0;
     const lossGainSnfPct = grandRecSnf !== 0 ? (lossGainSnf / grandRecSnf) * 100 : 0;
 
-    const norm = parseFloat(activeBlockState.cmpdd_norm || '0.5') || 0.5;
+    const norm = block.cmpdd_norm !== undefined && block.cmpdd_norm !== null && block.cmpdd_norm !== ''
+      ? (parseFloat(block.cmpdd_norm) || 0)
+      : 0.5;
 
     return {
-      ob: { lts: obLts, kg: obKg, fat: obFat, snf: obSnf },
-      cb: { lts: cbLts, kg: cbKg, fat: cbFat, snf: cbSnf },
-      rec: { lts: recLts, kg: recKg, fat: recFat, snf: recSnf },
-      disp: { lts: dispLts, kg: dispKg, fat: dispFat, snf: dispSnf },
-      grandRec: { lts: grandRecLts, kg: grandRecKg, fat: grandRecFat, snf: grandRecSnf },
-      grandDisp: { lts: grandDispLts, kg: grandDispKg, fat: grandDispFat, snf: grandDispSnf },
-      lossGain: { lts: lossGainLts, kg: lossGainKg, fat: lossGainFat, snf: lossGainSnf },
+      ob: { ...obMap, lts: obLts, kg: obKg, fat: obFat, snf: obSnf } as Record<string, number> & { lts: number; kg: number; fat: number; snf: number },
+      cb: { ...cbMap, lts: cbLts, kg: cbKg, fat: cbFat, snf: cbSnf } as Record<string, number> & { lts: number; kg: number; fat: number; snf: number },
+      rec: { ...recMap, lts: recLts, kg: recKg, fat: recFat, snf: recSnf } as Record<string, number> & { lts: number; kg: number; fat: number; snf: number },
+      disp: { ...dispMap, lts: dispLts, kg: dispKg, fat: dispFat, snf: dispSnf } as Record<string, number> & { lts: number; kg: number; fat: number; snf: number },
+      grandRec: { ...grandRecMap, lts: grandRecLts, kg: grandRecKg, fat: grandRecFat, snf: grandRecSnf } as Record<string, number> & { lts: number; kg: number; fat: number; snf: number },
+      grandDisp: { ...grandDispMap, lts: grandDispLts, kg: grandDispKg, fat: grandDispFat, snf: grandDispSnf } as Record<string, number> & { lts: number; kg: number; fat: number; snf: number },
+      lossGain: { ...lossGainMap, lts: lossGainLts, kg: lossGainKg, fat: lossGainFat, snf: lossGainSnf } as Record<string, number> & { lts: number; kg: number; fat: number; snf: number },
       lossGainPct: { fat: lossGainFatPct, snf: lossGainSnfPct },
       norm,
     };
-  }, [activeBlockState, receiptRows, disposalRows]);
+  }, [blocks, getSectionColumnsForMaster]);
+
+  const totals = useMemo(() => {
+    return getStatementTotals(activeBlock);
+  }, [getStatementTotals, activeBlock]);
 
   // Save handler
   const handleSave = async () => {
@@ -1325,6 +2008,11 @@ export default function STGEntryForm({
     setError('');
 
     try {
+      const cmpddNormsMap: Record<string, string> = {};
+      Object.entries(blocks).forEach(([k, b]) => {
+        if (b.cmpdd_norm) cmpddNormsMap[k] = b.cmpdd_norm;
+      });
+
       const entryRes = await fetch('/api/entries', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -1332,7 +2020,7 @@ export default function STGEntryForm({
           entry_date: entryDate,
           shift,
           report_type: 'TS',
-          notes: `${notes}\n__METADATA__:${JSON.stringify({ custom_statements: statements, custom_blocks: blocks, enabled_blocks: enabledBlockKeys, reconciliation: reconciliations })}`,
+          notes: `${notes}\n__METADATA__:${JSON.stringify({ custom_statements: statements, custom_blocks: blocks, enabled_blocks: enabledBlockKeys, reconciliation: reconciliations, cmpdd_norms: cmpddNormsMap })}`,
         }),
       });
 
@@ -1481,9 +2169,15 @@ export default function STGEntryForm({
     title: string,
     list: STGRowData[],
     unlocked: boolean,
-    setUnlocked: (val: boolean) => void,
-    colorScheme: { bg: string; text: string; border: string; btn: string }
+    onToggleUnlocked: () => void,
+    colorScheme: { bg: string; text: string; border: string; btn: string },
+    stmtKeyParam?: string
   ) => {
+    const key = stmtKeyParam || activeBlock;
+    const currentBlockRows = (blocks[key]?.rows || []);
+    const sectionTotals = getStatementTotals(key);
+    const sectionCols = getSectionColumnsForMaster(key, side === 'RECEIPT' ? 'receipt' : 'disposal');
+
     return (
       <div className="card" style={{ marginBottom: 16, padding: 0, overflow: 'hidden', border: `1px solid ${colorScheme.border}` }}>
         {/* Card Header */}
@@ -1500,7 +2194,7 @@ export default function STGEntryForm({
           <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
             <button
               type="button"
-              onClick={() => setUnlocked(!unlocked)}
+              onClick={onToggleUnlocked}
               style={{
                 background: unlocked ? '#fef3c7' : '#ffffff',
                 border: `1px solid ${unlocked ? '#f59e0b' : colorScheme.border}`,
@@ -1517,7 +2211,7 @@ export default function STGEntryForm({
 
             <button
               type="button"
-              onClick={() => handleAddRow(side)}
+              onClick={() => handleAddRow(side, key)}
               style={{
                 background: colorScheme.btn,
                 color: '#ffffff',
@@ -1541,30 +2235,35 @@ export default function STGEntryForm({
               <tr style={{ background: '#f8fafc', borderBottom: '1px solid var(--border)' }}>
                 <th style={{ width: 44, textAlign: 'center', fontSize: '0.72rem' }}>#</th>
                 <th style={{ width: 220, textAlign: 'left', fontSize: '0.75rem', fontWeight: 800 }}>{title} Particular</th>
-                <th style={{ textAlign: 'right', fontSize: '0.75rem' }}>Qty (Lts)</th>
-                <th style={{ textAlign: 'right', fontSize: '0.75rem' }}>SP.G</th>
-                <th style={{ textAlign: 'right', fontSize: '0.75rem', background: '#e0f2fe', color: '#0369a1' }}>Qty (Kg)</th>
-                <th style={{ textAlign: 'right', fontSize: '0.75rem' }}>Fat%</th>
-                <th style={{ textAlign: 'right', fontSize: '0.75rem' }}>Snf%</th>
-                <th style={{ textAlign: 'right', fontSize: '0.75rem', background: '#e0f2fe', color: '#0369a1' }}>Kg.Fat</th>
-                <th style={{ textAlign: 'right', fontSize: '0.75rem', background: '#e0f2fe', color: '#0369a1' }}>Kg.Snf</th>
+                {sectionCols.map(col => (
+                  <th
+                    key={`th_${col.key}`}
+                    style={{
+                      textAlign: 'right',
+                      fontSize: '0.75rem',
+                      ...(col.type === 'calculated' ? { background: '#e0f2fe', color: '#0369a1' } : {}),
+                    }}
+                  >
+                    {col.name}
+                  </th>
+                ))}
                 <th style={{ width: 90, textAlign: 'center', fontSize: '0.72rem' }}>Action</th>
               </tr>
             </thead>
             <tbody>
               {list.length === 0 ? (
                 <tr>
-                  <td colSpan={10} style={{ textAlign: 'center', padding: '20px 12px', color: '#94a3b8', fontStyle: 'italic', fontSize: '0.82rem' }}>
+                  <td colSpan={sectionCols.length + 3} style={{ textAlign: 'center', padding: '20px 12px', color: '#94a3b8', fontStyle: 'italic', fontSize: '0.82rem' }}>
                     No {title.toLowerCase()} recorded. Click "+ Add {title} Particular" to add.
                   </td>
                 </tr>
               ) : (
                 list.map((row, lIdx) => {
-                  const globalIdx = (activeBlockState.rows || []).findIndex(r => r === row);
+                  const globalIdx = currentBlockRows.findIndex(r => r === row);
                   const isReadOnly = !unlocked;
 
                   return (
-                    <tr key={`row_${side}_${globalIdx}`} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                    <tr key={`row_${key}_${side}_${globalIdx}`} style={{ borderBottom: '1px solid #f1f5f9' }}>
                       <td style={{ textAlign: 'center', fontWeight: 700, color: '#94a3b8', fontSize: '0.75rem', background: '#fafafa' }}>
                         {lIdx + 1}
                       </td>
@@ -1577,7 +2276,7 @@ export default function STGEntryForm({
                           value={row.variant || row.values?.variant || ''}
                           readOnly={isReadOnly}
                           placeholder="Particular Name..."
-                          onChange={e => handleParticularCellChange(globalIdx, 'variant', e.target.value)}
+                          onChange={e => handleParticularCellChange(globalIdx, 'variant', e.target.value, key)}
                           style={{
                             height: 28,
                             fontSize: '0.82rem',
@@ -1589,81 +2288,49 @@ export default function STGEntryForm({
                         />
                       </td>
 
-                      {/* Qty (Lts) */}
-                      <td style={{ padding: '2px 4px' }}>
-                        <input
-                          type="number"
-                          className="form-input"
-                          value={row.values.qty_lts ?? ''}
-                          readOnly={isReadOnly}
-                          placeholder="0"
-                          onChange={e => handleParticularCellChange(globalIdx, 'qty_lts', e.target.value)}
-                          style={{ height: 28, fontSize: '0.82rem', textAlign: 'right', fontFamily: 'var(--font-numbers)' }}
-                        />
-                      </td>
+                      {/* Dynamic Columns */}
+                      {sectionCols.map(col => {
+                        if (col.type === 'calculated') {
+                          return (
+                            <td
+                              key={`td_${col.key}`}
+                              style={{
+                                textAlign: 'right',
+                                padding: '4px 8px',
+                                fontWeight: 800,
+                                color: '#0369a1',
+                                fontFamily: 'var(--font-numbers)',
+                                background: '#f0f9ff',
+                              }}
+                            >
+                              {row.values[col.key]
+                                ? formatDisplayNum(row.values[col.key], col.decimals, col.key)
+                                : '-'}
+                            </td>
+                          );
+                        }
 
-                      {/* SP.G */}
-                      <td style={{ padding: '2px 4px' }}>
-                        <input
-                          type="number"
-                          step="any"
-                          className="form-input"
-                          value={row.values.sp_gr ?? ''}
-                          readOnly={isReadOnly}
-                          placeholder="0"
-                          onChange={e => handleParticularCellChange(globalIdx, 'sp_gr', e.target.value)}
-                          style={{ height: 28, fontSize: '0.82rem', textAlign: 'right', fontFamily: 'var(--font-numbers)' }}
-                        />
-                      </td>
-
-                      {/* Qty (Kg) - Computed */}
-                      <td style={{ textAlign: 'right', padding: '4px 8px', fontWeight: 800, color: '#0369a1', fontFamily: 'var(--font-numbers)', background: '#f0f9ff' }}>
-                        {row.values.qty_kg ? formatDisplayNum(row.values.qty_kg, 2, 'qty_kg') : '-'}
-                      </td>
-
-                      {/* Fat% */}
-                      <td style={{ padding: '2px 4px' }}>
-                        <input
-                          type="number"
-                          step="any"
-                          className="form-input"
-                          value={row.values.fat_pct ?? ''}
-                          readOnly={isReadOnly}
-                          placeholder="0"
-                          onChange={e => handleParticularCellChange(globalIdx, 'fat_pct', e.target.value)}
-                          style={{ height: 28, fontSize: '0.82rem', textAlign: 'right', fontFamily: 'var(--font-numbers)' }}
-                        />
-                      </td>
-
-                      {/* Snf% */}
-                      <td style={{ padding: '2px 4px' }}>
-                        <input
-                          type="number"
-                          step="any"
-                          className="form-input"
-                          value={row.values.snf_pct ?? ''}
-                          readOnly={isReadOnly}
-                          placeholder="0"
-                          onChange={e => handleParticularCellChange(globalIdx, 'snf_pct', e.target.value)}
-                          style={{ height: 28, fontSize: '0.82rem', textAlign: 'right', fontFamily: 'var(--font-numbers)' }}
-                        />
-                      </td>
-
-                      {/* Kg.Fat - Computed */}
-                      <td style={{ textAlign: 'right', padding: '4px 8px', fontWeight: 800, color: '#0369a1', fontFamily: 'var(--font-numbers)', background: '#f0f9ff' }}>
-                        {row.values.kg_fat ? formatDisplayNum(row.values.kg_fat, 3, 'kg_fat') : '-'}
-                      </td>
-
-                      {/* Kg.Snf - Computed */}
-                      <td style={{ textAlign: 'right', padding: '4px 8px', fontWeight: 800, color: '#0369a1', fontFamily: 'var(--font-numbers)', background: '#f0f9ff' }}>
-                        {row.values.kg_snf ? formatDisplayNum(row.values.kg_snf, 3, 'kg_snf') : '-'}
-                      </td>
+                        return (
+                          <td key={`td_${col.key}`} style={{ padding: '2px 4px' }}>
+                            <input
+                              type="number"
+                              step={col.key === 'qty_lts' ? undefined : 'any'}
+                              className="form-input"
+                              value={row.values[col.key] ?? ''}
+                              readOnly={isReadOnly}
+                              placeholder="0"
+                              onChange={e => handleParticularCellChange(globalIdx, col.key, e.target.value, key)}
+                              style={{ height: 28, fontSize: '0.82rem', textAlign: 'right', fontFamily: 'var(--font-numbers)' }}
+                            />
+                          </td>
+                        );
+                      })}
 
                       {/* Actions */}
                       <td style={{ textAlign: 'center', background: '#fafafa' }}>
                         <button
                           type="button"
-                          onClick={() => handleDeleteRow(globalIdx)}
+                          onClick={() => handleDeleteRow(globalIdx, key)}
                           style={{
                             border: '1px solid #fca5a5',
                             background: '#fef2f2',
@@ -1692,21 +2359,32 @@ export default function STGEntryForm({
                   <td style={{ fontWeight: 800, color: colorScheme.text, padding: '6px 8px' }}>
                     Total {title}
                   </td>
-                  <td style={{ textAlign: 'right', fontWeight: 800, padding: '6px 4px', fontFamily: 'var(--font-numbers)', color: colorScheme.text }}>
-                    {formatDisplayNum(side === 'RECEIPT' ? totals.rec.lts : totals.disp.lts, 0)}
-                  </td>
-                  <td style={{ textAlign: 'right', padding: '6px 4px' }}>—</td>
-                  <td style={{ textAlign: 'right', fontWeight: 800, padding: '6px 8px', fontFamily: 'var(--font-numbers)', color: colorScheme.text, background: '#f1f5f9' }}>
-                    {formatDisplayNum(side === 'RECEIPT' ? totals.rec.kg : totals.disp.kg, 2)}
-                  </td>
-                  <td style={{ textAlign: 'right', padding: '6px 4px' }}>—</td>
-                  <td style={{ textAlign: 'right', padding: '6px 4px' }}>—</td>
-                  <td style={{ textAlign: 'right', fontWeight: 800, padding: '6px 8px', fontFamily: 'var(--font-numbers)', color: colorScheme.text, background: '#f1f5f9' }}>
-                    {formatDisplayNum(side === 'RECEIPT' ? totals.rec.fat : totals.disp.fat, 3)}
-                  </td>
-                  <td style={{ textAlign: 'right', fontWeight: 800, padding: '6px 8px', fontFamily: 'var(--font-numbers)', color: colorScheme.text, background: '#f1f5f9' }}>
-                    {formatDisplayNum(side === 'RECEIPT' ? totals.rec.snf : totals.disp.snf, 3)}
-                  </td>
+                  {sectionCols.map(col => {
+                    const isTotalable = col.type === 'number' || col.type === 'calculated';
+                    const isRateOrPct = ['sp_gr', 'fat_pct', 'snf_pct'].includes(col.key);
+                    const totalVal = side === 'RECEIPT' ? (sectionTotals.rec as Record<string, number>)[col.key] : (sectionTotals.disp as Record<string, number>)[col.key];
+
+                    if (isTotalable && !isRateOrPct) {
+                      return (
+                        <td
+                          key={`tf_${col.key}`}
+                          style={{
+                            textAlign: 'right',
+                            fontWeight: 800,
+                            padding: '6px 8px',
+                            fontFamily: 'var(--font-numbers)',
+                            color: colorScheme.text,
+                            background: col.type === 'calculated' ? '#f1f5f9' : undefined,
+                          }}
+                        >
+                          {formatDisplayNum(totalVal, col.decimals, col.key)}
+                        </td>
+                      );
+                    }
+                    return (
+                      <td key={`tf_${col.key}`} style={{ textAlign: 'right', padding: '6px 4px' }}>—</td>
+                    );
+                  })}
                   <td style={{ background: '#f8fafc' }} />
                 </tr>
               </tfoot>
@@ -1750,7 +2428,6 @@ export default function STGEntryForm({
                 >
                   ⭐ Master Default Statements
                 </Link>
-                {renderStatementSelectWidget('top')}
                 <button
                   type="button"
                   className="btn btn-secondary btn-xs"
@@ -1838,7 +2515,7 @@ export default function STGEntryForm({
               </div>
             </div>
 
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
               <button
                 type="button"
                 onClick={() => setIsCreateModalOpen(true)}
@@ -1876,6 +2553,24 @@ export default function STGEntryForm({
                 title="Manage Statement Master Names (Update, Delete, Insert)"
               >
                 ⚙️ Statement Master Names
+              </Link>
+              <Link
+                href="/dashboard/ts/mappings"
+                className="btn btn-secondary btn-xs"
+                style={{
+                  background: '#eff6ff',
+                  border: '1px solid #bfdbfe',
+                  color: '#1d4ed8',
+                  fontSize: '0.78rem',
+                  padding: '4px 12px',
+                  fontWeight: 800,
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 6,
+                }}
+                title="Solid Balance STG Mappings"
+              >
+                🔗 STG Mappings
               </Link>
             </div>
           </div>
@@ -1922,673 +2617,915 @@ export default function STGEntryForm({
               />
             </div>
           </div>
-        </div>
 
-{/* Statement Master Navigation Tabs Bar */}
-        <div className="card" style={{ padding: '12px 18px', display: 'flex', flexDirection: 'column', gap: 10 }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-              <span style={{ fontWeight: 800, fontSize: '0.85rem', color: '#1e293b' }}>
-                📋 INDIVIDUAL STATEMENT MASTERS ({availableStatements.length}):
-              </span>
-              <span style={{ fontSize: '0.75rem', color: '#64748b' }}>
-                (Each statement has its own separate master, receipts, and disposals)
-              </span>
-              {renderStatementSelectWidget('bar')}
+          {/* Select Statement Dropdown with Checkbox Multi-Select inside */}
+          <div
+            style={{
+              marginTop: 14,
+              paddingTop: 12,
+              borderTop: '1px solid #e2e8f0',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              flexWrap: 'wrap',
+              gap: 12,
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+              <div style={{ position: 'relative' }} ref={statementDropdownRef}>
+                <button
+                  type="button"
+                  onClick={() => setIsStatementDropdownOpen(prev => !prev)}
+                  style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: 8,
+                    padding: '6px 14px',
+                    borderRadius: 6,
+                    border: isStatementDropdownOpen ? '1.5px solid #0284c7' : '1px solid #7dd3fc',
+                    background: '#f0f9ff',
+                    color: '#0369a1',
+                    fontWeight: 700,
+                    fontSize: '0.82rem',
+                    cursor: 'pointer',
+                    boxShadow: '0 1px 2px rgba(0,0,0,0.05)',
+                    transition: 'all 0.15s ease',
+                  }}
+                  title="Click to select one or more statements to view"
+                >
+                  <span style={{ fontSize: '0.9rem' }}>📋</span>
+                  <span>Select Statement:</span>
+                  <span
+                    style={{
+                      background: '#0284c7',
+                      color: '#ffffff',
+                      padding: '1px 8px',
+                      borderRadius: 10,
+                      fontSize: '0.72rem',
+                      fontWeight: 800,
+                    }}
+                  >
+                    {selectedStatementKeys.length === availableStatements.length && availableStatements.length > 0
+                      ? 'All Selected'
+                      : selectedStatementKeys.length === 0
+                      ? 'None Selected'
+                      : `${selectedStatementKeys.length} of ${availableStatements.length} selected`}
+                  </span>
+                  <span style={{ fontSize: '0.7rem', color: '#0284c7', marginLeft: 2 }}>
+                    {isStatementDropdownOpen ? '▲' : '▼'}
+                  </span>
+                </button>
+
+                {/* Floating Dropdown Panel */}
+                {isStatementDropdownOpen && (
+                  <div
+                    style={{
+                      position: 'absolute',
+                      top: 'calc(100% + 6px)',
+                      left: 0,
+                      zIndex: 50,
+                      minWidth: 320,
+                      maxWidth: 420,
+                      background: '#ffffff',
+                      border: '1px solid #cbd5e1',
+                      borderRadius: 8,
+                      boxShadow: '0 10px 25px -5px rgba(0, 0, 0, 0.15), 0 8px 10px -6px rgba(0, 0, 0, 0.1)',
+                      padding: 12,
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: 8,
+                    }}
+                  >
+                    {/* Header with Quick Actions */}
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingBottom: 8, borderBottom: '1px solid #f1f5f9' }}>
+                      <span style={{ fontSize: '0.78rem', fontWeight: 800, color: '#334155' }}>
+                        Choose Statements to View ({selectedStatementKeys.length}/{availableStatements.length})
+                      </span>
+                      <div style={{ display: 'flex', gap: 6 }}>
+                        <button
+                          type="button"
+                          onClick={handleSelectAllStatements}
+                          style={{
+                            padding: '2px 8px',
+                            fontSize: '0.72rem',
+                            fontWeight: 700,
+                            borderRadius: 4,
+                            border: '1px solid #bae6fd',
+                            background: '#f0f9ff',
+                            color: '#0284c7',
+                            cursor: 'pointer',
+                          }}
+                        >
+                          Select All
+                        </button>
+                        <button
+                          type="button"
+                          onClick={handleDeselectAllStatements}
+                          style={{
+                            padding: '2px 8px',
+                            fontSize: '0.72rem',
+                            fontWeight: 700,
+                            borderRadius: 4,
+                            border: '1px solid #e2e8f0',
+                            background: '#f8fafc',
+                            color: '#64748b',
+                            cursor: 'pointer',
+                          }}
+                        >
+                          Clear
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Scrollable Checkbox List */}
+                    <div style={{ maxHeight: 280, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 4, paddingRight: 4 }}>
+                      {availableStatements.map(stmt => {
+                        const isChecked = selectedStatementKeys.includes(stmt.key);
+                        const rowCount = (blocks[stmt.key]?.rows || []).length;
+                        return (
+                          <label
+                            key={`stmt_chk_${stmt.key}`}
+                            style={{
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'space-between',
+                              padding: '6px 10px',
+                              borderRadius: 6,
+                              background: isChecked ? '#f0f9ff' : '#ffffff',
+                              border: isChecked ? '1.5px solid #0284c7' : '1px solid #e2e8f0',
+                              cursor: 'pointer',
+                              userSelect: 'none',
+                              transition: 'all 0.15s ease',
+                            }}
+                          >
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                              <input
+                                type="checkbox"
+                                checked={isChecked}
+                                onChange={() => handleToggleStatement(stmt.key)}
+                                style={{ cursor: 'pointer', accentColor: '#0284c7', width: 15, height: 15 }}
+                              />
+                              <span style={{ fontSize: '0.82rem', fontWeight: isChecked ? 700 : 500, color: isChecked ? '#0369a1' : '#334155' }}>
+                                {cleanStatementLabel(stmt.label || stmt.key)}
+                              </span>
+                              {stmt.variant && (
+                                <span style={{ fontSize: '0.7rem', color: '#64748b' }}>
+                                  ({stmt.variant})
+                                </span>
+                              )}
+                            </div>
+                            <span
+                              style={{
+                                fontSize: '0.68rem',
+                                padding: '1px 6px',
+                                borderRadius: 10,
+                                background: isChecked ? '#0284c7' : '#f1f5f9',
+                                color: isChecked ? '#ffffff' : '#64748b',
+                                fontWeight: 800,
+                              }}
+                              title={`${rowCount} particulars rows`}
+                            >
+                              {rowCount}
+                            </span>
+                          </label>
+                        );
+                      })}
+                    </div>
+
+                    {/* Done button */}
+                    <div style={{ paddingTop: 8, borderTop: '1px solid #f1f5f9', display: 'flex', justifyContent: 'flex-end' }}>
+                      <button
+                        type="button"
+                        onClick={() => setIsStatementDropdownOpen(false)}
+                        className="btn btn-primary btn-xs"
+                        style={{ padding: '3px 12px', fontSize: '0.74rem' }}
+                      >
+                        Done
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Badges showing currently selected statements */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                {displayedStatements.map(s => (
+                  <span
+                    key={`disp_badge_${s.key}`}
+                    style={{
+                      background: '#f0f9ff',
+                      border: '1px solid #bae6fd',
+                      color: '#0369a1',
+                      fontSize: '0.72rem',
+                      fontWeight: 700,
+                      padding: '2px 8px',
+                      borderRadius: 4,
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: 4,
+                    }}
+                  >
+                    <span>{cleanStatementLabel(s.label || s.key)}</span>
+                    <button
+                      type="button"
+                      onClick={() => handleToggleStatement(s.key)}
+                      style={{
+                        background: 'transparent',
+                        border: 'none',
+                        color: '#0284c7',
+                        cursor: 'pointer',
+                        padding: 0,
+                        fontSize: '0.7rem',
+                        fontWeight: 800,
+                        lineHeight: 1,
+                      }}
+                      title="Remove from view"
+                    >
+                      ✕
+                    </button>
+                  </span>
+                ))}
+              </div>
             </div>
 
             <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
               <button
                 type="button"
-                onClick={() => setIsCreateModalOpen(true)}
-                style={{
-                  background: '#0284c7',
-                  color: '#ffffff',
-                  border: 'none',
-                  borderRadius: 6,
-                  padding: '4px 12px',
-                  fontSize: '0.78rem',
-                  fontWeight: 800,
-                  cursor: 'pointer',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 4,
-                }}
-                title="Create a Brand New Statement Master Template"
-              >
-                ➕ Create Statement Master
-              </button>
-              <Link
-                href="/dashboard/ts/manage-statements"
+                onClick={handleSyncFromStock}
                 className="btn btn-secondary btn-xs"
                 style={{
                   background: '#f0fdf4',
                   border: '1px solid #86efac',
-                  color: '#166534',
-                  fontSize: '0.78rem',
-                  padding: '4px 12px',
-                  fontWeight: 800,
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 4,
+                  color: '#15803d',
+                  fontSize: '0.74rem',
+                  fontWeight: 700,
+                  padding: '4px 10px',
                 }}
-                title="Manage Statement Master Names (Update, Delete, Insert)"
+                title="Sync Opening Balance and matching rows from Stock Statement Entry"
               >
-                ⚙️ Statement Master Names
-              </Link>
+                ⚡ Sync from Stock Statement
+              </button>
             </div>
-          </div>
-
-          {/* Scrolling Tabs List */}
-          <div style={{ display: 'flex', gap: 8, overflowX: 'auto', paddingBottom: 4 }}>
-            {availableStatements.map(s => {
-              const isActive = s.key === activeBlock;
-              const count = (blocks[s.key]?.rows || []).length;
-
-              return (
-                <button
-                  key={`stmt_tab_${s.key}`}
-                  type="button"
-                  onClick={() => setActiveBlock(s.key)}
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: 6,
-                    padding: '6px 14px',
-                    borderRadius: 20,
-                    border: isActive ? '2px solid #0284c7' : '1px solid #cbd5e1',
-                    background: isActive ? '#0284c7' : '#ffffff',
-                    color: isActive ? '#ffffff' : '#334155',
-                    fontWeight: isActive ? 800 : 600,
-                    fontSize: '0.8rem',
-                    cursor: 'pointer',
-                    whiteSpace: 'nowrap',
-                    transition: 'all 0.15s ease',
-                    boxShadow: isActive ? '0 2px 4px rgba(2, 132, 199, 0.25)' : 'none',
-                  }}
-                >
-                  <span>{cleanStatementLabel(s.label || s.key)}</span>
-                  <span
-                    style={{
-                      background: isActive ? '#ffffff' : '#f1f5f9',
-                      color: isActive ? '#0284c7' : '#64748b',
-                      borderRadius: 10,
-                      padding: '1px 6px',
-                      fontSize: '0.68rem',
-                      fontWeight: 800,
-                    }}
-                  >
-                    {count}
-                  </span>
-                </button>
-              );
-            })}
           </div>
         </div>
 
-        {/* Active Statement Header & Actions Banner */}
-        {currentStatement && (
-          <div style={{ background: '#f8fafc', border: '1px solid #cbd5e1', borderRadius: 8, padding: '10px 16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 10 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-              <span style={{ fontSize: '1.2rem' }}>📄</span>
-              <div>
-                <div style={{ fontWeight: 800, fontSize: '0.96rem', color: '#0f172a' }}>
-                  {cleanStatementLabel(currentStatement.label || currentStatement.key)}
-                </div>
-                <div style={{ fontSize: '0.74rem', color: '#64748b', fontFamily: 'monospace' }}>
-                  Master Key: <b>{currentStatement.key}</b>
-                </div>
-              </div>
-            </div>
-
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-              <Link
-                href={`/dashboard/ts/manage-statements/defaults?master=${encodeURIComponent(currentStatement.key)}`}
-                className="btn btn-secondary btn-sm"
-                style={{ fontSize: '0.75rem', fontWeight: 700 }}
-                title="Configure Master Default Formulation Table for this statement"
-              >
-                ⚙️ Master Defaults
-              </Link>
-
-              <button
-                type="button"
-                onClick={() => {
-                  setRenameValue(currentStatement.label || currentStatement.key);
-                  setRenameVariant(currentStatement.variant || '');
-                  setIsRenameModalOpen(true);
-                }}
-                className="btn btn-secondary btn-sm"
-                style={{ fontSize: '0.75rem', fontWeight: 700 }}
-              >
-                ✏️ Rename Master
-              </button>
-
-              {availableStatements.length > 1 && (
-                <button
-                  type="button"
-                  onClick={handleDeleteActiveStatement}
-                  style={{
-                    background: '#fef2f2',
-                    border: '1px solid #fca5a5',
-                    color: '#dc2626',
-                    borderRadius: 6,
-                    padding: '4px 10px',
-                    fontSize: '0.75rem',
-                    fontWeight: 700,
-                    cursor: 'pointer',
-                  }}
-                  title="Delete this Statement Master"
-                >
-                  🗑️ Delete Master
-                </button>
-              )}
-            </div>
-          </div>
-        )}
-
         {error && (
-          <div style={{ background: '#fef2f2', border: '1px solid #fecaca', color: '#dc2626', padding: '10px 16px', borderRadius: 8, fontSize: '0.85rem', fontWeight: 600 }}>
+          <div style={{ background: '#fef2f2', border: '1px solid #fecaca', color: '#dc2626', padding: '10px 16px', borderRadius: 8, fontSize: '0.85rem', fontWeight: 600, marginBottom: 16 }}>
             {error}
           </div>
         )}
 
-        {/* Section 1: Opening Balance Card */}
-        <div className="card" style={{ padding: 0, overflow: 'hidden', border: '1px solid #bfdbfe' }}>
-          <div style={{ background: '#eff6ff', padding: '10px 16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid #bfdbfe' }}>
-            <span style={{ fontWeight: 800, fontSize: '0.92rem', color: '#1d4ed8' }}>
-              📦 Opening Balance (OB)
-            </span>
-
+        {displayedStatements.length === 0 ? (
+          <div className="card" style={{ padding: 36, textAlign: 'center', background: '#f8fafc', border: '1.5px dashed #cbd5e1', borderRadius: 10, margin: '20px 0' }}>
+            <div style={{ fontSize: '2.4rem', marginBottom: 10 }}>📋</div>
+            <div style={{ fontWeight: 800, fontSize: '1.1rem', color: '#1e293b', marginBottom: 6 }}>
+              No Statements Selected
+            </div>
+            <div style={{ fontSize: '0.86rem', color: '#64748b', marginBottom: 16, maxWidth: 500, margin: '0 auto 16px auto' }}>
+              Please check one or more statements in the &quot;Select Statement&quot; section inside Entry Details above to view, enter, or edit data.
+            </div>
             <button
               type="button"
-              onClick={() => setObUnlocked(!obUnlocked)}
-              style={{
-                background: obUnlocked ? '#fef3c7' : '#ffffff',
-                border: `1px solid ${obUnlocked ? '#f59e0b' : '#93c5fd'}`,
-                color: obUnlocked ? '#b45309' : '#1d4ed8',
-                borderRadius: 5,
-                padding: '3px 10px',
-                fontSize: '0.74rem',
-                fontWeight: 700,
-                cursor: 'pointer',
-              }}
+              onClick={handleSelectAllStatements}
+              className="btn btn-primary"
+              style={{ padding: '6px 20px', fontSize: '0.84rem', fontWeight: 700 }}
             >
-              {obUnlocked ? '🔒 Lock OB' : '✏️ Edit OB'}
+              Select All Statements
             </button>
           </div>
+        ) : (
+          displayedStatements.map((stmt, sIdx) => {
+            const stmtBlock = blocks[stmt.key] || { rows: [], opening_balance: {}, physical_count: {}, cmpdd_norm: '' };
+            const stmtOb = stmtBlock.opening_balance || {};
+            const stmtRows = stmtBlock.rows || [];
+            const stmtReceiptRows = stmtRows.filter(r => r.row_type === 'RECEIPT' || r.side === 'RECEIPT');
+            const stmtDisposalRows = stmtRows.filter(r => r.row_type === 'DISPOSAL' || r.side === 'DISPOSAL');
+            const stmtRecon = getReconForStatement(stmt.key);
+            const stmtTotals = getStatementTotals(stmt.key);
+            const stmtObUnlocked = isSectionUnlocked(stmt.key, 'ob');
+            const stmtReceiptsUnlocked = isSectionUnlocked(stmt.key, 'receipts');
+            const stmtDisposalsUnlocked = isSectionUnlocked(stmt.key, 'disposals');
 
-          <div style={{ overflowX: 'auto' }}>
-            <table className="inline-table" style={{ width: '100%', minWidth: 720, margin: 0 }}>
-              <thead>
-                <tr style={{ background: '#f8fafc', borderBottom: '1px solid var(--border)' }}>
-                  <th style={{ width: 44, textAlign: 'center', fontSize: '0.72rem' }}>#</th>
-                  <th style={{ width: 220, textAlign: 'left', fontSize: '0.75rem', fontWeight: 800 }}>Label</th>
-                  <th style={{ textAlign: 'right', fontSize: '0.75rem' }}>Qty (Lts)</th>
-                  <th style={{ textAlign: 'right', fontSize: '0.75rem' }}>SP.G</th>
-                  <th style={{ textAlign: 'right', fontSize: '0.75rem', background: '#e0f2fe', color: '#0369a1' }}>Qty (Kg)</th>
-                  <th style={{ textAlign: 'right', fontSize: '0.75rem' }}>Fat%</th>
-                  <th style={{ textAlign: 'right', fontSize: '0.75rem' }}>Snf%</th>
-                  <th style={{ textAlign: 'right', fontSize: '0.75rem', background: '#e0f2fe', color: '#0369a1' }}>Kg.Fat</th>
-                  <th style={{ textAlign: 'right', fontSize: '0.75rem', background: '#e0f2fe', color: '#0369a1' }}>Kg.Snf</th>
-                  <th style={{ width: 90, textAlign: 'center', fontSize: '0.72rem' }}>Status</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr>
-                  <td style={{ textAlign: 'center', fontWeight: 700, color: '#1d4ed8', fontSize: '0.75rem', background: '#eff6ff' }}>OB</td>
-                  <td style={{ fontWeight: 800, color: '#1d4ed8', fontSize: '0.82rem', padding: '6px 8px' }}>Opening Balance</td>
-                  <td style={{ padding: '2px 4px' }}>
-                    <input
-                      type="number"
-                      className="form-input"
-                      value={ob.qty_lts ?? ''}
-                      readOnly={!obUnlocked}
-                      placeholder="0"
-                      onChange={e => handleOpeningBalanceChange('qty_lts', e.target.value)}
-                      style={{ height: 28, fontSize: '0.82rem', textAlign: 'right', fontFamily: 'var(--font-numbers)' }}
-                    />
-                  </td>
-                  <td style={{ padding: '2px 4px' }}>
-                    <input
-                      type="number"
-                      step="any"
-                      className="form-input"
-                      value={ob.sp_gr ?? ''}
-                      readOnly={!obUnlocked}
-                      placeholder="0"
-                      onChange={e => handleOpeningBalanceChange('sp_gr', e.target.value)}
-                      style={{ height: 28, fontSize: '0.82rem', textAlign: 'right', fontFamily: 'var(--font-numbers)' }}
-                    />
-                  </td>
-                  <td style={{ textAlign: 'right', padding: '4px 8px', fontWeight: 800, color: '#0369a1', fontFamily: 'var(--font-numbers)', background: '#f0f9ff' }}>
-                    {ob.qty_kg ? formatDisplayNum(ob.qty_kg, 2) : '-'}
-                  </td>
-                  <td style={{ padding: '2px 4px' }}>
-                    <input
-                      type="number"
-                      step="any"
-                      className="form-input"
-                      value={ob.fat_pct ?? ''}
-                      readOnly={!obUnlocked}
-                      placeholder="0"
-                      onChange={e => handleOpeningBalanceChange('fat_pct', e.target.value)}
-                      style={{ height: 28, fontSize: '0.82rem', textAlign: 'right', fontFamily: 'var(--font-numbers)' }}
-                    />
-                  </td>
-                  <td style={{ padding: '2px 4px' }}>
-                    <input
-                      type="number"
-                      step="any"
-                      className="form-input"
-                      value={ob.snf_pct ?? ''}
-                      readOnly={!obUnlocked}
-                      placeholder="0"
-                      onChange={e => handleOpeningBalanceChange('snf_pct', e.target.value)}
-                      style={{ height: 28, fontSize: '0.82rem', textAlign: 'right', fontFamily: 'var(--font-numbers)' }}
-                    />
-                  </td>
-                  <td style={{ textAlign: 'right', padding: '4px 8px', fontWeight: 800, color: '#0369a1', fontFamily: 'var(--font-numbers)', background: '#f0f9ff' }}>
-                    {ob.kg_fat ? formatDisplayNum(ob.kg_fat, 3) : '-'}
-                  </td>
-                  <td style={{ textAlign: 'right', padding: '4px 8px', fontWeight: 800, color: '#0369a1', fontFamily: 'var(--font-numbers)', background: '#f0f9ff' }}>
-                    {ob.kg_snf ? formatDisplayNum(ob.kg_snf, 3) : '-'}
-                  </td>
-                  <td style={{ textAlign: 'center', fontSize: '0.72rem', color: obUnlocked ? '#b45309' : '#1d4ed8', fontWeight: 700 }}>
-                    {obUnlocked ? 'Unlocked' : 'Locked'}
-                  </td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
-        </div>
-
-        {/* Section 2: Receipts Particulars */}
-        {renderParticularsSection(
-          'RECEIPT',
-          'Receipts',
-          receiptRows,
-          receiptsUnlocked,
-          setReceiptsUnlocked,
-          { bg: '#f0fdf4', text: '#166534', border: '#bbf7d0', btn: '#16a34a' }
-        )}
-
-        {/* Section 3: Disposals Particulars */}
-        {renderParticularsSection(
-          'DISPOSAL',
-          'Disposals',
-          disposalRows,
-          disposalsUnlocked,
-          setDisposalsUnlocked,
-          { bg: '#fff7ed', text: '#c2410c', border: '#fed7aa', btn: '#ea580c' }
-        )}
-
-        {/* Section 4: Stock Balance Reconciliation Card */}
-        <div className="card" style={{ padding: 0, overflow: 'hidden', border: '1px solid var(--border)', marginBottom: 20 }}>
-          <div style={{ background: '#f8fafc', padding: '10px 16px', borderBottom: '1px solid var(--border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
-            <div>
-              <div style={{ fontWeight: 800, fontSize: '0.92rem', color: '#1e293b', display: 'flex', alignItems: 'center', gap: 6 }}>
-                <span>⚖️</span> Stock Balance & Reconciliation Summary (Matching Sample Sheet & Milk & Cream Stock Statement)
-              </div>
-              <div style={{ fontSize: '0.72rem', color: '#64748b', marginTop: 2 }}>
-                Dynamic Rows & Columns with Formula Support · Stored in table <code>stg_reconciliation_entries</code> as JSON
-              </div>
-            </div>
-
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-              <button
-                type="button"
-                onClick={() => setIsAddReconRowModalOpen(true)}
+            return (
+              <div
+                key={`rendered_stmt_${stmt.key}`}
                 style={{
-                  background: '#0284c7',
-                  color: '#ffffff',
-                  border: 'none',
-                  borderRadius: 5,
-                  padding: '4px 10px',
-                  fontSize: '0.75rem',
-                  fontWeight: 700,
-                  cursor: 'pointer',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 4,
+                  marginTop: sIdx > 0 ? 32 : 12,
+                  paddingBottom: 16,
+                  borderBottom: sIdx < displayedStatements.length - 1 ? '2px dashed #cbd5e1' : 'none',
                 }}
-                title="Add a custom row to this statement reconciliation summary"
               >
-                ➕ Add Row
-              </button>
+                {/* Statement Header & Action Banner */}
+                <div
+                  style={{
+                    background: '#f8fafc',
+                    border: '1px solid #cbd5e1',
+                    borderRadius: 8,
+                    padding: '10px 16px',
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                    flexWrap: 'wrap',
+                    gap: 10,
+                    marginBottom: 14,
+                    boxShadow: '0 1px 3px rgba(0,0,0,0.05)',
+                  }}
+                >
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                    <span style={{ fontSize: '1.3rem' }}>📄</span>
+                    <div>
+                      <div style={{ fontWeight: 800, fontSize: '1rem', color: '#0f172a', display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                        <span>{cleanStatementLabel(stmt.label || stmt.key)}</span>
+                        {stmt.variant && (
+                          <span style={{ fontSize: '0.74rem', color: '#0284c7', background: '#e0f2fe', padding: '2px 8px', borderRadius: 10, fontWeight: 700 }}>
+                            {stmt.variant}
+                          </span>
+                        )}
+                        <span style={{ fontSize: '0.72rem', color: '#64748b', background: '#f1f5f9', padding: '2px 8px', borderRadius: 10 }}>
+                          Statement {sIdx + 1} of {displayedStatements.length}
+                        </span>
+                      </div>
+                      <div style={{ fontSize: '0.74rem', color: '#64748b', fontFamily: 'monospace' }}>
+                        Master Key: <b>{stmt.key}</b>
+                      </div>
+                    </div>
+                  </div>
 
-              <button
-                type="button"
-                onClick={() => setIsAddReconColModalOpen(true)}
-                style={{
-                  background: '#f0fdf4',
-                  border: '1px solid #86efac',
-                  color: '#166534',
-                  borderRadius: 5,
-                  padding: '4px 10px',
-                  fontSize: '0.75rem',
-                  fontWeight: 700,
-                  cursor: 'pointer',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 4,
-                }}
-                title="Add a new column to this statement reconciliation summary"
-              >
-                ➕ Add Column
-              </button>
-
-              <button
-                type="button"
-                onClick={() => setIsManageReconColsModalOpen(true)}
-                style={{
-                  background: '#f8fafc',
-                  border: '1px solid #cbd5e1',
-                  color: '#334155',
-                  borderRadius: 5,
-                  padding: '4px 10px',
-                  fontSize: '0.75rem',
-                  fontWeight: 700,
-                  cursor: 'pointer',
-                }}
-                title="Manage reconciliation columns (Rename, Decimals, Delete)"
-              >
-                ⚙️ Columns ({activeRecon.columns.length})
-              </button>
-
-              <button
-                type="button"
-                onClick={handleResetReconTemplate}
-                style={{
-                  background: '#fef3c7',
-                  border: '1px solid #fcd34d',
-                  color: '#b45309',
-                  borderRadius: 5,
-                  padding: '4px 10px',
-                  fontSize: '0.75rem',
-                  fontWeight: 700,
-                  cursor: 'pointer',
-                }}
-                title="Reset to standard 8-row reconciliation template with sample formulas"
-              >
-                ↺ Load Standard Template
-              </button>
-            </div>
-          </div>
-
-          <div style={{ overflowX: 'auto' }}>
-            <table className="inline-table" style={{ width: '100%', minWidth: 800, margin: 0 }}>
-              <thead>
-                <tr style={{ background: '#f1f5f9', borderBottom: '1px solid var(--border)' }}>
-                  <th style={{ width: 44, textAlign: 'center', fontSize: '0.72rem' }}>#</th>
-                  <th style={{ width: 240, textAlign: 'left', fontSize: '0.75rem', fontWeight: 800 }}>Reconciliation Item</th>
-                  {activeRecon.columns.map(col => (
-                    <th
-                      key={`recon_th_${col.key}`}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                    {/* CMPDD Norm editable input */}
+                    <div
                       style={{
-                        textAlign: col.type === 'text' ? 'left' : 'right',
-                        fontSize: '0.75rem',
-                        padding: '6px 8px',
-                        background: col.type === 'calculated' ? '#f0f9ff' : undefined,
-                        color: col.type === 'calculated' ? '#0369a1' : undefined,
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 4,
+                        background: '#ffffff',
+                        border: '1px solid #cbd5e1',
+                        borderRadius: 4,
+                        padding: '2px 8px',
+                        fontSize: '0.74rem',
                       }}
-                      title={`Field Key: ${col.key} | Type: ${col.type}${col.decimals !== undefined ? ` | Dec: ${col.decimals}` : ''}`}
+                      title="Enter CMPDD Norm loss percentage for this statement"
                     >
-                      {col.name} {col.unit ? `(${col.unit})` : ''}
-                    </th>
-                  ))}
-                  <th style={{ width: 90, textAlign: 'center', fontSize: '0.72rem' }}>Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {activeRecon.rows.length === 0 ? (
-                  <tr>
-                    <td
-                      colSpan={activeRecon.columns.length + 2}
-                      style={{ textAlign: 'center', padding: '24px 12px', color: '#94a3b8', fontStyle: 'italic', fontSize: '0.82rem' }}
+                      <span style={{ fontWeight: 600, color: '#475569' }}>CMPDD Norm:</span>
+                      <input
+                        type="number"
+                        step="0.01"
+                        placeholder="0.5"
+                        value={stmtBlock.cmpdd_norm ?? ''}
+                        onChange={e => handleCmpddNormChange(e.target.value, stmt.key)}
+                        style={{
+                          width: 52,
+                          height: 22,
+                          padding: '1px 4px',
+                          fontSize: '0.75rem',
+                          border: '1px solid #94a3b8',
+                          borderRadius: 3,
+                          textAlign: 'right',
+                          fontWeight: 700,
+                        }}
+                      />
+                      <span style={{ color: '#64748b', fontWeight: 600 }}>%</span>
+                    </div>
+
+                    <Link
+                      href={`/dashboard/ts/manage-statements/defaults?master=${encodeURIComponent(stmt.key)}`}
+                      className="btn btn-secondary btn-xs"
+                      style={{ fontSize: '0.74rem', fontWeight: 700 }}
+                      title="Configure Master Default Formulation Table for this statement"
                     >
-                      No reconciliation rows configured. Click "+ Add Row" or "Load Standard Template" to begin.
-                    </td>
-                  </tr>
-                ) : (
-                  activeRecon.rows.map((row, rIdx) => {
-                    const rowColor = row.color_hint || 'default';
-                    let bg = '#ffffff';
-                    let textColor = 'var(--text-primary)';
-                    let borderCol = '#f1f5f9';
-                    let fontWeight = 600;
+                      ⚙️ Master Defaults
+                    </Link>
 
-                    if (rowColor === 'green') {
-                      bg = '#f0fdf4';
-                      textColor = '#166534';
-                      borderCol = '#bbf7d0';
-                      fontWeight = 800;
-                    } else if (rowColor === 'blue') {
-                      bg = '#eff6ff';
-                      textColor = '#1d4ed8';
-                      borderCol = '#bfdbfe';
-                      fontWeight = 800;
-                    } else if (rowColor === 'orange') {
-                      bg = '#fff7ed';
-                      textColor = '#c2410c';
-                      borderCol = '#fed7aa';
-                      fontWeight = 800;
-                    } else if (rowColor === 'yellow') {
-                      bg = '#fefce8';
-                      textColor = '#854d0e';
-                      borderCol = '#fef08a';
-                      fontWeight = 800;
-                    } else if (rowColor === 'purple') {
-                      bg = '#faf5ff';
-                      textColor = '#6b21a8';
-                      borderCol = '#e9d5ff';
-                      fontWeight = 800;
-                    } else if (rowColor === 'dark') {
-                      bg = '#f8fafc';
-                      textColor = '#0f172a';
-                      borderCol = '#cbd5e1';
-                      fontWeight = 900;
-                    }
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setRenameKey(stmt.key);
+                        setRenameValue(stmt.label || stmt.key);
+                        setRenameVariant(stmt.variant || '');
+                        setIsRenameModalOpen(true);
+                      }}
+                      className="btn btn-secondary btn-xs"
+                      style={{ fontSize: '0.74rem', fontWeight: 700 }}
+                    >
+                      ✏️ Rename Master
+                    </button>
 
-                    return (
-                      <tr
-                        key={`recon_row_${row.id || rIdx}`}
-                        style={{ borderBottom: `1px solid ${borderCol}`, background: bg }}
+                    {availableStatements.length > 1 && (
+                      <button
+                        type="button"
+                        onClick={() => handleDeleteSpecificStatement(stmt.key)}
+                        style={{
+                          background: '#fef2f2',
+                          border: '1px solid #fca5a5',
+                          color: '#dc2626',
+                          borderRadius: 4,
+                          padding: '3px 8px',
+                          fontSize: '0.74rem',
+                          fontWeight: 700,
+                          cursor: 'pointer',
+                        }}
+                        title="Delete this Statement Master"
                       >
-                        {/* Row Index */}
-                        <td style={{ textAlign: 'center', fontWeight: 700, color: textColor, fontSize: '0.75rem' }}>
-                          {rIdx + 1}
-                        </td>
+                        🗑️ Delete Master
+                      </button>
+                    )}
+                  </div>
+                </div>
 
-                        {/* Editable Row Label */}
-                        <td style={{ padding: '4px 8px' }}>
-                          <input
-                            type="text"
-                            className="form-input"
-                            value={row.label}
-                            onChange={e => handleReconLabelChange(rIdx, e.target.value)}
-                            placeholder="Reconciliation label..."
-                            style={{
-                              height: 28,
-                              fontSize: '0.82rem',
-                              fontWeight,
-                              color: textColor,
-                              background: 'transparent',
-                              border: '1px solid transparent',
-                              padding: '2px 6px',
-                            }}
-                            onFocus={e => (e.target.style.borderColor = '#0284c7')}
-                            onBlur={e => (e.target.style.borderColor = 'transparent')}
-                          />
-                        </td>
+                {/* Section 1: Opening Balance Card */}
+                <div className="card" style={{ padding: 0, overflow: 'hidden', border: '1px solid #bfdbfe', marginBottom: 16 }}>
+                  <div style={{ background: '#eff6ff', padding: '10px 16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid #bfdbfe' }}>
+                    <span style={{ fontWeight: 800, fontSize: '0.92rem', color: '#1d4ed8' }}>
+                      📦 Opening Balance (OB)
+                    </span>
 
-                        {/* Columns */}
-                        {activeRecon.columns.map(col => {
-                          const rawVal = row.values?.[col.key];
-                          const isFormula = typeof rawVal === 'string' && (rawVal.startsWith('=') || rawVal.startsWith('=+'));
-                          const isEditing = editingReconCell?.rIdx === rIdx && editingReconCell?.colKey === col.key;
-                          const computedVal = isFormula
-                            ? evaluateReconCellFormula(rawVal, col.key, rIdx, activeRecon.rows, totals)
-                            : (col.type === 'calculated'
-                              ? computeCalculatedField(col.key, row.values || {})
-                              : rawVal);
+                    <button
+                      type="button"
+                      onClick={() => toggleSectionUnlocked(stmt.key, 'ob')}
+                      style={{
+                        background: stmtObUnlocked ? '#fef3c7' : '#ffffff',
+                        border: `1px solid ${stmtObUnlocked ? '#f59e0b' : '#93c5fd'}`,
+                        color: stmtObUnlocked ? '#b45309' : '#1d4ed8',
+                        borderRadius: 5,
+                        padding: '3px 10px',
+                        fontSize: '0.74rem',
+                        fontWeight: 700,
+                        cursor: 'pointer',
+                      }}
+                    >
+                      {stmtObUnlocked ? '🔒 Lock OB' : '✏️ Edit OB'}
+                    </button>
+                  </div>
 
-                          let displayStr = '—';
-                          if (rawVal !== undefined && rawVal !== null && rawVal !== '') {
-                            if (col.type === 'text') {
-                              displayStr = String(rawVal);
-                            } else if (typeof computedVal === 'number') {
-                              displayStr = formatDisplayNum(computedVal, col.decimals, col.key);
-                              if (row.row_type === 'LOSS_GAIN_PCT' || row.label.includes('%')) {
-                                displayStr += '%';
-                              }
-                            } else {
-                              displayStr = String(computedVal || '—');
-                            }
-                          } else if (col.type === 'text') {
-                            displayStr = '';
-                          }
-
-                          return (
-                            <td
-                              key={`cell_${rIdx}_${col.key}`}
+                  <div style={{ overflowX: 'auto' }}>
+                    <table className="inline-table" style={{ width: '100%', minWidth: 720, margin: 0 }}>
+                      <thead>
+                        <tr style={{ background: '#f8fafc', borderBottom: '1px solid var(--border)' }}>
+                          <th style={{ width: 44, textAlign: 'center', fontSize: '0.72rem' }}>#</th>
+                          <th style={{ width: 220, textAlign: 'left', fontSize: '0.75rem', fontWeight: 800 }}>Label</th>
+                          {getSectionColumnsForMaster(stmt.key, 'ob').map(col => (
+                            <th
+                              key={`ob_th_${col.key}`}
                               style={{
-                                padding: '2px 4px',
-                                textAlign: col.type === 'text' ? 'left' : 'right',
-                                cursor: 'pointer',
-                                position: 'relative',
+                                textAlign: 'right',
+                                fontSize: '0.75rem',
+                                ...(col.type === 'calculated' ? { background: '#e0f2fe', color: '#0369a1' } : {}),
                               }}
-                              onClick={() => {
-                                if (!isEditing) setEditingReconCell({ rIdx, colKey: col.key });
-                              }}
-                              title={isFormula ? `Formula: ${rawVal} (Click to edit)` : 'Click to edit cell'}
                             >
-                              {isEditing ? (
-                                <input
-                                  autoFocus
-                                  type="text"
-                                  className="form-input"
-                                  value={rawVal ?? ''}
-                                  placeholder={col.type === 'text' ? 'Text or =formula' : '0 or =formula'}
-                                  onChange={e => handleReconCellChange(rIdx, col.key, e.target.value)}
-                                  onBlur={() => setEditingReconCell(null)}
-                                  onKeyDown={e => {
-                                    if (e.key === 'Enter' || e.key === 'Escape') {
-                                      setEditingReconCell(null);
-                                    }
-                                  }}
+                              {col.name}
+                            </th>
+                          ))}
+                          <th style={{ width: 90, textAlign: 'center', fontSize: '0.72rem' }}>Status</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        <tr>
+                          <td style={{ textAlign: 'center', fontWeight: 700, color: '#1d4ed8', fontSize: '0.75rem', background: '#eff6ff' }}>OB</td>
+                          <td style={{ fontWeight: 800, color: '#1d4ed8', fontSize: '0.82rem', padding: '6px 8px' }}>Opening Balance</td>
+                          {getSectionColumnsForMaster(stmt.key, 'ob').map(col => {
+                            if (col.type === 'calculated') {
+                              const val = stmtOb[col.key];
+                              return (
+                                <td
+                                  key={`ob_td_${col.key}`}
                                   style={{
-                                    height: 28,
-                                    fontSize: '0.8rem',
-                                    fontWeight: 700,
-                                    textAlign: col.type === 'text' ? 'left' : 'right',
-                                    fontFamily: col.type === 'text' ? 'inherit' : 'var(--font-numbers)',
-                                    background: '#ffffff',
-                                    borderColor: '#0284c7',
-                                    boxShadow: '0 0 0 2px rgba(2, 132, 199, 0.2)',
-                                  }}
-                                />
-                              ) : (
-                                <div
-                                  style={{
-                                    padding: '4px 6px',
-                                    borderRadius: 4,
-                                    fontWeight,
-                                    color: textColor,
-                                    fontFamily: col.type === 'text' ? 'inherit' : 'var(--font-numbers)',
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    justifyContent: col.type === 'text' ? 'flex-start' : 'flex-end',
-                                    gap: 4,
-                                    minHeight: 26,
+                                    textAlign: 'right',
+                                    padding: '4px 8px',
+                                    fontWeight: 800,
+                                    color: '#0369a1',
+                                    fontFamily: 'var(--font-numbers)',
+                                    background: '#f0f9ff',
                                   }}
                                 >
-                                  {isFormula && (
-                                    <span
-                                      style={{
-                                        fontSize: '0.65rem',
-                                        fontWeight: 800,
-                                        color: '#0284c7',
-                                        background: '#e0f2fe',
-                                        padding: '1px 3px',
-                                        borderRadius: 3,
-                                        fontFamily: 'monospace',
-                                      }}
-                                      title={`Formula: ${rawVal}`}
-                                    >
-                                      fx
-                                    </span>
-                                  )}
-                                  <span>{displayStr}</span>
-                                </div>
-                              )}
-                            </td>
-                          );
-                        })}
+                                  {val ? formatDisplayNum(val, col.decimals, col.key) : '-'}
+                                </td>
+                              );
+                            }
+                            return (
+                              <td key={`ob_td_${col.key}`} style={{ padding: '2px 4px' }}>
+                                <input
+                                  type="number"
+                                  step={col.key === 'qty_lts' ? undefined : 'any'}
+                                  className="form-input"
+                                  value={stmtOb[col.key] ?? ''}
+                                  readOnly={!stmtObUnlocked}
+                                  placeholder="0"
+                                  onChange={e => handleOpeningBalanceChange(col.key, e.target.value, stmt.key)}
+                                  style={{ height: 28, fontSize: '0.82rem', textAlign: 'right', fontFamily: 'var(--font-numbers)' }}
+                                />
+                              </td>
+                            );
+                          })}
+                          <td style={{ textAlign: 'center', fontSize: '0.72rem', color: stmtObUnlocked ? '#b45309' : '#1d4ed8', fontWeight: 700 }}>
+                            {stmtObUnlocked ? 'Unlocked' : 'Locked'}
+                          </td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
 
-                        {/* Actions */}
-                        <td style={{ textAlign: 'center', padding: '2px 4px' }}>
-                          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 2 }}>
-                            <button
-                              type="button"
-                              onClick={() => handleMoveReconRow(rIdx, 'up')}
-                              disabled={rIdx === 0}
-                              style={{
-                                padding: '2px 5px',
-                                border: '1px solid #cbd5e1',
-                                background: '#ffffff',
-                                borderRadius: 3,
-                                fontSize: '0.7rem',
-                                cursor: rIdx === 0 ? 'not-allowed' : 'pointer',
-                                opacity: rIdx === 0 ? 0.3 : 1,
-                              }}
-                              title="Move Row Up"
-                            >
-                              ↑
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => handleMoveReconRow(rIdx, 'down')}
-                              disabled={rIdx === activeRecon.rows.length - 1}
-                              style={{
-                                padding: '2px 5px',
-                                border: '1px solid #cbd5e1',
-                                background: '#ffffff',
-                                borderRadius: 3,
-                                fontSize: '0.7rem',
-                                cursor: rIdx === activeRecon.rows.length - 1 ? 'not-allowed' : 'pointer',
-                                opacity: rIdx === activeRecon.rows.length - 1 ? 0.3 : 1,
-                              }}
-                              title="Move Row Down"
-                            >
-                              ↓
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => handleDeleteReconRow(rIdx)}
-                              style={{
-                                padding: '2px 5px',
-                                border: '1px solid #fecaca',
-                                background: '#fef2f2',
-                                color: '#dc2626',
-                                borderRadius: 3,
-                                fontSize: '0.7rem',
-                                cursor: 'pointer',
-                              }}
-                              title="Delete Row"
-                            >
-                              🗑️
-                            </button>
-                          </div>
-                        </td>
-                      </tr>
-                    );
-                  })
+                {/* Section 2: Receipts Particulars */}
+                {renderParticularsSection(
+                  'RECEIPT',
+                  'Receipts',
+                  stmtReceiptRows,
+                  stmtReceiptsUnlocked,
+                  () => toggleSectionUnlocked(stmt.key, 'receipts'),
+                  { bg: '#f0fdf4', text: '#166534', border: '#bbf7d0', btn: '#16a34a' },
+                  stmt.key
                 )}
-              </tbody>
-            </table>
-          </div>
-        </div>
+
+                {/* Section 3: Disposals Particulars */}
+                {renderParticularsSection(
+                  'DISPOSAL',
+                  'Disposals',
+                  stmtDisposalRows,
+                  stmtDisposalsUnlocked,
+                  () => toggleSectionUnlocked(stmt.key, 'disposals'),
+                  { bg: '#fff7ed', text: '#c2410c', border: '#fed7aa', btn: '#ea580c' },
+                  stmt.key
+                )}
+
+                {/* Section 4: Stock Balance Reconciliation Card */}
+                <div className="card" style={{ padding: 0, overflow: 'hidden', border: '1px solid var(--border)', marginBottom: 20 }}>
+                  <div style={{ background: '#f8fafc', padding: '10px 16px', borderBottom: '1px solid var(--border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
+                    <div>
+                      <div style={{ fontWeight: 800, fontSize: '0.92rem', color: '#1e293b', display: 'flex', alignItems: 'center', gap: 6 }}>
+                        <span>⚖️</span> Stock Balance &amp; Reconciliation Summary &ndash; {cleanStatementLabel(stmt.label || stmt.key)}
+                      </div>
+                      <div style={{ fontSize: '0.72rem', color: '#64748b', marginTop: 2 }}>
+                        Dynamic Rows &amp; Columns with Formula Support &middot; Stored in table <code>stg_reconciliation_entries</code> as JSON
+                      </div>
+                    </div>
+
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setActiveBlock(stmt.key);
+                          setIsAddReconRowModalOpen(true);
+                        }}
+                        style={{
+                          background: '#0284c7',
+                          color: '#ffffff',
+                          border: 'none',
+                          borderRadius: 5,
+                          padding: '4px 10px',
+                          fontSize: '0.75rem',
+                          fontWeight: 700,
+                          cursor: 'pointer',
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: 4,
+                        }}
+                        title="Add a custom row to this statement reconciliation summary"
+                      >
+                        ➕ Add Row
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setActiveBlock(stmt.key);
+                          setIsAddReconColModalOpen(true);
+                        }}
+                        style={{
+                          background: '#f0fdf4',
+                          border: '1px solid #86efac',
+                          color: '#166534',
+                          borderRadius: 5,
+                          padding: '4px 10px',
+                          fontSize: '0.75rem',
+                          fontWeight: 700,
+                          cursor: 'pointer',
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: 4,
+                        }}
+                        title="Add a new column to this statement reconciliation summary"
+                      >
+                        ➕ Add Column
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setActiveBlock(stmt.key);
+                          setIsManageReconColsModalOpen(true);
+                        }}
+                        style={{
+                          background: '#f8fafc',
+                          border: '1px solid #cbd5e1',
+                          color: '#334155',
+                          borderRadius: 5,
+                          padding: '4px 10px',
+                          fontSize: '0.75rem',
+                          fontWeight: 700,
+                          cursor: 'pointer',
+                        }}
+                        title="Manage reconciliation columns (Rename, Decimals, Delete)"
+                      >
+                        ⚙️ Columns ({stmtRecon.columns.length})
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => handleResetReconTemplate(stmt.key)}
+                        style={{
+                          background: '#fef3c7',
+                          border: '1px solid #fcd34d',
+                          color: '#b45309',
+                          borderRadius: 5,
+                          padding: '4px 10px',
+                          fontSize: '0.75rem',
+                          fontWeight: 700,
+                          cursor: 'pointer',
+                        }}
+                        title="Reset to standard 8-row reconciliation template with sample formulas"
+                      >
+                        ↺ Load Standard Template
+                      </button>
+                    </div>
+                  </div>
+
+                  <div style={{ overflowX: 'auto' }}>
+                    <table className="inline-table" style={{ width: '100%', minWidth: 800, margin: 0 }}>
+                      <thead>
+                        <tr style={{ background: '#f1f5f9', borderBottom: '1px solid var(--border)' }}>
+                          <th style={{ width: 44, textAlign: 'center', fontSize: '0.72rem' }}>#</th>
+                          <th style={{ width: 240, textAlign: 'left', fontSize: '0.75rem', fontWeight: 800 }}>Reconciliation Item</th>
+                          {stmtRecon.columns.map(col => (
+                            <th
+                              key={`recon_th_${stmt.key}_${col.key}`}
+                              style={{
+                                textAlign: col.type === 'text' ? 'left' : 'right',
+                                fontSize: '0.75rem',
+                                padding: '6px 8px',
+                                background: col.type === 'calculated' ? '#f0f9ff' : undefined,
+                                color: col.type === 'calculated' ? '#0369a1' : undefined,
+                              }}
+                              title={`Field Key: ${col.key} | Type: ${col.type}${col.decimals !== undefined ? ` | Dec: ${col.decimals}` : ''}`}
+                            >
+                              {col.name} {col.unit ? `(${col.unit})` : ''}
+                            </th>
+                          ))}
+                          <th style={{ width: 90, textAlign: 'center', fontSize: '0.72rem' }}>Actions</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {stmtRecon.rows.length === 0 ? (
+                          <tr>
+                            <td
+                              colSpan={stmtRecon.columns.length + 2}
+                              style={{ textAlign: 'center', padding: '24px 12px', color: '#94a3b8', fontStyle: 'italic', fontSize: '0.82rem' }}
+                            >
+                              No reconciliation rows configured. Click &quot;+ Add Row&quot; or &quot;Load Standard Template&quot; to begin.
+                            </td>
+                          </tr>
+                        ) : (
+                          stmtRecon.rows.map((row, rIdx) => {
+                            const rowColor = row.color_hint || 'default';
+                            let bg = '#ffffff';
+                            let textColor = 'var(--text-primary)';
+                            let borderCol = '#f1f5f9';
+                            let fontWeight = 600;
+
+                            if (rowColor === 'green') {
+                              bg = '#f0fdf4';
+                              textColor = '#166534';
+                              borderCol = '#bbf7d0';
+                              fontWeight = 800;
+                            } else if (rowColor === 'blue') {
+                              bg = '#eff6ff';
+                              textColor = '#1d4ed8';
+                              borderCol = '#bfdbfe';
+                              fontWeight = 800;
+                            } else if (rowColor === 'orange') {
+                              bg = '#fff7ed';
+                              textColor = '#c2410c';
+                              borderCol = '#fed7aa';
+                              fontWeight = 800;
+                            } else if (rowColor === 'yellow') {
+                              bg = '#fefce8';
+                              textColor = '#854d0e';
+                              borderCol = '#fef08a';
+                              fontWeight = 800;
+                            } else if (rowColor === 'purple') {
+                              bg = '#faf5ff';
+                              textColor = '#6b21a8';
+                              borderCol = '#e9d5ff';
+                              fontWeight = 800;
+                            } else if (rowColor === 'dark') {
+                              bg = '#f8fafc';
+                              textColor = '#0f172a';
+                              borderCol = '#cbd5e1';
+                              fontWeight = 900;
+                            }
+
+                            return (
+                              <tr
+                                key={`recon_row_${stmt.key}_${row.id || rIdx}`}
+                                style={{ borderBottom: `1px solid ${borderCol}`, background: bg }}
+                              >
+                                {/* Row Index */}
+                                <td style={{ textAlign: 'center', fontWeight: 700, color: textColor, fontSize: '0.75rem' }}>
+                                  {rIdx + 1}
+                                </td>
+
+                                {/* Editable Row Label */}
+                                <td style={{ padding: '4px 8px' }}>
+                                  <input
+                                    type="text"
+                                    className="form-input"
+                                    value={row.label}
+                                    onChange={e => handleReconLabelChange(rIdx, e.target.value, stmt.key)}
+                                    placeholder="Reconciliation label..."
+                                    style={{
+                                      height: 28,
+                                      fontSize: '0.82rem',
+                                      fontWeight,
+                                      color: textColor,
+                                      background: 'transparent',
+                                      border: '1px solid transparent',
+                                      padding: '2px 6px',
+                                    }}
+                                    onFocus={e => (e.target.style.borderColor = '#0284c7')}
+                                    onBlur={e => (e.target.style.borderColor = 'transparent')}
+                                  />
+                                </td>
+
+                                {/* Columns */}
+                                {stmtRecon.columns.map(col => {
+                                  const rawVal = row.values?.[col.key];
+                                  const isFormula = typeof rawVal === 'string' && (rawVal.startsWith('=') || rawVal.startsWith('=+'));
+                                  const isEditing = editingReconCell?.rIdx === rIdx && editingReconCell?.colKey === col.key && editingReconCell?.stmtKey === stmt.key;
+                                  const computedVal = isFormula
+                                    ? evaluateReconCellFormula(rawVal, col.key, rIdx, stmtRecon.rows, stmtTotals)
+                                    : (col.type === 'calculated'
+                                      ? computeCalculatedField(col.key, row.values || {}, col.formula)
+                                      : rawVal);
+
+                                  let displayStr = '—';
+                                  if (rawVal !== undefined && rawVal !== null && rawVal !== '') {
+                                    if (col.type === 'text') {
+                                      displayStr = String(rawVal);
+                                    } else if (typeof computedVal === 'number') {
+                                      displayStr = formatDisplayNum(computedVal, col.decimals, col.key);
+                                      if (row.row_type === 'LOSS_GAIN_PCT' || row.label.includes('%')) {
+                                        displayStr += '%';
+                                      }
+                                    } else {
+                                      displayStr = String(computedVal || '—');
+                                    }
+                                  } else if (col.type === 'text') {
+                                    displayStr = '';
+                                  }
+
+                                  return (
+                                    <td
+                                      key={`cell_${stmt.key}_${rIdx}_${col.key}`}
+                                      style={{
+                                        padding: '2px 4px',
+                                        textAlign: col.type === 'text' ? 'left' : 'right',
+                                        cursor: 'pointer',
+                                        position: 'relative',
+                                      }}
+                                      onClick={() => {
+                                        if (!isEditing) setEditingReconCell({ stmtKey: stmt.key, rIdx, colKey: col.key });
+                                      }}
+                                      title={isFormula ? `Formula: ${rawVal} (Click to edit)` : 'Click to edit cell'}
+                                    >
+                                      {isEditing ? (
+                                        <input
+                                          autoFocus
+                                          type="text"
+                                          className="form-input"
+                                          value={rawVal ?? ''}
+                                          placeholder={col.type === 'text' ? 'Text or =formula' : '0 or =formula'}
+                                          onChange={e => handleReconCellChange(rIdx, col.key, e.target.value, stmt.key)}
+                                          onBlur={() => setEditingReconCell(null)}
+                                          onKeyDown={e => {
+                                            if (e.key === 'Enter' || e.key === 'Escape') {
+                                              setEditingReconCell(null);
+                                            }
+                                          }}
+                                          style={{
+                                            height: 28,
+                                            fontSize: '0.8rem',
+                                            fontWeight: 700,
+                                            textAlign: col.type === 'text' ? 'left' : 'right',
+                                            fontFamily: col.type === 'text' ? 'inherit' : 'var(--font-numbers)',
+                                            background: '#ffffff',
+                                            borderColor: '#0284c7',
+                                            boxShadow: '0 0 0 2px rgba(2, 132, 199, 0.2)',
+                                          }}
+                                        />
+                                      ) : (
+                                        <div
+                                          style={{
+                                            padding: '4px 6px',
+                                            borderRadius: 4,
+                                            fontWeight,
+                                            color: textColor,
+                                            fontFamily: col.type === 'text' ? 'inherit' : 'var(--font-numbers)',
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            justifyContent: col.type === 'text' ? 'flex-start' : 'flex-end',
+                                            gap: 4,
+                                            minHeight: 26,
+                                          }}
+                                        >
+                                          {isFormula && (
+                                            <span
+                                              style={{
+                                                fontSize: '0.65rem',
+                                                fontWeight: 800,
+                                                color: '#0284c7',
+                                                background: '#e0f2fe',
+                                                padding: '1px 3px',
+                                                borderRadius: 3,
+                                                fontFamily: 'monospace',
+                                              }}
+                                              title={`Formula: ${rawVal}`}
+                                            >
+                                              fx
+                                            </span>
+                                          )}
+                                          <span>{displayStr}</span>
+                                        </div>
+                                      )}
+                                    </td>
+                                  );
+                                })}
+
+                                {/* Actions */}
+                                <td style={{ textAlign: 'center', padding: '2px 4px' }}>
+                                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 2 }}>
+                                    <button
+                                      type="button"
+                                      onClick={() => handleMoveReconRow(rIdx, 'up', stmt.key)}
+                                      disabled={rIdx === 0}
+                                      style={{
+                                        padding: '2px 5px',
+                                        border: '1px solid #cbd5e1',
+                                        background: '#ffffff',
+                                        borderRadius: 3,
+                                        fontSize: '0.7rem',
+                                        cursor: rIdx === 0 ? 'not-allowed' : 'pointer',
+                                        opacity: rIdx === 0 ? 0.3 : 1,
+                                      }}
+                                      title="Move Row Up"
+                                    >
+                                      ↑
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => handleMoveReconRow(rIdx, 'down', stmt.key)}
+                                      disabled={rIdx === stmtRecon.rows.length - 1}
+                                      style={{
+                                        padding: '2px 5px',
+                                        border: '1px solid #cbd5e1',
+                                        background: '#ffffff',
+                                        borderRadius: 3,
+                                        fontSize: '0.7rem',
+                                        cursor: rIdx === stmtRecon.rows.length - 1 ? 'not-allowed' : 'pointer',
+                                        opacity: rIdx === stmtRecon.rows.length - 1 ? 0.3 : 1,
+                                      }}
+                                      title="Move Row Down"
+                                    >
+                                      ↓
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => handleDeleteReconRow(rIdx, stmt.key)}
+                                      style={{
+                                        padding: '2px 5px',
+                                        border: '1px solid #fecaca',
+                                        background: '#fef2f2',
+                                        color: '#dc2626',
+                                        borderRadius: 3,
+                                        fontSize: '0.7rem',
+                                        cursor: 'pointer',
+                                      }}
+                                      title="Delete Row"
+                                    >
+                                      🗑️
+                                    </button>
+                                  </div>
+                                </td>
+                              </tr>
+                            );
+                          })
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              </div>
+            );
+          })
+        )}
 
         {/* Navigation & Action Buttons matching StockEntryForm */}
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 16, marginBottom: 40, flexWrap: 'wrap', gap: 12 }}>

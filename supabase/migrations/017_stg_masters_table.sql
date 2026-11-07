@@ -1,7 +1,7 @@
 -- ============================================================
 -- 017_stg_masters_table.sql
 -- Dedicated Master Table for Solid Balance Details (STG) Statements
--- Stores user-configured Statement Masters, Row Formulations & Column Layouts
+-- Stores user-configured Statement Masters, Row Formulations & Column Layouts from UI
 -- ============================================================
 
 CREATE TABLE IF NOT EXISTS public.stg_masters (
@@ -9,16 +9,17 @@ CREATE TABLE IF NOT EXISTS public.stg_masters (
   key                 text UNIQUE NOT NULL,
   label               text NOT NULL,
   variant             text NOT NULL,
+  description         text DEFAULT '',
   sort_order          int DEFAULT 0,
   is_active           boolean DEFAULT true,
 
-  -- Configured Columns per section (JSONB arrays)
+  -- Configured Columns per section (JSONB arrays managed from UI)
   ob_columns          jsonb NOT NULL DEFAULT '[]'::jsonb,
   receipt_columns     jsonb NOT NULL DEFAULT '[]'::jsonb,
   disposal_columns    jsonb NOT NULL DEFAULT '[]'::jsonb,
   recon_columns       jsonb NOT NULL DEFAULT '[]'::jsonb,
 
-  -- Configured Rows & Calculation Formulas per section (JSONB arrays)
+  -- Configured Rows & Calculation Formulas per section (JSONB arrays managed from UI)
   ob_rows             jsonb NOT NULL DEFAULT '[]'::jsonb,
   receipt_rows        jsonb NOT NULL DEFAULT '[]'::jsonb,
   disposal_rows       jsonb NOT NULL DEFAULT '[]'::jsonb,
@@ -31,10 +32,17 @@ CREATE TABLE IF NOT EXISTS public.stg_masters (
   updated_at          timestamptz NOT NULL DEFAULT now()
 );
 
+-- Ensure description column exists
+ALTER TABLE public.stg_masters ADD COLUMN IF NOT EXISTS description text DEFAULT '';
+
+-- Drop accidental metadata or cmpdd_norm columns if they exist
+ALTER TABLE public.stg_masters DROP COLUMN IF EXISTS cmpdd_norm;
+ALTER TABLE public.stg_masters DROP COLUMN IF EXISTS metadata;
+
 CREATE INDEX IF NOT EXISTS idx_stg_masters_key ON public.stg_masters (key);
 CREATE INDEX IF NOT EXISTS idx_stg_masters_sort ON public.stg_masters (sort_order ASC, created_at ASC);
 
-COMMENT ON TABLE public.stg_masters IS 'Dedicated master table for STG statement formulations, column configurations, and reconciliation formulas.';
+COMMENT ON TABLE public.stg_masters IS 'Dedicated master table for STG statement formulations, column configurations, and reconciliation formulas managed strictly from the UI.';
 
 -- Row Level Security
 ALTER TABLE public.stg_masters ENABLE ROW LEVEL SECURITY;
@@ -44,8 +52,13 @@ CREATE POLICY "Allow all stg_masters"
   ON public.stg_masters 
   FOR ALL USING (true) WITH CHECK (true);
 
--- Audit Trigger
-DROP TRIGGER IF EXISTS trg_stg_masters_audit ON public.stg_masters;
-CREATE TRIGGER trg_stg_masters_audit 
-  BEFORE INSERT OR UPDATE ON public.stg_masters 
-  FOR EACH ROW EXECUTE FUNCTION fn_set_audit_fields();
+-- Audit Trigger (if fn_set_audit_fields exists)
+DO $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM pg_proc WHERE proname = 'fn_set_audit_fields') THEN
+    DROP TRIGGER IF EXISTS trg_stg_masters_audit ON public.stg_masters;
+    CREATE TRIGGER trg_stg_masters_audit 
+      BEFORE INSERT OR UPDATE ON public.stg_masters 
+      FOR EACH ROW EXECUTE FUNCTION fn_set_audit_fields();
+  END IF;
+END $$;

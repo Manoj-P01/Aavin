@@ -84,7 +84,7 @@ export default function ConfigPanel() {
       setLoading(true);
       setError('');
       try {
-        const res = await fetch('/api/entries?report_type=STOCK');
+        const res = await fetch('/api/entries?report_type=STOCK&date=1970-01-01');
         if (!res.ok) {
           throw new Error('Failed to fetch shift configuration.');
         }
