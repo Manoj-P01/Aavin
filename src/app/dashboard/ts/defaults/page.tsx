@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react';
 import Header from '@/components/layout/Header';
 import Link from 'next/link';
 import { useConfirm } from '@/context/ConfirmContext';
-import { DEFAULT_TS_MASTER } from '@/app/api/ts/statement-masters/route';
+import StickyActionBar from '@/components/ui/StickyActionBar';
 
 export interface TSRowDef {
   variant: string;
@@ -47,21 +47,21 @@ const SECTION_CONFIGS: Array<{
     key: 'despatch_rows',
     label: 'Disposal – Despatch / Sale',
     badgeColor: '#ea580c',
-    description: 'Bulk milk despatches (Ambattur, SNR, DCPP, Erode, CBE).',
+    description: 'Bulk milk despatches to union dairies and plants.',
     icon: '🚚',
   },
   {
     key: 'local_sale_rows',
     label: 'Disposal – Local Sales',
     badgeColor: '#8b5cf6',
-    description: 'Local sachet sales (DLT, FCM, STD, Others).',
+    description: 'Local sales and pouch distribution.',
     icon: '🏪',
   },
   {
     key: 'other_disposal_rows',
     label: 'Disposal – Other Disposal',
     badgeColor: '#d97706',
-    description: 'Plant usages, curd/butter milk, khoa, lab sample, cream conversion.',
+    description: 'Plant processing, samples, and product conversions.',
     icon: '🔄',
   },
   {
@@ -83,12 +83,12 @@ export default function TSDefaultsPage() {
 
   const [activeTab, setActiveTab] = useState<TSSectionKey>('ob_rows');
   const [sections, setSections] = useState<Record<TSSectionKey, TSRowDef[]>>({
-    ob_rows: DEFAULT_TS_MASTER.ob_rows,
-    receipt_rows: DEFAULT_TS_MASTER.receipt_rows,
-    despatch_rows: DEFAULT_TS_MASTER.despatch_rows,
-    local_sale_rows: DEFAULT_TS_MASTER.local_sale_rows,
-    other_disposal_rows: DEFAULT_TS_MASTER.other_disposal_rows,
-    cb_rows: DEFAULT_TS_MASTER.cb_rows,
+    ob_rows: [],
+    receipt_rows: [],
+    despatch_rows: [],
+    local_sale_rows: [],
+    other_disposal_rows: [],
+    cb_rows: [],
   });
 
   // Modal State
@@ -112,12 +112,12 @@ export default function TSDefaultsPage() {
         const json = await res.json();
         if (json.master) {
           setSections({
-            ob_rows: Array.isArray(json.master.ob_rows) ? json.master.ob_rows : DEFAULT_TS_MASTER.ob_rows,
-            receipt_rows: Array.isArray(json.master.receipt_rows) ? json.master.receipt_rows : DEFAULT_TS_MASTER.receipt_rows,
-            despatch_rows: Array.isArray(json.master.despatch_rows) ? json.master.despatch_rows : DEFAULT_TS_MASTER.despatch_rows,
-            local_sale_rows: Array.isArray(json.master.local_sale_rows) ? json.master.local_sale_rows : DEFAULT_TS_MASTER.local_sale_rows,
-            other_disposal_rows: Array.isArray(json.master.other_disposal_rows) ? json.master.other_disposal_rows : DEFAULT_TS_MASTER.other_disposal_rows,
-            cb_rows: Array.isArray(json.master.cb_rows) ? json.master.cb_rows : DEFAULT_TS_MASTER.cb_rows,
+            ob_rows: Array.isArray(json.master.ob_rows) ? json.master.ob_rows : [],
+            receipt_rows: Array.isArray(json.master.receipt_rows) ? json.master.receipt_rows : [],
+            despatch_rows: Array.isArray(json.master.despatch_rows) ? json.master.despatch_rows : [],
+            local_sale_rows: Array.isArray(json.master.local_sale_rows) ? json.master.local_sale_rows : [],
+            other_disposal_rows: Array.isArray(json.master.other_disposal_rows) ? json.master.other_disposal_rows : [],
+            cb_rows: Array.isArray(json.master.cb_rows) ? json.master.cb_rows : [],
           });
         }
       }
@@ -154,29 +154,6 @@ export default function TSDefaultsPage() {
       showToast('❌ Error connecting to server');
     }
     setSaving(false);
-  };
-
-  const handleResetToDefaults = async () => {
-    const ok = await confirm({
-      title: 'Reset to Excel Default Formulations',
-      message: 'This will reset all rows across O/B, Receipts, Despatches, Local Sales, and Closing Balances to the standard Excel 01-05-2026-TS.xlsx template. Continue?',
-      confirmText: 'Reset to Defaults',
-      cancelText: 'Cancel',
-      type: 'warning',
-    });
-    if (!ok) return;
-
-    const resetData: Record<TSSectionKey, TSRowDef[]> = {
-      ob_rows: DEFAULT_TS_MASTER.ob_rows,
-      receipt_rows: DEFAULT_TS_MASTER.receipt_rows,
-      despatch_rows: DEFAULT_TS_MASTER.despatch_rows,
-      local_sale_rows: DEFAULT_TS_MASTER.local_sale_rows,
-      other_disposal_rows: DEFAULT_TS_MASTER.other_disposal_rows,
-      cb_rows: DEFAULT_TS_MASTER.cb_rows,
-    };
-    setSections(resetData);
-    setHasUnsavedChanges(true);
-    showToast('🔄 Restored standard Excel formulation defaults (click "Save" to commit)');
   };
 
   const handleOpenAdd = (sec: TSSectionKey) => {
@@ -276,14 +253,6 @@ export default function TSDefaultsPage() {
         subtitle="Manage default statement formulation tables, row particulars, and standard composition values matching Excel TS sheet"
         actions={
           <div style={{ display: 'flex', gap: 10 }}>
-            <button
-              onClick={handleResetToDefaults}
-              className="btn btn-outline btn-sm"
-              style={{ fontWeight: 600 }}
-              title="Reset all sections to Excel template default formulations"
-            >
-              🔄 Reset to Defaults
-            </button>
             <Link href="/dashboard/ts/columns" className="btn btn-secondary btn-sm">
               ⚙️ TS Columns Config
             </Link>
@@ -323,36 +292,15 @@ export default function TSDefaultsPage() {
           </div>
         )}
 
-        {hasUnsavedChanges && (
-          <div
-            style={{
-              background: '#fef3c7',
-              border: '1px solid #f59e0b',
-              color: '#92400e',
-              padding: '12px 18px',
-              borderRadius: 8,
-              marginBottom: 16,
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'space-between',
-              boxShadow: '0 1px 3px rgba(0,0,0,0.05)',
-            }}
-          >
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <span style={{ fontSize: '1.2rem' }}>⚠️</span>
-              <span style={{ fontWeight: 600 }}>You have unsaved changes in TS Master Formulations.</span>
-              <span style={{ fontSize: '0.875rem' }}>Click &quot;Save Master Default Statement&quot; to update TS Entry templates.</span>
-            </div>
-            <button
-              onClick={() => saveToApi(sections)}
-              disabled={saving}
-              className="btn btn-primary btn-sm"
-              style={{ padding: '6px 14px' }}
-            >
-              {saving ? 'Saving...' : 'Save Statement'}
-            </button>
-          </div>
-        )}
+        <StickyActionBar
+          hasChanges={hasUnsavedChanges}
+          message="You have unsaved changes in TS Master Formulations."
+          onDiscard={() => {
+            loadMasterData();
+            setHasUnsavedChanges(false);
+          }}
+          discardLabel="Discard"
+        />
 
         {/* Section Navigation Tabs */}
         <div
@@ -592,7 +540,7 @@ export default function TSDefaultsPage() {
                   type="text"
                   required
                   className="form-input"
-                  placeholder="e.g. WM, P.VELUR CC, AMBATTUR-SSM"
+                  placeholder="Enter particular name..."
                   value={formVariant}
                   onChange={e => setFormVariant(e.target.value.toUpperCase())}
                 />

@@ -4,7 +4,8 @@ import { useState, useEffect, useMemo } from 'react';
 import Header from '@/components/layout/Header';
 import Link from 'next/link';
 import { useConfirm } from '@/context/ConfirmContext';
-import { DEFAULT_STG_TO_TS_RULES, StgToTsMappingRule } from '@/app/api/ts/stg-mappings/route';
+import StickyActionBar from '@/components/ui/StickyActionBar';
+import { StgToTsMappingRule } from '@/app/api/ts/stg-mappings/route';
 
 const TS_SECTION_META: Record<string, { label: string; icon: string; color: string }> = {
   OB: { label: 'Arrival – Opening Balance (O/B)', icon: '📦', color: '#0284c7' },
@@ -140,9 +141,13 @@ export default function StgToTsMappingPage() {
     });
     if (!ok) return;
 
-    setRules(DEFAULT_STG_TO_TS_RULES);
-    setHasUnsavedChanges(true);
-    showToast('🔄 Restored Excel default mapping rules (click "Save" to commit)');
+    const res = await fetch('/api/ts/stg-mappings');
+    if (res.ok) {
+      const data = await res.json();
+      setRules(data.rules || []);
+      setHasUnsavedChanges(false);
+      showToast('🔄 Reloaded mapping rules from database');
+    }
   };
 
   const toggleSection = (sec: string) => {
@@ -206,13 +211,13 @@ export default function StgToTsMappingPage() {
   };
 
   const handleOpenEdit = (rule: StgToTsMappingRule) => {
-    setEditingId(rule.id);
+    setEditingId(rule.id || null);
     setFormSourceStmt(rule.source_statement_key);
-    setFormSourceSection(rule.source_section);
+    setFormSourceSection(rule.source_section as any);
     setFormSourceRowName(rule.source_row_name);
     setFormSourceField(rule.source_field || 'all');
 
-    setFormTargetSection(rule.target_section);
+    setFormTargetSection(rule.target_section as any);
     setFormTargetParticular(rule.target_particular);
     setFormTargetField(rule.target_field || 'all');
     setFormDescription(rule.description || '');
@@ -340,36 +345,15 @@ export default function StgToTsMappingPage() {
           </div>
         )}
 
-        {hasUnsavedChanges && (
-          <div
-            style={{
-              background: '#fef3c7',
-              border: '1px solid #f59e0b',
-              color: '#92400e',
-              padding: '12px 18px',
-              borderRadius: 8,
-              marginBottom: 16,
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'space-between',
-              boxShadow: '0 1px 3px rgba(0,0,0,0.05)',
-            }}
-          >
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <span style={{ fontSize: '1.2rem' }}>⚠️</span>
-              <span style={{ fontWeight: 600 }}>You have unsaved changes in STG ➔ TS Mapping Rules.</span>
-              <span style={{ fontSize: '0.875rem' }}>Remember to click &quot;Save STG ➔ TS Mappings&quot; to apply to TS Entry.</span>
-            </div>
-            <button
-              onClick={() => saveToApi(rules)}
-              disabled={saving}
-              className="btn btn-primary btn-sm"
-              style={{ padding: '6px 14px' }}
-            >
-              {saving ? 'Saving...' : 'Save Mappings'}
-            </button>
-          </div>
-        )}
+        <StickyActionBar
+          hasChanges={hasUnsavedChanges}
+          message="You have unsaved changes in STG ➔ TS Mapping Rules."
+          onDiscard={() => {
+            loadData();
+            setHasUnsavedChanges(false);
+          }}
+          discardLabel="Discard"
+        />
 
         {/* Top Control Bar */}
         <div
@@ -580,7 +564,7 @@ export default function StgToTsMappingPage() {
                                   <td style={{ textAlign: 'center' }}>
                                     <button
                                       type="button"
-                                      onClick={() => handleToggleRule(rule.id)}
+                                      onClick={() => rule.id && handleToggleRule(rule.id)}
                                       style={{
                                         cursor: 'pointer',
                                         background: 'transparent',
@@ -604,7 +588,7 @@ export default function StgToTsMappingPage() {
                                       </button>
                                       <button
                                         type="button"
-                                        onClick={() => handleDeleteRule(rule.id, rule.target_particular)}
+                                        onClick={() => rule.id && handleDeleteRule(rule.id, rule.target_particular)}
                                         className="btn btn-outline btn-sm"
                                         style={{
                                           padding: '2px 8px',
@@ -715,7 +699,7 @@ export default function StgToTsMappingPage() {
                       type="text"
                       required
                       className="form-input"
-                      placeholder="e.g. WM, P.VELUR CC, AMBATTUR-SSM"
+                      placeholder="Enter target particular name..."
                       value={formTargetParticular}
                       onChange={e => setFormTargetParticular(e.target.value.toUpperCase())}
                     />
@@ -770,15 +754,7 @@ export default function StgToTsMappingPage() {
                           </option>
                         ))
                       ) : (
-                        <>
-                          <option value="wm">Whole Milk (wm)</option>
-                          <option value="ssm">Standardised Skim Milk (ssm)</option>
-                          <option value="cream">Cream (cream)</option>
-                          <option value="dlt_milk">Double Toned Milk (dlt_milk)</option>
-                          <option value="fc_milk">Full Cream Milk (fc_milk)</option>
-                          <option value="std_milk">Standard Milk (std_milk)</option>
-                          <option value="smp">Skim Milk Powder (smp)</option>
-                        </>
+                        <option value="" disabled>No statement masters found (configure in Masters)</option>
                       )}
                     </select>
                   </div>
@@ -810,7 +786,7 @@ export default function StgToTsMappingPage() {
                       type="text"
                       required
                       className="form-input"
-                      placeholder="e.g. OB, P.VELUR CC, AMBATTUR-SSM, CB"
+                      placeholder="Enter source particular name..."
                       value={formSourceRowName}
                       onChange={e => setFormSourceRowName(e.target.value)}
                     />

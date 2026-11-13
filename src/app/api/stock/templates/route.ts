@@ -1,6 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getSupabaseServiceClient } from '@/lib/supabase';
 import { getAuthUserFromRequest } from '@/lib/auth';
+import {
+  DEFAULT_STOCK_TEMPLATE,
+  DEFAULT_STOCK_PRODUCTS,
+  DEFAULT_STOCK_RECEIPT_ROWS,
+  DEFAULT_STOCK_DISPOSAL_ROWS,
+} from '@/lib/stockDefaults';
 
 export interface StockMasterDef {
   key: string;
@@ -55,16 +61,15 @@ export async function GET(req: NextRequest) {
       console.error('Error fetching stock_masters:', e);
     }
 
+    // If no stock masters configured, return empty state
     if (masters.length === 0) {
-      masters = [
-        {
-          key: 'daily_stock_statement',
-          name: 'Standard Daily Stock Statement',
-          description: 'Standard Daily Milk & Cream Stock Statement Entry Template',
-          is_default: true,
-          sort_order: 1,
-        },
-      ];
+      return NextResponse.json({
+        masters: [],
+        templates: {},
+        defaultProducts: [],
+        defaultReceiptRows: [],
+        defaultDisposalRows: [],
+      });
     }
 
     // 2. Fetch Templates from prep_chart_configs
@@ -83,28 +88,28 @@ export async function GET(req: NextRequest) {
       console.error('Error fetching stock_templates:', e);
     }
 
-    // 3. Fetch default products & particulars to provide seamless initial template fallback
+    // 3. Fetch default products & particulars
     let defaultProducts: any[] = [];
     let defaultReceiptRows: any[] = [];
     let defaultDisposalRows: any[] = [];
 
     try {
       const [prodRes, partRes] = await Promise.all([
-        supabase.from('products_master').select('*').eq('is_active', true).order('sort_order', { ascending: true }),
-        supabase.from('particulars_master').select('*').eq('is_active', true).order('sort_order', { ascending: true }),
+        supabase.from('products_master').select('id, product_key, product_name, short_name, category, sort_order, is_active, is_default').eq('is_active', true).order('sort_order', { ascending: true }),
+        supabase.from('particulars_master').select('id, section_type, particular_name, code, sort_order, is_active').eq('is_active', true).order('sort_order', { ascending: true }),
       ]);
 
-      if (prodRes.data && Array.isArray(prodRes.data)) {
+      if (prodRes.data && Array.isArray(prodRes.data) && prodRes.data.length > 0) {
         defaultProducts = prodRes.data.map(p => ({
           key: p.product_key,
           label: p.short_name || p.product_name,
           full_name: p.product_name,
           short_name: p.short_name,
-          category: p.category || 'Liquid Milk',
+          category: p.category || '',
         }));
       }
 
-      if (partRes.data && Array.isArray(partRes.data)) {
+      if (partRes.data && Array.isArray(partRes.data) && partRes.data.length > 0) {
         defaultReceiptRows = partRes.data
           .filter(r => (r.section_type || '').toUpperCase() === 'RECEIPT')
           .map(r => r.particular_name);

@@ -113,10 +113,11 @@ export default function STGReport({ stgRows, date, notes, shift }: Props) {
 
       {allBlocks.map(blockInfo => {
         const block = blockInfo.key;
+        const defaultNorm = CALC_CONFIG.TS_REPORT.CMPDD_NORM_PCT || 0.5;
         const bCmpddNormStr = (customBlocks[block] && customBlocks[block].cmpdd_norm)
           ? customBlocks[block].cmpdd_norm
-          : (cmpddNorms[block] || '0.5');
-        const bCmpddNorm = parseFloat(bCmpddNormStr) || 0.5;
+          : (cmpddNorms[block] || String(defaultNorm));
+        const bCmpddNorm = parseFloat(bCmpddNormStr) || defaultNorm;
         let blockRows = stgRows.filter(r => r.product_block === block);
 
         // If it's a custom block, map the rows from customBlocks metadata
@@ -521,14 +522,15 @@ export default function STGReport({ stgRows, date, notes, shift }: Props) {
           fat: plantGrandRec.fat !== 0 ? (plantLossGain.fat / plantGrandRec.fat) * 100 : 0,
           snf: plantGrandRec.snf !== 0 ? (plantLossGain.snf / plantGrandRec.snf) * 100 : 0,
         };
-        const isOverallWithinNorm = Math.abs(plantLossGainPct.fat) <= 0.5 && Math.abs(plantLossGainPct.snf) <= 0.5;
+        const defaultNorm = CALC_CONFIG.TS_REPORT.CMPDD_NORM_PCT || 0.5;
+        const isOverallWithinNorm = Math.abs(plantLossGainPct.fat) <= defaultNorm && Math.abs(plantLossGainPct.snf) <= defaultNorm;
 
         return (
           <div className="card-glass" style={{ padding: '20px 24px', marginTop: 30, background: '#ffffff', border: '2px solid #0284c7', borderRadius: 12, boxShadow: '0 8px 24px rgba(2, 132, 199, 0.08)' }}>
             <div style={{ fontWeight: 800, fontSize: '1rem', color: '#0369a1', marginBottom: 14, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <span>🏭 WHOLE-PAGE COMPILED STG PLANT BALANCE SUMMARY</span>
               <span style={{ fontSize: '0.78rem', padding: '4px 12px', borderRadius: 20, fontWeight: 800, background: isOverallWithinNorm ? '#f0fdf4' : '#fef2f2', color: isOverallWithinNorm ? '#15803d' : '#b91c1c', border: isOverallWithinNorm ? '1px solid #86efac' : '1px solid #fca5a5' }}>
-                {isOverallWithinNorm ? '🟢 Overall Plant Balance: Within CMPDD Norm (0.5%)' : '🔴 Overall Plant Balance: Exceeds CMPDD Norm'}
+                {isOverallWithinNorm ? `🟢 Overall Plant Balance: Within CMPDD Norm (${defaultNorm}%)` : '🔴 Overall Plant Balance: Exceeds CMPDD Norm'}
               </span>
             </div>
 
@@ -563,7 +565,7 @@ export default function STGReport({ stgRows, date, notes, shift }: Props) {
                     SNF Loss/Gain: <strong>{plantLossGain.snf > 0 ? '+' : ''}{fmtDiff(plantLossGain.snf, 4)} Kg</strong> ({plantLossGainPct.snf > 0 ? '+' : ''}{fmtDiff(plantLossGainPct.snf, 2)}%)
                   </div>
                   <div style={{ fontSize: '0.75rem', color: '#64748b', marginTop: 4 }}>
-                    CMPDD Tolerance Limit: <strong>0.5%</strong>
+                    CMPDD Tolerance Limit: <strong>{defaultNorm}%</strong>
                   </div>
                 </div>
               </div>

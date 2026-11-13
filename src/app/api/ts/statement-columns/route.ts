@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getSupabaseServiceClient } from '@/lib/supabase';
-import { DEFAULT_TS_MASTER } from '../statement-masters/route';
 
 // GET /api/ts/statement-columns
 export async function GET(req: NextRequest) {
@@ -39,11 +38,11 @@ export async function GET(req: NextRequest) {
       console.warn('Failed reading columns from prep_chart_configs:', e);
     }
 
-    // 3. Fallback
-    return NextResponse.json({ columns: DEFAULT_TS_MASTER.columns, source: 'default_constants' });
+    // 3. Fallback: empty array
+    return NextResponse.json({ columns: [], source: 'empty' });
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : 'Failed to fetch TS statement columns';
-    return NextResponse.json({ error: msg, columns: DEFAULT_TS_MASTER.columns }, { status: 500 });
+    return NextResponse.json({ error: msg, columns: [] }, { status: 500 });
   }
 }
 
@@ -63,19 +62,24 @@ export async function POST(req: NextRequest) {
     try {
       const { data: existing } = await supabase
         .from('ts_masters')
-        .select('*')
+        .select('id, key, label, description, is_active, columns, ob_particulars, receipt_particulars, despatch_particulars, local_sale_particulars, other_disposal_particulars, recon_rows, updated_at')
         .eq('key', 'default_ts')
         .maybeSingle();
 
       const updated = {
-        ...(existing || DEFAULT_TS_MASTER),
+        key: 'default_ts',
+        label: 'Total Solids (TS) Statement',
+        description: '',
+        sort_order: 1,
+        is_active: true,
+        ...(existing || {}),
         columns,
         updated_at: new Date().toISOString(),
       };
 
       const { error: upsertErr } = await supabase
         .from('ts_masters')
-        .upsert(updated, { onConflict: 'key' });
+        .upsert(updated as any, { onConflict: 'key' });
 
       if (!upsertErr) savedToTsMasters = true;
     } catch (e) {
@@ -91,7 +95,12 @@ export async function POST(req: NextRequest) {
         .maybeSingle();
 
       const updatedCfg = {
-        ...(cfg?.config_json || DEFAULT_TS_MASTER),
+        key: 'default_ts',
+        label: 'Total Solids (TS) Statement',
+        description: '',
+        sort_order: 1,
+        is_active: true,
+        ...(cfg?.config_json || {}),
         columns,
         updated_at: new Date().toISOString(),
       };
@@ -104,13 +113,12 @@ export async function POST(req: NextRequest) {
           updated_at: new Date().toISOString(),
         }, { onConflict: 'config_key' });
     } catch (e) {
-      console.warn('prep_chart_configs column backup error:', e);
+      console.warn('prep_chart_configs column update error:', e);
     }
 
-    return NextResponse.json({ success: true, columns, saved_to_db: savedToTsMasters });
+    return NextResponse.json({ success: true, columns, savedToTsMasters });
   } catch (err: unknown) {
-    const msg = err instanceof Error ? err.message : 'Failed to save TS statement columns';
+    const msg = err instanceof Error ? err.message : 'Failed to save columns';
     return NextResponse.json({ error: msg }, { status: 500 });
   }
 }
-

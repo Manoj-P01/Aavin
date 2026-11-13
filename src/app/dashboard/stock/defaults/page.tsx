@@ -4,6 +4,8 @@ import { useState, useEffect, useMemo, useCallback } from 'react';
 import Header from '@/components/layout/Header';
 import Link from 'next/link';
 import { useConfirm } from '@/context/ConfirmContext';
+import { useMasters } from '@/hooks/useMasters';
+import KeyField, { executeKeyRename } from '@/components/ui/KeyField';
 
 export interface StockMasterDef {
   key: string;
@@ -69,7 +71,8 @@ function getExcelColName(colIdx: number): string {
 }
 
 export default function MasterDefaultStockStatementPage() {
-  const { confirm, showWarning } = useConfirm();
+  const { confirm, showWarning, showError } = useConfirm();
+  const { categories: masterCategories } = useMasters();
 
   const [masters, setMasters] = useState<StockMasterDef[]>([]);
   const [templates, setTemplates] = useState<Record<string, StockTemplateDef>>({});
@@ -124,7 +127,7 @@ export default function MasterDefaultStockStatementPage() {
   const [colModalEditingKey, setColModalEditingKey] = useState<string | null>(null);
   const [formColKey, setFormColKey] = useState<string>('');
   const [formColName, setFormColName] = useState<string>('');
-  const [formColCategory, setFormColCategory] = useState<string>('Liquid Milk');
+  const [formColCategory, setFormColCategory] = useState<string>('');
 
   // Modal for Adding Particular Row
   const [isParticularModalOpen, setIsParticularModalOpen] = useState<boolean>(false);
@@ -143,7 +146,7 @@ export default function MasterDefaultStockStatementPage() {
   };
 
   // Helper to build standard fallback rows
-  const generateFallbackRows = (receipts: string[], disposals: string[]): StockRowState[] => {
+  const generateFallbackRows = (receipts: string[] = [], disposals: string[] = []): StockRowState[] => {
     return [
       { row_type: 'OB', row_label: 'Opening Balance', values: {} },
       ...receipts.map(label => ({ row_type: 'RECEIPT' as const, row_label: label, values: {} })),
@@ -193,9 +196,9 @@ export default function MasterDefaultStockStatementPage() {
   const loadTemplateForMaster = (
     masterKey: string,
     allTemplates: Record<string, StockTemplateDef>,
-    fallbackProds: ProductColDef[],
-    fallbackRecs: string[],
-    fallbackDisps: string[]
+    fallbackProds: ProductColDef[] = [],
+    fallbackRecs: string[] = [],
+    fallbackDisps: string[] = []
   ) => {
     const tmpl = allTemplates[masterKey];
     if (tmpl && Array.isArray(tmpl.rows) && tmpl.rows.length > 0) {
@@ -211,7 +214,7 @@ export default function MasterDefaultStockStatementPage() {
         setSummaryFormulas({});
       }
     } else {
-      // Build default standard template
+      // Build default standard template from DB master fallback if available
       const initialRows = generateFallbackRows(fallbackRecs, fallbackDisps);
       setRows(initialRows);
       setProductColumns(fallbackProds);
@@ -310,10 +313,10 @@ export default function MasterDefaultStockStatementPage() {
         rowType === 'TOTAL_RECEIPTS'
           ? 'total_receipts'
           : rowType === 'TOTAL_AVAILABLE'
-          ? 'total_available'
-          : rowType === 'TOTAL_DISPOSALS'
-          ? 'total_disposals'
-          : 'closing_balance';
+            ? 'total_available'
+            : rowType === 'TOTAL_DISPOSALS'
+              ? 'total_disposals'
+              : 'closing_balance';
 
       setSummaryFormulas(prev => ({
         ...prev,
@@ -711,10 +714,10 @@ export default function MasterDefaultStockStatementPage() {
         rowType === 'TOTAL_RECEIPTS'
           ? 'total_receipts'
           : rowType === 'TOTAL_AVAILABLE'
-          ? 'total_available'
-          : rowType === 'TOTAL_DISPOSALS'
-          ? 'total_disposals'
-          : 'closing_balance';
+            ? 'total_available'
+            : rowType === 'TOTAL_DISPOSALS'
+              ? 'total_disposals'
+              : 'closing_balance';
 
       if (formulaModalColKey === '__ALL__') {
         setSummaryFormulas(prev => {
@@ -941,7 +944,7 @@ export default function MasterDefaultStockStatementPage() {
     setColModalEditingKey(null);
     setFormColKey('');
     setFormColName('');
-    setFormColCategory('Liquid Milk');
+    setFormColCategory('');
     setIsColModalOpen(true);
   };
 
@@ -949,7 +952,7 @@ export default function MasterDefaultStockStatementPage() {
     setColModalEditingKey(col.key);
     setFormColKey(col.key);
     setFormColName(col.label);
-    setFormColCategory(col.category || 'Liquid Milk');
+    setFormColCategory(col.category || '');
     setIsColModalOpen(true);
   };
 
@@ -968,9 +971,18 @@ export default function MasterDefaultStockStatementPage() {
 
     if (colModalEditingKey) {
       const oldKey = colModalEditingKey;
-      if (keyToUse !== oldKey && productColumns.some(c => c.key === keyToUse)) {
-        showWarning('Duplicate Column Key', `A column with key "${keyToUse}" already exists.`);
-        return;
+      if (keyToUse !== oldKey) {
+        if (productColumns.some(c => c.key === keyToUse)) {
+          showWarning('Duplicate Column Key', `A column with key "${keyToUse}" already exists.`);
+          return;
+        }
+        executeKeyRename({
+          scope: 'product',
+          oldKey,
+          newKey: keyToUse,
+          confirm,
+          showError,
+        });
       }
 
       setIsDirty(true);
@@ -1154,7 +1166,15 @@ export default function MasterDefaultStockStatementPage() {
         title="Master Default Stock Statements"
         subtitle="Configure, customize and save master statement templates for Milk & Cream Stock Statement Entry"
         actions={
-          <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+            <Link
+              href="/dashboard/stock/products"
+              className="btn btn-secondary btn-sm"
+              style={{ fontWeight: 600 }}
+              title="Manage Products List & Particulars"
+            >
+              📦 Products List
+            </Link>
             <Link href="/dashboard/stock" className="btn btn-secondary btn-sm">
               ← Back to Stock Register
             </Link>
@@ -1365,22 +1385,6 @@ export default function MasterDefaultStockStatementPage() {
                   ➕ Add Product
                 </button>
               )}
-
-              <button
-                type="button"
-                onClick={() => handleOpenAddParticular('RECEIPT')}
-                style={{ background: '#f0fdf4', border: '1px solid #86efac', color: '#166534', borderRadius: 6, padding: '5px 12px', fontSize: '0.8rem', fontWeight: 700, cursor: 'pointer' }}
-              >
-                ➕ Add Receipt Row
-              </button>
-
-              <button
-                type="button"
-                onClick={() => handleOpenAddParticular('DISPOSAL')}
-                style={{ background: '#fff7ed', border: '1px solid #fed7aa', color: '#c2410c', borderRadius: 6, padding: '5px 12px', fontSize: '0.8rem', fontWeight: 700, cursor: 'pointer' }}
-              >
-                ➕ Add Disposal Row
-              </button>
 
               {/* Decimal Precision View Selector */}
               <div
@@ -2722,37 +2726,35 @@ export default function MasterDefaultStockStatementPage() {
                 />
               </div>
 
-              <div className="form-group" style={{ margin: 0 }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <label className="form-label" style={{ fontWeight: 700 }}>Product Column Key *</label>
-                  {colModalEditingKey && (
-                    <span style={{ fontSize: '0.72rem', color: '#0369a1', fontWeight: 600 }}>
-                      Editable (changes key across all rows & formulas)
-                    </span>
-                  )}
-                </div>
-                <input
-                  type="text"
-                  className="form-input"
-                  required
-                  value={formColKey}
-                  onChange={e => setFormColKey(e.target.value)}
-                  placeholder="e.g. tea_special_milk"
-                  style={{ fontFamily: 'monospace' }}
-                />
-              </div>
+              <KeyField
+                label="Product Column Key"
+                value={formColKey}
+                onChange={setFormColKey}
+                originalKey={colModalEditingKey}
+                scope="product"
+                existingKeys={productColumns.map(c => c.key)}
+                placeholder="e.g. tea_special_milk"
+                onRenameComplete={(oldKey, newKey) => {
+                  setProductColumns(prev => prev.map(c => c.key === oldKey ? { ...c, key: newKey } : c));
+                  setColModalEditingKey(newKey);
+                }}
+              />
 
               <div className="form-group" style={{ margin: 0 }}>
-                <label className="form-label" style={{ fontWeight: 700 }}>Category</label>
+                <label className="form-label" style={{ fontWeight: 700 }}>
+                  Category <span style={{ color: 'var(--text-muted)', fontWeight: 400 }}>(Optional)</span>
+                </label>
                 <select
                   className="form-select"
                   value={formColCategory}
                   onChange={e => setFormColCategory(e.target.value)}
                 >
-                  <option value="Liquid Milk">Liquid Milk</option>
-                  <option value="Fermented / By-products">Fermented / By-products</option>
-                  <option value="Cream / Butter">Cream / Butter</option>
-                  <option value="Powder / SMP">Powder / SMP</option>
+                  <option value="">-- No Category (Optional) --</option>
+                  {masterCategories && masterCategories.map(c => (
+                    <option key={c.id || c.category_name} value={c.category_name}>
+                      {c.category_name}
+                    </option>
+                  ))}
                 </select>
               </div>
 

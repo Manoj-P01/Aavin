@@ -2,133 +2,76 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getSupabaseServiceClient } from '@/lib/supabase';
 import { getAuthUserFromRequest } from '@/lib/auth';
 
-// Default empty fallback array (all statement masters are strictly fetched from DB table stg_masters)
 export const DEFAULT_STG_MASTERS: any[] = [];
 
-// Cleanse prohibited artificial names from column definitions
-const PROHIBITED_NAMES = new Set([
-  'Opening Balance Particular',
-  'Receipt Particular',
-  'Disposal Particular',
-  'Reconciliation Item / Summary Label',
-]);
-
-const cleanseCols = (cols: any[] | undefined) => {
+// Helper to normalize and preserve column definitions strictly as defined
+const sanitizeCols = (cols: any[] | undefined) => {
   if (!Array.isArray(cols)) return [];
-  return cols.map((col: any) => {
-    let name = col.name;
-    if (PROHIBITED_NAMES.has(col.name)) {
-      name = col.key === 'variant' ? 'VARIANT' : (col.key === 'label' ? 'LABEL' : col.key);
-    }
-
-    const isHardcodedCalc = (col.formula === 'qty_lts * sp_gr' ||
-                             col.formula === 'qty_kg * fat_pct / 100' ||
-                             col.formula === 'qty_kg * snf_pct / 100' ||
-                             (col.type === 'calculated' && !col.formula));
-
-    const colType = (col.key === 'variant' || col.key === 'label' || col.key === 'note')
-      ? 'text'
-      : (isHardcodedCalc ? 'number' : (col.type === 'text' ? 'text' : 'number'));
-
-    const formula = isHardcodedCalc ? undefined : (col.formula || undefined);
-
-    const res: any = {
-      key: col.key,
-      name,
-      type: colType,
-      sort_order: col.sort_order,
-      is_active: col.is_active !== undefined ? col.is_active : true,
-    };
-
-    if (col.decimals !== undefined) res.decimals = col.decimals;
-    if (col.unit) res.unit = col.unit;
-    if (formula) res.formula = formula;
-
-    return res;
-  });
+  return cols.map((col: any) => ({
+    key: col.key,
+    name: col.name || col.label || col.key,
+    type: col.type || 'number',
+    sort_order: typeof col.sort_order === 'number' ? col.sort_order : 0,
+    is_active: col.is_active !== undefined ? !!col.is_active : true,
+    ...(col.decimals !== undefined ? { decimals: col.decimals } : {}),
+    ...(col.unit ? { unit: col.unit } : {}),
+    ...(col.formula ? { formula: col.formula } : {}),
+  }));
 };
 
-// GET /api/ts/masters - Fetch STG Statement Masters strictly from stg_masters table or prep_chart_configs
+// GET /api/ts/masters - Fetch STG Statement Masters strictly from stg_masters table
 export async function GET(req: NextRequest) {
   try {
     const supabase = getSupabaseServiceClient();
+    const { searchParams } = new URL(req.url);
+    const statementKey = searchParams.get('key');
 
-    let masters: any[] = [];
-    let sourceTable = 'none';
+    let query = supabase
+      .from('stg_masters')
+      .select('*')
+      .order('sort_order', { ascending: true })
+      .order('created_at', { ascending: true });
 
-    // 1. Fetch strictly from dedicated stg_masters table
-    try {
-      const { data: stgRows, error: stgErr } = await supabase
-        .from('stg_masters')
-        .select('*')
-        .order('sort_order', { ascending: true });
-
-      if (!stgErr && Array.isArray(stgRows) && stgRows.length > 0) {
-        sourceTable = 'stg_masters';
-        masters = stgRows.map((r: any) => ({
-          key: r.key,
-          label: r.label,
-          variant: r.variant,
-          description: r.description || '',
-          sort_order: r.sort_order,
-          is_active: r.is_active,
-          ob_columns: cleanseCols(r.ob_columns),
-          receipt_columns: cleanseCols(r.receipt_columns),
-          disposal_columns: cleanseCols(r.disposal_columns),
-          recon_columns: cleanseCols(r.recon_columns),
-          ob_rows: r.ob_rows || [],
-          receipt_rows: r.receipt_rows || [],
-          disposal_rows: r.disposal_rows || [],
-          reconciliation_rows: r.reconciliation_rows || [],
-        }));
-      } else if (stgErr) {
-        console.warn('stg_masters table read error (falling back to prep_chart_configs):', stgErr.message || stgErr);
-      }
-    } catch (e) {
-      console.warn('stg_masters table read exception:', e);
+    if (statementKey) {
+      query = query.eq('key', statementKey);
     }
 
-    // 2. If stg_masters was not available or empty, check prep_chart_configs
-    if (masters.length === 0) {
-      try {
-        const { data: res, error: cfgErr } = await supabase
-          .from('prep_chart_configs')
-          .select('config_json')
-          .eq('config_key', 'stg_masters')
-          .maybeSingle();
+    const { data: stgRows, error: stgErr } = await query;
 
-        if (!cfgErr && res && Array.isArray(res.config_json) && res.config_json.length > 0) {
-          sourceTable = 'prep_chart_configs';
-          masters = res.config_json.map((m: any) => ({
-            key: m.key,
-            label: m.label,
-            variant: m.variant,
-            description: m.description || '',
-            sort_order: m.sort_order,
-            is_active: m.is_active,
-            ob_columns: cleanseCols(m.ob_columns),
-            receipt_columns: cleanseCols(m.receipt_columns),
-            disposal_columns: cleanseCols(m.disposal_columns),
-            recon_columns: cleanseCols(m.recon_columns),
-            ob_rows: m.ob_rows || [],
-            receipt_rows: m.receipt_rows || [],
-            disposal_rows: m.disposal_rows || [],
-            reconciliation_rows: m.reconciliation_rows || [],
-          }));
-        }
-      } catch (e) {
-        console.warn('prep_chart_configs read exception:', e);
-      }
+    if (stgErr) {
+      console.error('Error fetching stg_masters:', stgErr);
+      return NextResponse.json({ success: false, masters: [], error: stgErr.message }, { status: 500 });
     }
 
-    return NextResponse.json({ success: true, masters, sourceTable });
+    const masters = (stgRows || []).map((r: any) => ({
+      key: r.key,
+      label: r.label,
+      variant: r.variant || r.key,
+      description: r.description || '',
+      sort_order: r.sort_order ?? 1,
+      is_active: r.is_active !== undefined ? r.is_active : true,
+      product_key: r.product_key || null,
+      cmpdd_norm_pct: r.cmpdd_norm_pct !== null && r.cmpdd_norm_pct !== undefined ? Number(r.cmpdd_norm_pct) : 0.5,
+      ob_columns: sanitizeCols(r.ob_columns),
+      receipt_columns: sanitizeCols(r.receipt_columns),
+      disposal_columns: sanitizeCols(r.disposal_columns),
+      cb_columns: sanitizeCols(r.cb_columns),
+      recon_columns: sanitizeCols(r.recon_columns),
+      ob_rows: Array.isArray(r.ob_rows) ? r.ob_rows : [],
+      receipt_rows: Array.isArray(r.receipt_rows) ? r.receipt_rows : [],
+      disposal_rows: Array.isArray(r.disposal_rows) ? r.disposal_rows : [],
+      cb_rows: Array.isArray(r.cb_rows) ? r.cb_rows : [],
+      reconciliation_rows: Array.isArray(r.reconciliation_rows) ? r.reconciliation_rows : [],
+    }));
+
+    return NextResponse.json({ success: true, masters, sourceTable: 'stg_masters' });
   } catch (err: any) {
     console.error('GET /api/ts/masters error:', err);
-    return NextResponse.json({ success: true, masters: [], error: err.message });
+    return NextResponse.json({ success: false, masters: [], error: err.message }, { status: 500 });
   }
 }
 
-// POST /api/ts/masters - Save STG Statement Masters directly to stg_masters table and prep_chart_configs
+// POST /api/ts/masters - Upsert statement masters without deleting omitted keys
 export async function POST(req: NextRequest) {
   try {
     const authUser = await getAuthUserFromRequest(req);
@@ -139,149 +82,61 @@ export async function POST(req: NextRequest) {
 
     let mastersList = Array.isArray(body.masters)
       ? body.masters
-      : (Array.isArray(body.statements) ? body.statements : (Array.isArray(body) ? body : null));
+      : (Array.isArray(body.statements) ? body.statements : (Array.isArray(body) ? body : (body.master ? [body.master] : null)));
 
-    // Handle reset to table data request
-    if (body.action === 'reset') {
-      const { data: stgRows, error: resetErr } = await supabase
-        .from('stg_masters')
-        .select('*')
-        .order('sort_order', { ascending: true });
-
-      if (!resetErr && Array.isArray(stgRows)) {
-        return NextResponse.json({ success: true, masters: stgRows });
-      }
-
-      // Fallback reset to prep_chart_configs
-      const { data: cfgRow } = await supabase
-        .from('prep_chart_configs')
-        .select('config_json')
-        .eq('config_key', 'stg_masters')
-        .maybeSingle();
-
-      return NextResponse.json({ success: true, masters: cfgRow?.config_json || [] });
-    }
-
-    if (!Array.isArray(mastersList)) {
+    if (!Array.isArray(mastersList) || mastersList.length === 0) {
       return NextResponse.json({ error: 'Invalid payload, expected array of statement masters' }, { status: 400 });
     }
 
-    let stgTableSaved = false;
-    let stgTableError: string | null = null;
-    let prepChartConfigsSaved = false;
-    let prepChartConfigsError: string | null = null;
-
-    // 1. Primary Store: Save directly into dedicated separate stg_masters table
-    try {
+    // Only delete omitted keys when caller explicitly asks for replace_all
+    if (body.action === 'replace_all') {
       const currentKeys = mastersList.map((m: any) => m.key).filter(Boolean);
-
-      // Clean up any deleted statements from stg_masters table cleanly using key difference
-      const { data: existingRows } = await supabase
-        .from('stg_masters')
-        .select('key');
-
+      const { data: existingRows } = await supabase.from('stg_masters').select('key');
       if (Array.isArray(existingRows)) {
-        const keysToDelete = existingRows
-          .map((r: any) => r.key)
-          .filter((k: string) => k && !currentKeys.includes(k));
-
+        const keysToDelete = existingRows.map((r: any) => r.key).filter((k: string) => k && !currentKeys.includes(k));
         if (keysToDelete.length > 0) {
           await supabase.from('stg_masters').delete().in('key', keysToDelete);
         }
       }
-
-      if (mastersList.length > 0) {
-        // Only include columns that strictly exist in stg_masters table schema
-        const rowsToUpsert = mastersList.map((m: any, idx: number) => ({
-          key: m.key,
-          label: m.label || m.variant || 'Untitled Statement',
-          variant: m.variant || m.key || 'Statement',
-          description: m.description || '',
-          sort_order: typeof m.sort_order === 'number' ? m.sort_order : idx + 1,
-          is_active: m.is_active !== undefined ? !!m.is_active : true,
-          ob_columns: cleanseCols(m.ob_columns),
-          receipt_columns: cleanseCols(m.receipt_columns),
-          disposal_columns: cleanseCols(m.disposal_columns),
-          recon_columns: cleanseCols(m.recon_columns),
-          ob_rows: m.ob_rows || [],
-          receipt_rows: m.receipt_rows || [],
-          disposal_rows: m.disposal_rows || [],
-          reconciliation_rows: m.reconciliation_rows || [],
-          updated_by: actorUsername,
-          updated_at: new Date().toISOString(),
-        }));
-
-        const { error: upsertErr } = await supabase
-          .from('stg_masters')
-          .upsert(rowsToUpsert, { onConflict: 'key' });
-
-        if (!upsertErr) {
-          stgTableSaved = true;
-        } else {
-          stgTableError = upsertErr.message;
-          console.warn('stg_masters table write warning:', upsertErr.message);
-        }
-      } else {
-        // When empty (all deleted), clear all rows from stg_masters
-        const { error: delErr } = await supabase.from('stg_masters').delete().neq('key', '');
-        if (!delErr) stgTableSaved = true;
-      }
-    } catch (e: any) {
-      stgTableError = e.message || String(e);
-      console.warn('stg_masters table write exception:', e);
     }
 
-    // 2. Secondary Sync: Keep prep_chart_configs updated as resilient sync / fallback
-    try {
-      const cleansedMasters = mastersList.map((m: any, idx: number) => ({
-        key: m.key,
-        label: m.label || m.variant || 'Untitled Statement',
-        variant: m.variant || m.key || 'Statement',
-        description: m.description || '',
-        sort_order: typeof m.sort_order === 'number' ? m.sort_order : idx + 1,
-        is_active: m.is_active !== undefined ? !!m.is_active : true,
-        ob_columns: cleanseCols(m.ob_columns),
-        receipt_columns: cleanseCols(m.receipt_columns),
-        disposal_columns: cleanseCols(m.disposal_columns),
-        recon_columns: cleanseCols(m.recon_columns),
-        custom_columns: cleanseCols(m.receipt_columns || m.custom_columns),
-        ob_rows: m.ob_rows || [],
-        receipt_rows: m.receipt_rows || [],
-        disposal_rows: m.disposal_rows || [],
-        reconciliation_rows: m.reconciliation_rows || [],
-      }));
+    const rowsToUpsert = mastersList.map((m: any, idx: number) => ({
+      key: m.key,
+      label: m.label || m.variant || 'Untitled Statement',
+      variant: m.variant || m.key || 'Statement',
+      description: m.description || '',
+      sort_order: typeof m.sort_order === 'number' ? m.sort_order : idx + 1,
+      is_active: m.is_active !== undefined ? !!m.is_active : true,
+      product_key: m.product_key || null,
+      cmpdd_norm_pct: m.cmpdd_norm_pct !== undefined ? Number(m.cmpdd_norm_pct) : (m.cmpdd_norm !== undefined ? Number(m.cmpdd_norm) : 0.5),
+      ob_columns: sanitizeCols(m.ob_columns),
+      receipt_columns: sanitizeCols(m.receipt_columns),
+      disposal_columns: sanitizeCols(m.disposal_columns),
+      cb_columns: sanitizeCols(m.cb_columns),
+      recon_columns: sanitizeCols(m.recon_columns),
+      ob_rows: Array.isArray(m.ob_rows) ? m.ob_rows : [],
+      receipt_rows: Array.isArray(m.receipt_rows) ? m.receipt_rows : [],
+      disposal_rows: Array.isArray(m.disposal_rows) ? m.disposal_rows : [],
+      cb_rows: Array.isArray(m.cb_rows) ? m.cb_rows : [],
+      reconciliation_rows: Array.isArray(m.reconciliation_rows) ? m.reconciliation_rows : [],
+      updated_by: actorUsername,
+      updated_at: new Date().toISOString(),
+    }));
 
-      const { error: cfgErr } = await supabase.from('prep_chart_configs').upsert({
-        config_key: 'stg_masters',
-        config_json: cleansedMasters,
-        updated_by: actorUsername,
-        updated_at: new Date().toISOString(),
-      }, { onConflict: 'config_key' });
+    const { data: savedData, error: upsertErr } = await supabase
+      .from('stg_masters')
+      .upsert(rowsToUpsert, { onConflict: 'key' })
+      .select();
 
-      if (!cfgErr) {
-        prepChartConfigsSaved = true;
-      } else {
-        prepChartConfigsError = cfgErr.message;
-        console.warn('prep_chart_configs write warning:', cfgErr.message);
-      }
-    } catch (e: any) {
-      prepChartConfigsError = e.message || String(e);
-      console.warn('prep_chart_configs write exception:', e);
-    }
-
-    // If both writes failed, throw an informative error
-    if (!stgTableSaved && !prepChartConfigsSaved) {
-      return NextResponse.json({
-        error: `Failed to save statement formulation tables to database. stg_masters error: ${stgTableError || 'unknown'}. prep_chart_configs error: ${prepChartConfigsError || 'unknown'}. Please make sure migration 017_stg_masters_table.sql has been executed in Supabase SQL Editor.`,
-      }, { status: 500 });
+    if (upsertErr) {
+      console.error('stg_masters upsert error:', upsertErr);
+      return NextResponse.json({ error: upsertErr.message }, { status: 500 });
     }
 
     return NextResponse.json({
       success: true,
-      masters: mastersList,
-      savedToStgMasters: stgTableSaved,
-      savedToPrepChartConfigs: prepChartConfigsSaved,
-      stgTableError: stgTableError,
+      masters: savedData,
+      savedToStgMasters: true,
     });
   } catch (err: any) {
     console.error('POST /api/ts/masters error:', err);
@@ -292,8 +147,6 @@ export async function POST(req: NextRequest) {
 // DELETE /api/ts/masters?key=XXX or body: { keys: [...], all?: boolean }
 export async function DELETE(req: NextRequest) {
   try {
-    const authUser = await getAuthUserFromRequest(req);
-    const actorUsername = authUser?.username || 'admin';
     const { searchParams } = new URL(req.url);
     const singleKey = searchParams.get('key');
     const keysParam = searchParams.get('keys');
@@ -307,7 +160,6 @@ export async function DELETE(req: NextRequest) {
       });
     }
 
-    // Parse body if present for bulk delete or all delete
     try {
       const body = await req.json();
       if (body.all) deleteAll = true;
@@ -328,46 +180,23 @@ export async function DELETE(req: NextRequest) {
 
     const supabase = getSupabaseServiceClient();
 
-    // 1. Delete from dedicated stg_masters table
-    try {
-      if (deleteAll) {
-        await supabase.from('stg_masters').delete().neq('key', '');
-      } else {
-        await supabase.from('stg_masters').delete().in('key', keysToDelete);
-      }
-    } catch (e) {
-      console.warn('stg_masters delete warning:', e);
+    if (deleteAll) {
+      await supabase.from('stg_masters').delete().neq('key', '');
+      await supabase.from('stg_particular_master').delete().neq('statement_key', '');
+    } else {
+      await supabase.from('stg_masters').delete().in('key', keysToDelete);
+      await supabase.from('stg_particular_master').delete().in('statement_key', keysToDelete);
     }
 
-    // 2. Fetch remaining records strictly from stg_masters table and keep prep_chart_configs in sync
-    let remaining: any[] = [];
-    try {
-      if (!deleteAll) {
-        const { data: stgRemaining } = await supabase
-          .from('stg_masters')
-          .select('*')
-          .order('sort_order', { ascending: true });
-
-        if (Array.isArray(stgRemaining)) {
-          remaining = stgRemaining;
-        }
-      }
-
-      await supabase.from('prep_chart_configs').upsert({
-        config_key: 'stg_masters',
-        config_json: remaining,
-        updated_by: actorUsername,
-        updated_at: new Date().toISOString(),
-      }, { onConflict: 'config_key' });
-    } catch (e) {
-      console.warn('stg_masters / prep_chart_configs delete sync error:', e);
-    }
+    const { data: remaining } = await supabase
+      .from('stg_masters')
+      .select('*')
+      .order('sort_order', { ascending: true });
 
     return NextResponse.json({
       success: true,
-      masters: remaining,
+      masters: remaining || [],
       deletedCount: deleteAll ? 'all' : keysToDelete.length,
-      message: deleteAll ? 'All statement masters deleted' : `${keysToDelete.length} statement master(s) deleted`
     });
   } catch (err: any) {
     console.error('DELETE /api/ts/masters error:', err);

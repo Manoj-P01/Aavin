@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react';
 import { useSidebar } from '@/context/SidebarContext';
 import { useConfirm } from '@/context/ConfirmContext';
+import { useShiftConfig } from '@/hooks/useSettings';
 
 interface ShiftConfig {
   key: 'D' | 'N';
@@ -75,83 +76,28 @@ export default function ConfigPanel() {
     });
   };
 
-  // Load shifts configuration from STOCK entry notes
+  const { shiftConfig, isLoading: configLoading, saveShiftConfig } = useShiftConfig();
+
+  // Sync state with shift configuration from app_settings
   useEffect(() => {
-    if (!configOpen) return;
-    let active = true;
-
-    async function loadConfig() {
-      setLoading(true);
-      setError('');
-      try {
-        const res = await fetch('/api/entries?report_type=STOCK&date=1970-01-01');
-        if (!res.ok) {
-          throw new Error('Failed to fetch shift configuration.');
-        }
-        const json = await res.json();
-        const entries: any[] = json.data || [];
-        const configEntry = entries.find((e: any) => {
-          if (!e.notes || e.notes.includes('__METADATA__:')) return false;
-          try {
-            const parsed = JSON.parse(e.notes);
-            return parsed && typeof parsed === 'object' && !Array.isArray(parsed);
-          } catch { return false; }
-        });
-        if (configEntry && configEntry.notes) {
-          try {
-            const parsed = JSON.parse(configEntry.notes);
-            if (parsed && typeof parsed === 'object' && active) {
-              if (parsed.mode) {
-                setMode(parsed.mode);
-              } else {
-                setMode('shift'); // Legacy array configs default to shift mode
-              }
-              if (Array.isArray(parsed.shifts)) {
-                setShifts(parsed.shifts);
-              } else if (Array.isArray(parsed) && parsed.length === 2) {
-                setShifts(parsed);
-              }
-              if (Array.isArray(parsed.products)) {
-                setProducts(parsed.products);
-              }
-            }
-          } catch (e) {
-            console.error('Failed parsing config notes:', e);
-          }
-        } else if (active) {
-          setMode('full_day'); // default mode is full_day if not set yet
-        }
-      } catch (e) {
-        console.error('Error loading shift config:', e);
-      } finally {
-        if (active) setLoading(false);
+    if (shiftConfig) {
+      if (shiftConfig.mode) setMode(shiftConfig.mode);
+      if (Array.isArray(shiftConfig.shifts) && shiftConfig.shifts.length > 0) {
+        setShifts(shiftConfig.shifts as any);
       }
+      if (Array.isArray(shiftConfig.products)) {
+        setProducts(shiftConfig.products as any);
+      }
+      setLoading(false);
     }
-
-    loadConfig();
-    return () => {
-      active = false;
-    };
-  }, [configOpen]);
+  }, [shiftConfig, configOpen]);
 
   const handleSave = async () => {
     setSaving(true);
     setError('');
     setSuccess('');
     try {
-      const res = await fetch('/api/entries', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          report_type: 'STOCK',
-          shift: null,
-          notes: JSON.stringify({ mode, shifts, products }),
-        }),
-      });
-      if (!res.ok) {
-        const json = await res.json();
-        throw new Error(json.error || 'Failed to save shift configuration.');
-      }
+      await saveShiftConfig({ mode, shifts: shifts as any, products: products as any });
       setSuccess('Settings saved successfully!');
       setTimeout(() => {
         setSuccess('');

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getSupabaseServiceClient } from '@/lib/supabase';
+import { getProducts } from '@/lib/masters';
 
 export async function GET(req: NextRequest) {
   try {
@@ -37,6 +38,8 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: 'Invalid parameters' }, { status: 400 });
     }
 
+    query = query.order('entry_date', { ascending: false }).order('shift', { ascending: true });
+
     const { data: entries, error: entryErr } = await query;
     if (entryErr) throw entryErr;
     if (!entries || entries.length === 0) {
@@ -45,7 +48,7 @@ export async function GET(req: NextRequest) {
     const entryIds = entries.map(e => e.id);
     const { data: rows, error: rowsErr } = await supabase
       .from('stock_rows')
-      .select('*')
+      .select('id, entry_id, row_type, row_label, entry_json, sort_order')
       .in('entry_id', entryIds)
       .order('sort_order');
     if (rowsErr) throw rowsErr;
@@ -71,24 +74,30 @@ export async function GET(req: NextRequest) {
       }
     });
 
-    // Dynamic product keys from products_master and standard defaults
-    const defaultCols = ['wh_milk', 'dlt_milk', 'fc_milk', 'std_milk', 'dtm', 'skim_milk', 'cream', 'butter_milk', 'r_con', 'smp', 'water'];
-
     let dbCols: string[] = [];
     try {
-      const { data: dbProds } = await supabase
-        .from('products_master')
-        .select('product_key')
-        .eq('is_active', true)
-        .order('sort_order', { ascending: true });
+      const dbProds = await getProducts();
       if (Array.isArray(dbProds) && dbProds.length > 0) {
         dbCols = dbProds.map(p => p.product_key.replace(/\./g, '_').toLowerCase());
       }
     } catch (e) {
-      console.warn('Could not fetch products_master in GET /api/stock/query:', e);
+      console.warn('Could not fetch getProducts in GET /api/stock/query:', e);
     }
-    const allProdKeys = Array.from(new Set([...defaultCols, ...dbCols]));
+    const allProdKeys = Array.from(new Set(dbCols));
     const metadataKeys = new Set(['id', 'entry_id', 'row_type', 'row_label', 'sort_order', 'created_at', 'created_by', 'updated_at', 'updated_by', 'entry_json', 'values']);
+
+    if (allProdKeys.length === 0) {
+      effectiveRows.forEach(r => {
+        if (r.values && typeof r.values === 'object') {
+          Object.keys(r.values).forEach(k => {
+            if (!metadataKeys.has(k)) allProdKeys.push(k);
+          });
+        }
+        Object.keys(r).forEach(k => {
+          if (!metadataKeys.has(k)) allProdKeys.push(k);
+        });
+      });
+    }
 
     // Aggregate by row_type and row_label
     const aggregatedMap: Record<string, any> = {};

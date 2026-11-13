@@ -12,6 +12,7 @@ function LoginFormContent() {
   const [username, setUsername] = useState('admin');
   const [password, setPassword] = useState('admin');
   const [loading, setLoading] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState('');
   const [idleMessage, setIdleMessage] = useState('');
 
@@ -77,10 +78,10 @@ function LoginFormContent() {
         <div style={{ textAlign: 'center', marginBottom: 28 }}>
           <div style={{ fontSize: '2.5rem', marginBottom: 8 }}>🥛</div>
           <h1 style={{ fontSize: '1.4rem', fontWeight: 800, color: '#0284c7', margin: 0 }}>
-            Aavin Dairy Dashboard
+            {process.env.NEXT_PUBLIC_APP_NAME || 'Aavin Dairy Dashboard'}
           </h1>
           <p style={{ fontSize: '0.82rem', color: '#64748b', marginTop: 4, fontWeight: 500 }}>
-            Namakkal District Co-operative Milk Producers&apos; Union Ltd
+            {process.env.NEXT_PUBLIC_ORG_NAME || "Namakkal District Co-operative Milk Producers' Union Ltd"}
           </p>
         </div>
 
@@ -148,23 +149,44 @@ function LoginFormContent() {
             <label style={{ fontSize: '0.78rem', fontWeight: 600, color: '#334155', display: 'block', marginBottom: 6 }}>
               Password
             </label>
-            <input
-              type="password"
-              placeholder="••••••••"
-              value={password}
-              onChange={e => setPassword(e.target.value)}
-              required
-              style={{
-                width: '100%',
-                padding: '10px 12px',
-                borderRadius: 8,
-                border: '1px solid #cbd5e1',
-                background: '#f8fafc',
-                color: '#0f172a',
-                fontSize: '0.9rem',
-                outline: 'none',
-              }}
-            />
+            <div style={{ position: 'relative' }}>
+              <input
+                type={showPassword ? 'text' : 'password'}
+                placeholder="••••••••"
+                value={password}
+                onChange={e => setPassword(e.target.value)}
+                required
+                style={{
+                  width: '100%',
+                  padding: '10px 40px 10px 12px',
+                  borderRadius: 8,
+                  border: '1px solid #cbd5e1',
+                  background: '#f8fafc',
+                  color: '#0f172a',
+                  fontSize: '0.9rem',
+                  outline: 'none',
+                }}
+              />
+              <button
+                type="button"
+                onClick={() => setShowPassword(p => !p)}
+                style={{
+                  position: 'absolute',
+                  right: 8,
+                  top: '50%',
+                  transform: 'translateY(-50%)',
+                  background: 'transparent',
+                  border: 'none',
+                  cursor: 'pointer',
+                  fontSize: '1rem',
+                  padding: 4,
+                  color: '#64748b',
+                }}
+                aria-label={showPassword ? 'Hide password' : 'Show password'}
+              >
+                {showPassword ? '🙈' : '👁️'}
+              </button>
+            </div>
           </div>
 
           <button

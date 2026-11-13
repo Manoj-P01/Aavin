@@ -8,8 +8,8 @@ import Step, { DAILY_ENTRY_STEP_ITEMS } from '@/components/ui/Step';
 import { calcKgFatSnf, calcQtyKg, generateDynamicBalanceRows } from '@/lib/calculations';
 import type { TSSection, Shift } from '@/lib/types';
 import { useConfirm } from '@/context/ConfirmContext';
-import { DEFAULT_TS_MASTER } from '@/app/api/ts/statement-masters/route';
-import { DEFAULT_STG_TO_TS_RULES, StgToTsMappingRule } from '@/app/api/ts/stg-mappings/route';
+import { useShiftConfig } from '@/hooks/useSettings';
+import { StgToTsMappingRule } from '@/app/api/ts/stg-mappings/route';
 
 interface RowState {
   section: TSSection;
@@ -24,22 +24,8 @@ interface RowState {
   remarks: string;
 }
 
-const DEFAULT_SP_GR: Record<string, number> = {
-  WM: 1.0272, SSM: 1.0311, CREAM: 0.9893, 'DLT MILK': 1.0298,
-  'FC.MILK': 1.0298, 'STD.Milk': 1.029, SMP: 1.3834,
-};
-
-const DEFAULT_FAT: Record<string, number> = {
-  WM: 3.93, SSM: 0.05, CREAM: 39.21, 'DLT MILK': 3.5,
-  'FC.MILK': 6, 'STD.Milk': 4.5, SMP: 0.5,
-};
-
-const DEFAULT_SNF: Record<string, number> = {
-  WM: 7.95, SSM: 8.14, CREAM: 5.53, 'DLT MILK': 8.5,
-  'FC.MILK': 9, 'STD.Milk': 8.5, SMP: 96.3,
-};
-
-function buildDefaultRowsFromMaster(masterDef: any = DEFAULT_TS_MASTER): RowState[] {
+function buildDefaultRowsFromMaster(masterDef: any = null): RowState[] {
+  if (!masterDef) return [];
   const result: RowState[] = [];
   const add = (section: TSSection, items: any[]) => {
     (items || []).forEach((item: any) => {
@@ -48,24 +34,24 @@ function buildDefaultRowsFromMaster(masterDef: any = DEFAULT_TS_MASTER): RowStat
       result.push({
         section,
         product: prod,
-        qty_lts: item.qty_lts ? String(item.qty_lts) : '',
-        qty_kg: item.qty_kg ? String(item.qty_kg) : '',
-        fat_pct: item.fat_pct !== undefined ? String(item.fat_pct) : (DEFAULT_FAT[prod] ? String(DEFAULT_FAT[prod]) : ''),
-        snf_pct: item.snf_pct !== undefined ? String(item.snf_pct) : (DEFAULT_SNF[prod] ? String(DEFAULT_SNF[prod]) : ''),
-        sp_gr: item.sp_gr !== undefined ? String(item.sp_gr) : (DEFAULT_SP_GR[prod] ? String(DEFAULT_SP_GR[prod]) : ''),
-        kg_fat: item.kg_fat ? String(item.kg_fat) : '',
-        kg_snf: item.kg_snf ? String(item.kg_snf) : '',
+        qty_lts: item.qty_lts !== undefined && item.qty_lts !== null ? String(item.qty_lts) : '',
+        qty_kg: item.qty_kg !== undefined && item.qty_kg !== null ? String(item.qty_kg) : '',
+        fat_pct: item.fat_pct !== undefined && item.fat_pct !== null ? String(item.fat_pct) : '',
+        snf_pct: item.snf_pct !== undefined && item.snf_pct !== null ? String(item.snf_pct) : '',
+        sp_gr: item.sp_gr !== undefined && item.sp_gr !== null ? String(item.sp_gr) : '',
+        kg_fat: item.kg_fat !== undefined && item.kg_fat !== null ? String(item.kg_fat) : '',
+        kg_snf: item.kg_snf !== undefined && item.kg_snf !== null ? String(item.kg_snf) : '',
         remarks: item.remarks || '',
       });
     });
   };
 
-  add('OB', masterDef?.ob_rows || DEFAULT_TS_MASTER.ob_rows);
-  add('RECEIPT', masterDef?.receipt_rows || DEFAULT_TS_MASTER.receipt_rows);
-  add('DISPOSAL_DESPATCH', masterDef?.despatch_rows || DEFAULT_TS_MASTER.despatch_rows);
-  add('LOCAL_SALE', masterDef?.local_sale_rows || DEFAULT_TS_MASTER.local_sale_rows);
-  add('OTHER_DISPOSAL', masterDef?.other_disposal_rows || DEFAULT_TS_MASTER.other_disposal_rows);
-  add('CB', masterDef?.cb_rows || DEFAULT_TS_MASTER.cb_rows);
+  add('OB', masterDef?.ob_rows || masterDef?.ob_particulars || []);
+  add('RECEIPT', masterDef?.receipt_rows || masterDef?.receipt_particulars || []);
+  add('DISPOSAL_DESPATCH', masterDef?.despatch_rows || masterDef?.despatch_particulars || []);
+  add('LOCAL_SALE', masterDef?.local_sale_rows || masterDef?.local_sale_particulars || []);
+  add('OTHER_DISPOSAL', masterDef?.other_disposal_rows || masterDef?.other_disposal_particulars || []);
+  add('CB', masterDef?.cb_rows || masterDef?.cb_particulars || []);
 
   return result;
 }
@@ -210,6 +196,7 @@ export default function TSEntryForm({
 }: TSEntryFormProps = {}) {
   const router = useRouter();
   const { confirm } = useConfirm();
+  const { shiftConfig } = useShiftConfig();
   const searchParams = useSearchParams();
   const paramDate = searchParams.get('date');
   const paramShift = searchParams.get('shift');
@@ -255,39 +242,15 @@ export default function TSEntryForm({
 
     async function loadData() {
       try {
-        // Fetch global reportMode setting
-        let parsedMode: 'full_day' | 'shift' = 'full_day';
-        try {
-          const configRes = await fetch('/api/entries?report_type=STOCK&date=1970-01-01');
-          if (configRes.ok) {
-            const configJson = await configRes.json();
-            const entries: any[] = configJson.data || [];
-            const configEntry = entries.find((e: any) => {
-              if (!e.notes || e.notes.includes('__METADATA__:')) return false;
-              try {
-                const parsed = JSON.parse(e.notes);
-                return parsed && typeof parsed === 'object' && !Array.isArray(parsed);
-              } catch { return false; }
-            });
-            if (configEntry && configEntry.notes) {
-              try {
-                const parsed = JSON.parse(configEntry.notes);
-                if (parsed && typeof parsed === 'object') {
-                  if (parsed.mode) parsedMode = parsed.mode;
-                }
-              } catch (e) {}
-            }
-          }
-        } catch (err) {
-          console.error('Failed to load shift mode config in TSEntryForm:', err);
-        }
+        // Global reportMode setting from app_settings
+        const parsedMode: 'full_day' | 'shift' = shiftConfig?.mode || 'full_day';
         setReportMode(parsedMode);
         if (parsedMode === 'full_day') {
           setShift(null);
         }
 
         // Fetch TS Statement Master formulations
-        let tsMasterDef: any = DEFAULT_TS_MASTER;
+        let tsMasterDef: any = null;
         try {
           const mRes = await fetch('/api/ts/statement-masters');
           if (mRes.ok) {
@@ -299,7 +262,7 @@ export default function TSEntryForm({
         }
 
         // Fetch STG ➔ TS Mapping Rules
-        let mappingRules: StgToTsMappingRule[] = DEFAULT_STG_TO_TS_RULES;
+        let mappingRules: StgToTsMappingRule[] = [];
         try {
           const rRes = await fetch('/api/ts/stg-mappings');
           if (rRes.ok) {

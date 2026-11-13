@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getSupabaseServiceClient } from '@/lib/supabase';
 import { calcKgFatSnf } from '@/lib/calculations';
 import type { TSMilkRowInput, STGRow, Shift } from '@/lib/types';
+import { packRows, unpackRows } from '@/lib/rowJson';
 
 // GET /api/ts?entry_id=xxx  OR  ?date=YYYY-MM-DD
 export async function GET(req: NextRequest) {
@@ -37,17 +38,31 @@ export async function GET(req: NextRequest) {
       }
 
       let { data: entries, error: entryErr } = await query;
-      if ((entryErr || !entries || entries.length === 0) && (shift === 'D' || shift === 'N')) {
-        // Fallback to null shift for legacy entries in Supabase
-        const fallbackQuery = supabase
-          .from('entries')
-          .select('id, notes')
-          .eq('entry_date', date)
-          .eq('report_type', 'TS')
-          .is('shift', null);
-        const fallbackRes = await fallbackQuery;
-        if (!fallbackRes.error && fallbackRes.data && fallbackRes.data.length > 0) {
-          entries = fallbackRes.data;
+      if (entryErr || !entries || entries.length === 0) {
+        if (!shift || shift === 'F') {
+          // Cross-fallback between null and 'F' for full-day TS/STG entries
+          const altShift = !shift ? 'F' : null;
+          const altQuery = supabase
+            .from('entries')
+            .select('id, notes')
+            .eq('entry_date', date)
+            .eq('report_type', 'TS');
+          const altRes = altShift ? await altQuery.eq('shift', altShift) : await altQuery.is('shift', null);
+          if (!altRes.error && altRes.data && altRes.data.length > 0) {
+            entries = altRes.data;
+          }
+        } else if (shift === 'D' || shift === 'N') {
+          // Fallback to null shift for legacy entries in Supabase
+          const fallbackQuery = supabase
+            .from('entries')
+            .select('id, notes')
+            .eq('entry_date', date)
+            .eq('report_type', 'TS')
+            .is('shift', null);
+          const fallbackRes = await fallbackQuery;
+          if (!fallbackRes.error && fallbackRes.data && fallbackRes.data.length > 0) {
+            entries = fallbackRes.data;
+          }
         }
       }
 
@@ -66,14 +81,20 @@ export async function GET(req: NextRequest) {
     }
 
     const [tsRows, stgRows] = await Promise.all([
-      supabase.from('ts_milk_rows').select('*').eq('entry_id', resolvedEntryId!).order('sort_order'),
-      supabase.from('stg_rows').select('*').eq('entry_id', resolvedEntryId!).order('sort_order'),
+      supabase.from('ts_milk_rows').select('id, entry_id, section, product, row_json, sort_order').eq('entry_id', resolvedEntryId!).order('sort_order'),
+      supabase.from('stg_rows').select('id, entry_id, product_block, side, section_key, particular_id, item_name, row_json, sort_order').eq('entry_id', resolvedEntryId!).order('sort_order'),
     ]);
 
     if (tsRows.error) throw tsRows.error;
     if (stgRows.error) throw stgRows.error;
 
-    return NextResponse.json({ data: { ts_rows: tsRows.data, stg_rows: stgRows.data, notes: entryNotes } });
+    return NextResponse.json({
+      data: {
+        ts_rows: unpackRows(tsRows.data || []),
+        stg_rows: unpackRows(stgRows.data || []),
+        notes: entryNotes,
+      },
+    });
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : 'Unknown error';
     return NextResponse.json({ error: msg }, { status: 500 });
@@ -128,25 +149,17 @@ export async function POST(req: NextRequest) {
       };
     });
 
-    const stgRowsWithCalc = (stg_rows || []).map((r, i) => {
-      const qty_kg = Number(r.qty_kg) || 0;
-      const fat_pct = Number(r.fat_pct) || 0;
-      const snf_pct = Number(r.snf_pct) || 0;
-      const defaults = calcKgFatSnf(qty_kg, fat_pct, snf_pct);
-      const kg_fat = r.kg_fat !== undefined && Number(r.kg_fat) !== 0 ? Number(r.kg_fat) : defaults.kg_fat;
-      const kg_snf = r.kg_snf !== undefined && Number(r.kg_snf) !== 0 ? Number(r.kg_snf) : defaults.kg_snf;
+    const stgRowsWithCalc = (stg_rows || []).map((r: any, i) => {
+      const values = r.values && typeof r.values === 'object' ? r.values : {};
+      const flat = { ...r, ...values };
       return {
+        ...flat,
         entry_id,
         product_block: r.product_block,
         side: r.side,
-        item_name: r.item_name,
-        qty_lts: Number(r.qty_lts) || 0,
-        qty_kg,
-        fat_pct,
-        snf_pct,
-        sp_gr: Number(r.sp_gr) || 0,
-        kg_fat,
-        kg_snf,
+        section_key: r.section_key || (r.side ? String(r.side).toUpperCase() : undefined),
+        particular_id: r.particular_id || null,
+        item_name: r.item_name || r.variant || r.label || '',
         sort_order: r.sort_order ?? i,
         created_by: actorUsername,
         updated_by: actorUsername,
@@ -157,18 +170,27 @@ export async function POST(req: NextRequest) {
     if (section) {
       await supabase.from('ts_milk_rows').delete().eq('entry_id', entry_id).eq('section', section);
     } else {
-      await Promise.all([
-        supabase.from('ts_milk_rows').delete().eq('entry_id', entry_id),
-        supabase.from('stg_rows').delete().eq('entry_id', entry_id),
-      ]);
+      const deletePromises = [];
+      if (Array.isArray(ts_rows)) {
+        deletePromises.push(supabase.from('ts_milk_rows').delete().eq('entry_id', entry_id));
+      }
+      if (Array.isArray(stg_rows)) {
+        deletePromises.push(supabase.from('stg_rows').delete().eq('entry_id', entry_id));
+      }
+      if (deletePromises.length > 0) {
+        await Promise.all(deletePromises);
+      }
     }
 
+    const tsPayload = packRows(tsRowsWithCalc, 'ts');
+    const stgPayload = packRows(stgRowsWithCalc, 'stg');
+
     const [tsInsert, stgInsert] = await Promise.all([
-      tsRowsWithCalc.length > 0
-        ? supabase.from('ts_milk_rows').insert(tsRowsWithCalc).select()
+      tsPayload.length > 0
+        ? supabase.from('ts_milk_rows').insert(tsPayload).select('id, entry_id, section, product, row_json, sort_order')
         : Promise.resolve({ data: [], error: null }),
-      stgRowsWithCalc.length > 0
-        ? supabase.from('stg_rows').insert(stgRowsWithCalc).select()
+      stgPayload.length > 0
+        ? supabase.from('stg_rows').insert(stgPayload).select('id, entry_id, product_block, side, section_key, particular_id, item_name, row_json, sort_order')
         : Promise.resolve({ data: [], error: null }),
     ]);
 
@@ -176,7 +198,10 @@ export async function POST(req: NextRequest) {
     if (stgInsert.error) throw stgInsert.error;
 
     return NextResponse.json({
-      data: { ts_rows: tsInsert.data, stg_rows: stgInsert.data },
+      data: {
+        ts_rows: unpackRows(tsInsert.data || []),
+        stg_rows: unpackRows(stgInsert.data || []),
+      },
     }, { status: 201 });
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : 'Unknown error';

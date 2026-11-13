@@ -37,7 +37,7 @@ CREATE TABLE IF NOT EXISTS ts_milk_rows (
                 'OTHER_DISPOSAL',      -- SMP, Curd, Khoa, Lab, Cream
                 'CB'                   -- Closing Balance
               )),
-  product     text NOT NULL,  -- WM, SSM, CREAM, DLT MILK, FC.MILK, STD.Milk, SMP, BMC's etc.
+  product     text NOT NULL,
   qty_lts     numeric(12,3) DEFAULT 0,
   qty_kg      numeric(12,3) DEFAULT 0,
   fat_pct     numeric(6,4) DEFAULT 0,
@@ -61,7 +61,7 @@ CREATE TABLE IF NOT EXISTS stg_rows (
   entry_id    uuid NOT NULL REFERENCES entries(id) ON DELETE CASCADE,
   product_block text NOT NULL CHECK (product_block IN ('WM','SSM','CREAM','SMP')),
   side        text NOT NULL CHECK (side IN ('RECEIPT','DISPOSAL')),
-  item_name   text NOT NULL,  -- e.g. 'P.VELUR CC', 'BMC''s', 'SEPERATION', etc.
+  item_name   text NOT NULL,
   qty_lts     numeric(12,3) DEFAULT 0,
   qty_kg      numeric(12,3) DEFAULT 0,
   fat_pct     numeric(6,4) DEFAULT 0,

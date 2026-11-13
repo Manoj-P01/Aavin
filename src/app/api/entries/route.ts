@@ -1,12 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getSupabaseServiceClient } from '@/lib/supabase';
-import type { ReportType, Shift } from '@/lib/types';
+import type { ReportType, ExtendedReportType, Shift } from '@/lib/types';
 
 // GET /api/entries?report_type=TS&month=2026-06
 export async function GET(req: NextRequest) {
   try {
     const { searchParams } = new URL(req.url);
-    const report_type = searchParams.get('report_type') as ReportType | null;
+    const report_type = searchParams.get('report_type') as ExtendedReportType | null;
     const month = searchParams.get('month'); // YYYY-MM
     const date = searchParams.get('date');   // YYYY-MM-DD
     const rawShift = searchParams.get('shift');
@@ -19,7 +19,7 @@ export async function GET(req: NextRequest) {
     if (report_type === 'INTERNAL_STOCK_MAPPING') {
       const { data: partitionRules } = await supabase
         .from('receipt_partition_mappings')
-        .select('*');
+        .select('id, source_disposal_particular, target_receipt_product_key, target_receipt_product_label, partitions, enabled');
       if (Array.isArray(partitionRules) && partitionRules.length > 0) {
         const formatted = partitionRules.map((r: any) => ({
           id: r.id,
@@ -41,7 +41,7 @@ export async function GET(req: NextRequest) {
     } else if (report_type === 'STOCK_MAPPING') {
       const { data: stmtRules } = await supabase
         .from('statement_mapping_rules')
-        .select('*');
+        .select('id, stock_product_key, stock_product_label, stock_section, stock_particular, stg_block_key, stg_block_label, stg_section, stg_item_name, stg_target_field');
       if (Array.isArray(stmtRules) && stmtRules.length > 0) {
         const formatted = stmtRules.map((r: any) => ({
           id: r.id,
@@ -69,21 +69,27 @@ export async function GET(req: NextRequest) {
     let dbReportType = report_type;
     let targetDate = date;
 
-    if (report_type === 'INTERNAL_STOCK_MAPPING') {
-      dbReportType = 'STOCK';
-      targetDate = '1970-01-02';
-    } else if (report_type === 'STOCK_MAPPING') {
-      dbReportType = 'STOCK';
-      targetDate = '1970-01-03';
-    }
+    const fromDate = searchParams.get('from');
+    const toDate = searchParams.get('to');
+    const limitParam = searchParams.get('limit');
+    const offsetParam = searchParams.get('offset');
+    const limit = limitParam ? Math.min(Math.max(parseInt(limitParam, 10), 1), 500) : 100;
+    const offset = offsetParam ? Math.max(parseInt(offsetParam, 10), 0) : 0;
 
-    let query = supabase.from('entries').select('*').order('entry_date', { ascending: false });
+    let query = supabase
+      .from('entries')
+      .select('id, entry_date, report_type, shift, notes, status, created_by, updated_by, created_at, updated_at')
+      .order('entry_date', { ascending: false })
+      .order('report_type', { ascending: true })
+      .order('shift', { ascending: true });
 
     if (dbReportType) query = query.eq('report_type', dbReportType);
     if (targetDate) query = query.eq('entry_date', targetDate);
+    if (fromDate) query = query.gte('entry_date', fromDate);
+    if (toDate) query = query.lte('entry_date', toDate);
     if (shift) {
       query = query.eq('shift', shift);
-    } else if (searchParams.has('shift') && !shift && report_type !== 'INTERNAL_STOCK_MAPPING' && report_type !== 'STOCK_MAPPING') {
+    } else if (searchParams.has('shift') && !shift) {
       query = query.is('shift', null);
     }
     if (month) {
@@ -97,9 +103,11 @@ export async function GET(req: NextRequest) {
       query = query.gte('entry_date', start).lte('entry_date', end);
     }
 
+    query = query.range(offset, offset + limit - 1);
+
     const { data: rawData, error } = await query;
     if (error) throw error;
-    const data = (rawData || []).map((e: any) => e.entry_date === '1970-01-01' ? { ...e, entry_date: today } : e);
+    const data = rawData || [];
 
     // Performance Optimization: Only fetch child stock_rows/stock_summary_rows if specifically requested
     // (e.g. periodical reports) or for a single target date entry, preventing massive full-database joins.
@@ -111,8 +119,8 @@ export async function GET(req: NextRequest) {
       const entryIds = data.map((e: any) => e.id);
       try {
         const [rowsRes, summaryRes] = await Promise.all([
-          supabase.from('stock_rows').select('*').in('entry_id', entryIds).order('sort_order'),
-          supabase.from('stock_summary_rows').select('*').in('entry_id', entryIds).order('sort_order'),
+          supabase.from('stock_rows').select('id, entry_id, row_type, row_label, entry_json, sort_order').in('entry_id', entryIds).order('sort_order'),
+          supabase.from('stock_summary_rows').select('id, entry_id, summary_type, row_label, summary_data, sort_order').in('entry_id', entryIds).order('sort_order'),
         ]);
 
         const rowsMap: Record<string, any[]> = {};
@@ -166,11 +174,11 @@ export async function POST(req: NextRequest) {
     const { shift, report_type, notes } = body as {
       entry_date?: string;
       shift: Shift | null;
-      report_type: ReportType;
+      report_type: ExtendedReportType;
       notes?: string;
     };
     const today = new Date().toISOString().split('T')[0];
-    const entry_date = (!body.entry_date || body.entry_date === '1970-01-01') ? today : body.entry_date;
+    const entry_date = body.entry_date || today;
 
     if (!report_type) {
       return NextResponse.json({ error: 'report_type is required' }, { status: 400 });
@@ -212,7 +220,7 @@ export async function POST(req: NextRequest) {
         const { data: insData, error: insErr } = await supabase
           .from('receipt_partition_mappings')
           .insert(toInsert)
-          .select('*');
+          .select('id, source_disposal_particular, target_receipt_product_key, target_receipt_product_label, partitions, enabled');
 
         if (insErr) {
           console.error('Error writing to receipt_partition_mappings:', insErr);
@@ -228,7 +236,7 @@ export async function POST(req: NextRequest) {
             const { data: fbData, error: fbErr } = await supabase
               .from('receipt_partition_mappings')
               .insert(fallbackInsert)
-              .select('*');
+              .select('id, source_disposal_particular, target_receipt_product_key, enabled');
             if (fbErr) throw fbErr;
             return NextResponse.json({ success: true, data: fbData }, { status: 200 });
           }
@@ -249,28 +257,56 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ error: 'Invalid rules array' }, { status: 400 });
       }
 
-      // Delete existing records in statement_mapping_rules
-      await supabase.from('statement_mapping_rules').delete().neq('id', '00000000-0000-0000-0000-000000000000');
+      // Safe FK lookups
+      const [secRes, fieldRes] = await Promise.all([
+        supabase.from('stg_section_master').select('section_key'),
+        supabase.from('stg_field_master').select('field_key'),
+      ]);
+      const vSecKeys = new Set((secRes.data || []).map((s: any) => s.section_key));
+      const sLowerMap = new Map<string, string>();
+      (secRes.data || []).forEach((s: any) => sLowerMap.set(String(s.section_key).toLowerCase(), s.section_key));
 
-      const toInsert = rules.map((r: any) => ({
-        stock_product_key: r.stockProductKey,
-        stock_product_label: r.stockProductLabel || '',
-        stock_section: r.stockSection,
-        stock_particular: r.stockParticular,
-        stg_block_key: r.stgBlockKey,
-        stg_block_label: r.stgBlockLabel || '',
-        stg_section: r.stgSection,
-        stg_item_name: r.stgItemName,
-        stg_target_field: r.stgTargetField || 'qty_lts',
-        created_by: actorUsername,
-        updated_by: actorUsername,
-      }));
+      const vFieldKeys = new Set((fieldRes.data || []).map((f: any) => f.field_key));
+      const fLowerMap = new Map<string, string>();
+      (fieldRes.data || []).forEach((f: any) => fLowerMap.set(String(f.field_key).toLowerCase(), f.field_key));
+
+      const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+      const toInsert = rules.map((r: any) => {
+        const rawSec = r.section_key || r.stgSection || r.stg_section;
+        const safeSec = rawSec && (vSecKeys.has(rawSec) ? rawSec : sLowerMap.get(String(rawSec).toLowerCase()) || null);
+        const rawTarget = r.target_field || r.stgTargetField || r.stg_target_field;
+        const cleanTarget = String(rawTarget || '').trim().toLowerCase();
+        const normTarget = (!cleanTarget || ['ob', 'cb', 'receipt', 'disposal', 'variant', 'particular', 'particulars', 'label', 'name', 'item_name'].includes(cleanTarget))
+          ? 'qty_lts'
+          : (rawTarget || 'qty_lts');
+        const safeTarget = normTarget && (vFieldKeys.has(normTarget) ? normTarget : fLowerMap.get(String(normTarget).toLowerCase()) || null);
+
+        return {
+          ...(typeof r.id === 'string' && UUID_REGEX.test(r.id) ? { id: r.id } : {}),
+          stock_product_key: r.stockProductKey || r.stock_product_key || '',
+          stock_product_label: r.stockProductLabel || r.stock_product_label || '',
+          stock_section: r.stockSection || r.stock_section || '',
+          stock_particular: r.stockParticular || r.stock_particular || '',
+          stg_block_key: r.stgBlockKey || r.stg_block_key || r.statement_key || '',
+          stg_block_label: r.stgBlockLabel || r.stg_block_label || '',
+          stg_section: r.stgSection || r.stg_section || r.section_key || '',
+          stg_item_name: r.stgItemName || r.stg_item_name || '',
+          stg_target_field: normTarget,
+          statement_key: r.statement_key || r.stgBlockKey || r.stg_block_key,
+          section_key: safeSec || null,
+          target_field: safeTarget || null,
+          source_stage: r.source_stage || 'stage2',
+          enabled: r.enabled !== false,
+          created_by: actorUsername,
+          updated_by: actorUsername,
+        };
+      });
 
       if (toInsert.length > 0) {
         const { data: insData, error: insErr } = await supabase
           .from('statement_mapping_rules')
-          .insert(toInsert)
-          .select('*');
+          .upsert(toInsert)
+          .select('id, stock_product_key, stock_product_label, stock_section, stock_particular, stg_block_key, stg_block_label, stg_section, stg_item_name, stg_target_field');
 
         if (insErr) {
           console.error('Error writing to statement_mapping_rules:', insErr);

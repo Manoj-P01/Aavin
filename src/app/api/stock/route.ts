@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getSupabaseServiceClient } from '@/lib/supabase';
+import { getProducts } from '@/lib/masters';
 import type { StockRow, Shift, Entry } from '@/lib/types';
 
 // GET /api/stock?date=YYYY-MM-DD&shift=D|N  OR  ?date=YYYY-MM-DD (both shifts)
@@ -19,14 +20,13 @@ export async function GET(req: NextRequest) {
     if (entry_id) {
       let summaryData: any[] = [];
       try {
-        const { data: sData } = await supabase.from('stock_summary_rows').select('*').eq('entry_id', entry_id).order('sort_order');
+        const { data: sData } = await supabase.from('stock_summary_rows').select('id, entry_id, summary_type, row_label, summary_data, sort_order').eq('entry_id', entry_id).order('sort_order');
         if (Array.isArray(sData)) summaryData = sData;
-      } catch (e) {}
+      } catch (e) { }
 
-      const [entryRes, rowsRes, sepRes] = await Promise.all([
+      const [entryRes, rowsRes] = await Promise.all([
         supabase.from('entries').select('id, entry_date, shift, notes').eq('id', entry_id).single(),
-        supabase.from('stock_rows').select('*').eq('entry_id', entry_id).order('sort_order'),
-        supabase.from('separation_details').select('*').eq('entry_id', entry_id).single(),
+        supabase.from('stock_rows').select('id, entry_id, row_type, row_label, entry_json, sort_order').eq('entry_id', entry_id).order('sort_order'),
       ]);
 
       const unpackedRows: any[] = [];
@@ -55,7 +55,6 @@ export async function GET(req: NextRequest) {
           stock_rows: unpackedRows,
           raw_stock_rows: rowsRes.data || [],
           stock_summary_rows: summaryData,
-          separation_details: sepRes.data || null
         },
       });
     }
@@ -75,7 +74,7 @@ export async function GET(req: NextRequest) {
         .eq('report_type', 'STOCK')
         .gte('entry_date', start)
         .lte('entry_date', end)
-        .order('entry_date')
+        .order('entry_date', { ascending: false })
         .order('shift');
       if (error) throw error;
       return NextResponse.json({ data });
@@ -110,14 +109,15 @@ export async function GET(req: NextRequest) {
     const entryIds = entries.map(e => e.id);
     let summaryData: any[] = [];
     try {
-      const { data: sData } = await supabase.from('stock_summary_rows').select('*').in('entry_id', entryIds).order('sort_order');
+      const { data: sData } = await supabase.from('stock_summary_rows').select('id, entry_id, summary_type, row_label, summary_data, sort_order').in('entry_id', entryIds).order('sort_order');
       if (Array.isArray(sData)) summaryData = sData;
-    } catch (e) {}
+    } catch (e) { }
 
-    const [rowsRes, sepRes] = await Promise.all([
-      supabase.from('stock_rows').select('*').in('entry_id', entryIds).order('sort_order'),
-      supabase.from('separation_details').select('*').in('entry_id', entryIds),
-    ]);
+    const rowsRes = await supabase
+      .from('stock_rows')
+      .select('id, entry_id, row_type, row_label, entry_json, sort_order')
+      .in('entry_id', entryIds)
+      .order('sort_order');
 
     const unpackedRows: any[] = [];
     (rowsRes.data || []).forEach((r: any) => {
@@ -145,7 +145,6 @@ export async function GET(req: NextRequest) {
         stock_rows: unpackedRows,
         raw_stock_rows: rowsRes.data || [],
         stock_summary_rows: summaryData,
-        separation_details: sepRes.data || [],
       },
     });
   } catch (err: unknown) {
@@ -158,32 +157,37 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
-    const { entry_id, stock_rows, stock_summary_rows, separation_details } = body as {
+    const { entry_id, stock_rows, stock_summary_rows } = body as {
       entry_id: string;
       stock_rows: Partial<StockRow>[];
       stock_summary_rows?: any[];
-      separation_details?: Record<string, number>;
     };
 
     if (!entry_id) return NextResponse.json({ error: 'entry_id required' }, { status: 400 });
 
     const actorUsername = req.headers.get('x-user-name') || 'admin';
     const normalizeColKey = (k: string) => k.trim().replace(/\.+/g, '_').replace(/_+/g, '_').toLowerCase();
-    
+
     const supabase = getSupabaseServiceClient();
 
     // Load dynamic product columns strictly from database products_master table
     let finalCols: string[] = [];
     try {
-      const { data: dbProds } = await supabase.from('products_master').select('product_key').eq('is_active', true).order('sort_order', { ascending: true });
+      const dbProds = await getProducts();
       if (Array.isArray(dbProds) && dbProds.length > 0) {
         finalCols = dbProds.map(p => normalizeColKey(p.product_key));
       }
-    } catch (e) {}
+    } catch (e) { }
 
-    // Fallback standard default column list if database products_master is empty
+    // Fallback dynamically from submitted rows if products_master is empty
     if (finalCols.length === 0) {
-      finalCols = ['wh_milk', 'dlt_milk', 'fc_milk', 'std_milk', 'dtm', 'skim_milk', 'cream', 'butter_milk', 'r_con', 'smp', 'water'];
+      const keys = new Set<string>();
+      (stock_rows || []).forEach((r: any) => {
+        if (r.values && typeof r.values === 'object') {
+          Object.keys(r.values).forEach(k => keys.add(normalizeColKey(k)));
+        }
+      });
+      finalCols = Array.from(keys);
     }
 
     // 1. Group rows by section type: OB, RECEIPT, DISPOSAL (and any custom row_types)
@@ -408,12 +412,9 @@ export async function POST(req: NextRequest) {
     // Store stock_summary_rows strictly in DB table
     try {
       await supabase.from('stock_summary_rows').delete().eq('entry_id', entry_id);
-    } catch (e) {}
+    } catch (e) { }
 
-    await Promise.all([
-      supabase.from('stock_rows').delete().eq('entry_id', entry_id),
-      supabase.from('separation_details').delete().eq('entry_id', entry_id),
-    ]);
+    await supabase.from('stock_rows').delete().eq('entry_id', entry_id);
 
     if (rowsToInsert.length > 0) {
       const { error: insertErr } = await supabase.from('stock_rows').insert(rowsToInsert);
@@ -422,10 +423,6 @@ export async function POST(req: NextRequest) {
         console.error('Failed to insert stock_rows in Supabase:', insertErr);
         throw new Error(`Failed to insert stock rows: ${insertErr.message}`);
       }
-    }
-
-    if (separation_details) {
-      await supabase.from('separation_details').insert({ entry_id, ...separation_details });
     }
 
     if (finalSummaryRows.length > 0) {

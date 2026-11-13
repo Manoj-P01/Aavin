@@ -6,7 +6,19 @@ import { usePathname } from 'next/navigation';
 import { useSidebar } from '@/context/SidebarContext';
 import { useConfirm } from '@/context/ConfirmContext';
 
-const NAV_SECTIONS = [
+interface NavItem {
+  href?: string;
+  action?: string;
+  icon: string;
+  label: string;
+}
+
+interface NavSection {
+  label: string;
+  items: NavItem[];
+}
+
+const NAV_SECTIONS: NavSection[] = [
   {
     label: 'Overview',
     items: [
@@ -17,17 +29,18 @@ const NAV_SECTIONS = [
   {
     label: 'Chart Preparation',
     items: [
-      { href: '/dashboard/stock/preparation-charts/masters', icon: '📊', label: 'Chart Names Master' },
-      { href: '/dashboard/stock/preparation-charts/defaults', icon: '⭐', label: 'Master Default Formulations' },
-      { href: '/dashboard/stock/preparation-charts/columns', icon: '⚙️', label: 'Chart Columns Config' },
       { href: '/dashboard/stock/new?step=prep', icon: '📋', label: 'Preparation Charts' },
+      { href: '/dashboard/stock/preparation-charts/defaults', icon: '⭐', label: 'Master Charts' },
+      { href: '/dashboard/stock/preparation-charts/masters', icon: '📊', label: 'Chart Names Master' },
+      { href: '/dashboard/stock/preparation-charts/columns', icon: '⚙️', label: 'Chart Columns Config' },
+      { href: '/dashboard/stock/preparation-charts/report', icon: '🧾', label: 'Prep Chart Report' },
     ],
   },
   {
     label: 'Stock Statement',
     items: [
       { href: '/dashboard/stock/new?step=stock', icon: '📦', label: 'New Stock Statement Entry' },
-      { href: '/dashboard/stock/defaults', icon: '⭐', label: 'Master Default Statement' },
+      { href: '/dashboard/stock/defaults', icon: '⭐', label: 'Master Stock Statement' },
       { href: '/dashboard/stock', icon: '📋', label: 'Stock Register' },
       { href: '/dashboard/stock/products', icon: '🥛', label: 'Products List' },
     ],
@@ -36,8 +49,8 @@ const NAV_SECTIONS = [
     label: 'STG Entry',
     items: [
       { href: '/dashboard/stock/new?step=stg', icon: '⚖️', label: 'New STG Entry' },
+      { href: '/dashboard/ts/manage-statements/defaults', icon: '⭐', label: 'STG Default Formulations' },
       { href: '/dashboard/ts/manage-statements', icon: '📊', label: 'Statement Master Names' },
-      { href: '/dashboard/ts/manage-statements/defaults', icon: '⭐', label: 'Master Default Statements' },
       { href: '/dashboard/ts/manage-statements/columns', icon: '⚙️', label: 'Statement Columns Config' },
       { href: '/dashboard/ts/mappings', icon: '🔗', label: 'Solid Balance STG Mapping' },
     ],
@@ -46,10 +59,10 @@ const NAV_SECTIONS = [
     label: 'Total Solids (TS)',
     items: [
       { href: '/dashboard/stock/new?step=ts', icon: '🧪', label: 'New TS Entry' },
-      { href: '/dashboard/ts/defaults', icon: '⭐', label: 'Master Default Statement' },
-      { href: '/dashboard/ts/columns', icon: '⚙️', label: 'Statement Columns Config' },
-      { href: '/dashboard/ts/ts-mappings', icon: '🔗', label: 'STG ➔ TS Mapping' },
+      { href: '/dashboard/ts/defaults', icon: '⭐', label: 'TS Default Formulations' },
       { href: '/dashboard/ts', icon: '📄', label: 'Total Solids Register' },
+      { href: '/dashboard/ts/columns', icon: '⚙️', label: 'TS Statement Columns Config' },
+      { href: '/dashboard/ts/ts-mappings', icon: '🔗', label: 'STG ➔ TS Statement Mapping' },
     ],
   },
   {
@@ -65,6 +78,7 @@ const NAV_SECTIONS = [
   {
     label: 'Configuration',
     items: [
+      { href: '/dashboard/setup', icon: '📋', label: 'Setup Checklist' },
       { href: '/dashboard/ts/config', icon: '🧮', label: 'STG Calculation Settings' },
       { action: 'settings', icon: '🔧', label: 'Shift Settings' },
     ],
@@ -73,11 +87,11 @@ const NAV_SECTIONS = [
 
 const checkItemActive = (href: string, pathname: string, currentStep?: string | null) => {
   if (href === '/dashboard') return pathname === '/dashboard';
-  
+
   const [baseHref, queryString] = href.split('?');
   const hrefSegments = baseHref.split('/');
   const pathSegments = pathname.split('/');
-  
+
   if (baseHref === '/dashboard/stock/new') {
     if (pathname !== '/dashboard/stock/new') return false;
     const itemParams = new URLSearchParams(queryString || '');
@@ -86,37 +100,51 @@ const checkItemActive = (href: string, pathname: string, currentStep?: string | 
     return itemStep === effectiveCurrentStep;
   }
 
+  if (href === '/dashboard/stock/preparation-charts/report') {
+    return pathname === '/dashboard/stock/preparation-charts/report';
+  }
+
   if (href === '/dashboard/ts') {
-    return pathSegments[1] === 'dashboard' && 
-           pathSegments[2] === 'ts' && 
-           !['new', 'new-stg', 'config', 'mappings', 'manage-statements', 'defaults', 'columns', 'ts-mappings'].includes(pathSegments[3]);
+    return pathSegments[1] === 'dashboard' &&
+      pathSegments[2] === 'ts' &&
+      !['new', 'new-stg', 'config', 'mappings', 'manage-statements', 'defaults', 'columns', 'ts-mappings'].includes(pathSegments[3]);
   }
   if (href === '/dashboard/stock') {
-    return pathSegments[1] === 'dashboard' && 
-           pathSegments[2] === 'stock' && 
-           pathSegments[3] !== 'new' &&
-           pathSegments[3] !== 'products' &&
-           pathSegments[3] !== 'mappings' &&
-           pathSegments[3] !== 'partitions' &&
-           pathSegments[3] !== 'preparation-charts' &&
-           pathSegments[3] !== 'periodical' &&
-           pathSegments[3] !== 'defaults';
+    return pathSegments[1] === 'dashboard' &&
+      pathSegments[2] === 'stock' &&
+      pathSegments[3] !== 'new' &&
+      pathSegments[3] !== 'products' &&
+      pathSegments[3] !== 'mappings' &&
+      pathSegments[3] !== 'partitions' &&
+      pathSegments[3] !== 'preparation-charts' &&
+      pathSegments[3] !== 'periodical' &&
+      pathSegments[3] !== 'defaults';
   }
 
   if (href === '/dashboard/ts/manage-statements') {
     return pathname === '/dashboard/ts/manage-statements';
   }
-  
+
   return hrefSegments.every((seg: string, idx: number) => pathSegments[idx] === seg);
 };
 
 const getInitialSections = (currentPathname: string): Record<string, boolean> => {
-  const initial: Record<string, boolean> = {};
+  const initial: Record<string, boolean> = {
+    'Overview': true,
+    'Chart Preparation': true,
+    'Stock Statement': true,
+    'STG Entry': true,
+    'Total Solids (TS)': true,
+    'Rule Mapping': true,
+    'Configuration': true,
+  };
   NAV_SECTIONS.forEach(sec => {
     const containsActive = sec.items.some(
-      item => 'href' in item && typeof item.href === 'string' && checkItemActive(item.href, currentPathname)
+      item => item.href && checkItemActive(item.href, currentPathname)
     );
-    initial[sec.label] = sec.label === 'Overview' || containsActive;
+    if (containsActive) {
+      initial[sec.label] = true;
+    }
   });
   return initial;
 };
@@ -140,8 +168,7 @@ export default function Sidebar() {
   const { sidebarOpen, setSidebarOpen, setConfigOpen } = useSidebar();
   const { confirm } = useConfirm();
 
-  // Manage open/collapsed state of accordion sections
-  // Initial state is computed deterministically from pathname on both server and client to avoid hydration mismatch
+  // Accordion Sections State
   const [openSections, setOpenSections] = useState<Record<string, boolean>>(() => {
     return getInitialSections(pathname);
   });
@@ -149,22 +176,9 @@ export default function Sidebar() {
   // Reconcile saved preferences from localStorage only after client hydration
   useEffect(() => {
     try {
-      const saved = localStorage.getItem('aavin_sidebar_sections_state');
-      if (saved) {
-        const parsed = JSON.parse(saved);
-        setOpenSections(prev => {
-          const updated = { ...prev, ...parsed };
-          // Always ensure the active route's section stays open
-          NAV_SECTIONS.forEach(sec => {
-            const containsActive = sec.items.some(
-              item => 'href' in item && typeof item.href === 'string' && checkItemActive(item.href, pathname)
-            );
-            if (containsActive) {
-              updated[sec.label] = true;
-            }
-          });
-          return updated;
-        });
+      const savedSections = localStorage.getItem('aavin_sidebar_sections_state_v4');
+      if (savedSections) {
+        setOpenSections(prev => ({ ...prev, ...JSON.parse(savedSections) }));
       }
     } catch (e) {
       // ignore
@@ -175,33 +189,29 @@ export default function Sidebar() {
   useEffect(() => {
     NAV_SECTIONS.forEach(sec => {
       const containsActive = sec.items.some(
-        item => 'href' in item && typeof item.href === 'string' && checkItemActive(item.href, pathname)
+        item => item.href && checkItemActive(item.href, pathname, currentStep)
       );
       if (containsActive) {
-        setOpenSections(prev => {
-          if (prev[sec.label]) return prev;
-          const updated = { ...prev, [sec.label]: true };
-          try {
-            localStorage.setItem('aavin_sidebar_sections_state', JSON.stringify(updated));
-          } catch (e) {}
-          return updated;
-        });
+        setOpenSections(prev => ({ ...prev, [sec.label]: true }));
       }
     });
-  }, [pathname]);
+  }, [pathname, currentStep]);
 
   const toggleSection = (label: string) => {
     setOpenSections(prev => {
       const updated = { ...prev, [label]: !prev[label] };
       try {
-        localStorage.setItem('aavin_sidebar_sections_state', JSON.stringify(updated));
-      } catch (e) {}
+        localStorage.setItem('aavin_sidebar_sections_state_v4', JSON.stringify(updated));
+      } catch (e) { }
       return updated;
     });
   };
 
   const handleLinkClick = () => {
-    // Do not auto-close sidebar on link click.
+    // Auto-close on mobile only (< 768px)
+    if (typeof window !== 'undefined' && window.innerWidth < 768) {
+      setSidebarOpen(false);
+    }
   };
 
   const handleLogout = async () => {
@@ -225,22 +235,40 @@ export default function Sidebar() {
   };
 
   return (
-    <aside className="sidebar">
-      {/* Brand */}
-      <Link href="/dashboard" className="sidebar-brand" onClick={handleLinkClick}>
-        <div className="brand-logo">🥛</div>
-        <div className="brand-text">
-          <span className="brand-name">Aavin Dashboard</span>
-          <span className="brand-sub">NKL Dairy Union</span>
-        </div>
-      </Link>
+    <aside className={`sidebar ${sidebarOpen ? 'mobile-open' : ''}`}>
+      {/* Brand & Toggle */}
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderBottom: '1px solid var(--border)' }}>
+        <Link href="/dashboard" className="sidebar-brand" style={{ flex: 1, borderBottom: 'none' }} onClick={handleLinkClick}>
+          <div className="brand-logo">🥛</div>
+          <div className="brand-text">
+            <span className="brand-name">{process.env.NEXT_PUBLIC_APP_NAME || 'Aavin Dashboard'}</span>
+            <span className="brand-sub">{process.env.NEXT_PUBLIC_ORG_SHORT || 'NKL Dairy Union'}</span>
+          </div>
+        </Link>
+        <button
+          type="button"
+          onClick={() => setSidebarOpen(!sidebarOpen)}
+          title={sidebarOpen ? 'Collapse sidebar' : 'Expand sidebar'}
+          className="no-print"
+          style={{
+            background: 'transparent',
+            border: 'none',
+            color: 'var(--text-muted, #64748b)',
+            padding: '8px 12px',
+            cursor: 'pointer',
+            fontSize: '1rem',
+          }}
+        >
+          {sidebarOpen ? '◀' : '▶'}
+        </button>
+      </div>
 
       {/* Navigation Accordion */}
       <div style={{ flex: 1, overflowY: 'auto' }}>
         {NAV_SECTIONS.map(section => {
           const isOpen = !!openSections[section.label];
           const hasActiveItem = section.items.some(
-            item => 'href' in item && typeof item.href === 'string' && checkItemActive(item.href, pathname)
+            item => item.href && checkItemActive(item.href, pathname, currentStep)
           );
 
           return (
@@ -275,7 +303,7 @@ export default function Sidebar() {
                 <div className="sidebar-section-content">
                   <ul className="sidebar-nav">
                     {section.items.map(item => {
-                      if ('action' in item && item.action === 'settings') {
+                      if (item.action === 'settings') {
                         return (
                           <li key="settings">
                             <button
@@ -292,7 +320,7 @@ export default function Sidebar() {
                           </li>
                         );
                       }
-                      const href = (item as any).href;
+                      const href = item.href!;
                       const isActive = checkItemActive(href, pathname, currentStep);
                       return (
                         <li key={href}>
@@ -355,7 +383,7 @@ export default function Sidebar() {
           </button>
         </div>
         <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)', lineHeight: 1.4 }}>
-          Namakkal District Co-operative Milk Producers' Union Ltd
+          {process.env.NEXT_PUBLIC_ORG_NAME || "Namakkal District Co-operative Milk Producers' Union Ltd"}
         </div>
       </div>
     </aside>

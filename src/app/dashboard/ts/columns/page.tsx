@@ -4,6 +4,8 @@ import { useState, useEffect } from 'react';
 import Header from '@/components/layout/Header';
 import Link from 'next/link';
 import { useConfirm } from '@/context/ConfirmContext';
+import StickyActionBar from '@/components/ui/StickyActionBar';
+import KeyField, { executeKeyRename } from '@/components/ui/KeyField';
 
 export interface TSColumnDef {
   key: string;
@@ -32,7 +34,7 @@ export default function TSColumnsConfigPage() {
   const [formUnit, setFormUnit] = useState('');
   const [formDecimals, setFormDecimals] = useState<number | undefined>(undefined);
 
-  const { confirm } = useConfirm();
+  const { confirm, showError } = useConfirm();
 
   useEffect(() => {
     loadColumns();
@@ -131,7 +133,7 @@ export default function TSColumnsConfigPage() {
     setHasUnsavedChanges(true);
   };
 
-  const handleModalSave = (e: React.FormEvent) => {
+  const handleModalSave = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!formKey.trim() || !formName.trim()) {
       showToast('❌ Key and Name are required');
@@ -143,6 +145,17 @@ export default function TSColumnsConfigPage() {
     if (!editingKey && columns.some(c => c.key === cleanKey)) {
       showToast('❌ A column with this key already exists');
       return;
+    }
+
+    if (editingKey && cleanKey !== editingKey) {
+      const renameRes = await executeKeyRename({
+        scope: 'ts_column',
+        oldKey: editingKey,
+        newKey: cleanKey,
+        confirm,
+        showError,
+      });
+      if (!renameRes.success) return;
     }
 
     const newCol: TSColumnDef = {
@@ -217,36 +230,15 @@ export default function TSColumnsConfigPage() {
           </div>
         )}
 
-        {hasUnsavedChanges && (
-          <div
-            style={{
-              background: '#fef3c7',
-              border: '1px solid #f59e0b',
-              color: '#92400e',
-              padding: '12px 18px',
-              borderRadius: 8,
-              marginBottom: 16,
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'space-between',
-              boxShadow: '0 1px 3px rgba(0,0,0,0.05)',
-            }}
-          >
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <span style={{ fontSize: '1.2rem' }}>⚠️</span>
-              <span style={{ fontWeight: 600 }}>You have unsaved column changes.</span>
-              <span style={{ fontSize: '0.875rem' }}>Remember to click &quot;Save Columns Configuration&quot; to apply to TS Entry and Register.</span>
-            </div>
-            <button
-              onClick={() => saveColumnsToApi(columns, 'TS column configuration saved successfully!')}
-              disabled={saving}
-              className="btn btn-primary btn-sm"
-              style={{ padding: '6px 14px' }}
-            >
-              {saving ? 'Saving...' : 'Save Changes'}
-            </button>
-          </div>
-        )}
+        <StickyActionBar
+          hasChanges={hasUnsavedChanges}
+          message="You have unsaved column changes."
+          onDiscard={() => {
+            loadColumns();
+            setHasUnsavedChanges(false);
+          }}
+          discardLabel="Discard"
+        />
 
         <div className="card" style={{ padding: 20 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
@@ -507,21 +499,20 @@ export default function TSColumnsConfigPage() {
                   />
                 </div>
 
-                <div>
-                  <label className="form-label" style={{ fontWeight: 600, fontSize: '0.85rem' }}>
-                    Field Key <span style={{ color: 'red' }}>*</span>
-                  </label>
-                  <input
-                    type="text"
-                    required
-                    disabled={!!editingKey}
-                    className="form-input"
-                    placeholder="e.g. qty_lts"
-                    value={formKey}
-                    onChange={e => setFormKey(e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, '_'))}
-                    style={{ background: editingKey ? '#f1f5f9' : undefined }}
-                  />
-                </div>
+                <KeyField
+                  label="Field Key"
+                  value={formKey}
+                  onChange={setFormKey}
+                  originalKey={editingKey}
+                  scope="ts_column"
+                  existingKeys={columns.map(c => c.key)}
+                  placeholder="e.g. qty_lts"
+                  onRenameComplete={(oldKey, newKey) => {
+                    setColumns(prev => prev.map(c => c.key === oldKey ? { ...c, key: newKey } : c));
+                    setEditingKey(newKey);
+                    showToast(`⚡ Renamed key "${oldKey}" ➔ "${newKey}"`);
+                  }}
+                />
               </div>
 
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14, marginBottom: 14 }}>

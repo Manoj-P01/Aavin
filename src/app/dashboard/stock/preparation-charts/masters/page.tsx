@@ -8,6 +8,8 @@ import type { ChartMasterDef } from '@/app/api/stock/preparation-charts/route';
 
 export default function ChartMastersConfigPage() {
   const [masters, setMasters] = useState<ChartMasterDef[]>([]);
+  const [originalMasters, setOriginalMasters] = useState<ChartMasterDef[]>([]);
+  const [hasUnsavedChanges, setHasUnsavedChanges] = useState<boolean>(false);
   const [loading, setLoading] = useState<boolean>(true);
   const [saving, setSaving] = useState<boolean>(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
@@ -37,6 +39,8 @@ export default function ChartMastersConfigPage() {
           const json = await res.json();
           if (Array.isArray(json.masters)) {
             setMasters(json.masters);
+            setOriginalMasters(json.masters);
+            setHasUnsavedChanges(false);
           }
         }
       } catch (err) {
@@ -80,32 +84,21 @@ export default function ChartMastersConfigPage() {
 
   const handleDelete = async (key: string, name: string) => {
     const isConfirmed = await confirm({
-      title: 'Delete Preparation Chart',
-      message: `Are you sure you want to delete "${name}"? Users will no longer see this chart on the preparation dashboard.`,
-      confirmText: 'Delete Chart',
+      title: 'Remove Preparation Chart',
+      message: `Remove chart "${name}" from this list? Click "Save Chart Names to DB" to store changes in the database.`,
+      confirmText: 'Remove Chart',
       cancelText: 'Cancel',
       type: 'warning',
     });
 
     if (!isConfirmed) return;
 
-    try {
-      const res = await fetch(`/api/stock/preparation-charts?master_key=${encodeURIComponent(key)}`, {
-        method: 'DELETE',
-      });
-      if (res.ok) {
-        setMasters(prev => prev.filter(m => m.key !== key));
-        showToast(`✅ Deleted chart "${name}" from database`);
-      } else {
-        showToast('❌ Failed to delete chart from database');
-      }
-    } catch (err) {
-      console.error('Delete master error:', err);
-      showToast('❌ Error connecting to database');
-    }
+    setMasters(prev => prev.filter(m => m.key !== key));
+    setHasUnsavedChanges(true);
+    showToast(`🗑️ Removed "${name}" from list (unsaved)`);
   };
 
-  const handleMove = async (index: number, direction: 'up' | 'down') => {
+  const handleMove = (index: number, direction: 'up' | 'down') => {
     const targetIndex = direction === 'up' ? index - 1 : index + 1;
     if (targetIndex < 0 || targetIndex >= masters.length) return;
 
@@ -116,10 +109,24 @@ export default function ChartMastersConfigPage() {
 
     const reindexed = copy.map((m, i) => ({ ...m, sort_order: i + 1 }));
     setMasters(reindexed);
-    await saveMastersToApi(reindexed, 'Reordered preparation charts');
+    setHasUnsavedChanges(true);
   };
 
-  const handleSaveModal = async (e: React.FormEvent) => {
+  const handleDiscard = async () => {
+    const isConfirmed = await confirm({
+      title: 'Discard Unsaved Changes',
+      message: 'Are you sure you want to discard all unsaved chart changes and revert to the saved database configuration?',
+      confirmText: 'Discard Changes',
+      cancelText: 'Keep Editing',
+      type: 'warning',
+    });
+    if (!isConfirmed) return;
+    setMasters([...originalMasters]);
+    setHasUnsavedChanges(false);
+    showToast('↩️ Discarded unsaved changes');
+  };
+
+  const handleSaveModal = (e: React.FormEvent) => {
     e.preventDefault();
 
     if (!formName.trim()) {
@@ -154,8 +161,9 @@ export default function ChartMastersConfigPage() {
     }
 
     setMasters(updated);
+    setHasUnsavedChanges(true);
     setIsModalOpen(false);
-    await saveMastersToApi(updated, editingKey ? `Updated "${newMaster.name}"` : `Created "${newMaster.name}"`);
+    showToast(editingKey ? `✏️ Updated "${newMaster.name}" in list (unsaved)` : `➕ Added "${newMaster.name}" to list (unsaved)`);
   };
 
   const saveMastersToApi = async (mastersToSave: ChartMasterDef[], successMsg: string) => {
@@ -167,9 +175,11 @@ export default function ChartMastersConfigPage() {
         body: JSON.stringify({ masters: mastersToSave }),
       });
       if (res.ok) {
+        setOriginalMasters(mastersToSave);
+        setHasUnsavedChanges(false);
         showToast(`✅ ${successMsg}`);
       } else {
-        showToast('❌ Failed to save chart masters');
+        showToast('❌ Failed to save chart masters to database');
       }
     } catch (err) {
       console.error('Error saving masters:', err);
@@ -178,17 +188,56 @@ export default function ChartMastersConfigPage() {
     setSaving(false);
   };
 
+  const handleSaveAllToDb = async () => {
+    await saveMastersToApi(masters, 'All chart master names saved to database successfully!');
+  };
+
+  const handleNavigate = async (e: React.MouseEvent<HTMLAnchorElement>, href: string) => {
+    if (hasUnsavedChanges) {
+      e.preventDefault();
+      const isConfirmed = await confirm({
+        title: 'Unsaved Changes',
+        message: 'You have unsaved chart changes. If you leave now, these changes will be lost. Do you want to discard them and continue?',
+        confirmText: 'Discard & Leave',
+        cancelText: 'Stay on Page',
+        type: 'warning',
+      });
+      if (isConfirmed) {
+        window.location.href = href;
+      }
+    }
+  };
+
   return (
     <>
       <Header
         title="Preparation Chart Master Names"
         subtitle="Create, edit & delete Preparation Chart names for milk & cream batch formulations"
         actions={
-          <div style={{ display: 'flex', gap: 10 }}>
-            <Link href="/dashboard/stock/preparation-charts/defaults" className="btn btn-secondary btn-sm" style={{ color: '#b45309', borderColor: '#fde68a', background: '#fffbeb', fontWeight: 700 }}>
-              ⭐ Master Default Formulations
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+            <Link
+              href="/dashboard/stock/preparation-charts/columns"
+              className="btn btn-secondary btn-sm"
+              onClick={e => handleNavigate(e, '/dashboard/stock/preparation-charts/columns')}
+              title="Manage Dynamic Preparation Chart Columns"
+            >
+              ⚙️ Chart Columns Config
             </Link>
-            <Link href="/dashboard/stock/preparation-charts" className="btn btn-secondary btn-sm">
+            <Link
+              href="/dashboard/stock/preparation-charts/defaults"
+              className="btn btn-secondary btn-sm"
+              style={{ color: '#b45309', borderColor: '#fde68a', background: '#fffbeb', fontWeight: 700 }}
+              onClick={e => handleNavigate(e, '/dashboard/stock/preparation-charts/defaults')}
+              title="Manage Master Default Formulations"
+            >
+              ⭐ Master Charts
+            </Link>
+            <Link
+              href="/dashboard/stock/preparation-charts"
+              className="btn btn-secondary btn-sm"
+              onClick={e => handleNavigate(e, '/dashboard/stock/preparation-charts')}
+              title="Back to Preparation Charts Dashboard"
+            >
               📋 Preparation Charts Dashboard
             </Link>
           </div>
@@ -217,25 +266,48 @@ export default function ChartMastersConfigPage() {
           </div>
         )}
 
-        {/* Info Card */}
-        <div className="card" style={{ marginBottom: 20, padding: 16, borderLeft: '4px solid #0284c7' }}>
-          <div style={{ fontWeight: 700, fontSize: '0.9rem', color: '#0284c7', marginBottom: 4 }}>
-            📋 Preparation Chart Templates
-          </div>
-          <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', lineHeight: 1.5 }}>
-            Each Chart Name created here generates a preparation formulation table on the <strong>Preparation Charts Dashboard</strong> before Stock Statement Entry.
-          </div>
-        </div>
-
         {/* Masters Table */}
         <div className="card">
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '14px 18px', borderBottom: '1px solid var(--border)' }}>
-            <div style={{ fontWeight: 700, fontSize: '0.95rem', color: 'var(--text-primary)' }}>
-              📊 Chart Master Names ({masters.length})
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '14px 18px', borderBottom: '1px solid var(--border)', flexWrap: 'wrap', gap: 10 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              <div style={{ fontWeight: 700, fontSize: '0.95rem', color: 'var(--text-primary)' }}>
+                📊 Chart Master Names ({masters.length})
+              </div>
+              {hasUnsavedChanges && (
+                <span style={{ fontSize: '0.75rem', fontWeight: 700, padding: '2px 8px', borderRadius: 6, background: '#fef3c7', color: '#92400e', border: '1px solid #fde68a' }}>
+                  ⚠️ Unsaved Changes
+                </span>
+              )}
             </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-              {saving && <span style={{ fontSize: '0.75rem', color: 'var(--brand-primary)', fontWeight: 600 }}>💾 Saving to server...</span>}
-              <button type="button" className="btn btn-primary btn-sm" onClick={handleOpenAdd}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+              {hasUnsavedChanges && (
+                <button
+                  type="button"
+                  className="btn btn-secondary btn-sm"
+                  onClick={handleDiscard}
+                  disabled={saving}
+                  style={{ fontWeight: 600 }}
+                  title="Discard unsaved changes and reload from database"
+                >
+                  ↩️ Discard Changes
+                </button>
+              )}
+              <button
+                type="button"
+                className="btn btn-primary btn-sm"
+                onClick={handleSaveAllToDb}
+                disabled={saving || (!hasUnsavedChanges && masters.length === originalMasters.length)}
+                style={{
+                  background: hasUnsavedChanges ? '#16a34a' : undefined,
+                  borderColor: hasUnsavedChanges ? '#15803d' : undefined,
+                  fontWeight: 700,
+                  boxShadow: hasUnsavedChanges ? '0 1px 3px rgba(22, 163, 74, 0.3)' : undefined,
+                }}
+                title="Store all configured chart names in database"
+              >
+                {saving ? '💾 Saving to DB...' : '💾 Save Chart Names to DB'}
+              </button>
+              <button type="button" className="btn btn-secondary btn-sm" onClick={handleOpenAdd}>
                 ➕ Add Chart Name
               </button>
             </div>

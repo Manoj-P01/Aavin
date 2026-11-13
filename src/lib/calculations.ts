@@ -1,6 +1,6 @@
 // ─────────────────────────────────────────────────────────────────────────────
 // Aavin Dashboard – Core Calculations
-// Mirrors exact Excel formulas from 01-06-2026-TS.xlsx and JUNE26.xlsx
+// Formula-driven calculations evaluated via database column and field definitions
 // ─────────────────────────────────────────────────────────────────────────────
 
 import type {
@@ -9,6 +9,7 @@ import type {
   StockColumns, TSSection,
 } from './types';
 import { CALC_CONFIG } from './config';
+import { evaluateFormula } from './formulaEvaluator';
 
 // ─── Helper ───────────────────────────────────────────────────────────────────
 
@@ -26,18 +27,17 @@ export function getStandardColumnDecimals(key: string, explicitDecimals?: number
   if (explicitDecimals !== undefined && explicitDecimals !== null && explicitDecimals >= 0) {
     return explicitDecimals;
   }
-  const cleanKey = (key || '').toLowerCase();
-  if (cleanKey.includes('sp_gr')) return 3; // e.g. 1.029
-  if (cleanKey.includes('fat_pct') || cleanKey.includes('snf_pct')) return 2; // e.g. 4.50%, 8.50%
-  if (cleanKey.includes('kg_fat') || cleanKey.includes('kg_snf')) return 3; // e.g. 45.305
-  if (cleanKey.includes('qty_kg')) return 2; // e.g. 1029.00
-  if (cleanKey.includes('qty_lit') || cleanKey.includes('qty')) return 1; // e.g. 1000.0
-  return 2; // Default 2 decimal places for any other numeric column
+  return 3;
 }
 
-// ─── Per-row calculations ─────────────────────────────────────────────────────
+// ─── Dynamic Formula Evaluation ───────────────────────────────────────────────
 
-/** Calculate Kg Fat and Kg SNF from Qty(Kg), Fat%, SNF% */
+/** Evaluate any mathematical formula string against row values context */
+export function evaluateRowFormula(formula: string, rowValues: Record<string, number>): number {
+  return evaluateFormula(formula, rowValues);
+}
+
+/** Calculate Kg Fat and Kg SNF using row values or config divisor */
 export function calcKgFatSnf(qty_kg: number, fat_pct: number, snf_pct: number, config = CALC_CONFIG) {
   return {
     kg_fat: round((qty_kg * fat_pct) / config.KG_FAT.DIVISOR, config.KG_FAT.TS_DECIMALS),
@@ -55,19 +55,17 @@ export function calcQtyKg(qty_lts: number, sp_gr: number, config = CALC_CONFIG):
 const ARRIVAL_SECTIONS: TSSection[] = ['OB', 'RECEIPT'];
 const DISPOSAL_SECTIONS: TSSection[] = ['DISPOSAL_DESPATCH', 'LOCAL_SALE', 'OTHER_DISPOSAL', 'CB'];
 
-export function getStatementShortName(stmt: { key: string; label: string }): string {
-  if (stmt.key === 'WM') return 'WM';
-  if (stmt.key === 'SSM') return 'SSM';
-  if (stmt.key === 'CREAM') return 'CREAM';
-  return stmt.label.toUpperCase();
+export function getStatementShortName(stmt: { key: string; label: string; variant?: string }): string {
+  if (stmt.variant && stmt.variant.trim()) return stmt.variant.trim().toUpperCase();
+  return (stmt.label || stmt.key).toUpperCase();
 }
 
 export function generateDynamicBalanceRows(
   stgRows: any[],
   entryNotes: string | null,
-  globalStatements: Array<{ key: string; label: string }> = []
+  globalStatements: Array<{ key: string; label: string; variant?: string }> = []
 ) {
-  let customStatements: Array<{ key: string; label: string }> = [];
+  let customStatements: Array<{ key: string; label: string; variant?: string }> = [];
   if (entryNotes) {
     const parts = entryNotes.split('\n');
     for (const part of parts) {
@@ -83,7 +81,7 @@ export function generateDynamicBalanceRows(
     }
   }
 
-  const stmtMap = new Map<string, { key: string; label: string }>();
+  const stmtMap = new Map<string, { key: string; label: string; variant?: string }>();
   if (customStatements && customStatements.length > 0) {
     customStatements.forEach(s => { if (s && s.key) stmtMap.set(s.key, s); });
   } else {
@@ -91,9 +89,7 @@ export function generateDynamicBalanceRows(
   }
 
   if (stmtMap.size === 0) {
-    stmtMap.set('WM', { key: 'WM', label: 'WHOLE MILK STATEMENT' });
-    stmtMap.set('SSM', { key: 'SSM', label: 'SKIMMED MILK' });
-    stmtMap.set('CREAM', { key: 'CREAM', label: 'CREAM' });
+    return { obRows: [], cbRows: [] };
   }
 
   const statements = Array.from(stmtMap.values());
@@ -102,8 +98,8 @@ export function generateDynamicBalanceRows(
 
   statements.forEach(stmt => {
     const shortName = getStatementShortName(stmt);
-    const stgOb = stgRows.find(r => r.product_block === stmt.key && r.item_name === 'OB');
-    const stgCb = stgRows.find(r => r.product_block === stmt.key && r.item_name === 'CB');
+    const stgOb = stgRows.find(r => r.product_block === stmt.key && (r.section_key === 'OB' || r.item_name === 'OB'));
+    const stgCb = stgRows.find(r => r.product_block === stmt.key && (r.section_key === 'CB' || r.item_name === 'CB'));
 
     obRows.push({
       id: stgOb?.id || `dynamic-ob-${stmt.key}`,
@@ -194,9 +190,8 @@ export function calcSTGProductTotals(
   const d_fat = sum(disposals, 'kg_fat');
   const d_snf = sum(disposals, 'kg_snf');
 
-  // OB is a special receipt row labelled 'OB'
-  const ob_fat = receipts.find(r => r.item_name === 'OB')?.kg_fat ?? 0;
-  const ob_snf = receipts.find(r => r.item_name === 'OB')?.kg_snf ?? 0;
+  const ob_fat = receipts.find(r => r.item_name === 'OB' || (r as any).section_key === 'OB')?.kg_fat ?? 0;
+  const ob_snf = receipts.find(r => r.item_name === 'OB' || (r as any).section_key === 'OB')?.kg_snf ?? 0;
 
   const grand_arrival_fat = r_fat;
   const grand_arrival_snf = r_snf;
@@ -221,12 +216,12 @@ export function calcSTGProductTotals(
 
 // ─── Stock Statement Summary ──────────────────────────────────────────────────
 
-function zeroColumns(): StockColumns {
-  return {
-    wh_milk: 0, dlt_milk: 0, fc_milk: 0, std_milk: 0,
-    toned_curd: 0, dtm: 0, skim_milk: 0, cream: 0,
-    butter_milk: 0, r_con: 0, smp: 0, water: 0,
-  };
+function zeroColumns(customKeys?: string[]): StockColumns {
+  const base: any = {};
+  if (customKeys && customKeys.length > 0) {
+    customKeys.forEach(k => { base[k] = 0; });
+  }
+  return base as StockColumns;
 }
 
 function addColumns(a: StockColumns, b: Partial<StockColumns>): StockColumns {
@@ -269,16 +264,31 @@ export function getRowValueFromStockRow(r: any, colKey: string): number {
   return 0;
 }
 
-export function calcStockSummary(rows: StockRow[]): StockSummary {
+export function calcStockSummary(rows: StockRow[], dynamicCols?: string[]): StockSummary {
   const obRows = rows.filter(r => r.row_type === 'OB');
   const receiptRows = rows.filter(r => r.row_type === 'RECEIPT');
   const disposalRows = rows.filter(r => r.row_type === 'DISPOSAL');
 
-  const standardCols = ['wh_milk', 'dlt_milk', 'fc_milk', 'std_milk', 'toned_curd', 'dtm', 'skim_milk', 'cream', 'butter_milk', 'r_con', 'smp', 'water'];
+  const discoveredKeys = new Set<string>(
+    dynamicCols && dynamicCols.length > 0 ? dynamicCols : []
+  );
+
+  rows.forEach(r => {
+    if (r.values && typeof r.values === 'object') {
+      Object.keys(r.values).forEach(k => discoveredKeys.add(k));
+    }
+    Object.keys(r).forEach(k => {
+      if (!['id', 'entry_id', 'row_type', 'row_label', 'sort_order', 'values', 'created_at', 'updated_at'].includes(k)) {
+        discoveredKeys.add(k);
+      }
+    });
+  });
+
+  const activeCols = Array.from(discoveredKeys);
 
   const sumRowsForCols = (arr: StockRow[]): StockColumns => {
-    const res = zeroColumns();
-    standardCols.forEach(cKey => {
+    const res = zeroColumns(activeCols);
+    activeCols.forEach(cKey => {
       let colSum = 0;
       arr.forEach(r => {
         colSum += getRowValueFromStockRow(r, cKey);
@@ -307,10 +317,10 @@ export function calcStockSummary(rows: StockRow[]): StockSummary {
 
 export function combineShiftSummaries(day: StockSummary, night: StockSummary): StockSummary {
   return {
-    opening_balance: day.opening_balance,  // Day shift OB is start of day
+    opening_balance: day.opening_balance,
     total_receipts: addColumns(day.total_receipts, night.total_receipts),
     total_disposals: addColumns(day.total_disposals, night.total_disposals),
-    closing_balance: night.closing_balance, // Night shift CB is end of day
+    closing_balance: night.closing_balance,
   };
 }
 
@@ -318,14 +328,12 @@ export function combineShiftSummaries(day: StockSummary, night: StockSummary): S
 
 export function fmtNum(val: number | null | undefined, decimals = 3): string {
   if (val === null || val === undefined || isNaN(val)) return '-';
-  // If the number is an integer, do not display decimals
   if (val % 1 === 0) {
     return val.toLocaleString('en-IN', {
       minimumFractionDigits: 0,
       maximumFractionDigits: 0,
     });
   }
-  // Otherwise format with decimals up to the specified maximum limit
   return val.toLocaleString('en-IN', {
     minimumFractionDigits: 1,
     maximumFractionDigits: decimals,
@@ -343,30 +351,5 @@ export function fmtDate(dateStr: string): string {
 }
 
 export function cleanStatementLabel(label: string): string {
-  let str = String(label || '').trim();
-  if (!str) return '';
-  str = str.replace(/(?:\s*-\s*RECEIPT AND DISPOSAL STATEMENT)+/gi, ' - RECEIPT AND DISPOSAL STATEMENT');
-  str = str.replace(/(?:\s*STATEMENT)+/gi, ' STATEMENT');
-  return str;
-}
-
-export function buildStgStatementsFromProducts(dbProducts: Array<{ key?: string; product_key?: string; full_name?: string; product_name?: string; short_name?: string }>) {
-  const list: Array<{ key: string; label: string }> = [];
-  const seenKeys = new Set<string>();
-
-  (dbProducts || []).forEach(p => {
-    const rawKey = ((p.short_name || p.product_name || p.full_name || p.key || p.product_key || '') as string).trim();
-    if (!rawKey) return;
-
-    const key = (p.short_name || p.key || p.product_key || rawKey).toUpperCase().replace(/[^A-Z0-9_]/g, '_');
-    if (seenKeys.has(key)) return;
-
-    seenKeys.add(key);
-    const fullName = (p.full_name || p.product_name || p.short_name || p.key || key).toUpperCase().trim();
-    const label = fullName.endsWith('STATEMENT') ? fullName : `${fullName} STATEMENT`;
-
-    list.push({ key, label });
-  });
-
-  return list;
+  return String(label || '').trim();
 }

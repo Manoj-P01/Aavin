@@ -9,8 +9,9 @@ import STGReport from '@/components/reports/STGReport';
 import StockReport from '@/components/reports/StockReport';
 import Link from 'next/link';
 import { useConfirm } from '@/context/ConfirmContext';
+import { useShiftConfig } from '@/hooks/useSettings';
 import { calcTSTotals, fmtDate, generateDynamicBalanceRows } from '@/lib/calculations';
-import type { Entry, Shift, TSMilkRow, STGRow, StockRow, SeparationDetails } from '@/lib/types';
+import type { Entry, Shift, TSMilkRow, STGRow, StockRow } from '@/lib/types';
 
 export default function TSViewPage() {
   const { showSuccess, showError } = useConfirm();
@@ -23,7 +24,6 @@ export default function TSViewPage() {
   const [rows, setRows] = useState<TSMilkRow[]>([]);
   const [stgRows, setStgRows] = useState<STGRow[]>([]);
   const [stockRows, setStockRows] = useState<StockRow[]>([]);
-  const [stockSeparation, setStockSeparation] = useState<SeparationDetails | null>(null);
   const [entryNotes, setEntryNotes] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -31,6 +31,7 @@ export default function TSViewPage() {
 
   const [availableShifts, setAvailableShifts] = useState<(Shift | null)[]>([]);
   const [shift, setShift] = useState<Shift | null>(null);
+  const { shiftConfig } = useShiftConfig();
   const [reportMode, setReportMode] = useState<'full_day' | 'shift'>('full_day');
   const [globalStatements, setGlobalStatements] = useState<Array<{ key: string; label: string }>>([]);
   const activeTab = selectedTab ?? (tabParam?.toUpperCase() === 'STOCK' ? 'STOCK' : (tabParam?.toUpperCase() === 'TS' ? 'TS' : 'STG'));
@@ -42,36 +43,18 @@ export default function TSViewPage() {
   const [exporting, setExporting] = useState(false);
 
   useEffect(() => {
+    if (shiftConfig?.mode) {
+      setReportMode(shiftConfig.mode);
+    }
+  }, [shiftConfig]);
+
+  useEffect(() => {
     async function load() {
       setLoading(true);
       setError('');
       try {
         // Fetch global reportMode setting
-        let parsedMode: 'full_day' | 'shift' = 'full_day';
-        try {
-          const configRes = await fetch('/api/entries?report_type=STOCK&date=1970-01-01');
-          if (configRes.ok) {
-            const configJson = await configRes.json();
-            const entries: any[] = configJson.data || [];
-            const configEntry = entries.find((e: any) => {
-              if (!e.notes || e.notes.includes('__METADATA__:')) return false;
-              try {
-                const parsed = JSON.parse(e.notes);
-                return parsed && typeof parsed === 'object' && !Array.isArray(parsed);
-              } catch { return false; }
-            });
-            if (configEntry && configEntry.notes) {
-              try {
-                const parsed = JSON.parse(configEntry.notes);
-                if (parsed && typeof parsed === 'object') {
-                  if (parsed.mode) parsedMode = parsed.mode;
-                }
-              } catch (e) {}
-            }
-          }
-        } catch (err) {
-          console.error('Failed to load shift mode config in TS page:', err);
-        }
+        const parsedMode: 'full_day' | 'shift' = shiftConfig?.mode || 'full_day';
         setReportMode(parsedMode);
 
         // 1. Fetch available entries for this date
@@ -151,9 +134,7 @@ export default function TSViewPage() {
             const stockJson = await stockRes.json();
             const sEntry = stockJson.data?.entries?.[0];
             const sRows = stockJson.data?.stock_rows?.filter((r: any) => r.entry_id === sEntry?.id) || stockJson.data?.stock_rows || [];
-            const sSep = stockJson.data?.separation_details?.find((s: any) => s.entry_id === sEntry?.id) || stockJson.data?.separation_details?.[0] || null;
             setStockRows(sRows);
-            setStockSeparation(sSep);
           }
         } catch {}
       } catch (e: unknown) {
@@ -357,7 +338,6 @@ export default function TSViewPage() {
             {activeTab === 'STOCK' ? (
               <StockReport
                 rows={stockRows}
-                separation={stockSeparation}
                 date={date}
                 shift={shift === 'D' ? 'D' : shift === 'N' ? 'N' : 'FULL_DAY'}
                 notes={entryNotes}
@@ -394,10 +374,6 @@ export default function TSViewPage() {
           >
             ← Back to TS Statement Entry
           </button>
-          <div style={{ display: 'flex', gap: 10 }}>
-            <button className="btn btn-secondary btn-sm" onClick={handlePrint}>🖨 Print / PDF</button>
-            <button className="btn btn-primary btn-sm" style={{ borderColor: '#16a34a', backgroundColor: '#16a34a' }} onClick={() => setExportModalOpen(true)}>📥 Export Excel</button>
-          </div>
         </div>
       </div>
 

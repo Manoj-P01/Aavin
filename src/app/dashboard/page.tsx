@@ -21,7 +21,7 @@ export default function DashboardPage() {
     <>
       <Header
         title="Dashboard"
-        subtitle="Namakkal District Co-operative Milk Producers' Union Ltd"
+        subtitle={process.env.NEXT_PUBLIC_ORG_NAME || "Namakkal District Co-operative Milk Producers' Union Ltd"}
         actions={
           <div style={{ display: 'flex', gap: 8 }}>
             {/* <button

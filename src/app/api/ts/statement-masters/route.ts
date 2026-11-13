@@ -1,82 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getSupabaseServiceClient } from '@/lib/supabase';
 
-export const DEFAULT_TS_MASTER = {
-  key: 'default_ts',
-  label: 'Total Solids (TS) Statement',
-  description: 'Default Total Solids Statement master template and formulations matching standard plant dairy operations.',
-  sort_order: 1,
-  is_active: true,
-  columns: [
-    { key: 'sno', name: 'S.no', type: 'number', sort_order: 1, is_active: true },
-    { key: 'particular', name: 'Particular', type: 'text', sort_order: 2, is_active: true },
-    { key: 'qty_lts', name: 'Milk (Lit)', type: 'number', unit: 'Lts', decimals: 2, sort_order: 3, is_active: true },
-    { key: 'qty_kg', name: 'Milk (Kg)', type: 'calculated', formula: 'qty_lts * sp_gr', unit: 'Kg', decimals: 2, sort_order: 4, is_active: true },
-    { key: 'fat_pct', name: 'Avg Fat %', type: 'number', unit: '%', decimals: 2, sort_order: 5, is_active: true },
-    { key: 'snf_pct', name: 'Avg SNF %', type: 'number', unit: '%', decimals: 2, sort_order: 6, is_active: true },
-    { key: 'sp_gr', name: 'Sp. Gr', type: 'calculated', formula: '1 + (snf_pct - (0.2 * fat_pct) - 0.36) / 250', decimals: 4, sort_order: 7, is_active: true },
-    { key: 'kg_fat', name: 'Kg Fat', type: 'calculated', formula: 'qty_kg * fat_pct / 100', unit: 'Kg', decimals: 2, sort_order: 8, is_active: true },
-    { key: 'kg_snf', name: 'Kg SNF', type: 'calculated', formula: 'qty_kg * snf_pct / 100', unit: 'Kg', decimals: 2, sort_order: 9, is_active: true },
-  ],
-  ob_rows: [
-    { variant: 'WM', fat_pct: 3.93, snf_pct: 7.95, sp_gr: 1.0272 },
-    { variant: 'SSM', fat_pct: 0.05, snf_pct: 8.14, sp_gr: 1.0311 },
-    { variant: 'CREAM', fat_pct: 39.21, snf_pct: 5.53, sp_gr: 0.9893 },
-    { variant: 'DLT MILK', fat_pct: 3.5, snf_pct: 8.5, sp_gr: 1.0298 },
-    { variant: 'FC.MILK', fat_pct: 6.0, snf_pct: 9.0, sp_gr: 1.0298 },
-    { variant: 'STD.Milk', fat_pct: 4.5, snf_pct: 8.5, sp_gr: 1.0290 },
-    { variant: 'SMP', fat_pct: 0.5, snf_pct: 96.3, sp_gr: 1.3834 },
-  ],
-  receipt_rows: [
-    { variant: 'P.VELUR CC' },
-    { variant: "BMC's" },
-    { variant: 'LAB SAMPLE RTN' },
-    { variant: 'WF' },
-    { variant: 'SMP', fat_pct: 0.5, snf_pct: 96.3 },
-    { variant: 'RINSE MILK' },
-    { variant: 'BUTTER MILK' },
-    { variant: 'DLT SACHET RTN' },
-    { variant: 'FCM SACHET RTN' },
-    { variant: 'STD SACHET RTN' },
-  ],
-  despatch_rows: [
-    { variant: 'AMBATTUR-SSM' },
-    { variant: 'SNR-SSM' },
-    { variant: 'DCPP-SSM' },
-    { variant: 'ERODE -SSM' },
-    { variant: 'CBE-SSM' },
-  ],
-  local_sale_rows: [
-    { variant: 'DLT MILK', fat_pct: 3.5, snf_pct: 8.5 },
-    { variant: 'FC.MILK', fat_pct: 6.0, snf_pct: 9.0 },
-    { variant: 'STD.Milk', fat_pct: 4.5, snf_pct: 8.5 },
-    { variant: 'OTHERS' },
-  ],
-  other_disposal_rows: [
-    { variant: 'SMP' },
-    { variant: 'CURD/ BM' },
-    { variant: 'TO KHOA' },
-    { variant: 'LAB SAMPLE' },
-    { variant: 'CREAM-CON' },
-  ],
-  cb_rows: [
-    { variant: 'WM', fat_pct: 3.93, snf_pct: 7.95, sp_gr: 1.0272 },
-    { variant: 'SSM', fat_pct: 0.05, snf_pct: 8.14, sp_gr: 1.0311 },
-    { variant: 'CREAM', fat_pct: 39.21, snf_pct: 5.53, sp_gr: 0.9893 },
-    { variant: 'DLT MILK', fat_pct: 3.5, snf_pct: 8.5, sp_gr: 1.0298 },
-    { variant: 'FC.MILK', fat_pct: 6.0, snf_pct: 9.0, sp_gr: 1.0298 },
-    { variant: 'STD.Milk', fat_pct: 4.5, snf_pct: 8.5, sp_gr: 1.0290 },
-    { variant: 'SMP', fat_pct: 0.5, snf_pct: 96.3, sp_gr: 1.3834 },
-  ],
-  reconciliation_rows: [
-    { id: 'arrival_total', label: 'TOTAL ARRIVAL', formula: 'SUM(OB) + SUM(RECEIPT)', is_formula: true },
-    { id: 'disposal_total', label: 'TOTAL DISPOSAL', formula: 'SUM(DESPATCH) + SUM(LOCAL) + SUM(OTHER) + SUM(CB)', is_formula: true },
-    { id: 'loss', label: 'LOSS', formula: 'TOTAL_DISPOSAL - TOTAL_ARRIVAL', is_formula: true },
-    { id: 'loss_pct', label: 'LOSS %', formula: '(LOSS / TOTAL_ARRIVAL) * 100', is_formula: true },
-    { id: 'cmpdd_loss_pct', label: 'CMPDD LOSS %', values: { kg_fat: 0.5, kg_snf: 0.5 } },
-  ],
-};
-
 // GET /api/ts/statement-masters
 export async function GET(req: NextRequest) {
   try {
@@ -86,7 +10,7 @@ export async function GET(req: NextRequest) {
     try {
       const { data, error } = await supabase
         .from('ts_masters')
-        .select('*')
+        .select('id, key, label, description, is_active, sort_order, columns, ob_particulars, receipt_particulars, despatch_particulars, local_sale_particulars, other_disposal_particulars, recon_rows, updated_at')
         .eq('is_active', true)
         .order('sort_order', { ascending: true })
         .limit(1)
@@ -114,11 +38,11 @@ export async function GET(req: NextRequest) {
       console.warn('Failed reading prep_chart_configs fallback:', e);
     }
 
-    // 3. Fallback to default constants
-    return NextResponse.json({ master: DEFAULT_TS_MASTER, source: 'default_constants' });
+    // 3. Return empty master if none configured in database
+    return NextResponse.json({ master: null, source: 'none' });
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : 'Failed to fetch TS statement masters';
-    return NextResponse.json({ error: msg, master: DEFAULT_TS_MASTER }, { status: 500 });
+    return NextResponse.json({ error: msg, master: null }, { status: 500 });
   }
 }
 
@@ -134,7 +58,7 @@ export async function POST(req: NextRequest) {
       description: body.description || '',
       sort_order: typeof body.sort_order === 'number' ? body.sort_order : 1,
       is_active: body.is_active !== false,
-      columns: Array.isArray(body.columns) ? body.columns : DEFAULT_TS_MASTER.columns,
+      columns: Array.isArray(body.columns) ? body.columns : [],
       ob_rows: Array.isArray(body.ob_rows) ? body.ob_rows : [],
       receipt_rows: Array.isArray(body.receipt_rows) ? body.receipt_rows : [],
       despatch_rows: Array.isArray(body.despatch_rows) ? body.despatch_rows : [],
@@ -145,43 +69,45 @@ export async function POST(req: NextRequest) {
       updated_at: new Date().toISOString(),
     };
 
-    // 1. Save to ts_masters
-    let savedToTsMasters = false;
-    try {
-      const { error: upsertErr } = await supabase
-        .from('ts_masters')
-        .upsert(masterToSave, { onConflict: 'key' });
+    // 1. Save to prep_chart_configs
+    const { error: cfgErr } = await supabase
+      .from('prep_chart_configs')
+      .upsert({
+        config_key: 'ts_masters',
+        config_json: masterToSave,
+        updated_at: new Date().toISOString(),
+      }, { onConflict: 'config_key' });
 
-      if (!upsertErr) {
-        savedToTsMasters = true;
-      } else {
-        console.warn('ts_masters upsert error:', upsertErr.message);
-      }
-    } catch (e) {
-      console.warn('ts_masters upsert exception:', e);
+    if (cfgErr) {
+      console.warn('Could not save to prep_chart_configs:', cfgErr);
     }
 
-    // 2. Always backup to prep_chart_configs for durability
+    // 2. Also upsert to ts_masters table if available
     try {
       await supabase
-        .from('prep_chart_configs')
+        .from('ts_masters')
         .upsert({
-          config_key: 'ts_masters',
-          config_json: masterToSave,
-          updated_at: new Date().toISOString(),
-        }, { onConflict: 'config_key' });
+          key: masterToSave.key,
+          label: masterToSave.label,
+          description: masterToSave.description,
+          sort_order: masterToSave.sort_order,
+          is_active: masterToSave.is_active,
+          columns: masterToSave.columns,
+          ob_particulars: masterToSave.ob_rows,
+          receipt_particulars: masterToSave.receipt_rows,
+          despatch_particulars: masterToSave.despatch_rows,
+          local_sale_particulars: masterToSave.local_sale_rows,
+          other_disposal_particulars: masterToSave.other_disposal_rows,
+          recon_rows: masterToSave.reconciliation_rows,
+          updated_at: masterToSave.updated_at,
+        }, { onConflict: 'key' });
     } catch (e) {
-      console.warn('prep_chart_configs backup exception:', e);
+      console.warn('Could not upsert to ts_masters table:', e);
     }
 
-    return NextResponse.json({
-      success: true,
-      master: masterToSave,
-      saved_to_db: savedToTsMasters,
-    });
+    return NextResponse.json({ success: true, master: masterToSave });
   } catch (err: unknown) {
-    const msg = err instanceof Error ? err.message : 'Failed to save TS statement masters';
+    const msg = err instanceof Error ? err.message : 'Failed to save TS statement master';
     return NextResponse.json({ error: msg }, { status: 500 });
   }
 }
-

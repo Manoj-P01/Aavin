@@ -5,18 +5,27 @@ import {
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer
 } from 'recharts';
 
-interface Props { reportType: 'TS' | 'STOCK'; }
+interface Props {
+  reportType: 'TS' | 'STOCK';
+  initialData?: { month: string; count: number }[];
+}
 
 interface MonthPoint { month: string; count: number; }
 
-export default function MonthlyTrendChart({ reportType }: Props) {
-  const [data, setData] = useState<MonthPoint[]>([]);
-  const [loading, setLoading] = useState(true);
+export default function MonthlyTrendChart({ reportType, initialData }: Props) {
+  const [data, setData] = useState<MonthPoint[]>(initialData || []);
+  const [loading, setLoading] = useState(!initialData || initialData.length === 0);
 
   useEffect(() => {
+    if (initialData && initialData.length > 0) {
+      setData(initialData);
+      setLoading(false);
+      return;
+    }
+
     async function load() {
       try {
-        const res = await fetch(`/api/entries?report_type=${reportType}`);
+        const res = await fetch(`/api/entries?report_type=${reportType}&limit=200`);
         const json = await res.json();
         const entries = (json.data || []) as { entry_date: string }[];
         const counts: Record<string, number> = {};
@@ -33,7 +42,7 @@ export default function MonthlyTrendChart({ reportType }: Props) {
       setLoading(false);
     }
     load();
-  }, [reportType]);
+  }, [reportType, initialData]);
 
   const color = reportType === 'TS' ? '#0ea5e9' : '#f59e0b';
   const label = reportType === 'TS' ? 'TS Report Entries' : 'Stock Entries';

@@ -62,7 +62,7 @@ export default function StockProductsPage() {
 
   const [newProdFullName, setNewProdFullName] = useState('');
   const [newProdShortName, setNewProdShortName] = useState('');
-  const [newProdCategory, setNewProdCategory] = useState('Liquid Milk');
+  const [newProdCategory, setNewProdCategory] = useState('');
   const productInputRef = useRef<HTMLInputElement>(null);
 
   const [newReceiptFull, setNewReceiptFull] = useState('');
@@ -77,11 +77,13 @@ export default function StockProductsPage() {
     try {
       const res = await fetch('/api/master/categories');
       const json = await res.json();
-      if (res.ok && Array.isArray(json.data) && json.data.length > 0) {
+      if (res.ok && Array.isArray(json.data)) {
         setCategoriesList(json.data);
+      } else {
+        setCategoriesList([]);
       }
     } catch {
-      // fallback handled in UI
+      setCategoriesList([]);
     }
   };
 
@@ -92,7 +94,7 @@ export default function StockProductsPage() {
       key: p.key || p.product_key || ('prod_' + Date.now() + '_' + idx),
       full_name: p.full_name || p.product_name || p.label || p.key || '',
       short_name: p.short_name || p.code || p.label || p.key || '',
-      category: p.category || 'Liquid Milk',
+      category: p.category || '',
       sort_order: p.sort_order || idx + 1,
       is_active: p.is_active !== undefined ? p.is_active : true,
     }));
@@ -232,7 +234,7 @@ export default function StockProductsPage() {
     if (e) e.preventDefault();
     const shortVal = newProdShortName.trim() || newProdFullName.trim();
     const fullVal = newProdFullName.trim() || newProdShortName.trim();
-    const catVal = newProdCategory.trim() || (categoriesList[0]?.category_name || 'Liquid Milk');
+    const catVal = newProdCategory.trim() || (categoriesList[0]?.category_name || 'Standard');
     if (!shortVal) return;
 
     const lowerFull = fullVal.toLowerCase();
@@ -481,7 +483,15 @@ export default function StockProductsPage() {
         title="Products List"
         subtitle="Manage statement columns, display labels, particulars, and product orders"
         actions={
-          <div style={{ display: 'flex', gap: 8 }}>
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+            <Link
+              href="/dashboard/stock/defaults"
+              className="btn btn-secondary btn-sm"
+              style={{ fontWeight: 700, color: '#b45309', background: '#fffbeb', borderColor: '#fde68a' }}
+              title="Master Stock Statement"
+            >
+              ⭐ Master Stock Statement
+            </Link>
             <button
               type="button"
               className="btn btn-primary btn-sm"
@@ -800,7 +810,93 @@ export default function StockProductsPage() {
           </div>
 
           {/* RIGHT MAIN PANEL: Details & Editor View */}
-          <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 20 }}>
+          <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 16 }}>
+
+            {/* Quick Section Switcher Tabs */}
+            <div
+              style={{
+                display: 'flex',
+                gap: 8,
+                alignItems: 'center',
+                background: 'var(--bg-surface, #ffffff)',
+                padding: '6px 8px',
+                borderRadius: 10,
+                border: '1px solid var(--border)',
+                flexWrap: 'wrap',
+              }}
+            >
+              <button
+                type="button"
+                onClick={() => setSelectedSection('products')}
+                style={{
+                  padding: '7px 14px',
+                  borderRadius: 8,
+                  fontSize: '0.84rem',
+                  fontWeight: selectedSection === 'products' ? 700 : 600,
+                  background: selectedSection === 'products' ? 'rgba(14, 165, 233, 0.15)' : 'transparent',
+                  color: selectedSection === 'products' ? 'var(--brand-primary)' : 'var(--text-secondary)',
+                  border: selectedSection === 'products' ? '1px solid rgba(14, 165, 233, 0.4)' : '1px solid transparent',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 8,
+                  transition: 'all 0.15s ease',
+                }}
+              >
+                <span>📦 Products</span>
+                <span style={{ fontSize: '0.72rem', padding: '1px 6px', borderRadius: 10, background: selectedSection === 'products' ? 'rgba(14, 165, 233, 0.25)' : 'rgba(0,0,0,0.06)', fontWeight: 700 }}>
+                  {products.length}
+                </span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setSelectedSection('receipts')}
+                style={{
+                  padding: '7px 14px',
+                  borderRadius: 8,
+                  fontSize: '0.84rem',
+                  fontWeight: selectedSection === 'receipts' ? 700 : 600,
+                  background: selectedSection === 'receipts' ? 'rgba(16, 185, 129, 0.15)' : 'transparent',
+                  color: selectedSection === 'receipts' ? '#10b981' : 'var(--text-secondary)',
+                  border: selectedSection === 'receipts' ? '1px solid rgba(16, 185, 129, 0.4)' : '1px solid transparent',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 8,
+                  transition: 'all 0.15s ease',
+                }}
+              >
+                <span>📥 Receipts</span>
+                <span style={{ fontSize: '0.72rem', padding: '1px 6px', borderRadius: 10, background: selectedSection === 'receipts' ? 'rgba(16, 185, 129, 0.25)' : 'rgba(0,0,0,0.06)', fontWeight: 700 }}>
+                  {receiptRows.length}
+                </span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setSelectedSection('disposals')}
+                style={{
+                  padding: '7px 14px',
+                  borderRadius: 8,
+                  fontSize: '0.84rem',
+                  fontWeight: selectedSection === 'disposals' ? 700 : 600,
+                  background: selectedSection === 'disposals' ? 'rgba(245, 158, 11, 0.15)' : 'transparent',
+                  color: selectedSection === 'disposals' ? '#f59e0b' : 'var(--text-secondary)',
+                  border: selectedSection === 'disposals' ? '1px solid rgba(245, 158, 11, 0.4)' : '1px solid transparent',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 8,
+                  transition: 'all 0.15s ease',
+                }}
+              >
+                <span>📤 Disposals</span>
+                <span style={{ fontSize: '0.72rem', padding: '1px 6px', borderRadius: 10, background: selectedSection === 'disposals' ? 'rgba(245, 158, 11, 0.25)' : 'rgba(0,0,0,0.06)', fontWeight: 700 }}>
+                  {disposalRows.length}
+                </span>
+              </button>
+            </div>
 
             {/* 1. PRODUCTS EDITOR */}
             {selectedSection === 'products' && (
@@ -921,24 +1017,16 @@ export default function StockProductsPage() {
                               <div>
                                 <select
                                   className="form-input"
-                                  value={p.category || 'Liquid Milk'}
+                                  value={p.category || ''}
                                   onChange={e => handleProductChange(p.key, 'category', e.target.value)}
                                   style={{ margin: 0, padding: '6px 8px', fontSize: '0.8rem', fontWeight: 600, cursor: 'pointer' }}
                                 >
-                                  {categoriesList.length > 0 ? (
-                                    categoriesList.map(c => (
-                                      <option key={c.id || c.category_name} value={c.category_name}>
-                                        {c.category_name}
-                                      </option>
-                                    ))
-                                  ) : (
-                                    <>
-                                      <option value="Liquid Milk">Liquid Milk</option>
-                                      <option value="Products">Products</option>
-                                      <option value="By-Products">By-Products</option>
-                                      <option value="Others">Others</option>
-                                    </>
-                                  )}
+                                  <option value="">-- None (Optional) --</option>
+                                  {categoriesList.map(c => (
+                                    <option key={c.id || c.category_name} value={c.category_name}>
+                                      {c.category_name}
+                                    </option>
+                                  ))}
                                 </select>
                               </div>
 
@@ -1026,20 +1114,12 @@ export default function StockProductsPage() {
                           onChange={e => setNewProdCategory(e.target.value)}
                           style={{ margin: 0, padding: '8px 8px', fontSize: '0.8rem', fontWeight: 600, cursor: 'pointer' }}
                         >
-                          {categoriesList.length > 0 ? (
-                            categoriesList.map(c => (
-                              <option key={c.id || c.category_name} value={c.category_name}>
-                                {c.category_name}
-                              </option>
-                            ))
-                          ) : (
-                            <>
-                              <option value="Liquid Milk">Liquid Milk</option>
-                              <option value="Products">Products</option>
-                              <option value="By-Products">By-Products</option>
-                              <option value="Others">Others</option>
-                            </>
-                          )}
+                          <option value="">-- Category (Optional) --</option>
+                          {categoriesList.map(c => (
+                            <option key={c.id || c.category_name} value={c.category_name}>
+                              {c.category_name}
+                            </option>
+                          ))}
                         </select>
                       </div>
                       <button

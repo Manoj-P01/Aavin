@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { invalidateMasterTag } from '@/lib/masters';
 import { getSupabaseServiceClient } from '@/lib/supabase';
 import { getAuthUserFromRequest } from '@/lib/auth';
 
@@ -16,8 +17,8 @@ export async function GET(req: NextRequest) {
     // Direct table query fallback
     const { data: dairies, error } = await supabase
       .from('dairy_destinations_master')
-      .select('*')
-      .order('sort_order', { ascending: true });
+      .select('id, code, destination_name, display_order, is_active')
+      .order('display_order', { ascending: true });
 
     if (error) {
       console.error('Error fetching dairy_destinations_master:', error);
@@ -53,20 +54,7 @@ export async function POST(req: NextRequest) {
     const cleanName = dairy_name.trim();
     const supabase = getSupabaseServiceClient();
 
-    // Call SP fn_upsert_dairy_destination
-    const { data: spData, error: spErr } = await supabase.rpc('fn_upsert_dairy_destination', {
-      p_dairy_name: cleanName,
-      p_code: code?.trim() || cleanName.substring(0, 4).toUpperCase(),
-      p_sort_order: Number(sort_order) || 0,
-      p_is_active: is_active !== undefined ? is_active : true,
-      p_actor: actorUsername,
-    });
-
-    if (!spErr && spData) {
-      return NextResponse.json({ data: Array.isArray(spData) ? spData[0] : spData }, { status: 201 });
-    }
-
-    // Direct Table Upsert fallback
+    // Direct Table Upsert
     const { data, error } = await supabase
       .from('dairy_destinations_master')
       .upsert({
@@ -77,10 +65,11 @@ export async function POST(req: NextRequest) {
         created_by: actorUsername,
         updated_by: actorUsername,
       }, { onConflict: 'dairy_name' })
-      .select('*')
+      .select('id, dairy_name, code, sort_order, is_active, created_at, updated_at')
       .single();
 
     if (error) throw error;
+    invalidateMasterTag('masters-dairies');
     return NextResponse.json({ data }, { status: 201 });
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : 'Failed to declare destination dairy';
@@ -105,22 +94,7 @@ export async function PUT(req: NextRequest) {
 
     const supabase = getSupabaseServiceClient();
 
-    if (dairy_name) {
-      // Call SP fn_upsert_dairy_destination
-      const { data: spData, error: spErr } = await supabase.rpc('fn_upsert_dairy_destination', {
-        p_dairy_name: dairy_name,
-        p_code: code,
-        p_sort_order: sort_order,
-        p_is_active: is_active,
-        p_actor: actorUsername,
-      });
-
-      if (!spErr && spData) {
-        return NextResponse.json({ data: Array.isArray(spData) ? spData[0] : spData });
-      }
-    }
-
-    if (!id) return NextResponse.json({ error: 'Dairy ID or dairy_name is required' }, { status: 400 });
+    if (!id && !dairy_name) return NextResponse.json({ error: 'Dairy ID or dairy_name is required' }, { status: 400 });
 
     const updatePayload: Record<string, any> = {
       updated_by: actorUsername,
@@ -136,10 +110,11 @@ export async function PUT(req: NextRequest) {
       .from('dairy_destinations_master')
       .update(updatePayload)
       .eq('id', id)
-      .select('*')
+      .select('id, dairy_name, code, sort_order, is_active, created_at, updated_at')
       .single();
 
     if (error) throw error;
+    invalidateMasterTag('masters-dairies');
     return NextResponse.json({ data });
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : 'Failed to update destination dairy';
@@ -170,6 +145,7 @@ export async function DELETE(req: NextRequest) {
 
     if (error) throw error;
 
+    invalidateMasterTag('masters-dairies');
     return NextResponse.json({ success: true, message: 'Destination dairy deleted successfully' });
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : 'Failed to delete destination dairy';

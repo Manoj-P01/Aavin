@@ -6,9 +6,12 @@ import Link from 'next/link';
 import { useConfirm } from '@/context/ConfirmContext';
 import type { ChartColumnDef } from '@/app/api/stock/preparation-charts/route';
 import { getStandardColumnDecimals } from '@/lib/calculations';
+import KeyField, { executeKeyRename } from '@/components/ui/KeyField';
 
 export default function ChartColumnsConfigPage() {
   const [columns, setColumns] = useState<ChartColumnDef[]>([]);
+  const [originalColumns, setOriginalColumns] = useState<ChartColumnDef[]>([]);
+  const [hasUnsavedChanges, setHasUnsavedChanges] = useState<boolean>(false);
   const [loading, setLoading] = useState<boolean>(true);
   const [saving, setSaving] = useState<boolean>(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
@@ -25,7 +28,7 @@ export default function ChartColumnsConfigPage() {
   const [formUnit, setFormUnit] = useState<string>('');
   const [formDecimals, setFormDecimals] = useState<number | undefined>(undefined);
 
-  const { confirm } = useConfirm();
+  const { confirm, showError } = useConfirm();
 
   // Load Columns Config
   useEffect(() => {
@@ -37,6 +40,8 @@ export default function ChartColumnsConfigPage() {
           const json = await res.json();
           if (Array.isArray(json.columns)) {
             setColumns(json.columns);
+            setOriginalColumns(json.columns);
+            setHasUnsavedChanges(false);
           }
         }
       } catch (err) {
@@ -46,6 +51,18 @@ export default function ChartColumnsConfigPage() {
     }
     loadData();
   }, []);
+
+  // Warn user when closing or reloading with unsaved column changes
+  useEffect(() => {
+    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+      if (hasUnsavedChanges) {
+        e.preventDefault();
+        e.returnValue = '';
+      }
+    };
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+  }, [hasUnsavedChanges]);
 
   const showToast = (msg: string) => {
     setToastMessage(msg);
@@ -78,32 +95,21 @@ export default function ChartColumnsConfigPage() {
 
   const handleDelete = async (key: string, name: string) => {
     const isConfirmed = await confirm({
-      title: 'Delete Preparation Column',
-      message: `Are you sure you want to delete the column "${name}"? Existing preparation formulas using this key might need updating.`,
-      confirmText: 'Delete Column',
+      title: 'Remove Preparation Column',
+      message: `Are you sure you want to remove the column "${name}"? Click "Save Columns to DB" to store changes in the database.`,
+      confirmText: 'Remove Column',
       cancelText: 'Cancel',
       type: 'warning',
     });
 
     if (!isConfirmed) return;
 
-    try {
-      const res = await fetch(`/api/stock/preparation-charts?column_key=${encodeURIComponent(key)}`, {
-        method: 'DELETE',
-      });
-      if (res.ok) {
-        setColumns(prev => prev.filter(c => c.key !== key));
-        showToast(`✅ Deleted column "${name}" from database`);
-      } else {
-        showToast('❌ Failed to delete column from database');
-      }
-    } catch (err) {
-      console.error('Delete column error:', err);
-      showToast('❌ Error connecting to database');
-    }
+    setColumns(prev => prev.filter(c => c.key !== key));
+    setHasUnsavedChanges(true);
+    showToast(`🗑️ Removed column "${name}" from list (Click "Save Columns to DB" to store in DB)`);
   };
 
-  const handleMove = async (index: number, direction: 'up' | 'down') => {
+  const handleMove = (index: number, direction: 'up' | 'down') => {
     const targetIndex = direction === 'up' ? index - 1 : index + 1;
     if (targetIndex < 0 || targetIndex >= columns.length) return;
 
@@ -115,7 +121,7 @@ export default function ChartColumnsConfigPage() {
     // Re-index sort order
     const reindexed = copy.map((c, i) => ({ ...c, sort_order: i + 1 }));
     setColumns(reindexed);
-    await saveColumnsToApi(reindexed, 'Reordered columns');
+    setHasUnsavedChanges(true);
   };
 
   const handleSaveModal = async (e: React.FormEvent) => {
@@ -146,8 +152,30 @@ export default function ChartColumnsConfigPage() {
     let updated: ChartColumnDef[];
     if (editingKey) {
       const oldKey = editingKey;
-      if (keyToUse !== oldKey && columns.some(c => c.key === keyToUse)) {
-        alert(`Column key "${keyToUse}" already exists! Please use a unique Field Key.`);
+      if (keyToUse !== oldKey) {
+        if (columns.some(c => c.key === keyToUse)) {
+          alert(`Column key "${keyToUse}" already exists! Please use a unique Field Key.`);
+          return;
+        }
+        const res = await executeKeyRename({
+          scope: 'prep_chart_column',
+          oldKey,
+          newKey: keyToUse,
+          confirm,
+          showError,
+        });
+        if (!res.success) return;
+        setIsModalOpen(false);
+        // Refresh columns from API
+        const refreshRes = await fetch('/api/stock/preparation-charts');
+        if (refreshRes.ok) {
+          const cfg = await refreshRes.json();
+          if (Array.isArray(cfg.columns)) {
+            setColumns(cfg.columns);
+            setOriginalColumns(cfg.columns);
+            setHasUnsavedChanges(false);
+          }
+        }
         return;
       }
       updated = columns.map(c => (c.key === oldKey ? newCol : c));
@@ -161,8 +189,27 @@ export default function ChartColumnsConfigPage() {
     }
 
     setColumns(updated);
+    setHasUnsavedChanges(true);
     setIsModalOpen(false);
-    await saveColumnsToApi(updated, editingKey ? `Updated column "${newCol.name}"` : `Created column "${newCol.name}"`);
+    showToast(editingKey ? `✏️ Updated column "${newCol.name}" in list (Click "Save Columns to DB" to commit)` : `➕ Added column "${newCol.name}" to list (Click "Save Columns to DB" to commit)`);
+  };
+
+  const handleSaveToDb = async () => {
+    await saveColumnsToApi(columns, 'All preparation chart columns stored successfully in database!');
+  };
+
+  const handleDiscard = async () => {
+    const isConfirmed = await confirm({
+      title: 'Discard Unsaved Changes',
+      message: 'Are you sure you want to discard all unsaved column changes and revert to the saved database configuration?',
+      confirmText: 'Discard Changes',
+      cancelText: 'Keep Editing',
+      type: 'warning',
+    });
+    if (!isConfirmed) return;
+    setColumns([...originalColumns]);
+    setHasUnsavedChanges(false);
+    showToast('↩️ Discarded unsaved changes');
   };
 
   const saveColumnsToApi = async (colsToSave: ChartColumnDef[], successMsg: string) => {
@@ -174,15 +221,33 @@ export default function ChartColumnsConfigPage() {
         body: JSON.stringify({ columns: colsToSave }),
       });
       if (res.ok) {
+        setOriginalColumns(colsToSave);
+        setHasUnsavedChanges(false);
         showToast(`✅ ${successMsg}`);
       } else {
-        showToast('❌ Failed to save column updates');
+        showToast('❌ Failed to save column updates to database');
       }
     } catch (err) {
       console.error('Error saving columns:', err);
-      showToast('❌ Error connecting to server');
+      showToast('❌ Error connecting to database');
     }
     setSaving(false);
+  };
+
+  const handleNavigate = async (e: React.MouseEvent<HTMLAnchorElement>, href: string) => {
+    if (hasUnsavedChanges) {
+      e.preventDefault();
+      const isConfirmed = await confirm({
+        title: 'Unsaved Changes',
+        message: 'You have unsaved column changes. If you leave now, these changes will be lost. Do you want to discard them and continue?',
+        confirmText: 'Discard & Leave',
+        cancelText: 'Stay on Page',
+        type: 'warning',
+      });
+      if (isConfirmed) {
+        window.location.href = href;
+      }
+    }
   };
 
   return (
@@ -191,8 +256,30 @@ export default function ChartColumnsConfigPage() {
         title="Preparation Charts Column Configuration"
         subtitle="Manage, add, edit & delete dynamic column names for Preparation Charts"
         actions={
-          <div style={{ display: 'flex', gap: 10 }}>
-            <Link href="/dashboard/stock/preparation-charts" className="btn btn-secondary btn-sm">
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+            <Link
+              href="/dashboard/stock/preparation-charts/masters"
+              className="btn btn-secondary btn-sm"
+              onClick={e => handleNavigate(e, '/dashboard/stock/preparation-charts/masters')}
+              title="Manage Chart Names Master"
+            >
+              📊 Chart Names Master
+            </Link>
+            <Link
+              href="/dashboard/stock/preparation-charts/defaults"
+              className="btn btn-secondary btn-sm"
+              onClick={e => handleNavigate(e, '/dashboard/stock/preparation-charts/defaults')}
+              style={{ fontWeight: 600, color: '#92400e', borderColor: '#fde68a', background: '#fffbeb' }}
+              title="Manage Master Charts"
+            >
+              ⭐ Master Charts
+            </Link>
+            <Link
+              href="/dashboard/stock/preparation-charts"
+              className="btn btn-secondary btn-sm"
+              onClick={e => handleNavigate(e, '/dashboard/stock/preparation-charts')}
+              title="Go to Preparation Charts Dashboard"
+            >
               📋 Preparation Charts Dashboard
             </Link>
           </div>
@@ -221,27 +308,63 @@ export default function ChartColumnsConfigPage() {
           </div>
         )}
 
-        {/* Info Banner */}
-        <div className="card" style={{ marginBottom: 20, padding: 16, borderLeft: '4px solid var(--brand-primary)' }}>
-          <div style={{ fontWeight: 700, fontSize: '0.9rem', color: 'var(--brand-primary)', marginBottom: 4 }}>
-            ⚙️ Dynamic Chart Columns Engine
-          </div>
-          <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', lineHeight: 1.5 }}>
-            Columns defined here appear dynamically in all <strong>Preparation Charts</strong> (such as DELITE, FCM, STD MILK & SACHET-CURD).
-            Calculated fields like <code>Qty (Kg) = Qty (Lit) * Sp.gr</code> automatically execute formulas live during entry.
-          </div>
-        </div>
-
         {/* Columns List Table */}
         <div className="card">
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '14px 18px', borderBottom: '1px solid var(--border)' }}>
-            <div style={{ fontWeight: 700, fontSize: '0.95rem', color: 'var(--text-primary)' }}>
-              📊 Configured Preparation Chart Columns ({columns.length})
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '14px 18px', borderBottom: '1px solid var(--border)', flexWrap: 'wrap', gap: 10 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              <div style={{ fontWeight: 700, fontSize: '0.95rem', color: 'var(--text-primary)' }}>
+                📊 Configured Preparation Chart Columns ({columns.length})
+              </div>
+              {hasUnsavedChanges && (
+                <span style={{
+                  padding: '3px 10px',
+                  borderRadius: 12,
+                  background: '#fef3c7',
+                  color: '#92400e',
+                  fontSize: '0.75rem',
+                  fontWeight: 700,
+                  border: '1px solid #fde68a',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 5,
+                }}>
+                  <span style={{ width: 8, height: 8, borderRadius: '50%', background: '#f59e0b', display: 'inline-block' }} />
+                  Unsaved Changes
+                </span>
+              )}
             </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-              {saving && <span style={{ fontSize: '0.75rem', color: 'var(--brand-primary)', fontWeight: 600 }}>💾 Saving to server...</span>}
-              <button type="button" className="btn btn-primary btn-sm" onClick={handleOpenAdd}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+              {saving && <span style={{ fontSize: '0.75rem', color: 'var(--brand-primary)', fontWeight: 600 }}>💾 Saving to DB...</span>}
+              {hasUnsavedChanges && (
+                <button
+                  type="button"
+                  className="btn btn-secondary btn-sm"
+                  onClick={handleDiscard}
+                  disabled={saving}
+                  style={{ fontSize: '0.8rem' }}
+                >
+                  ↩️ Discard Changes
+                </button>
+              )}
+              <button type="button" className="btn btn-secondary btn-sm" onClick={handleOpenAdd}>
                 ➕ Add New Column
+              </button>
+              <button
+                type="button"
+                className="btn btn-primary btn-sm"
+                onClick={handleSaveToDb}
+                disabled={saving}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 6,
+                  fontWeight: 700,
+                  background: hasUnsavedChanges ? '#16a34a' : 'linear-gradient(135deg, #0284c7 0%, #0ea5e9 100%)',
+                  borderColor: hasUnsavedChanges ? '#15803d' : '#0284c7',
+                  boxShadow: hasUnsavedChanges ? '0 2px 8px rgba(22, 163, 74, 0.3)' : undefined,
+                }}
+              >
+                {saving ? '💾 Saving to DB...' : '💾 Save Columns to DB'}
               </button>
             </div>
           </div>
@@ -263,7 +386,6 @@ export default function ChartColumnsConfigPage() {
                     <th>Column Name</th>
                     <th>Field Key</th>
                     <th>Data Type</th>
-                    <th>Formula / Rule</th>
                     <th>Unit</th>
                     <th>Decimal Places</th>
                     <th style={{ width: 140, textAlign: 'center' }}>Actions</th>
@@ -296,9 +418,6 @@ export default function ChartColumnsConfigPage() {
                         >
                           {col.type.toUpperCase()}
                         </span>
-                      </td>
-                      <td style={{ fontSize: '0.8rem', color: col.type === 'calculated' ? '#4338ca' : 'var(--text-muted)', fontFamily: col.type === 'calculated' ? 'monospace' : 'inherit' }}>
-                        {col.formula || '—'}
                       </td>
                       <td style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
                         {col.unit || '—'}
@@ -423,33 +542,22 @@ export default function ChartColumnsConfigPage() {
                 />
               </div>
 
-              <div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <label className="form-label" style={{ fontWeight: 600 }}>
-                    Field Key <span style={{ color: '#dc2626' }}>*</span>
-                  </label>
-                  {editingKey && (
-                    <span style={{ fontSize: '0.72rem', color: '#0369a1', fontWeight: 600 }}>
-                      Editable (updates key across column settings)
-                    </span>
-                  )}
-                </div>
-                <input
-                  type="text"
-                  className="form-input"
-                  placeholder="e.g. qty_lit, sp_gr, fat_pct, kg_snf"
-                  value={formKey}
-                  onChange={e => {
-                    setFormKey(e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, '_'));
-                    setKeyManuallyEdited(true);
-                  }}
-                  required
-                  style={{ background: '#fff', fontFamily: 'monospace', fontWeight: 600 }}
-                />
-                <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: 3 }}>
-                  Unique identifier used in formulas and database storage (lowercase letters, numbers, underscores)
-                </div>
-              </div>
+              <KeyField
+                label="Field Key"
+                value={formKey}
+                onChange={val => {
+                  setFormKey(val);
+                  setKeyManuallyEdited(true);
+                }}
+                originalKey={editingKey}
+                scope="prep_chart_column"
+                existingKeys={columns.map(c => c.key)}
+                placeholder="e.g. qty_lit, sp_gr, fat_pct, kg_snf"
+                onRenameComplete={(oldKey, newKey) => {
+                  setColumns(prev => prev.map(c => c.key === oldKey ? { ...c, key: newKey } : c));
+                  setEditingKey(newKey);
+                }}
+              />
 
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12 }}>
                 <div>
@@ -523,7 +631,7 @@ export default function ChartColumnsConfigPage() {
                   type="submit"
                   className="btn btn-primary btn-sm"
                 >
-                  {editingKey ? '💾 Update Column' : '➕ Save Column'}
+                  {editingKey ? '✏️ Update Column in List' : '➕ Add Column to List'}
                 </button>
               </div>
             </form>

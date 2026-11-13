@@ -13,179 +13,269 @@ export interface STGColumnDef {
   is_active?: boolean;
 }
 
-export const DEFAULT_STG_COLUMNS: STGColumnDef[] = [
-  { key: 'variant', name: 'VARIANT', type: 'text', sort_order: 1 },
-  { key: 'qty_lts', name: 'QTY (LTS)', type: 'number', decimals: 0, sort_order: 2 },
-  { key: 'qty_kg', name: 'QTY (KG)', type: 'number', decimals: 2, sort_order: 3 },
-  { key: 'fat_pct', name: 'FAT (%)', type: 'number', decimals: 2, sort_order: 4 },
-  { key: 'snf_pct', name: 'SNF (%)', type: 'number', decimals: 2, sort_order: 5 },
-  { key: 'sp_gr', name: 'SP.GR', type: 'number', decimals: 4, sort_order: 6 },
-  { key: 'kg_fat', name: 'KG FAT', type: 'number', decimals: 3, sort_order: 7 },
-  { key: 'kg_snf', name: 'KG SNF', type: 'number', decimals: 3, sort_order: 8 },
-];
+export interface STGColumnSections {
+  ob: STGColumnDef[];
+  receipt: STGColumnDef[];
+  disposal: STGColumnDef[];
+  cb: STGColumnDef[];
+  recon: STGColumnDef[];
+}
 
-// GET /api/ts/columns - Fetch STG column definitions strictly from DB table prep_chart_configs
+export const DEFAULT_STG_SECTIONS: STGColumnSections = {
+  ob: [],
+  receipt: [],
+  disposal: [],
+  cb: [],
+  recon: [],
+};
+
+export const DEFAULT_STG_COLUMNS: STGColumnDef[] = [];
+
+// Helper to sanitize array of columns
+const sanitizeCols = (cols: any[] | undefined): STGColumnDef[] => {
+  if (!Array.isArray(cols)) return [];
+  return cols.map((c: any, idx: number) => ({
+    key: String(c.key || '').trim().toLowerCase().replace(/[^a-z0-9_]/g, '_'),
+    name: c.name || c.label || c.key,
+    type: c.type || 'number',
+    formula: c.formula || undefined,
+    unit: c.unit || undefined,
+    decimals: typeof c.decimals === 'number' ? c.decimals : undefined,
+    sort_order: typeof c.sort_order === 'number' ? c.sort_order : idx + 1,
+    is_active: c.is_active !== undefined ? !!c.is_active : true,
+  })).filter(c => c.key);
+};
+
+// GET /api/ts/columns?statement_key=...
+// Fetches section-specific column definitions strictly as stored.
+// If a section is empty, it returns [] — NEVER falls back to or re-populates with globalFields!
 export async function GET(req: NextRequest) {
   try {
     const supabase = getSupabaseServiceClient();
+    const { searchParams } = new URL(req.url);
+    const statementKey = searchParams.get('statement_key');
 
-    const { data: res, error } = await supabase
-      .from('prep_chart_configs')
-      .select('config_json')
-      .eq('config_key', 'stg_columns')
-      .maybeSingle();
+    let sections: STGColumnSections = {
+      ob: [],
+      receipt: [],
+      disposal: [],
+      cb: [],
+      recon: [],
+    };
 
-    let columns: STGColumnDef[] = [];
-    if (!error && res && Array.isArray(res.config_json)) {
-      columns = res.config_json;
+    if (statementKey) {
+      // 1. Try stg_statement_column_configs for this statement
+      const { data: configs } = await supabase
+        .from('stg_statement_column_configs')
+        .select('section_key, columns_json')
+        .eq('statement_key', statementKey);
+
+      let foundConfigs = false;
+      if (Array.isArray(configs) && configs.length > 0) {
+        configs.forEach((cfg: any) => {
+          const k = (cfg.section_key || '').toLowerCase() as keyof STGColumnSections;
+          if (k in sections && Array.isArray(cfg.columns_json)) {
+            sections[k] = sanitizeCols(cfg.columns_json);
+            foundConfigs = true;
+          }
+        });
+      }
+
+      // If not configured in stg_statement_column_configs, check stg_masters for this statement
+      if (!foundConfigs) {
+        const { data: stmt, error } = await supabase
+          .from('stg_masters')
+          .select('ob_columns, receipt_columns, disposal_columns, cb_columns, recon_columns')
+          .eq('key', statementKey)
+          .maybeSingle();
+
+        if (!error && stmt) {
+          sections = {
+            ob: sanitizeCols(stmt.ob_columns),
+            receipt: sanitizeCols(stmt.receipt_columns),
+            disposal: sanitizeCols(stmt.disposal_columns),
+            cb: sanitizeCols(stmt.cb_columns),
+            recon: sanitizeCols(stmt.recon_columns),
+          };
+        }
+      }
     } else {
-      columns = DEFAULT_STG_COLUMNS;
+      // No statementKey specified: load global/default section columns
+      // 1. Check stg_statement_column_configs for 'default_stg'
+      const { data: configs } = await supabase
+        .from('stg_statement_column_configs')
+        .select('section_key, columns_json')
+        .eq('statement_key', 'default_stg');
+
+      let foundConfigs = false;
+      if (Array.isArray(configs) && configs.length > 0) {
+        configs.forEach((cfg: any) => {
+          const k = (cfg.section_key || '').toLowerCase() as keyof STGColumnSections;
+          if (k in sections && Array.isArray(cfg.columns_json)) {
+            sections[k] = sanitizeCols(cfg.columns_json);
+            foundConfigs = true;
+          }
+        });
+      }
+
+      // If not found in configs, check first statement in stg_masters
+      if (!foundConfigs) {
+        const { data: stmts } = await supabase
+          .from('stg_masters')
+          .select('ob_columns, receipt_columns, disposal_columns, cb_columns, recon_columns')
+          .order('sort_order', { ascending: true })
+          .order('created_at', { ascending: true })
+          .limit(1);
+
+        if (Array.isArray(stmts) && stmts.length > 0) {
+          const stmt = stmts[0];
+          sections = {
+            ob: sanitizeCols(stmt.ob_columns),
+            receipt: sanitizeCols(stmt.receipt_columns),
+            disposal: sanitizeCols(stmt.disposal_columns),
+            cb: sanitizeCols(stmt.cb_columns),
+            recon: sanitizeCols(stmt.recon_columns),
+          };
+        }
+      }
     }
 
-    return NextResponse.json({ success: true, columns });
+    // Global field catalogue from stg_field_master for reference (never injected into sections)
+    const { data: fieldRows } = await supabase
+      .from('stg_field_master')
+      .select('*')
+      .eq('is_active', true)
+      .order('sort_order', { ascending: true });
+
+    const globalFields: STGColumnDef[] = (fieldRows || []).map((f: any) => ({
+      key: f.field_key,
+      name: f.label,
+      type: f.data_type,
+      formula: f.default_formula || undefined,
+      decimals: f.decimals,
+      unit: f.unit || undefined,
+      sort_order: f.sort_order,
+      is_active: f.is_active,
+    }));
+
+    // Build flatColumns containing only actually configured columns from the sections
+    const allColsMap = new Map<string, STGColumnDef>();
+    [...sections.ob, ...sections.receipt, ...sections.disposal, ...sections.cb, ...sections.recon].forEach(c => {
+      if (c && c.key && !allColsMap.has(c.key)) {
+        allColsMap.set(c.key, c);
+      }
+    });
+    const flatColumns = Array.from(allColsMap.values());
+
+    return NextResponse.json({ success: true, sections, columns: flatColumns, globalFields });
   } catch (err: any) {
     console.error('GET /api/ts/columns error:', err);
-    return NextResponse.json({ success: true, columns: DEFAULT_STG_COLUMNS });
+    return NextResponse.json({ success: true, sections: DEFAULT_STG_SECTIONS, columns: [] });
   }
 }
 
-// POST /api/ts/columns - Save STG column definitions to prep_chart_configs and synchronize all statement masters
+// POST /api/ts/columns - Save STG column definitions
 export async function POST(req: NextRequest) {
   try {
     const authUser = await getAuthUserFromRequest(req);
     const actorUsername = authUser?.username || 'admin';
     const body = await req.json();
 
-    const columns: STGColumnDef[] = Array.isArray(body.columns) ? body.columns : body;
-    if (!Array.isArray(columns)) {
-      return NextResponse.json({ error: 'Invalid payload, expected array of columns' }, { status: 400 });
-    }
-
+    const statementKey = body.statement_key || body.statementKey;
     const supabase = getSupabaseServiceClient();
 
-    // 1. Primary Save: store configured columns to prep_chart_configs
-    const { error: upsertErr } = await supabase.from('prep_chart_configs').upsert({
-      config_key: 'stg_columns',
-      config_json: columns,
-      updated_by: actorUsername,
-      updated_at: new Date().toISOString(),
-    }, { onConflict: 'config_key' });
+    // Determine what sections to update
+    const secUpdates: Partial<Record<keyof STGColumnSections, STGColumnDef[]>> = {};
 
-    if (upsertErr) throw upsertErr;
-
-    // 2. Synchronize all existing statement masters in `stg_masters` table and `prep_chart_configs`
-    try {
-      const PROHIBITED_NAMES = new Set([
-        'Opening Balance Particular',
-        'Receipt Particular',
-        'Disposal Particular',
-        'Reconciliation Item / Summary Label',
-      ]);
-
-      const syncSectionCols = (
-        existingCols: any[] | undefined,
-        isRecon: boolean = false
-      ) => {
-        return columns.map((cfgCol: any, idx: number) => {
-          const existing = Array.isArray(existingCols)
-            ? existingCols.find((c: any) => c.key === cfgCol.key || (isRecon && cfgCol.key === 'variant' && c.key === 'label'))
-            : null;
-
-          // Discard prohibited artificial names; strictly use configured column name unless a valid user custom name was given
-          const colName = existing?.name && !PROHIBITED_NAMES.has(existing.name)
-            ? existing.name
-            : cfgCol.name;
-
-          const isHardcodedCalc = (existing?.formula === 'qty_lts * sp_gr' || cfgCol.formula === 'qty_lts * sp_gr' ||
-                                   existing?.formula === 'qty_kg * fat_pct / 100' || cfgCol.formula === 'qty_kg * fat_pct / 100' ||
-                                   existing?.formula === 'qty_kg * snf_pct / 100' || cfgCol.formula === 'qty_kg * snf_pct / 100');
-
-          const colType = (cfgCol.key === 'variant' || cfgCol.key === 'label' || existing?.key === 'variant' || existing?.key === 'label')
-            ? 'text'
-            : (isHardcodedCalc ? 'number' : (existing?.type || cfgCol.type || 'number'));
-
-          const formula = isHardcodedCalc ? undefined : (existing?.formula || cfgCol.formula || undefined);
-
-          const resCol: any = {
-            ...cfgCol,
-            key: isRecon && (existing?.key === 'label' || cfgCol.key === 'label') ? 'label' : cfgCol.key,
-            name: colName,
-            type: colType,
-            decimals: existing?.decimals !== undefined ? existing.decimals : cfgCol.decimals,
-            unit: existing?.unit || cfgCol.unit,
-            sort_order: idx + 1,
-            is_active: existing?.is_active !== undefined ? existing.is_active : (cfgCol.is_active !== undefined ? cfgCol.is_active : true),
-          };
-
-          if (formula) resCol.formula = formula;
-          else delete resCol.formula;
-
-          return resCol;
-        });
-      };
-
-      // 2a. Update dedicated stg_masters table
-      const { data: stgRows, error: stgErr } = await supabase.from('stg_masters').select('*');
-      if (!stgErr && Array.isArray(stgRows) && stgRows.length > 0) {
-        const updatedStgRows = stgRows.map((r: any) => {
-          const ob_columns = syncSectionCols(r.ob_columns, false);
-          const receipt_columns = syncSectionCols(r.receipt_columns, false);
-          const disposal_columns = syncSectionCols(r.disposal_columns, false);
-          const recon_columns = syncSectionCols(r.recon_columns, true);
-
-          return {
-            ...r,
-            ob_columns,
-            receipt_columns,
-            disposal_columns,
-            recon_columns,
-            custom_columns: receipt_columns,
-            updated_by: actorUsername,
-            updated_at: new Date().toISOString(),
-          };
-        });
-
-        await supabase.from('stg_masters').upsert(updatedStgRows, { onConflict: 'key' });
-      }
-
-      // 2b. Update prep_chart_configs ('stg_masters')
-      const { data: stgConfig } = await supabase
-        .from('prep_chart_configs')
-        .select('config_json')
-        .eq('config_key', 'stg_masters')
-        .maybeSingle();
-
-      if (stgConfig && Array.isArray(stgConfig.config_json) && stgConfig.config_json.length > 0) {
-        const updatedMastersConfig = stgConfig.config_json.map((m: any) => {
-          const ob_columns = syncSectionCols(m.ob_columns, false);
-          const receipt_columns = syncSectionCols(m.receipt_columns, false);
-          const disposal_columns = syncSectionCols(m.disposal_columns, false);
-          const recon_columns = syncSectionCols(m.recon_columns, true);
-
-          return {
-            ...m,
-            ob_columns,
-            receipt_columns,
-            disposal_columns,
-            recon_columns,
-            custom_columns: receipt_columns,
-          };
-        });
-
-        await supabase.from('prep_chart_configs').upsert({
-          config_key: 'stg_masters',
-          config_json: updatedMastersConfig,
-          updated_by: actorUsername,
-          updated_at: new Date().toISOString(),
-        }, { onConflict: 'config_key' });
-      }
-    } catch (syncErr) {
-      console.warn('Failed to sync masters columns:', syncErr);
+    if (body.section && Array.isArray(body.columns)) {
+      // Single section update: e.g. section: 'ob', columns: [...]
+      const secKey = String(body.section).toLowerCase() as keyof STGColumnSections;
+      secUpdates[secKey] = sanitizeCols(body.columns);
+    } else if (body.sections && typeof body.sections === 'object') {
+      if (Array.isArray(body.sections.ob)) secUpdates.ob = sanitizeCols(body.sections.ob);
+      if (Array.isArray(body.sections.receipt)) secUpdates.receipt = sanitizeCols(body.sections.receipt);
+      if (Array.isArray(body.sections.disposal)) secUpdates.disposal = sanitizeCols(body.sections.disposal);
+      if (Array.isArray(body.sections.cb)) secUpdates.cb = sanitizeCols(body.sections.cb);
+      if (Array.isArray(body.sections.recon)) secUpdates.recon = sanitizeCols(body.sections.recon);
+    } else {
+      if (Array.isArray(body.ob)) secUpdates.ob = sanitizeCols(body.ob);
+      if (Array.isArray(body.receipt)) secUpdates.receipt = sanitizeCols(body.receipt);
+      if (Array.isArray(body.disposal)) secUpdates.disposal = sanitizeCols(body.disposal);
+      if (Array.isArray(body.cb)) secUpdates.cb = sanitizeCols(body.cb);
+      if (Array.isArray(body.recon)) secUpdates.recon = sanitizeCols(body.recon);
     }
 
-    return NextResponse.json({ success: true, columns });
+    // 1. Persist to stg_statement_column_configs
+    const targetStmtKey = statementKey || 'default_stg';
+    for (const [secKey, cols] of Object.entries(secUpdates)) {
+      await supabase
+        .from('stg_statement_column_configs')
+        .upsert({
+          statement_key: targetStmtKey,
+          section_key: secKey,
+          columns_json: cols,
+          updated_by: actorUsername,
+          updated_at: new Date().toISOString(),
+        }, { onConflict: 'statement_key,section_key' });
+    }
+
+    // 2. Also update stg_masters table
+    const masterUpdates: any = {
+      updated_by: actorUsername,
+      updated_at: new Date().toISOString(),
+    };
+    if (secUpdates.ob !== undefined) masterUpdates.ob_columns = secUpdates.ob;
+    if (secUpdates.receipt !== undefined) masterUpdates.receipt_columns = secUpdates.receipt;
+    if (secUpdates.disposal !== undefined) masterUpdates.disposal_columns = secUpdates.disposal;
+    if (secUpdates.cb !== undefined) masterUpdates.cb_columns = secUpdates.cb;
+    if (secUpdates.recon !== undefined) masterUpdates.recon_columns = secUpdates.recon;
+
+    if (Object.keys(masterUpdates).length > 2) {
+      if (statementKey) {
+        await supabase
+          .from('stg_masters')
+          .update(masterUpdates)
+          .eq('key', statementKey);
+      } else {
+        // Update all statements with the new section column definitions
+        await supabase
+          .from('stg_masters')
+          .update(masterUpdates)
+          .neq('key', '');
+      }
+    }
+
+    // 3. Register any new columns in stg_field_master catalogue
+    const allCols: STGColumnDef[] = Object.values(secUpdates).flat();
+    const uniqueCols = new Map<string, STGColumnDef>();
+    allCols.forEach(c => {
+      if (c && c.key && !uniqueCols.has(c.key)) uniqueCols.set(c.key, c);
+    });
+
+    for (const c of Array.from(uniqueCols.values())) {
+      await supabase
+        .from('stg_field_master')
+        .upsert({
+          field_key: c.key,
+          label: c.name || c.key,
+          data_type: c.type || 'number',
+          default_formula: c.formula || '',
+          decimals: typeof c.decimals === 'number' ? c.decimals : 3,
+          unit: c.unit || '',
+          sort_order: typeof c.sort_order === 'number' ? c.sort_order : 0,
+          is_active: c.is_active !== undefined ? !!c.is_active : true,
+          updated_by: actorUsername,
+          updated_at: new Date().toISOString(),
+        }, { onConflict: 'field_key' });
+    }
+
+    return NextResponse.json({
+      success: true,
+      updatedSections: secUpdates,
+      message: 'STG Column configuration saved successfully',
+    });
   } catch (err: any) {
     console.error('POST /api/ts/columns error:', err);
-    return NextResponse.json({ error: err.message || 'Failed to save STG columns' }, { status: 500 });
+    return NextResponse.json({ error: err.message || 'Failed to save column definitions' }, { status: 500 });
   }
 }

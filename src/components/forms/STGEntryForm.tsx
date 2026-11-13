@@ -11,8 +11,10 @@ import Header from '@/components/layout/Header';
 import Step, { DAILY_ENTRY_STEP_ITEMS } from '@/components/ui/Step';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { fmtNum, cleanStatementLabel, getStandardColumnDecimals } from '@/lib/calculations';
+import { evaluateFormula } from '@/lib/formulaEvaluator';
 import { useConfirm } from '@/context/ConfirmContext';
 import type { Shift } from '@/lib/types';
+import KeyField from '@/components/ui/KeyField';
 
 export interface STGColumnDef {
   key: string;
@@ -39,16 +41,7 @@ export interface STGReconData {
   rows: STGReconRow[];
 }
 
-export const getDefaultReconColumns = (): STGColumnDef[] => [
-  { key: 'lts', name: 'Qty (Lts)', type: 'number', decimals: 0, sort_order: 1 },
-  { key: 'sp_gr', name: 'SP.G', type: 'number', decimals: 4, sort_order: 2 },
-  { key: 'kg', name: 'Qty (Kg)', type: 'calculated', decimals: 2, sort_order: 3 },
-  { key: 'fat_pct', name: 'Fat%', type: 'number', decimals: 2, sort_order: 4 },
-  { key: 'snf_pct', name: 'Snf%', type: 'number', decimals: 2, sort_order: 5 },
-  { key: 'kg_fat', name: 'Kg.Fat', type: 'calculated', decimals: 3, sort_order: 6 },
-  { key: 'kg_snf', name: 'Kg.Snf', type: 'calculated', decimals: 3, sort_order: 7 },
-  { key: 'note', name: 'Reconciled Note', type: 'text', sort_order: 8 },
-];
+export const getReconciliationColumns = (): STGColumnDef[] => [];
 
 export const getDefaultReconRows = (): STGReconRow[] => [];
 
@@ -79,9 +72,9 @@ export const evaluateReconCellFormula = (
       ? contextTotals.rec[k]
       : (k === 'lts' || k === 'qty_lts' ? contextTotals.rec?.lts
         : k === 'kg' || k === 'qty_kg' ? contextTotals.rec?.kg
-        : k === 'fat' || k === 'kg_fat' ? contextTotals.rec?.fat
-        : k === 'snf' || k === 'kg_snf' ? contextTotals.rec?.snf
-        : 0);
+          : k === 'fat' || k === 'kg_fat' ? contextTotals.rec?.fat
+            : k === 'snf' || k === 'kg_snf' ? contextTotals.rec?.snf
+              : 0);
     return String(val ?? 0);
   });
 
@@ -91,9 +84,9 @@ export const evaluateReconCellFormula = (
       ? contextTotals.disp[k]
       : (k === 'lts' || k === 'qty_lts' ? contextTotals.disp?.lts
         : k === 'kg' || k === 'qty_kg' ? contextTotals.disp?.kg
-        : k === 'fat' || k === 'kg_fat' ? contextTotals.disp?.fat
-        : k === 'snf' || k === 'kg_snf' ? contextTotals.disp?.snf
-        : 0);
+          : k === 'fat' || k === 'kg_fat' ? contextTotals.disp?.fat
+            : k === 'snf' || k === 'kg_snf' ? contextTotals.disp?.snf
+              : 0);
     return String(val ?? 0);
   });
 
@@ -103,9 +96,9 @@ export const evaluateReconCellFormula = (
       ? contextTotals.ob[k]
       : (k === 'lts' || k === 'qty_lts' ? contextTotals.ob?.lts
         : k === 'kg' || k === 'qty_kg' ? contextTotals.ob?.kg
-        : k === 'fat' || k === 'kg_fat' ? contextTotals.ob?.fat
-        : k === 'snf' || k === 'kg_snf' ? contextTotals.ob?.snf
-        : 0);
+          : k === 'fat' || k === 'kg_fat' ? contextTotals.ob?.fat
+            : k === 'snf' || k === 'kg_snf' ? contextTotals.ob?.snf
+              : 0);
     return String(val ?? 0);
   });
 
@@ -115,9 +108,9 @@ export const evaluateReconCellFormula = (
       ? contextTotals.cb[k]
       : (k === 'lts' || k === 'qty_lts' ? contextTotals.cb?.lts
         : k === 'kg' || k === 'qty_kg' ? contextTotals.cb?.kg
-        : k === 'fat' || k === 'kg_fat' ? contextTotals.cb?.fat
-        : k === 'snf' || k === 'kg_snf' ? contextTotals.cb?.snf
-        : 0);
+          : k === 'fat' || k === 'kg_fat' ? contextTotals.cb?.fat
+            : k === 'snf' || k === 'kg_snf' ? contextTotals.cb?.snf
+              : 0);
     return String(val ?? 0);
   });
 
@@ -127,9 +120,9 @@ export const evaluateReconCellFormula = (
       ? contextTotals.grandRec[k]
       : (k === 'lts' || k === 'qty_lts' ? contextTotals.grandRec?.lts
         : k === 'kg' || k === 'qty_kg' ? contextTotals.grandRec?.kg
-        : k === 'fat' || k === 'kg_fat' ? contextTotals.grandRec?.fat
-        : k === 'snf' || k === 'kg_snf' ? contextTotals.grandRec?.snf
-        : 0);
+          : k === 'fat' || k === 'kg_fat' ? contextTotals.grandRec?.fat
+            : k === 'snf' || k === 'kg_snf' ? contextTotals.grandRec?.snf
+              : 0);
     return String(val ?? 0);
   });
 
@@ -139,9 +132,9 @@ export const evaluateReconCellFormula = (
       ? contextTotals.grandDisp[k]
       : (k === 'lts' || k === 'qty_lts' ? contextTotals.grandDisp?.lts
         : k === 'kg' || k === 'qty_kg' ? contextTotals.grandDisp?.kg
-        : k === 'fat' || k === 'kg_fat' ? contextTotals.grandDisp?.fat
-        : k === 'snf' || k === 'kg_snf' ? contextTotals.grandDisp?.snf
-        : 0);
+          : k === 'fat' || k === 'kg_fat' ? contextTotals.grandDisp?.fat
+            : k === 'snf' || k === 'kg_snf' ? contextTotals.grandDisp?.snf
+              : 0);
     return String(val ?? 0);
   });
 
@@ -151,9 +144,9 @@ export const evaluateReconCellFormula = (
       ? contextTotals.lossGain[k]
       : (k === 'lts' || k === 'qty_lts' ? contextTotals.lossGain?.lts
         : k === 'kg' || k === 'qty_kg' ? contextTotals.lossGain?.kg
-        : k === 'fat' || k === 'kg_fat' ? contextTotals.lossGain?.fat
-        : k === 'snf' || k === 'kg_snf' ? contextTotals.lossGain?.snf
-        : 0);
+          : k === 'fat' || k === 'kg_fat' ? contextTotals.lossGain?.fat
+            : k === 'snf' || k === 'kg_snf' ? contextTotals.lossGain?.snf
+              : 0);
     return String(val ?? 0);
   });
 
@@ -169,7 +162,7 @@ export const evaluateReconCellFormula = (
     if (!targetRow) return '0';
     let cKey = (targetColKey || colKey).toLowerCase();
     if (targetColKey && /^[a-z]{1,2}$/i.test(targetColKey)) {
-      const reconCols = getDefaultReconColumns();
+      const reconCols = getReconciliationColumns();
       let colIndex = 0;
       const upper = targetColKey.toUpperCase();
       for (let i = 0; i < upper.length; i++) colIndex = colIndex * 26 + (upper.charCodeAt(i) - 64);
@@ -187,9 +180,7 @@ export const evaluateReconCellFormula = (
   });
 
   try {
-    if (!/^[0-9+\-*\/().\s,eEMath.minmaxroundabsfloorceil]+$/.test(expr)) return 0;
-    const result = new Function('return (' + expr + ');')();
-    return typeof result === 'number' && !isNaN(result) && isFinite(result) ? result : 0;
+    return evaluateFormula(expr, {});
   } catch {
     return 0;
   }
@@ -197,9 +188,14 @@ export const evaluateReconCellFormula = (
 
 export interface STGRowData {
   variant: string;
-  row_type?: 'OB' | 'RECEIPT' | 'DISPOSAL';
-  side?: 'RECEIPT' | 'DISPOSAL';
+  row_type?: 'OB' | 'RECEIPT' | 'DISPOSAL' | 'CB';
+  side?: 'RECEIPT' | 'DISPOSAL' | 'CB';
+  section_key?: string;
+  particular_id?: string | null;
+  particular_name?: string;
+  item_name?: string;
   values: Record<string, any>;
+  [key: string]: any;
 }
 
 export interface STGOpeningBalance {
@@ -240,51 +236,43 @@ export const evaluateRowFormula = (formula: string, vals: Record<string, any>): 
   if (expr.startsWith('+')) expr = expr.substring(1).trim();
   if (!expr) return 0;
 
-  // Substitute column identifiers with their numeric value from vals
-  expr = expr.replace(/[a-zA-Z_][a-zA-Z0-9_]*/g, (match) => {
-    const k = match.toLowerCase();
-    // Allow Math functions
-    if (['math', 'min', 'max', 'round', 'abs', 'floor', 'ceil'].includes(k)) {
-      return match;
-    }
-    const rawVal = vals[match] ?? vals[k] ?? vals[match.toUpperCase()];
-    const num = rawVal !== undefined && rawVal !== null && rawVal !== '' ? parseFloat(String(rawVal)) : NaN;
-
-    if (k === 'sp_gr' && (isNaN(num) || num === 0)) {
-      return '1'; // Default SP.GR to 1 if not specified
-    }
-
-    return isNaN(num) ? '0' : String(num);
-  });
-
   try {
-    if (!/^[0-9+\-*\/().\s,eEMath.minmaxroundabsfloorceil]+$/.test(expr)) return 0;
-    const result = new Function('return (' + expr + ');')();
-    return typeof result === 'number' && !isNaN(result) && isFinite(result) ? result : 0;
+    const numVals: Record<string, number> = {};
+    Object.entries(vals).forEach(([k, v]) => {
+      const n = parseFloat(String(v));
+      const valNum = isNaN(n) ? 0 : n;
+      numVals[k] = valNum;
+      numVals[k.toLowerCase()] = valNum;
+      numVals[k.toUpperCase()] = valNum;
+    });
+    // Default SP.GR to 1 if missing or 0
+    if (!numVals['sp_gr']) numVals['sp_gr'] = 1;
+    if (!numVals['SP_GR']) numVals['SP_GR'] = 1;
+
+    return evaluateFormula(expr, numVals);
   } catch {
     return 0;
   }
 };
 
-// Safe formula computation for any dynamic column key
+// Formula computation evaluated strictly from configured formula without hardcoded fallbacks
 export const computeCalculatedField = (
   colKey: string,
   vals: Record<string, any>,
   customFormula?: string
 ): number => {
-  if (customFormula) {
-    const res = evaluateRowFormula(customFormula, vals);
-    if (!isNaN(res)) return res;
+  if (customFormula && customFormula.trim()) {
+    try {
+      const numVals: Record<string, number> = {};
+      Object.entries(vals).forEach(([k, v]) => {
+        const n = parseFloat(String(v));
+        numVals[k] = isNaN(n) ? 0 : n;
+      });
+      return evaluateRowFormula(customFormula, numVals);
+    } catch {
+      return 0;
+    }
   }
-  const qtyLit = parseFloat(vals.qty_lts) || 0;
-  const spGr = parseFloat(vals.sp_gr) || 0;
-  const qtyKg = vals.qty_kg !== undefined && vals.qty_kg !== '' ? parseFloat(vals.qty_kg) : (spGr > 0 ? qtyLit * spGr : qtyLit);
-  const fatPct = parseFloat(vals.fat_pct) || 0;
-  const snfPct = parseFloat(vals.snf_pct) || 0;
-
-  if (colKey === 'qty_kg') return spGr > 0 ? qtyLit * spGr : qtyLit;
-  if (colKey === 'kg_fat') return (qtyKg * fatPct) / 100;
-  if (colKey === 'kg_snf') return (qtyKg * snfPct) / 100;
   return 0;
 };
 
@@ -342,42 +330,204 @@ export const resolveStockCandidateKeys = (
   return Array.from(new Set(keys.filter(Boolean)));
 };
 
+// Helper to check if a column is a text or particular column (e.g. Receipt, Disposal, OB, Variant, Label)
+export const isSTGTextOrParticularCol = (col: { key: string; name?: string; type?: string; is_identifier?: boolean }): boolean => {
+  if (col.type === 'text' || col.is_identifier) return true;
+  const k = (col.key || '').trim().toLowerCase();
+  const n = (col.name || '').trim().toLowerCase();
+  return (
+    ['receipt', 'disposal', 'ob', 'cb', 'variant', 'particular', 'label', 'name', 'item_name', 'particulars'].includes(k) ||
+    ['receipt', 'disposal', 'ob', 'cb', 'variant', 'particular', 'label', 'name', 'item_name', 'particulars'].includes(n) ||
+    k.startsWith('receipt') ||
+    k.startsWith('disposal') ||
+    k.startsWith('particular')
+  );
+};
+
+// Robust helper to extract the particular/variant string from a master row
+export const resolveRowVariantName = (r: any, defaultPrefix: string): string => {
+  if (!r) return 'Particular';
+
+  // 1. Direct field matches in r.values:
+  if (r.values?.receipt && typeof r.values.receipt === 'string' && !/^Receipt \d+$/i.test(r.values.receipt.trim())) {
+    return r.values.receipt.trim();
+  }
+  if (r.values?.disposal && typeof r.values.disposal === 'string' && !/^Disposal \d+$/i.test(r.values.disposal.trim())) {
+    return r.values.disposal.trim();
+  }
+  if (r.values?.cb && typeof r.values.cb === 'string' && !/^Closing Stock \d+$/i.test(r.values.cb.trim())) {
+    return r.values.cb.trim();
+  }
+  if (r.values?.ob && typeof r.values.ob === 'string' && !/^OB \d+$/i.test(r.values.ob.trim())) {
+    return r.values.ob.trim();
+  }
+  if (r.values?.particular && typeof r.values.particular === 'string') {
+    return r.values.particular.trim();
+  }
+  if (r.values?.label && typeof r.values.label === 'string') {
+    return r.values.label.trim();
+  }
+  // 2. Check if r.variant is not a default placeholder like 'Receipt 1' / 'Disposal 1'
+  if (r.variant && typeof r.variant === 'string' && !new RegExp(`^${defaultPrefix} \\d+$`, 'i').test(r.variant.trim())) {
+    return r.variant.trim();
+  }
+  // 3. Scan r.values for any non-numeric string column (like custom column names)
+  if (r.values && typeof r.values === 'object') {
+    for (const [k, v] of Object.entries(r.values)) {
+      if (typeof v === 'string' && v.trim() && isNaN(Number(v)) && !v.startsWith('=')) {
+        const lowerK = k.toLowerCase();
+        if (!['qty_lts', 'sp_gr', 'qty_kg', 'fat_pct', 'snf_pct', 'kg_fat', 'kg_snf', 'row_type', 'side'].includes(lowerK)) {
+          if (!new RegExp(`^${defaultPrefix} \\d+$`, 'i').test(v.trim())) {
+            return v.trim();
+          }
+        }
+      }
+    }
+  }
+
+  return r.values?.receipt || r.values?.disposal || r.values?.variant || r.variant || r.short_name || r.full_name || 'Particular';
+};
+
+// Helper to extract value from any STGRowData object (handling aliases seamlessly)
+export const getSTGRowCellValue = (row: STGRowData, colKey: string): string => {
+  if (!row) return '';
+  const val = row.values?.[colKey];
+  if (val !== undefined && val !== null && val !== '') return String(val);
+
+  const k = colKey.toLowerCase();
+  if (['receipt', 'disposal', 'ob', 'cb', 'variant', 'particular', 'label', 'name'].includes(k)) {
+    return String(
+      row.values?.[colKey] ||
+      row.values?.receipt ||
+      row.values?.disposal ||
+      row.values?.ob ||
+      row.values?.cb ||
+      row.values?.variant ||
+      row.values?.label ||
+      row.values?.particular ||
+      row.variant ||
+      (row as any).label ||
+      ''
+    );
+  }
+  return '';
+};
+
 // Populate block defaults from statement master
 export const populateBlockDefaultsFromMaster = (stmtMaster: any): STGBlockState => {
   const rows: STGRowData[] = [];
 
   if (Array.isArray(stmtMaster?.receipt_rows) && stmtMaster.receipt_rows.length > 0) {
     stmtMaster.receipt_rows.forEach((r: any) => {
-      const name = r.variant || r.short_name || r.full_name || (r.values?.variant || 'Particular');
-      rows.push({ variant: name, row_type: 'RECEIPT', side: 'RECEIPT', values: { variant: name, ...(r.values || {}) } });
+      const name = resolveRowVariantName(r, 'Receipt');
+      const rowVals = { ...(r.values || {}) };
+      if (name) {
+        rowVals.receipt = rowVals.receipt || name;
+        rowVals.variant = rowVals.variant || name;
+      }
+      rows.push({ variant: name, row_type: 'RECEIPT', side: 'RECEIPT', values: rowVals });
     });
   }
 
   if (Array.isArray(stmtMaster?.disposal_rows) && stmtMaster.disposal_rows.length > 0) {
     stmtMaster.disposal_rows.forEach((d: any) => {
-      const name = d.variant || d.short_name || d.full_name || (d.values?.variant || 'Particular');
-      rows.push({ variant: name, row_type: 'DISPOSAL', side: 'DISPOSAL', values: { variant: name, ...(d.values || {}) } });
+      const name = resolveRowVariantName(d, 'Disposal');
+      const rowVals = { ...(d.values || {}) };
+      if (name) {
+        rowVals.disposal = rowVals.disposal || name;
+        rowVals.variant = rowVals.variant || name;
+      }
+      rows.push({ variant: name, row_type: 'DISPOSAL', side: 'DISPOSAL', values: rowVals });
+    });
+  }
+
+  if (Array.isArray(stmtMaster?.cb_rows) && stmtMaster.cb_rows.length > 0) {
+    stmtMaster.cb_rows.forEach((c: any) => {
+      const name = resolveRowVariantName(c, 'Closing Stock');
+      const rowVals = { ...(c.values || {}) };
+      if (name) {
+        rowVals.cb = rowVals.cb || name;
+        rowVals.variant = rowVals.variant || name;
+      }
+      rows.push({ variant: name, row_type: 'CB', side: 'CB', values: rowVals });
+    });
+  } else {
+    const cbLabel = 'Closing Balance';
+    const initCbVals = {
+      variant: cbLabel,
+      cb: cbLabel,
+      ...(stmtMaster?.physical_count || {}),
+    };
+    rows.push({
+      variant: cbLabel,
+      row_type: 'CB',
+      side: 'CB',
+      values: initCbVals,
     });
   }
 
   if (rows.length === 0 && Array.isArray(stmtMaster?.default_rows) && stmtMaster.default_rows.length > 0) {
     stmtMaster.default_rows.forEach((r: any) => {
-      const name = r.variant || r.short_name || r.full_name || (r.values?.variant || 'Particular');
+      const side = r.side || r.row_type || 'RECEIPT';
+      const name = resolveRowVariantName(r, side === 'RECEIPT' ? 'Receipt' : 'Disposal');
+      const rowVals = { ...(r.values || {}) };
+      if (name) {
+        if (side === 'RECEIPT') rowVals.receipt = rowVals.receipt || name;
+        else rowVals.disposal = rowVals.disposal || name;
+        rowVals.variant = rowVals.variant || name;
+      }
       rows.push({
         variant: name,
-        row_type: r.row_type || r.side || 'RECEIPT',
-        side: r.side || r.row_type || 'RECEIPT',
-        values: { variant: name, ...(r.values || {}) }
+        row_type: side,
+        side: side,
+        values: rowVals,
       });
     });
   }
 
+  if (Array.isArray(stmtMaster?.tables)) {
+    stmtMaster.tables.forEach((t: any) => {
+      const isReceipt = t.sectionType === 'RECEIPT' || (t.name || '').toLowerCase().includes('receipt');
+      const isDisposal = t.sectionType === 'DISPOSAL' || (t.name || '').toLowerCase().includes('disposal') || (t.name || '').toLowerCase().includes('sale');
+      if (isReceipt || isDisposal) {
+        const side = isReceipt ? 'RECEIPT' : 'DISPOSAL';
+        (t.rows || []).forEach((r: any) => {
+          const name = resolveRowVariantName(r, isReceipt ? 'Receipt' : 'Disposal');
+          const rowVals = { ...(r.values || {}) };
+          if (name) {
+            if (isReceipt) rowVals.receipt = rowVals.receipt || name;
+            else rowVals.disposal = rowVals.disposal || name;
+            rowVals.variant = rowVals.variant || name;
+          }
+          if (!rows.some(x => (x.side === side || x.row_type === side) && x.variant === name)) {
+            rows.push({ variant: name, row_type: side, side, values: rowVals });
+          }
+        });
+      }
+    });
+  }
+
   // Load opening balance strictly from master defaults if configured in stg_masters (ob_rows or opening_balance)
-  const masterOb = Array.isArray(stmtMaster?.ob_rows) && stmtMaster.ob_rows.length > 0
+  let masterOb = Array.isArray(stmtMaster?.ob_rows) && stmtMaster.ob_rows.length > 0
     ? (stmtMaster.ob_rows[0]?.values || stmtMaster.ob_rows[0])
     : (stmtMaster?.opening_balance || {});
 
+  if (!masterOb || Object.keys(masterOb).length === 0) {
+    const obTable = Array.isArray(stmtMaster?.tables)
+      ? stmtMaster.tables.find((t: any) => t.sectionType === 'OB' || (t.name || '').toLowerCase().includes('opening'))
+      : undefined;
+    if (obTable && Array.isArray(obTable.rows) && obTable.rows.length > 0) {
+      masterOb = obTable.rows[0]?.values || obTable.rows[0] || {};
+    }
+  }
+
+  const obLabel = masterOb?.ob || masterOb?.label || masterOb?.variant || 'Opening Balance';
+
   const opening_balance: STGOpeningBalance = {
+    ...masterOb,
+    ob: obLabel,
+    variant: obLabel,
+    label: obLabel,
     qty_lts: masterOb?.qty_lts !== undefined && masterOb?.qty_lts !== null ? String(masterOb.qty_lts) : '',
     sp_gr: masterOb?.sp_gr !== undefined && masterOb?.sp_gr !== null ? String(masterOb.sp_gr) : '',
     qty_kg: masterOb?.qty_kg !== undefined && masterOb?.qty_kg !== null ? String(masterOb.qty_kg) : '',
@@ -467,7 +617,7 @@ export default function STGEntryForm({
       if (savedMode === 'shift' || savedMode === 'full_day') {
         setReportMode(savedMode);
       }
-    } catch {}
+    } catch { }
   }, []);
 
   const handleStepClick = (key: string) => {
@@ -535,7 +685,8 @@ export default function STGEntryForm({
   const [obUnlocked, setObUnlocked] = useState(false);
   const [receiptsUnlocked, setReceiptsUnlocked] = useState(false);
   const [disposalsUnlocked, setDisposalsUnlocked] = useState(false);
-  const [unlockedSections, setUnlockedSections] = useState<Record<string, { ob?: boolean; receipts?: boolean; disposals?: boolean }>>({});
+  const [cbUnlocked, setCbUnlocked] = useState(false);
+  const [unlockedSections, setUnlockedSections] = useState<Record<string, { ob?: boolean; receipts?: boolean; disposals?: boolean; cb?: boolean }>>({});
 
   // View decimals
   const [viewDecimals, setViewDecimals] = useState<number | 'auto'>('auto');
@@ -581,11 +732,17 @@ export default function STGEntryForm({
   const [isManageReconColsModalOpen, setIsManageReconColsModalOpen] = useState(false);
 
   const availableStatements = useMemo(() => {
-    return statements.filter(s => enabledBlockKeys.includes(s.key));
+    if (!statements || statements.length === 0) return [];
+    if (!enabledBlockKeys || enabledBlockKeys.length === 0) return statements;
+    const filtered = statements.filter(s => enabledBlockKeys.includes(s.key));
+    return filtered.length > 0 ? filtered : statements;
   }, [statements, enabledBlockKeys]);
 
   const displayedStatements = useMemo(() => {
-    return availableStatements.filter(s => selectedStatementKeys.includes(s.key));
+    if (!availableStatements || availableStatements.length === 0) return [];
+    if (!selectedStatementKeys || selectedStatementKeys.length === 0) return availableStatements;
+    const filtered = availableStatements.filter(s => selectedStatementKeys.includes(s.key));
+    return filtered.length > 0 ? filtered : availableStatements;
   }, [availableStatements, selectedStatementKeys]);
 
   const currentStatement = useMemo(() => {
@@ -641,8 +798,11 @@ export default function STGEntryForm({
     const masterRows = (stmtMaster?.reconciliation_rows && Array.isArray(stmtMaster.reconciliation_rows) && stmtMaster.reconciliation_rows.length > 0)
       ? stmtMaster.reconciliation_rows
       : getDefaultReconRows();
+    const masterCols = (stmtMaster?.recon_columns && Array.isArray(stmtMaster.recon_columns) && stmtMaster.recon_columns.length > 0)
+      ? stmtMaster.recon_columns
+      : getReconciliationColumns();
     return {
-      columns: getDefaultReconColumns(),
+      columns: masterCols,
       rows: masterRows,
     };
   }, [reconciliations, masters]);
@@ -653,15 +813,16 @@ export default function STGEntryForm({
   }, [getReconForStatement, activeBlock]);
 
   // Section Lock / Unlock Helpers per statement
-  const isSectionUnlocked = (stmtKey: string, section: 'ob' | 'receipts' | 'disposals') => {
+  const isSectionUnlocked = (stmtKey: string, section: 'ob' | 'receipts' | 'disposals' | 'cb') => {
     const secObj = unlockedSections[stmtKey];
     if (secObj && secObj[section] !== undefined) return !!secObj[section];
     if (section === 'ob') return obUnlocked;
     if (section === 'receipts') return receiptsUnlocked;
-    return disposalsUnlocked;
+    if (section === 'disposals') return disposalsUnlocked;
+    return cbUnlocked;
   };
 
-  const toggleSectionUnlocked = (stmtKey: string, section: 'ob' | 'receipts' | 'disposals') => {
+  const toggleSectionUnlocked = (stmtKey: string, section: 'ob' | 'receipts' | 'disposals' | 'cb') => {
     const current = isSectionUnlocked(stmtKey, section);
     setUnlockedSections(prev => ({
       ...prev,
@@ -681,7 +842,7 @@ export default function STGEntryForm({
         ? stmtMaster.reconciliation_rows
         : getDefaultReconRows();
       const current = prev[blockKey] || {
-        columns: getDefaultReconColumns(),
+        columns: getReconciliationColumns(),
         rows: defaultRows,
       };
       return {
@@ -796,7 +957,7 @@ export default function STGEntryForm({
       ? stmtMaster.reconciliation_rows
       : getDefaultReconRows();
     updateActiveRecon(() => ({
-      columns: getDefaultReconColumns(),
+      columns: getReconciliationColumns(),
       rows: defaultRows,
     }), key);
     await showSuccess('Reconciliation Template loaded successfully!', 'Template Loaded');
@@ -884,7 +1045,13 @@ export default function STGEntryForm({
         id={`${idPrefix}-statement-select`}
         className="form-select"
         value={activeBlock || ''}
-        onChange={e => setActiveBlock(e.target.value)}
+        onChange={e => {
+          const val = e.target.value;
+          setActiveBlock(val);
+          if (val) {
+            setSelectedStatementKeys([val]);
+          }
+        }}
         disabled={availableStatements.length === 0}
         style={{
           fontSize: '0.82rem',
@@ -898,11 +1065,15 @@ export default function STGEntryForm({
           minWidth: 220,
         }}
       >
-        {availableStatements.map(s => (
-          <option key={s.key} value={s.key}>
-            {cleanStatementLabel(s.label || s.key)} {s.variant ? `(${s.variant})` : ''}
-          </option>
-        ))}
+        {availableStatements.map(s => {
+          const lbl = cleanStatementLabel(s.label || s.key);
+          const varPart = s.variant && !lbl.toUpperCase().includes(s.variant.toUpperCase()) ? ` (${s.variant})` : '';
+          return (
+            <option key={s.key} value={s.key}>
+              {lbl}{varPart}
+            </option>
+          );
+        })}
       </select>
       {availableStatements.length > 1 && (
         <div style={{ display: 'flex', alignItems: 'center', gap: 2 }}>
@@ -911,7 +1082,11 @@ export default function STGEntryForm({
             title="Previous Statement"
             onClick={() => {
               const idx = availableStatements.findIndex(s => s.key === activeBlock);
-              if (idx > 0) setActiveBlock(availableStatements[idx - 1].key);
+              if (idx > 0) {
+                const prevKey = availableStatements[idx - 1].key;
+                setActiveBlock(prevKey);
+                setSelectedStatementKeys([prevKey]);
+              }
             }}
             disabled={availableStatements.findIndex(s => s.key === activeBlock) === 0}
             style={{
@@ -932,7 +1107,11 @@ export default function STGEntryForm({
             title="Next Statement"
             onClick={() => {
               const idx = availableStatements.findIndex(s => s.key === activeBlock);
-              if (idx >= 0 && idx < availableStatements.length - 1) setActiveBlock(availableStatements[idx + 1].key);
+              if (idx >= 0 && idx < availableStatements.length - 1) {
+                const nextKey = availableStatements[idx + 1].key;
+                setActiveBlock(nextKey);
+                setSelectedStatementKeys([nextKey]);
+              }
             }}
             disabled={availableStatements.findIndex(s => s.key === activeBlock) === availableStatements.length - 1}
             style={{
@@ -975,39 +1154,45 @@ export default function STGEntryForm({
     });
   };
 
-  // Helper to dynamically get configured columns for OB, Receipts, or Disposals for any statement master
-  const getSectionColumnsForMaster = useCallback((stmtKey: string, section: 'ob' | 'receipt' | 'disposal') => {
+  // Helper to dynamically get configured columns for OB, Receipts, Disposals, or Closing Balance for any statement master
+  const getSectionColumnsForMaster = useCallback((stmtKey: string, section: 'ob' | 'receipt' | 'disposal' | 'cb') => {
     const master = masters.find(m => m.key === stmtKey);
     let rawCols: any[] | undefined;
     if (master) {
-      if (section === 'ob') rawCols = master.ob_columns || master.columns;
-      else if (section === 'receipt') rawCols = master.receipt_columns || master.columns;
-      else if (section === 'disposal') rawCols = master.disposal_columns || master.columns;
+      if (section === 'ob') rawCols = master.ob_columns;
+      else if (section === 'receipt') rawCols = master.receipt_columns;
+      else if (section === 'disposal') rawCols = master.disposal_columns;
+      else if (section === 'cb') rawCols = master.cb_columns;
     }
-    // If this master doesn't have columns configured, check other masters from DB
+    // If this master doesn't have columns configured, check other masters from DB strictly for the SAME section
     if (!Array.isArray(rawCols) || rawCols.length === 0) {
       const fallbackMaster = masters.find(m => {
-        const c = section === 'ob' ? m.ob_columns : section === 'receipt' ? m.receipt_columns : m.disposal_columns;
+        const c = section === 'ob' ? m.ob_columns : section === 'receipt' ? m.receipt_columns : section === 'disposal' ? m.disposal_columns : m.cb_columns;
         return Array.isArray(c) && c.length > 0;
-      }) || masters.find(m => Array.isArray(m.columns) && m.columns.length > 0);
+      });
       if (fallbackMaster) {
-        if (section === 'ob') rawCols = fallbackMaster.ob_columns || fallbackMaster.columns;
-        else if (section === 'receipt') rawCols = fallbackMaster.receipt_columns || fallbackMaster.columns;
-        else if (section === 'disposal') rawCols = fallbackMaster.disposal_columns || fallbackMaster.columns;
+        if (section === 'ob') rawCols = fallbackMaster.ob_columns;
+        else if (section === 'receipt') rawCols = fallbackMaster.receipt_columns;
+        else if (section === 'disposal') rawCols = fallbackMaster.disposal_columns;
+        else if (section === 'cb') rawCols = fallbackMaster.cb_columns;
       }
     }
 
     if (Array.isArray(rawCols) && rawCols.length > 0) {
       const filtered = rawCols.filter((c: any) => {
         const k = (c.key || '').toLowerCase();
-        return k && !['variant', 'label', 'particular', 'name', 'item_name', 'id', '#'].includes(k) && c.is_active !== false;
+        return k && !['id', '#'].includes(k) && c.is_active !== false;
       });
       if (filtered.length > 0) {
         const sorted = [...filtered].sort((a: any, b: any) => (a.sort_order ?? 0) - (b.sort_order ?? 0));
         return sorted.map((c: any) => ({
           key: c.key,
           name: c.name || c.label || c.key,
-          type: c.type || (c.formula ? 'calculated' : (['qty_kg', 'kg_fat', 'kg_snf'].includes(c.key) ? 'calculated' : 'number')),
+          type: isSTGTextOrParticularCol(c)
+            ? 'text'
+            : (Boolean(c.formula && typeof c.formula === 'string' && c.formula.trim() !== '')
+              ? 'calculated'
+              : (c.type === 'text' ? 'text' : 'number')),
           formula: c.formula,
           decimals: c.decimals,
           sort_order: c.sort_order,
@@ -1016,15 +1201,7 @@ export default function STGEntryForm({
         }));
       }
     }
-    return [
-      { key: 'qty_lts', name: 'Qty (Lts)', type: 'number', decimals: 0, sort_order: 1 },
-      { key: 'sp_gr', name: 'SP.G', type: 'number', decimals: 4, sort_order: 2 },
-      { key: 'qty_kg', name: 'Qty (Kg)', type: 'number', decimals: 2, sort_order: 3 },
-      { key: 'fat_pct', name: 'Fat%', type: 'number', decimals: 2, sort_order: 4 },
-      { key: 'snf_pct', name: 'Snf%', type: 'number', decimals: 2, sort_order: 5 },
-      { key: 'kg_fat', name: 'Kg.Fat', type: 'number', decimals: 3, sort_order: 6 },
-      { key: 'kg_snf', name: 'Kg.Snf', type: 'number', decimals: 3, sort_order: 7 },
-    ];
+    return [];
   }, [masters]);
 
   // Helper to dynamically recompute all calculated columns for a section based on configured formulas
@@ -1035,7 +1212,8 @@ export default function STGEntryForm({
     const updated = { ...vals };
     for (let pass = 0; pass < 3; pass++) {
       for (const col of sectionCols) {
-        if (col.type === 'calculated' || col.formula || ['qty_kg', 'kg_fat', 'kg_snf'].includes(col.key)) {
+        const isCalc = col.type === 'calculated' || (Boolean(col.formula) && typeof col.formula === 'string' && col.formula.trim() !== '');
+        if (isCalc) {
           const computed = computeCalculatedField(col.key, updated, col.formula);
           updated[col.key] = computed !== 0 ? String(computed) : '';
         }
@@ -1091,6 +1269,41 @@ export default function STGEntryForm({
         }
       }
 
+      // 4. Product alias lookups (e.g., wm <-> wh.milk, ssm <-> skim_milk, cream, smp)
+      const aliases: Record<string, string[]> = {
+        wm: ['whmilk', 'wh_milk', 'wh.milk', 'wholemilk'],
+        whmilk: ['wm', 'wh_milk', 'wh.milk', 'wholemilk'],
+        wh_milk: ['wm', 'whmilk', 'wh.milk', 'wholemilk'],
+        'wh.milk': ['wm', 'whmilk', 'wh_milk', 'wholemilk'],
+        ssm: ['skimmilk', 'skim_milk', 'skim.milk'],
+        skimmilk: ['ssm', 'skim_milk', 'skim.milk'],
+        cream: ['crm', 'cream'],
+        smp: ['smp', 'skimmedmilkpowder', 'milkpowder'],
+      };
+
+      const altKeys = aliases[cleanTarget] || aliases[productKey.toLowerCase()] || [];
+      for (const alt of altKeys) {
+        const altClean = alt.replace(/[^a-z0-9]/g, '');
+        if (row.values && typeof row.values === 'object') {
+          for (const [k, v] of Object.entries(row.values)) {
+            if (k.toLowerCase().replace(/[^a-z0-9]/g, '') === altClean) {
+              if (v !== undefined && v !== null && v !== '') {
+                const n = parseFloat(String(v));
+                if (!isNaN(n)) return n;
+              }
+            }
+          }
+        }
+        for (const [k, v] of Object.entries(row)) {
+          if (k.toLowerCase().replace(/[^a-z0-9]/g, '') === altClean) {
+            if (v !== undefined && v !== null && v !== '') {
+              const n = parseFloat(String(v));
+              if (!isNaN(n)) return n;
+            }
+          }
+        }
+      }
+
       return undefined;
     };
 
@@ -1098,19 +1311,38 @@ export default function STGEntryForm({
       const stmtKey = stmt.key;
       const currentBlockState = copy[stmtKey]
         ? {
-            ...copy[stmtKey],
-            opening_balance: { ...(copy[stmtKey].opening_balance || {}) },
-            physical_count: { ...(copy[stmtKey].physical_count || {}) },
-            rows: (copy[stmtKey].rows || []).map(r => ({ ...r, values: { ...(r.values || {}) } })),
-          }
+          ...copy[stmtKey],
+          opening_balance: { ...(copy[stmtKey].opening_balance || {}) },
+          physical_count: { ...(copy[stmtKey].physical_count || {}) },
+          rows: (copy[stmtKey].rows || []).map(r => ({ ...r, values: { ...(r.values || {}) } })),
+        }
         : { rows: [], opening_balance: {}, physical_count: {}, cmpdd_norm: '' };
 
-      // Find user-defined mapping rules for this statement
+      const norm = (s: string) => (s || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+      const sNorm = norm(stmtKey);
+      const sLabelNorm = norm(stmt.label);
+
+      // Find user-defined mapping rules for this statement (with flexible key & label match)
       const matchingRules = (rules || []).filter((r: any) => {
         const bKey = (r.stgBlockKey || '').toLowerCase();
-        const sKey = stmtKey.toLowerCase();
-        return bKey === sKey || bKey.replace(/[^a-z0-9]/g, '') === sKey.replace(/[^a-z0-9]/g, '');
+        const bNorm = norm(bKey);
+        const bLabelNorm = norm(r.stgBlockLabel);
+        return (
+          bKey === stmtKey.toLowerCase() ||
+          (bNorm && sNorm && bNorm === sNorm) ||
+          (bNorm && sNorm && (bNorm.startsWith(sNorm) || sNorm.startsWith(bNorm))) ||
+          (bLabelNorm && sLabelNorm && (bLabelNorm === sLabelNorm || bLabelNorm.startsWith(sLabelNorm) || sLabelNorm.startsWith(bLabelNorm)))
+        );
       });
+
+      // Helper to ensure targetField maps to a numeric quantity/data field rather than a row text label
+      const normalizeTargetField = (field: string | undefined): string => {
+        const f = (field || '').trim().toLowerCase();
+        if (!f || ['ob', 'cb', 'receipt', 'disposal', 'variant', 'particular', 'particulars', 'label', 'name', 'item_name'].includes(f)) {
+          return 'qty_lts';
+        }
+        return field!;
+      };
 
       // 1. Opening Balance Sync
       let obSynced = false;
@@ -1119,8 +1351,14 @@ export default function STGEntryForm({
       if (obRule && obRow) {
         const mappedVal = getStockVal(obRow, obRule.stockProductKey);
         if (mappedVal !== undefined) {
-          const targetField = obRule.stgTargetField || 'qty_lts';
+          const targetField = normalizeTargetField(obRule.stgTargetField);
           (currentBlockState.opening_balance as any)[targetField] = String(mappedVal);
+          if (obRule.stgItemName) {
+            (currentBlockState.opening_balance as any).ob = obRule.stgItemName;
+            (currentBlockState.opening_balance as any).variant = obRule.stgItemName;
+            (currentBlockState.opening_balance as any).label = obRule.stgItemName;
+            (currentBlockState.opening_balance as any).item_name = obRule.stgItemName;
+          }
           obSynced = true;
           syncedCount++;
         }
@@ -1157,8 +1395,20 @@ export default function STGEntryForm({
       if (cbRule && cbRow) {
         const mappedVal = getStockVal(cbRow, cbRule.stockProductKey);
         if (mappedVal !== undefined) {
-          const targetField = cbRule.stgTargetField || 'qty_lts';
+          const targetField = normalizeTargetField(cbRule.stgTargetField);
           (currentBlockState.physical_count as any)[targetField] = String(mappedVal);
+          const cbRowInBlock = currentBlockState.rows.find(r => r.row_type === 'CB' || r.side === 'CB');
+          if (cbRowInBlock) {
+            cbRowInBlock.values = cbRowInBlock.values || {};
+            cbRowInBlock.values[targetField] = String(mappedVal);
+            if (cbRule.stgItemName) {
+              cbRowInBlock.values.cb = cbRule.stgItemName;
+              cbRowInBlock.values.variant = cbRule.stgItemName;
+              cbRowInBlock.variant = cbRule.stgItemName;
+            }
+            const cbCols = getSectionColumnsForMaster(stmtKey, 'cb');
+            cbRowInBlock.values = recalculateSectionValues(cbRowInBlock.values, cbCols);
+          }
           cbSynced = true;
           syncedCount++;
         }
@@ -1174,6 +1424,13 @@ export default function STGEntryForm({
               ...(currentBlockState.physical_count || {}),
               qty_lts: String(val),
             };
+            const cbRowInBlock = currentBlockState.rows.find(r => r.row_type === 'CB' || r.side === 'CB');
+            if (cbRowInBlock) {
+              cbRowInBlock.values = cbRowInBlock.values || {};
+              cbRowInBlock.values.qty_lts = String(val);
+              const cbCols = getSectionColumnsForMaster(stmtKey, 'cb');
+              cbRowInBlock.values = recalculateSectionValues(cbRowInBlock.values, cbCols);
+            }
             cbSynced = true;
             syncedCount++;
             break;
@@ -1183,37 +1440,44 @@ export default function STGEntryForm({
 
       // Recalculate CB calculated fields dynamically based on master columns
       if (currentBlockState.physical_count?.qty_lts) {
-        const cbCols = getSectionColumnsForMaster(stmtKey, 'disposal');
+        const cbCols = getSectionColumnsForMaster(stmtKey, 'cb');
         currentBlockState.physical_count = recalculateSectionValues(currentBlockState.physical_count, cbCols);
       }
 
-      // 3. Particulars Rows Sync (Receipts & Disposals)
+      // 3. Particulars Rows Sync (Receipts, Disposals & Closing Balance)
       const nextRows = currentBlockState.rows.map(r => {
         const rowCopy = { ...r, values: { ...(r.values || {}) } };
         let rowSynced = false;
 
         // Check if a mapping rule matches this particular item
         const itemRule = matchingRules.find((mr: any) => {
-          const rName = (rowCopy.variant || '').trim().toLowerCase();
-          const ruleItem = (mr.stgItemName || '').trim().toLowerCase();
-          return (mr.stgSection === rowCopy.side || mr.stgSection === rowCopy.row_type) &&
-            (ruleItem === rName || ruleItem.replace(/[^a-z0-9]/g, '') === rName.replace(/[^a-z0-9]/g, ''));
+          if (mr.stgSection === 'OB') return false;
+          const rSec = rowCopy.side || rowCopy.row_type;
+          if (mr.stgSection !== rSec) return false;
+          const rName = norm(resolveRowVariantName(rowCopy, mr.stgSection === 'RECEIPT' ? 'Receipt' : mr.stgSection === 'CB' ? 'Closing Stock' : 'Disposal'));
+          const ruleItem = norm(mr.stgItemName);
+          return ruleItem === rName || (ruleItem && rName && (ruleItem.includes(rName) || rName.includes(ruleItem)));
         });
 
         if (itemRule) {
           const matchingStockRow = stockRows.find(sr => {
             if (itemRule.stockSection && sr.row_type && itemRule.stockSection !== sr.row_type) return false;
             if (itemRule.stockSection === 'CB' && sr.row_type === 'CB') return true;
-            const srLabel = (sr.row_label || '').trim().toLowerCase();
-            const targetPart = (itemRule.stockParticular || '').trim().toLowerCase();
-            return srLabel === targetPart || srLabel.replace(/[^a-z0-9]/g, '') === targetPart.replace(/[^a-z0-9]/g, '');
+            const srLabel = norm(sr.row_label);
+            const targetPart = norm(itemRule.stockParticular);
+            return srLabel === targetPart || (srLabel && targetPart && (srLabel.includes(targetPart) || targetPart.includes(srLabel)));
           });
 
           if (matchingStockRow) {
             const val = getStockVal(matchingStockRow, itemRule.stockProductKey);
             if (val !== undefined) {
-              const targetField = itemRule.stgTargetField || 'qty_lts';
+              const targetField = normalizeTargetField(itemRule.stgTargetField);
               rowCopy.values[targetField] = val;
+              if (itemRule.stgItemName) {
+                rowCopy.variant = itemRule.stgItemName;
+                if (itemRule.stgSection === 'RECEIPT') rowCopy.values.receipt = itemRule.stgItemName;
+                if (itemRule.stgSection === 'DISPOSAL') rowCopy.values.disposal = itemRule.stgItemName;
+              }
               rowSynced = true;
               syncedCount++;
             }
@@ -1256,6 +1520,69 @@ export default function STGEntryForm({
         return rowCopy;
       });
 
+      // Also process any mapping rules that target rows not yet present in currentBlockState.rows
+      matchingRules.forEach((rule: any) => {
+        if (rule.stgSection === 'OB' || rule.stgSection === 'CB') return;
+        const ruleItemNorm = norm(rule.stgItemName);
+        if (!ruleItemNorm) return;
+
+        const alreadyPresent = nextRows.some(r => {
+          const rSec = r.side || r.row_type;
+          if (rSec !== rule.stgSection) return false;
+          const rName = norm(resolveRowVariantName(r, rule.stgSection === 'RECEIPT' ? 'Receipt' : 'Disposal'));
+          return rName === ruleItemNorm || (rName && ruleItemNorm && (rName.includes(ruleItemNorm) || ruleItemNorm.includes(rName)));
+        });
+
+        if (!alreadyPresent) {
+          const matchingStockRow = stockRows.find(sr => {
+            if (rule.stockSection && sr.row_type && rule.stockSection !== sr.row_type) return false;
+            const srLabel = norm(sr.row_label);
+            const targetPart = norm(rule.stockParticular);
+            return srLabel === targetPart || (srLabel && targetPart && (srLabel.includes(targetPart) || targetPart.includes(srLabel)));
+          });
+
+          const val = matchingStockRow ? getStockVal(matchingStockRow, rule.stockProductKey) : undefined;
+          if (val !== undefined && val > 0) {
+            const targetField = normalizeTargetField(rule.stgTargetField);
+            const newRowVals: Record<string, any> = {
+              variant: rule.stgItemName,
+              [rule.stgSection === 'RECEIPT' ? 'receipt' : 'disposal']: rule.stgItemName,
+              [targetField]: val,
+            };
+            const sec = rule.stgSection === 'RECEIPT' ? 'receipt' : 'disposal';
+            const secCols = getSectionColumnsForMaster(stmtKey, sec);
+            const computedVals = recalculateSectionValues(newRowVals, secCols);
+
+            // Replace an empty default placeholder row like 'Receipt 1' / 'Disposal 1' if present
+            const placeholderIdx = nextRows.findIndex(r => {
+              const rSec = r.side || r.row_type;
+              if (rSec !== rule.stgSection) return false;
+              const rName = r.variant || '';
+              const isDefaultName = /^Receipt \d+$/i.test(rName) || /^Disposal \d+$/i.test(rName);
+              const isEmptyVal = !r.values?.qty_lts || r.values.qty_lts === '0' || r.values.qty_lts === 0;
+              return isDefaultName && isEmptyVal;
+            });
+
+            if (placeholderIdx !== -1) {
+              nextRows[placeholderIdx] = {
+                variant: rule.stgItemName,
+                row_type: rule.stgSection,
+                side: rule.stgSection,
+                values: computedVals,
+              };
+            } else {
+              nextRows.push({
+                variant: rule.stgItemName,
+                row_type: rule.stgSection,
+                side: rule.stgSection,
+                values: computedVals,
+              });
+            }
+            syncedCount++;
+          }
+        }
+      });
+
       currentBlockState.rows = nextRows;
       copy[stmtKey] = currentBlockState;
     });
@@ -1280,7 +1607,7 @@ export default function STGEntryForm({
             try {
               loadedRules = JSON.parse(entry.notes);
               setMappingRules(loadedRules);
-            } catch {}
+            } catch { }
           }
         }
       }
@@ -1332,8 +1659,16 @@ export default function STGEntryForm({
       const { updatedBlocks, syncedCount } = syncStockValuesToBlocks(stockRows, loadedRules, stmtsToSync, blocks);
 
       setBlocks(updatedBlocks);
+      setObUnlocked(true);
       setReceiptsUnlocked(true);
       setDisposalsUnlocked(true);
+      setUnlockedSections(prev => {
+        const next = { ...prev };
+        stmtsToSync.forEach(s => {
+          next[s.key] = { ob: true, receipts: true, disposals: true };
+        });
+        return next;
+      });
       if (syncedCount > 0) {
         await showSuccess(`Synced ${syncedCount} quantity value(s) from Stock Statement into selected statement(s)! Receipts & Disposals unlocked for editing.`, 'Stock Statement Synced');
       } else {
@@ -1350,9 +1685,9 @@ export default function STGEntryForm({
   // Fetch statement masters and data
   useEffect(() => {
     if (!entryDate) return;
-    const currentKey = `${entryDate}_${shift || 'F'}`;
+    if (stepMode && activeStep !== 'stg') return;
+    const currentKey = `${entryDate}_${shift || 'F'}_${activeStep || ''}`;
     if (lastLoadedRef.current === currentKey) return;
-    lastLoadedRef.current = currentKey;
 
     let active = true;
 
@@ -1393,7 +1728,7 @@ export default function STGEntryForm({
             try {
               loadedRules = JSON.parse(entry.notes);
               setMappingRules(loadedRules);
-            } catch {}
+            } catch { }
           }
         }
 
@@ -1431,13 +1766,16 @@ export default function STGEntryForm({
           stockRows = [...rawRows, ...sumRows];
         }
 
+        let todayCustomStatements: any[] = [];
+        let customBlocksState: Record<string, any> = {};
+        let cleanNotes = '';
+        let savedEnabledKeys: any = null;
+        let dbStgRows: any[] = [];
+
         if (stgRes.ok) {
           const data = await stgRes.json();
-          if (active && data.data) {
-            let todayCustomStatements: any[] = [];
-            let customBlocksState: Record<string, any> = {};
-            let cleanNotes = data.data.notes || '';
-            let savedEnabledKeys: any = null;
+          if (active && data?.data) {
+            cleanNotes = data.data.notes || '';
 
             const notesParts = (data.data.notes || '').split('\n');
             notesParts.forEach((part: string) => {
@@ -1465,148 +1803,183 @@ export default function STGEntryForm({
               .join('\n')
               .trim();
 
-            const stmtMap = new Map<string, { key: string; label: string }>();
-            globalStatements.forEach((s: { key: string; label: string }) => stmtMap.set(s.key, s));
-            todayCustomStatements.forEach((s: { key: string; label: string }) => {
-              if (s && s.key) stmtMap.set(s.key, s);
-            });
-
             if (data.data.stg_rows && Array.isArray(data.data.stg_rows)) {
-              data.data.stg_rows.forEach((r: any) => {
-                if (r.product_block && !stmtMap.has(r.product_block)) {
-                  stmtMap.set(r.product_block, {
-                    key: r.product_block,
-                    label: `${r.product_block.toUpperCase()} STATEMENT`
-                  });
-                }
-              });
-            }
-            const combinedStatements = Array.from(stmtMap.values());
-
-            setStatements(combinedStatements);
-            if (savedEnabledKeys && Array.isArray(savedEnabledKeys) && savedEnabledKeys.length > 0) {
-              const allKeys = Array.from(new Set([...(savedEnabledKeys as string[]), ...combinedStatements.map(s => s.key)]));
-              setEnabledBlockKeys(allKeys);
-            } else {
-              setEnabledBlockKeys(combinedStatements.map(s => s.key));
-            }
-
-            if (combinedStatements.length > 0) {
-              setActiveBlock(combinedStatements[0].key);
-            }
-            setNotes(cleanNotes);
-
-            let newBlocks: Record<string, STGBlockState> = {};
-            combinedStatements.forEach((s: any) => {
-              const matchedMaster = globalStatements.find((g: any) => g.key === s.key);
-              newBlocks[s.key] = matchedMaster ? populateBlockDefaultsFromMaster(matchedMaster) : { rows: [], opening_balance: {}, physical_count: {}, cmpdd_norm: '' };
-            });
-
-            // Restore from custom_blocks state if present
-            Object.entries(customBlocksState).forEach(([key, state]) => {
-              if (newBlocks[key] && state.rows && Array.isArray(state.rows)) {
-                newBlocks[key] = {
-                  ...state,
-                  opening_balance: state.opening_balance || newBlocks[key].opening_balance || {},
-                  physical_count: state.physical_count || newBlocks[key].physical_count || {},
-                  cmpdd_norm: state.cmpdd_norm !== undefined && state.cmpdd_norm !== null && state.cmpdd_norm !== ''
-                    ? String(state.cmpdd_norm)
-                    : (newBlocks[key].cmpdd_norm || ''),
-                };
-              }
-            });
-
-            // Map stg_rows from DB
-            if (data.data.stg_rows && Array.isArray(data.data.stg_rows) && data.data.stg_rows.length > 0) {
-              data.data.stg_rows.forEach((row: any) => {
-                const b = row.product_block;
-                if (!newBlocks[b]) newBlocks[b] = { rows: [], opening_balance: {}, physical_count: {} };
-
-                if (row.item_name === 'OB') {
-                  newBlocks[b].opening_balance = {
-                    qty_lts: row.qty_lts ? String(row.qty_lts) : '',
-                    qty_kg: row.qty_kg ? String(row.qty_kg) : '',
-                    fat_pct: row.fat_pct ? String(row.fat_pct) : '',
-                    snf_pct: row.snf_pct ? String(row.snf_pct) : '',
-                    sp_gr: row.sp_gr ? String(row.sp_gr) : '',
-                    kg_fat: row.kg_fat ? String(row.kg_fat) : '',
-                    kg_snf: row.kg_snf ? String(row.kg_snf) : '',
-                  };
-                } else if (row.item_name === 'CB') {
-                  newBlocks[b].physical_count = {
-                    qty_lts: row.qty_lts ? String(row.qty_lts) : '',
-                    qty_kg: row.qty_kg ? String(row.qty_kg) : '',
-                    fat_pct: row.fat_pct ? String(row.fat_pct) : '',
-                    snf_pct: row.snf_pct ? String(row.snf_pct) : '',
-                    sp_gr: row.sp_gr ? String(row.sp_gr) : '',
-                    kg_fat: row.kg_fat ? String(row.kg_fat) : '',
-                    kg_snf: row.kg_snf ? String(row.kg_snf) : '',
-                  };
-                } else {
-                  const existingRow = newBlocks[b].rows.find(r => r.variant === row.item_name && (r.side === row.side || r.row_type === row.side));
-                  if (existingRow) {
-                    existingRow.values = {
-                      ...existingRow.values,
-                      qty_lts: row.qty_lts ? String(row.qty_lts) : '',
-                      qty_kg: row.qty_kg ? String(row.qty_kg) : '',
-                      fat_pct: row.fat_pct ? String(row.fat_pct) : '',
-                      snf_pct: row.snf_pct ? String(row.snf_pct) : '',
-                      sp_gr: row.sp_gr ? String(row.sp_gr) : '',
-                      kg_fat: row.kg_fat ? String(row.kg_fat) : '',
-                      kg_snf: row.kg_snf ? String(row.kg_snf) : '',
-                    };
-                  } else {
-                    newBlocks[b].rows.push({
-                      variant: row.item_name,
-                      row_type: row.side,
-                      side: row.side,
-                      values: {
-                        variant: row.item_name,
-                        qty_lts: row.qty_lts ? String(row.qty_lts) : '',
-                        qty_kg: row.qty_kg ? String(row.qty_kg) : '',
-                        fat_pct: row.fat_pct ? String(row.fat_pct) : '',
-                        snf_pct: row.snf_pct ? String(row.snf_pct) : '',
-                        sp_gr: row.sp_gr ? String(row.sp_gr) : '',
-                        kg_fat: row.kg_fat ? String(row.kg_fat) : '',
-                        kg_snf: row.kg_snf ? String(row.kg_snf) : '',
-                      }
-                    });
-                  }
-                }
-              });
-            }
-
-            // Auto-sync from stock if opening balance is not yet saved
-            if (stockRows.length > 0) {
-              const needsSync = combinedStatements.some(s => {
-                const obLts = newBlocks[s.key]?.opening_balance?.qty_lts;
-                return obLts === undefined || obLts === null || obLts === '' || obLts === '0';
-              });
-              if (needsSync) {
-                const { updatedBlocks } = syncStockValuesToBlocks(stockRows, loadedRules, combinedStatements, newBlocks);
-                newBlocks = updatedBlocks;
-              }
-            }
-
-            setBlocks(newBlocks);
-
-            // Load Reconciliation Summaries from dedicated table stg_reconciliation_entries
-            if (reconRes.ok) {
-              const reconJson = await reconRes.json();
-              if (reconJson.data && typeof reconJson.data === 'object' && Object.keys(reconJson.data).length > 0) {
-                setReconciliations(reconJson.data);
-              }
+              dbStgRows = data.data.stg_rows;
             }
           }
         }
+
+        if (!active) return;
+
+        const stmtMap = new Map<string, { key: string; label: string; variant?: string }>();
+        if (globalStatements.length > 0) {
+          // Master statements configured in Statement Master Names & Particulars are the sole authoritative source
+          globalStatements.forEach((s: any) => stmtMap.set(s.key, s));
+        }
+
+        const combinedStatements = Array.from(stmtMap.values());
+
+        setStatements(combinedStatements);
+        const allKeys = combinedStatements.map(s => s.key);
+        const validEnabledKeys = (savedEnabledKeys && Array.isArray(savedEnabledKeys))
+          ? (savedEnabledKeys as string[]).filter(k => allKeys.includes(k))
+          : allKeys;
+        setEnabledBlockKeys(validEnabledKeys.length > 0 ? validEnabledKeys : allKeys);
+
+        setSelectedStatementKeys(allKeys);
+
+        if (combinedStatements.length > 0) {
+          setActiveBlock(prev => (prev && combinedStatements.some(s => s.key === prev) ? prev : combinedStatements[0].key));
+        }
+        setNotes(cleanNotes);
+
+        let newBlocks: Record<string, STGBlockState> = {};
+        combinedStatements.forEach((s: any) => {
+          const matchedMaster = globalStatements.find((g: any) => g.key === s.key);
+          newBlocks[s.key] = matchedMaster ? populateBlockDefaultsFromMaster(matchedMaster) : { rows: [], opening_balance: {}, physical_count: {}, cmpdd_norm: '' };
+        });
+
+        // Restore from custom_blocks state if present
+        Object.entries(customBlocksState).forEach(([key, state]) => {
+          if (newBlocks[key] && state.rows && Array.isArray(state.rows)) {
+            const restoredRows = (state.rows || []).map((r: any) => {
+              const sec = (r.side === 'RECEIPT' || r.row_type === 'RECEIPT') ? 'Receipt' : 'Disposal';
+              const name = resolveRowVariantName(r, sec);
+              const vals = { ...(r.values || {}) };
+              if (name) {
+                if (sec === 'Receipt') vals.receipt = vals.receipt || name;
+                if (sec === 'Disposal') vals.disposal = vals.disposal || name;
+                vals.variant = vals.variant || name;
+              }
+              return {
+                ...r,
+                variant: name,
+                values: vals,
+              };
+            });
+
+            newBlocks[key] = {
+              ...state,
+              rows: restoredRows,
+              opening_balance: state.opening_balance || newBlocks[key].opening_balance || {},
+              physical_count: state.physical_count || newBlocks[key].physical_count || {},
+              cmpdd_norm: state.cmpdd_norm !== undefined && state.cmpdd_norm !== null && state.cmpdd_norm !== ''
+                ? String(state.cmpdd_norm)
+                : (newBlocks[key].cmpdd_norm || ''),
+            };
+
+            // Auto-heal legacy saved states where numeric quantity was stored under 'ob' instead of 'qty_lts'
+            if (newBlocks[key]?.opening_balance) {
+              const obVal = newBlocks[key].opening_balance.ob;
+              if ((!newBlocks[key].opening_balance.qty_lts || newBlocks[key].opening_balance.qty_lts === '') && obVal && !isNaN(Number(obVal))) {
+                newBlocks[key].opening_balance.qty_lts = String(obVal);
+                newBlocks[key].opening_balance.ob = newBlocks[key].opening_balance.item_name || 'Opening Balance';
+              }
+              if (newBlocks[key].opening_balance.qty_lts) {
+                const obCols = getSectionColumnsForMaster(key, 'ob');
+                newBlocks[key].opening_balance = recalculateSectionValues(newBlocks[key].opening_balance, obCols);
+              }
+            }
+          }
+        });
+
+        // Map stg_rows from DB
+        if (dbStgRows && Array.isArray(dbStgRows) && dbStgRows.length > 0) {
+          dbStgRows.forEach((row: any) => {
+            const b = row.product_block;
+            if (!newBlocks[b]) newBlocks[b] = { rows: [], opening_balance: {}, physical_count: {} };
+
+            if (row.item_name === 'OB') {
+              newBlocks[b].opening_balance = {
+                qty_lts: row.qty_lts ? String(row.qty_lts) : '',
+                qty_kg: row.qty_kg ? String(row.qty_kg) : '',
+                fat_pct: row.fat_pct ? String(row.fat_pct) : '',
+                snf_pct: row.snf_pct ? String(row.snf_pct) : '',
+                sp_gr: row.sp_gr ? String(row.sp_gr) : '',
+                kg_fat: row.kg_fat ? String(row.kg_fat) : '',
+                kg_snf: row.kg_snf ? String(row.kg_snf) : '',
+              };
+            } else if (row.item_name === 'CB') {
+              newBlocks[b].physical_count = {
+                qty_lts: row.qty_lts ? String(row.qty_lts) : '',
+                qty_kg: row.qty_kg ? String(row.qty_kg) : '',
+                fat_pct: row.fat_pct ? String(row.fat_pct) : '',
+                snf_pct: row.snf_pct ? String(row.snf_pct) : '',
+                sp_gr: row.sp_gr ? String(row.sp_gr) : '',
+                kg_fat: row.kg_fat ? String(row.kg_fat) : '',
+                kg_snf: row.kg_snf ? String(row.kg_snf) : '',
+              };
+            } else {
+              const existingRow = newBlocks[b].rows.find(r => r.variant === row.item_name && (r.side === row.side || r.row_type === row.side));
+              if (existingRow) {
+                existingRow.values = {
+                  ...existingRow.values,
+                  qty_lts: row.qty_lts ? String(row.qty_lts) : '',
+                  qty_kg: row.qty_kg ? String(row.qty_kg) : '',
+                  fat_pct: row.fat_pct ? String(row.fat_pct) : '',
+                  snf_pct: row.snf_pct ? String(row.snf_pct) : '',
+                  sp_gr: row.sp_gr ? String(row.sp_gr) : '',
+                  kg_fat: row.kg_fat ? String(row.kg_fat) : '',
+                  kg_snf: row.kg_snf ? String(row.kg_snf) : '',
+                };
+              } else {
+                newBlocks[b].rows.push({
+                  variant: row.item_name,
+                  row_type: row.side,
+                  side: row.side,
+                  values: {
+                    variant: row.item_name,
+                    qty_lts: row.qty_lts ? String(row.qty_lts) : '',
+                    qty_kg: row.qty_kg ? String(row.qty_kg) : '',
+                    fat_pct: row.fat_pct ? String(row.fat_pct) : '',
+                    snf_pct: row.snf_pct ? String(row.snf_pct) : '',
+                    sp_gr: row.sp_gr ? String(row.sp_gr) : '',
+                    kg_fat: row.kg_fat ? String(row.kg_fat) : '',
+                    kg_snf: row.kg_snf ? String(row.kg_snf) : '',
+                  }
+                });
+              }
+            }
+          });
+        }
+
+        // Auto-sync from stock if opening balance is not yet saved
+        if (stockRows.length > 0) {
+          const needsSync = combinedStatements.some(s => {
+            const obLts = newBlocks[s.key]?.opening_balance?.qty_lts;
+            return obLts === undefined || obLts === null || obLts === '' || obLts === '0';
+          });
+          if (needsSync) {
+            const { updatedBlocks } = syncStockValuesToBlocks(stockRows, loadedRules, combinedStatements, newBlocks);
+            newBlocks = updatedBlocks;
+          }
+        }
+
+        setBlocks(newBlocks);
+
+        // Load Reconciliation Summaries from dedicated table stg_reconciliation_entries
+        if (reconRes.ok) {
+          const reconJson = await reconRes.json();
+          if (reconJson.data && typeof reconJson.data === 'object' && Object.keys(reconJson.data).length > 0) {
+            setReconciliations(reconJson.data);
+          }
+        }
+
+        if (active) {
+          lastLoadedRef.current = currentKey;
+        }
       } catch (e) {
         console.error('Failed to load STG data:', e);
+        lastLoadedRef.current = '';
       }
     }
 
     loadData();
-    return () => { active = false; };
-  }, [entryDate, shift]);
+    return () => {
+      active = false;
+      lastLoadedRef.current = '';
+    };
+  }, [entryDate, shift, activeStep, stepMode]);
 
   // Handle Create Statement Master from Modal
   const handleCreateStatementMaster = async (e: React.FormEvent) => {
@@ -1806,12 +2179,21 @@ export default function STGEntryForm({
       const rows = [...(block.rows || [])];
       if (!rows[globalIdx]) return prev;
       const r = { ...rows[globalIdx], values: { ...(rows[globalIdx].values || {}) } };
-      if (colKey === 'variant') {
+      const lowerK = colKey.toLowerCase();
+      if (['variant', 'receipt', 'disposal', 'cb', 'particular', 'label', 'name', 'ob'].includes(lowerK)) {
         r.variant = val;
+        r.values.variant = val;
+        if (lowerK === 'receipt') r.values.receipt = val;
+        if (lowerK === 'disposal') r.values.disposal = val;
+        if (lowerK === 'cb') r.values.cb = val;
       }
       r.values[colKey] = val;
 
-      const sec: 'receipt' | 'disposal' = (r.side === 'RECEIPT' || r.row_type === 'RECEIPT') ? 'receipt' : 'disposal';
+      const sec: 'receipt' | 'disposal' | 'cb' = (r.side === 'CB' || r.row_type === 'CB')
+        ? 'cb'
+        : (r.side === 'RECEIPT' || r.row_type === 'RECEIPT')
+          ? 'receipt'
+          : 'disposal';
       const secCols = getSectionColumnsForMaster(key, sec);
       r.values = recalculateSectionValues(r.values, secCols);
 
@@ -1828,7 +2210,13 @@ export default function STGEntryForm({
     setBlocks(prev => {
       const copy = { ...prev };
       const block = { ...copy[key] };
+      const lowerK = field.toLowerCase();
       let ob = { ...(block.opening_balance || {}), [field]: val };
+      if (['variant', 'ob', 'label', 'particular', 'name'].includes(lowerK)) {
+        ob.ob = val;
+        ob.variant = val;
+        ob.label = val;
+      }
 
       const obCols = getSectionColumnsForMaster(key, 'ob');
       ob = recalculateSectionValues(ob, obCols);
@@ -1847,7 +2235,7 @@ export default function STGEntryForm({
       const block = { ...copy[key] };
       let cb = { ...(block.physical_count || {}), [field]: val };
 
-      const cbCols = getSectionColumnsForMaster(key, 'disposal');
+      const cbCols = getSectionColumnsForMaster(key, 'cb');
       cb = recalculateSectionValues(cb, cbCols);
 
       block.physical_count = cb;
@@ -1856,19 +2244,31 @@ export default function STGEntryForm({
     });
   };
 
-  const handleAddRow = (side: 'RECEIPT' | 'DISPOSAL', stmtKeyParam?: string) => {
+  const handleAddRow = (side: 'RECEIPT' | 'DISPOSAL' | 'CB', stmtKeyParam?: string) => {
     const key = stmtKeyParam || activeBlock;
     if (!key) return;
+    const secCols = getSectionColumnsForMaster(key, side === 'RECEIPT' ? 'receipt' : side === 'DISPOSAL' ? 'disposal' : 'cb');
+    const defaultName = side === 'RECEIPT' ? 'New Receipt' : side === 'DISPOSAL' ? 'New Disposal' : 'New Closing Stock';
+    const initVals: Record<string, any> = { variant: defaultName };
+    if (side === 'RECEIPT') initVals.receipt = defaultName;
+    else if (side === 'DISPOSAL') initVals.disposal = defaultName;
+    else initVals.cb = defaultName;
+    secCols.forEach(c => {
+      if (isSTGTextOrParticularCol(c)) {
+        initVals[c.key] = defaultName;
+      }
+    });
+
     setBlocks(prev => {
       const copy = { ...prev };
       const block = { ...copy[key] };
       block.rows = [
         ...(block.rows || []),
         {
-          variant: side === 'RECEIPT' ? 'New Receipt' : 'New Disposal',
+          variant: defaultName,
           row_type: side,
           side: side,
-          values: { variant: side === 'RECEIPT' ? 'New Receipt' : 'New Disposal' }
+          values: initVals,
         }
       ];
       copy[key] = block;
@@ -1908,16 +2308,19 @@ export default function STGEntryForm({
     const rows = block.rows || [];
     const recRows = rows.filter(r => r.row_type === 'RECEIPT' || r.side === 'RECEIPT');
     const dispRows = rows.filter(r => r.row_type === 'DISPOSAL' || r.side === 'DISPOSAL');
+    const cbRows = rows.filter(r => r.row_type === 'CB' || r.side === 'CB');
 
     // Dynamically retrieve configured columns from DB schema for all sections
     const obCols = getSectionColumnsForMaster(stmtKey, 'ob');
     const recCols = getSectionColumnsForMaster(stmtKey, 'receipt');
     const dispCols = getSectionColumnsForMaster(stmtKey, 'disposal');
+    const cbCols = getSectionColumnsForMaster(stmtKey, 'cb');
 
     const allKeys = Array.from(new Set([
       ...obCols.map(c => c.key),
       ...recCols.map(c => c.key),
       ...dispCols.map(c => c.key),
+      ...cbCols.map(c => c.key),
       'qty_lts', 'qty_kg', 'kg_fat', 'kg_snf', 'fat_pct', 'snf_pct', 'sp_gr'
     ]));
 
@@ -1931,7 +2334,8 @@ export default function STGEntryForm({
 
     allKeys.forEach(k => {
       obMap[k] = parseFloat(String(ob[k] || '0')) || 0;
-      cbMap[k] = parseFloat(String(cb[k] || '0')) || 0;
+      const cbRowsSum = cbRows.reduce((sum, r) => sum + (parseFloat(String(r.values?.[k] || '0')) || 0), 0);
+      cbMap[k] = cbRows.length > 0 ? cbRowsSum : (parseFloat(String(cb[k] || '0')) || 0);
       recMap[k] = recRows.reduce((sum, r) => sum + (parseFloat(String(r.values?.[k] || '0')) || 0), 0);
       dispMap[k] = dispRows.reduce((sum, r) => sum + (parseFloat(String(r.values?.[k] || '0')) || 0), 0);
       grandRecMap[k] = (obMap[k] || 0) + (recMap[k] || 0);
@@ -2041,53 +2445,47 @@ export default function STGEntryForm({
 
         // Opening Balance
         if (bState.opening_balance) {
+          const obVals = { ...bState.opening_balance };
+          const obName = obVals.ob || obVals.variant || obVals.label || 'OB';
           stg_rows.push({
             product_block: pBlock,
             side: 'RECEIPT',
-            item_name: 'OB',
-            qty_lts: bState.opening_balance.qty_lts || '0',
-            sp_gr: bState.opening_balance.sp_gr || '0',
-            qty_kg: bState.opening_balance.qty_kg || '0',
-            fat_pct: bState.opening_balance.fat_pct || '0',
-            snf_pct: bState.opening_balance.snf_pct || '0',
-            kg_fat: bState.opening_balance.kg_fat || '0',
-            kg_snf: bState.opening_balance.kg_snf || '0',
+            section_key: 'OB',
+            item_name: obName,
+            ...obVals,
+            values: obVals,
           });
         }
 
         // Particular rows
         (bState.rows || []).forEach(r => {
-          const varName = r.variant || r.values?.variant || '';
+          const varName = r.variant || r.particular_name || r.values?.variant || r.values?.receipt || r.values?.disposal || '';
           if (varName || Object.keys(r.values || {}).length > 0) {
             const side = (r.side || r.row_type || 'RECEIPT') as 'RECEIPT' | 'DISPOSAL';
+            const rowVals = { ...(r.values || {}) };
             stg_rows.push({
               product_block: pBlock,
               side,
+              section_key: side,
+              particular_id: r.particular_id || null,
               item_name: varName,
-              qty_lts: r.values?.qty_lts || '0',
-              sp_gr: r.values?.sp_gr || '0',
-              qty_kg: r.values?.qty_kg || '0',
-              fat_pct: r.values?.fat_pct || '0',
-              snf_pct: r.values?.snf_pct || '0',
-              kg_fat: r.values?.kg_fat || '0',
-              kg_snf: r.values?.kg_snf || '0',
+              ...rowVals,
+              values: rowVals,
             });
           }
         });
 
         // Physical count (CB)
         if (bState.physical_count) {
+          const cbVals = { ...bState.physical_count };
+          const cbName = cbVals.cb || cbVals.variant || cbVals.label || 'CB';
           stg_rows.push({
             product_block: pBlock,
             side: 'DISPOSAL',
-            item_name: 'CB',
-            qty_lts: bState.physical_count.qty_lts || '0',
-            sp_gr: bState.physical_count.sp_gr || '0',
-            qty_kg: bState.physical_count.qty_kg || '0',
-            fat_pct: bState.physical_count.fat_pct || '0',
-            snf_pct: bState.physical_count.snf_pct || '0',
-            kg_fat: bState.physical_count.kg_fat || '0',
-            kg_snf: bState.physical_count.kg_snf || '0',
+            section_key: 'CB',
+            item_name: cbName,
+            ...cbVals,
+            values: cbVals,
           });
         }
       });
@@ -2095,7 +2493,7 @@ export default function STGEntryForm({
       const tsRes = await fetch('/api/ts', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ entry_id, ts_rows: [], stg_rows }),
+        body: JSON.stringify({ entry_id, stg_rows }),
       });
 
       if (!tsRes.ok) {
@@ -2163,9 +2561,9 @@ export default function STGEntryForm({
     }
   }, [onRegisterActions, saving]);
 
-  // Render a particulars table (Receipts or Disposals) matching StockEntryForm
+  // Render a particulars table (Receipts, Disposals, or Closing Balance) matching StockEntryForm
   const renderParticularsSection = (
-    side: 'RECEIPT' | 'DISPOSAL',
+    side: 'RECEIPT' | 'DISPOSAL' | 'CB',
     title: string,
     list: STGRowData[],
     unlocked: boolean,
@@ -2176,7 +2574,7 @@ export default function STGEntryForm({
     const key = stmtKeyParam || activeBlock;
     const currentBlockRows = (blocks[key]?.rows || []);
     const sectionTotals = getStatementTotals(key);
-    const sectionCols = getSectionColumnsForMaster(key, side === 'RECEIPT' ? 'receipt' : 'disposal');
+    const sectionCols = getSectionColumnsForMaster(key, side === 'RECEIPT' ? 'receipt' : side === 'DISPOSAL' ? 'disposal' : 'cb');
 
     return (
       <div className="card" style={{ marginBottom: 16, padding: 0, overflow: 'hidden', border: `1px solid ${colorScheme.border}` }}>
@@ -2184,7 +2582,7 @@ export default function STGEntryForm({
         <div style={{ background: colorScheme.bg, padding: '10px 16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: `1px solid ${colorScheme.border}` }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
             <span style={{ fontWeight: 800, fontSize: '0.92rem', color: colorScheme.text }}>
-              {side === 'RECEIPT' ? '📥' : '📤'} {title}
+              {side === 'RECEIPT' ? '📥' : side === 'DISPOSAL' ? '📤' : '🔒'} {title}
             </span>
             <span style={{ background: '#ffffff', border: `1px solid ${colorScheme.border}`, color: colorScheme.text, borderRadius: 12, padding: '1px 8px', fontSize: '0.72rem', fontWeight: 800 }}>
               {list.length} particulars
@@ -2234,26 +2632,31 @@ export default function STGEntryForm({
             <thead>
               <tr style={{ background: '#f8fafc', borderBottom: '1px solid var(--border)' }}>
                 <th style={{ width: 44, textAlign: 'center', fontSize: '0.72rem' }}>#</th>
-                <th style={{ width: 220, textAlign: 'left', fontSize: '0.75rem', fontWeight: 800 }}>{title} Particular</th>
-                {sectionCols.map(col => (
-                  <th
-                    key={`th_${col.key}`}
-                    style={{
-                      textAlign: 'right',
-                      fontSize: '0.75rem',
-                      ...(col.type === 'calculated' ? { background: '#e0f2fe', color: '#0369a1' } : {}),
-                    }}
-                  >
-                    {col.name}
-                  </th>
-                ))}
+                {sectionCols.map((col, cIdx) => {
+                  const isTxt = isSTGTextOrParticularCol(col) || (!sectionCols.some(c => isSTGTextOrParticularCol(c)) && cIdx === 0);
+                  const isCalc = (col.type === 'calculated' || Boolean(col.formula)) && Boolean(col.formula && col.formula.trim());
+                  return (
+                    <th
+                      key={`th_${col.key}`}
+                      style={{
+                        textAlign: isTxt ? 'left' : 'right',
+                        fontSize: '0.75rem',
+                        fontWeight: 800,
+                        ...(isTxt ? { width: 220 } : {}),
+                        ...(isCalc ? { background: '#e0f2fe', color: '#0369a1' } : {}),
+                      }}
+                    >
+                      {col.name}
+                    </th>
+                  );
+                })}
                 <th style={{ width: 90, textAlign: 'center', fontSize: '0.72rem' }}>Action</th>
               </tr>
             </thead>
             <tbody>
               {list.length === 0 ? (
                 <tr>
-                  <td colSpan={sectionCols.length + 3} style={{ textAlign: 'center', padding: '20px 12px', color: '#94a3b8', fontStyle: 'italic', fontSize: '0.82rem' }}>
+                  <td colSpan={sectionCols.length + 2} style={{ textAlign: 'center', padding: '20px 12px', color: '#94a3b8', fontStyle: 'italic', fontSize: '0.82rem' }}>
                     No {title.toLowerCase()} recorded. Click "+ Add {title} Particular" to add.
                   </td>
                 </tr>
@@ -2268,29 +2671,40 @@ export default function STGEntryForm({
                         {lIdx + 1}
                       </td>
 
-                      {/* Particular Name */}
-                      <td style={{ padding: '4px 8px' }}>
-                        <input
-                          type="text"
-                          className="form-input"
-                          value={row.variant || row.values?.variant || ''}
-                          readOnly={isReadOnly}
-                          placeholder="Particular Name..."
-                          onChange={e => handleParticularCellChange(globalIdx, 'variant', e.target.value, key)}
-                          style={{
-                            height: 28,
-                            fontSize: '0.82rem',
-                            fontWeight: 700,
-                            padding: '3px 8px',
-                            background: isReadOnly ? 'transparent' : '#ffffff',
-                            border: isReadOnly ? 'none' : '1px solid var(--border)',
-                          }}
-                        />
-                      </td>
-
                       {/* Dynamic Columns */}
-                      {sectionCols.map(col => {
-                        if (col.type === 'calculated') {
+                      {sectionCols.map((col, cIdx) => {
+                        const isTxt = isSTGTextOrParticularCol(col) || (!sectionCols.some(c => isSTGTextOrParticularCol(c)) && cIdx === 0);
+                        const isCalc = (col.type === 'calculated' || Boolean(col.formula)) && Boolean(col.formula && col.formula.trim());
+
+                        if (isTxt) {
+                          const textVal = row.values?.[col.key] || row.particular_name || row.variant || row.item_name || '';
+                          return (
+                            <td key={`td_${col.key}`} style={{ padding: '4px 8px' }}>
+                              <input
+                                type="text"
+                                className="form-input"
+                                value={textVal}
+                                readOnly={isReadOnly}
+                                placeholder={`${col.name}...`}
+                                onChange={e => {
+                                  handleParticularCellChange(globalIdx, col.key, e.target.value, key);
+                                  handleParticularCellChange(globalIdx, 'variant', e.target.value, key);
+                                  handleParticularCellChange(globalIdx, 'item_name', e.target.value, key);
+                                }}
+                                style={{
+                                  height: 28,
+                                  fontSize: '0.82rem',
+                                  fontWeight: 700,
+                                  padding: '3px 8px',
+                                  background: isReadOnly ? 'transparent' : '#ffffff',
+                                  border: isReadOnly ? 'none' : '1px solid var(--border)',
+                                }}
+                              />
+                            </td>
+                          );
+                        }
+
+                        if (isCalc) {
                           return (
                             <td
                               key={`td_${col.key}`}
@@ -2303,7 +2717,7 @@ export default function STGEntryForm({
                                 background: '#f0f9ff',
                               }}
                             >
-                              {row.values[col.key]
+                              {row.values[col.key] !== undefined && row.values[col.key] !== ''
                                 ? formatDisplayNum(row.values[col.key], col.decimals, col.key)
                                 : '-'}
                             </td>
@@ -2356,13 +2770,27 @@ export default function STGEntryForm({
               <tfoot>
                 <tr style={{ background: '#f8fafc', borderTop: '2px solid var(--border)' }}>
                   <td style={{ textAlign: 'center', fontWeight: 800, color: '#64748b' }}>Σ</td>
-                  <td style={{ fontWeight: 800, color: colorScheme.text, padding: '6px 8px' }}>
-                    Total {title}
-                  </td>
-                  {sectionCols.map(col => {
+                  {sectionCols.map((col, cIdx) => {
+                    const isTxt = isSTGTextOrParticularCol(col) || (!sectionCols.some(c => isSTGTextOrParticularCol(c)) && cIdx === 0);
+                    if (isTxt) {
+                      const isFirstTxt = sectionCols.findIndex((c, i) => isSTGTextOrParticularCol(c) || (!sectionCols.some(sc => isSTGTextOrParticularCol(sc)) && i === 0)) === cIdx;
+                      return (
+                        <td
+                          key={`tf_${col.key}`}
+                          style={{ fontWeight: 800, color: colorScheme.text, padding: '6px 8px', textAlign: 'left' }}
+                        >
+                          {isFirstTxt ? `Total ${title}` : ''}
+                        </td>
+                      );
+                    }
+
                     const isTotalable = col.type === 'number' || col.type === 'calculated';
                     const isRateOrPct = ['sp_gr', 'fat_pct', 'snf_pct'].includes(col.key);
-                    const totalVal = side === 'RECEIPT' ? (sectionTotals.rec as Record<string, number>)[col.key] : (sectionTotals.disp as Record<string, number>)[col.key];
+                    const totalVal = side === 'RECEIPT'
+                      ? (sectionTotals.rec as Record<string, number>)[col.key]
+                      : side === 'DISPOSAL'
+                        ? (sectionTotals.disp as Record<string, number>)[col.key]
+                        : (sectionTotals.cb as Record<string, number>)[col.key];
 
                     if (isTotalable && !isRateOrPct) {
                       return (
@@ -2421,6 +2849,14 @@ export default function STGEntryForm({
               <div className="section-title" style={{ margin: 0 }}>Entry Details</div>
               <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }} className="no-print">
                 <Link
+                  href="/dashboard/setup"
+                  className="btn btn-secondary btn-xs"
+                  style={{ borderColor: '#93c5fd', color: '#1e40af', backgroundColor: '#eff6ff', fontSize: '0.75rem', padding: '4px 10px', fontWeight: 600 }}
+                  title="Zero-Hardcode Setup Checklist"
+                >
+                  📋 Setup Checklist
+                </Link>
+                <Link
                   href={`/dashboard/ts/manage-statements/defaults?master=${encodeURIComponent(currentStatement?.key || activeBlock || 'wm')}`}
                   className="btn btn-secondary btn-xs"
                   style={{ borderColor: '#86efac', color: '#166534', backgroundColor: '#f0fdf4', fontSize: '0.75rem', padding: '4px 10px', fontWeight: 600 }}
@@ -2428,6 +2864,7 @@ export default function STGEntryForm({
                 >
                   ⭐ Master Default Statements
                 </Link>
+                {renderStatementSelectWidget('top-stg')}
                 <button
                   type="button"
                   className="btn btn-secondary btn-xs"
@@ -2444,7 +2881,7 @@ export default function STGEntryForm({
                   onClick={handleSyncFromStock}
                   title="Auto-fill receipt quantities from saved Stock Statement"
                 >
-                  ⚡ Sync from Stock Statement
+                  ⚡ Sync Receipts from Stock
                 </button>
                 <button
                   type="button"
@@ -2668,8 +3105,8 @@ export default function STGEntryForm({
                     {selectedStatementKeys.length === availableStatements.length && availableStatements.length > 0
                       ? 'All Selected'
                       : selectedStatementKeys.length === 0
-                      ? 'None Selected'
-                      : `${selectedStatementKeys.length} of ${availableStatements.length} selected`}
+                        ? 'None Selected'
+                        : `${selectedStatementKeys.length} of ${availableStatements.length} selected`}
                   </span>
                   <span style={{ fontSize: '0.7rem', color: '#0284c7', marginLeft: 2 }}>
                     {isStatementDropdownOpen ? '▲' : '▼'}
@@ -2863,7 +3300,7 @@ export default function STGEntryForm({
                 }}
                 title="Sync Opening Balance and matching rows from Stock Statement Entry"
               >
-                ⚡ Sync from Stock Statement
+                ⚡ Sync Opening Balance from Stock
               </button>
             </div>
           </div>
@@ -2876,23 +3313,52 @@ export default function STGEntryForm({
         )}
 
         {displayedStatements.length === 0 ? (
-          <div className="card" style={{ padding: 36, textAlign: 'center', background: '#f8fafc', border: '1.5px dashed #cbd5e1', borderRadius: 10, margin: '20px 0' }}>
-            <div style={{ fontSize: '2.4rem', marginBottom: 10 }}>📋</div>
-            <div style={{ fontWeight: 800, fontSize: '1.1rem', color: '#1e293b', marginBottom: 6 }}>
-              No Statements Selected
+          masters.length === 0 ? (
+            <div className="card" style={{ padding: 40, textAlign: 'center', background: '#f8fafc', border: '2px dashed #cbd5e1', borderRadius: 12, margin: '20px 0' }}>
+              <div style={{ fontSize: '2.5rem', marginBottom: 12 }}>📋</div>
+              <div style={{ fontWeight: 800, fontSize: '1.2rem', color: '#0f172a', marginBottom: 8 }}>
+                No Statement Masters Configured
+              </div>
+              <div style={{ fontSize: '0.9rem', color: '#64748b', marginBottom: 20, maxWidth: 520, margin: '0 auto 20px auto', lineHeight: 1.5 }}>
+                Every statement master name, product variant, section, and formulation table is 100% database-driven with zero hardcoded business data.
+                Please complete the setup checklist to configure your Statement Masters.
+              </div>
+              <div style={{ display: 'flex', gap: 12, justifyContent: 'center' }}>
+                <Link
+                  href="/dashboard/setup"
+                  className="btn btn-primary"
+                  style={{ padding: '8px 22px', fontSize: '0.88rem', fontWeight: 700 }}
+                >
+                  🚀 Open Setup Checklist
+                </Link>
+                <Link
+                  href="/dashboard/ts/statement-master-names"
+                  className="btn btn-secondary"
+                  style={{ padding: '8px 22px', fontSize: '0.88rem', fontWeight: 700 }}
+                >
+                  ➕ Statement Master Names
+                </Link>
+              </div>
             </div>
-            <div style={{ fontSize: '0.86rem', color: '#64748b', marginBottom: 16, maxWidth: 500, margin: '0 auto 16px auto' }}>
-              Please check one or more statements in the &quot;Select Statement&quot; section inside Entry Details above to view, enter, or edit data.
+          ) : (
+            <div className="card" style={{ padding: 36, textAlign: 'center', background: '#f8fafc', border: '1.5px dashed #cbd5e1', borderRadius: 10, margin: '20px 0' }}>
+              <div style={{ fontSize: '2.4rem', marginBottom: 10 }}>📋</div>
+              <div style={{ fontWeight: 800, fontSize: '1.1rem', color: '#1e293b', marginBottom: 6 }}>
+                No Statements Selected
+              </div>
+              <div style={{ fontSize: '0.86rem', color: '#64748b', marginBottom: 16, maxWidth: 500, margin: '0 auto 16px auto' }}>
+                Please check one or more statements in the &quot;Select Statement&quot; section inside Entry Details above to view, enter, or edit data.
+              </div>
+              <button
+                type="button"
+                onClick={handleSelectAllStatements}
+                className="btn btn-primary"
+                style={{ padding: '6px 20px', fontSize: '0.84rem', fontWeight: 700 }}
+              >
+                Select All Statements
+              </button>
             </div>
-            <button
-              type="button"
-              onClick={handleSelectAllStatements}
-              className="btn btn-primary"
-              style={{ padding: '6px 20px', fontSize: '0.84rem', fontWeight: 700 }}
-            >
-              Select All Statements
-            </button>
-          </div>
+          )
         ) : (
           displayedStatements.map((stmt, sIdx) => {
             const stmtBlock = blocks[stmt.key] || { rows: [], opening_balance: {}, physical_count: {}, cmpdd_norm: '' };
@@ -3033,97 +3499,139 @@ export default function STGEntryForm({
                 </div>
 
                 {/* Section 1: Opening Balance Card */}
-                <div className="card" style={{ padding: 0, overflow: 'hidden', border: '1px solid #bfdbfe', marginBottom: 16 }}>
-                  <div style={{ background: '#eff6ff', padding: '10px 16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid #bfdbfe' }}>
-                    <span style={{ fontWeight: 800, fontSize: '0.92rem', color: '#1d4ed8' }}>
-                      📦 Opening Balance (OB)
-                    </span>
+                {(() => {
+                  const obCols = getSectionColumnsForMaster(stmt.key, 'ob');
+                  return (
+                    <div className="card" style={{ padding: 0, overflow: 'hidden', border: '1px solid #bfdbfe', marginBottom: 16 }}>
+                      <div style={{ background: '#eff6ff', padding: '10px 16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid #bfdbfe' }}>
+                        <span style={{ fontWeight: 800, fontSize: '0.92rem', color: '#1d4ed8' }}>
+                          📦 Opening Balance (OB)
+                        </span>
 
-                    <button
-                      type="button"
-                      onClick={() => toggleSectionUnlocked(stmt.key, 'ob')}
-                      style={{
-                        background: stmtObUnlocked ? '#fef3c7' : '#ffffff',
-                        border: `1px solid ${stmtObUnlocked ? '#f59e0b' : '#93c5fd'}`,
-                        color: stmtObUnlocked ? '#b45309' : '#1d4ed8',
-                        borderRadius: 5,
-                        padding: '3px 10px',
-                        fontSize: '0.74rem',
-                        fontWeight: 700,
-                        cursor: 'pointer',
-                      }}
-                    >
-                      {stmtObUnlocked ? '🔒 Lock OB' : '✏️ Edit OB'}
-                    </button>
-                  </div>
+                        <button
+                          type="button"
+                          onClick={() => toggleSectionUnlocked(stmt.key, 'ob')}
+                          style={{
+                            background: stmtObUnlocked ? '#fef3c7' : '#ffffff',
+                            border: `1px solid ${stmtObUnlocked ? '#f59e0b' : '#93c5fd'}`,
+                            color: stmtObUnlocked ? '#b45309' : '#1d4ed8',
+                            borderRadius: 5,
+                            padding: '3px 10px',
+                            fontSize: '0.74rem',
+                            fontWeight: 700,
+                            cursor: 'pointer',
+                          }}
+                        >
+                          {stmtObUnlocked ? '🔒 Lock OB' : '✏️ Edit OB'}
+                        </button>
+                      </div>
 
-                  <div style={{ overflowX: 'auto' }}>
-                    <table className="inline-table" style={{ width: '100%', minWidth: 720, margin: 0 }}>
-                      <thead>
-                        <tr style={{ background: '#f8fafc', borderBottom: '1px solid var(--border)' }}>
-                          <th style={{ width: 44, textAlign: 'center', fontSize: '0.72rem' }}>#</th>
-                          <th style={{ width: 220, textAlign: 'left', fontSize: '0.75rem', fontWeight: 800 }}>Label</th>
-                          {getSectionColumnsForMaster(stmt.key, 'ob').map(col => (
-                            <th
-                              key={`ob_th_${col.key}`}
-                              style={{
-                                textAlign: 'right',
-                                fontSize: '0.75rem',
-                                ...(col.type === 'calculated' ? { background: '#e0f2fe', color: '#0369a1' } : {}),
-                              }}
-                            >
-                              {col.name}
-                            </th>
-                          ))}
-                          <th style={{ width: 90, textAlign: 'center', fontSize: '0.72rem' }}>Status</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        <tr>
-                          <td style={{ textAlign: 'center', fontWeight: 700, color: '#1d4ed8', fontSize: '0.75rem', background: '#eff6ff' }}>OB</td>
-                          <td style={{ fontWeight: 800, color: '#1d4ed8', fontSize: '0.82rem', padding: '6px 8px' }}>Opening Balance</td>
-                          {getSectionColumnsForMaster(stmt.key, 'ob').map(col => {
-                            if (col.type === 'calculated') {
-                              const val = stmtOb[col.key];
-                              return (
-                                <td
-                                  key={`ob_td_${col.key}`}
-                                  style={{
-                                    textAlign: 'right',
-                                    padding: '4px 8px',
-                                    fontWeight: 800,
-                                    color: '#0369a1',
-                                    fontFamily: 'var(--font-numbers)',
-                                    background: '#f0f9ff',
-                                  }}
-                                >
-                                  {val ? formatDisplayNum(val, col.decimals, col.key) : '-'}
-                                </td>
-                              );
-                            }
-                            return (
-                              <td key={`ob_td_${col.key}`} style={{ padding: '2px 4px' }}>
-                                <input
-                                  type="number"
-                                  step={col.key === 'qty_lts' ? undefined : 'any'}
-                                  className="form-input"
-                                  value={stmtOb[col.key] ?? ''}
-                                  readOnly={!stmtObUnlocked}
-                                  placeholder="0"
-                                  onChange={e => handleOpeningBalanceChange(col.key, e.target.value, stmt.key)}
-                                  style={{ height: 28, fontSize: '0.82rem', textAlign: 'right', fontFamily: 'var(--font-numbers)' }}
-                                />
+                      <div style={{ overflowX: 'auto' }}>
+                        <table className="inline-table" style={{ width: '100%', minWidth: 720, margin: 0 }}>
+                          <thead>
+                            <tr style={{ background: '#f8fafc', borderBottom: '1px solid var(--border)' }}>
+                              <th style={{ width: 44, textAlign: 'center', fontSize: '0.72rem' }}>#</th>
+                              {obCols.map((col, cIdx) => {
+                                const isTxt = isSTGTextOrParticularCol(col) || (!obCols.some(c => isSTGTextOrParticularCol(c)) && cIdx === 0);
+                                const isCalc = (col.type === 'calculated' || Boolean(col.formula)) && Boolean(col.formula && col.formula.trim());
+                                return (
+                                  <th
+                                    key={`ob_th_${col.key}`}
+                                    style={{
+                                      textAlign: isTxt ? 'left' : 'right',
+                                      fontSize: '0.75rem',
+                                      fontWeight: 800,
+                                      ...(isTxt ? { width: 220 } : {}),
+                                      ...(isCalc ? { background: '#e0f2fe', color: '#0369a1' } : {}),
+                                    }}
+                                  >
+                                    {col.name}
+                                  </th>
+                                );
+                              })}
+                              <th style={{ width: 90, textAlign: 'center', fontSize: '0.72rem' }}>Status</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            <tr>
+                              <td style={{ textAlign: 'center', fontWeight: 700, color: '#1d4ed8', fontSize: '0.75rem', background: '#eff6ff' }}>OB</td>
+                              {obCols.map((col, cIdx) => {
+                                const isTxt = isSTGTextOrParticularCol(col) || (!obCols.some(c => isSTGTextOrParticularCol(c)) && cIdx === 0);
+                                const isCalc = (col.type === 'calculated' || Boolean(col.formula)) && Boolean(col.formula && col.formula.trim());
+
+                                if (isTxt) {
+                                  const obLabel = stmtOb[col.key] || stmtOb.variant || stmtOb.label || stmtOb.item_name || 'Opening Balance';
+                                  return (
+                                    <td key={`ob_td_${col.key}`} style={{ padding: '4px 8px' }}>
+                                      <input
+                                        type="text"
+                                        className="form-input"
+                                        value={obLabel}
+                                        readOnly={!stmtObUnlocked}
+                                        placeholder="Opening Balance"
+                                        onChange={e => {
+                                          handleOpeningBalanceChange(col.key, e.target.value, stmt.key);
+                                          handleOpeningBalanceChange('variant', e.target.value, stmt.key);
+                                          handleOpeningBalanceChange('label', e.target.value, stmt.key);
+                                          handleOpeningBalanceChange('item_name', e.target.value, stmt.key);
+                                        }}
+                                        style={{
+                                          height: 28,
+                                          fontSize: '0.82rem',
+                                          fontWeight: 700,
+                                          padding: '3px 8px',
+                                          color: '#1d4ed8',
+                                          background: !stmtObUnlocked ? 'transparent' : '#ffffff',
+                                          border: !stmtObUnlocked ? 'none' : '1px solid var(--border)',
+                                        }}
+                                      />
+                                    </td>
+                                  );
+                                }
+
+                                if (isCalc) {
+                                  const val = stmtOb[col.key];
+                                  return (
+                                    <td
+                                      key={`ob_td_${col.key}`}
+                                      style={{
+                                        textAlign: 'right',
+                                        padding: '4px 8px',
+                                        fontWeight: 800,
+                                        color: '#0369a1',
+                                        fontFamily: 'var(--font-numbers)',
+                                        background: '#f0f9ff',
+                                      }}
+                                    >
+                                      {val !== undefined && val !== '' ? formatDisplayNum(val, col.decimals, col.key) : '-'}
+                                    </td>
+                                  );
+                                }
+                                return (
+                                  <td key={`ob_td_${col.key}`} style={{ padding: '2px 4px' }}>
+                                    <input
+                                      type="number"
+                                      step={col.key === 'qty_lts' ? undefined : 'any'}
+                                      className="form-input"
+                                      value={stmtOb[col.key] ?? ''}
+                                      readOnly={!stmtObUnlocked}
+                                      placeholder="0"
+                                      onChange={e => handleOpeningBalanceChange(col.key, e.target.value, stmt.key)}
+                                      style={{ height: 28, fontSize: '0.82rem', textAlign: 'right', fontFamily: 'var(--font-numbers)' }}
+                                    />
+                                  </td>
+                                );
+                              })}
+                              <td style={{ textAlign: 'center', fontSize: '0.72rem', color: stmtObUnlocked ? '#b45309' : '#1d4ed8', fontWeight: 700 }}>
+                                {stmtObUnlocked ? 'Unlocked' : 'Locked'}
                               </td>
-                            );
-                          })}
-                          <td style={{ textAlign: 'center', fontSize: '0.72rem', color: stmtObUnlocked ? '#b45309' : '#1d4ed8', fontWeight: 700 }}>
-                            {stmtObUnlocked ? 'Unlocked' : 'Locked'}
-                          </td>
-                        </tr>
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
+                            </tr>
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  );
+                })()}
 
                 {/* Section 2: Receipts Particulars */}
                 {renderParticularsSection(
@@ -3147,7 +3655,22 @@ export default function STGEntryForm({
                   stmt.key
                 )}
 
-                {/* Section 4: Stock Balance Reconciliation Card */}
+                {/* Section 4: Closing Balance (CB) Particulars */}
+                {(() => {
+                  const stmtCbRows = stmtRows.filter(r => r.row_type === 'CB' || r.side === 'CB');
+                  const stmtCbUnlocked = isSectionUnlocked(stmt.key, 'cb');
+                  return renderParticularsSection(
+                    'CB',
+                    'Closing Balance (CB)',
+                    stmtCbRows,
+                    stmtCbUnlocked,
+                    () => toggleSectionUnlocked(stmt.key, 'cb'),
+                    { bg: '#fefce8', text: '#854d0e', border: '#fef08a', btn: '#ca8a04' },
+                    stmt.key
+                  );
+                })()}
+
+                {/* Section 5: Stock Balance Reconciliation Card */}
                 <div className="card" style={{ padding: 0, overflow: 'hidden', border: '1px solid var(--border)', marginBottom: 20 }}>
                   <div style={{ background: '#f8fafc', padding: '10px 16px', borderBottom: '1px solid var(--border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
                     <div>
@@ -3181,7 +3704,7 @@ export default function STGEntryForm({
                         }}
                         title="Add a custom row to this statement reconciliation summary"
                       >
-                        ➕ Add Row
+                        ➕ Add Recon Row
                       </button>
 
                       <button
@@ -3205,7 +3728,7 @@ export default function STGEntryForm({
                         }}
                         title="Add a new column to this statement reconciliation summary"
                       >
-                        ➕ Add Column
+                        ➕ Add Recon Column
                       </button>
 
                       <button
@@ -3565,7 +4088,7 @@ export default function STGEntryForm({
         </div>
       </div>
 
-{/* Modal: Create New Statement Master */}
+      {/* Modal: Create New Statement Master */}
       {isCreateModalOpen && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
           <div className="card" style={{ width: '100%', maxWidth: 540, padding: 24, boxShadow: '0 25px 50px -12px rgba(0,0,0,0.25)' }}>
@@ -3605,23 +4128,17 @@ export default function STGEntryForm({
               </div>
 
               <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 0.8fr', gap: 12 }}>
-                <div>
-                  <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: 800, marginBottom: 4, color: 'var(--text-primary)' }}>
-                    Field Key (Unique Identifier) *
-                  </label>
-                  <input
-                    type="text"
-                    required
-                    className="form-input"
-                    value={newStmtKey}
-                    placeholder="e.g. butter_milk"
-                    onChange={e => {
-                      setNewStmtKeyEdited(true);
-                      setNewStmtKey(e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, '_'));
-                    }}
-                    style={{ width: '100%', height: 32, fontFamily: 'monospace' }}
-                  />
-                </div>
+                <KeyField
+                  label="Field Key (Unique Identifier)"
+                  value={newStmtKey}
+                  onChange={val => {
+                    setNewStmtKeyEdited(true);
+                    setNewStmtKey(val);
+                  }}
+                  scope="statement"
+                  existingKeys={statements.map(s => s.key)}
+                  placeholder="e.g. butter_milk"
+                />
 
                 <div>
                   <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: 800, marginBottom: 4, color: 'var(--text-primary)' }}>
@@ -3852,7 +4369,7 @@ export default function STGEntryForm({
                   className="btn btn-primary btn-sm"
                   style={{ background: '#0284c7', borderColor: '#0284c7' }}
                 >
-                  Add Row
+                  Add Recon Row
                 </button>
               </div>
             </form>
@@ -3898,20 +4415,13 @@ export default function STGEntryForm({
               </div>
 
               <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 0.8fr', gap: 10 }}>
-                <div>
-                  <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: 800, marginBottom: 4 }}>
-                    Field Key *
-                  </label>
-                  <input
-                    type="text"
-                    required
-                    className="form-input"
-                    value={newReconColKey}
-                    onChange={e => setNewReconColKey(e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, '_'))}
-                    placeholder="e.g. diff_kg"
-                    style={{ width: '100%', height: 32, fontFamily: 'monospace' }}
-                  />
-                </div>
+                <KeyField
+                  label="Field Key"
+                  value={newReconColKey}
+                  onChange={setNewReconColKey}
+                  scope="stg_column"
+                  placeholder="e.g. diff_kg"
+                />
 
                 <div>
                   <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: 800, marginBottom: 4 }}>
@@ -3974,7 +4484,7 @@ export default function STGEntryForm({
                   className="btn btn-primary btn-sm"
                   style={{ background: '#16a34a', borderColor: '#16a34a' }}
                 >
-                  Add Column
+                  Add Recon Column
                 </button>
               </div>
             </form>
@@ -4133,7 +4643,7 @@ export default function STGEntryForm({
                 <span>DATE: {entryDate}</span>
               </div>
               <div style={{ fontWeight: 'bold', fontSize: 12, marginBottom: 6, textTransform: 'uppercase' }}>
-                {cleanStatementLabel(currentStatement?.label || activeBlock)} - RECEIPT AND DISPOSAL STATEMENT
+                {cleanStatementLabel(currentStatement?.label || activeBlock).replace(/(?:\s*-\s*RECEIPT AND DISPOSAL STATEMENT)+$/i, '')} - RECEIPT AND DISPOSAL STATEMENT
               </div>
 
               <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11, border: '1px solid #000' }}>

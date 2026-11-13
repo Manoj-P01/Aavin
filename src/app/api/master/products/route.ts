@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { invalidateMasterTag, getCategories } from '@/lib/masters';
 import { getSupabaseServiceClient } from '@/lib/supabase';
 import { getAuthUserFromRequest } from '@/lib/auth';
 
@@ -16,7 +17,7 @@ export async function GET(req: NextRequest) {
     // Direct table query fallback
     const { data: products, error } = await supabase
       .from('products_master')
-      .select('*')
+      .select('id, product_key, product_name, short_name, category, sort_order, is_active, is_default, created_at, updated_at')
       .order('sort_order', { ascending: true });
 
     if (error) {
@@ -55,38 +56,26 @@ export async function POST(req: NextRequest) {
     const cleanKey = product_key.trim().toLowerCase().replace(/\s+/g, '_');
     const supabase = getSupabaseServiceClient();
 
-    // Call SP fn_upsert_product_master
-    const { data: spData, error: spErr } = await supabase.rpc('fn_upsert_product_master', {
-      p_product_key: cleanKey,
-      p_product_name: product_name.trim(),
-      p_short_name: short_name?.trim() || cleanKey.toUpperCase(),
-      p_category: category || 'Liquid Milk',
-      p_sort_order: Number(sort_order) || 0,
-      p_is_active: is_active !== undefined ? is_active : true,
-      p_actor: actorUsername,
-    });
+    const chosenCategory = category?.trim() || null;
 
-    if (!spErr && spData) {
-      return NextResponse.json({ data: Array.isArray(spData) ? spData[0] : spData }, { status: 201 });
-    }
-
-    // Direct Table Upsert fallback
+    // Direct Table Upsert
     const { data, error } = await supabase
       .from('products_master')
       .upsert({
         product_key: cleanKey,
         product_name: product_name.trim(),
         short_name: short_name?.trim() || cleanKey.toUpperCase(),
-        category: category || 'Liquid Milk',
+        category: chosenCategory,
         sort_order: Number(sort_order) || 0,
         is_active: is_active !== undefined ? is_active : true,
         created_by: actorUsername,
         updated_by: actorUsername,
       }, { onConflict: 'product_key' })
-      .select('*')
+      .select('id, product_key, product_name, short_name, category, sort_order, is_active, is_default, created_at, updated_at')
       .single();
 
     if (error) throw error;
+    invalidateMasterTag('masters-products');
     return NextResponse.json({ data }, { status: 201 });
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : 'Failed to declare product';
@@ -101,9 +90,10 @@ export async function PUT(req: NextRequest) {
     const actorUsername = authUser?.username || 'admin';
 
     const body = await req.json();
-    const { id, product_key, product_name, short_name, category, is_active, sort_order } = body as {
+    const { id, product_key, new_product_key, product_name, short_name, category, is_active, sort_order } = body as {
       id?: string;
       product_key?: string;
+      new_product_key?: string;
       product_name?: string;
       short_name?: string;
       category?: string;
@@ -113,24 +103,28 @@ export async function PUT(req: NextRequest) {
 
     const supabase = getSupabaseServiceClient();
 
-    if (product_key && product_name) {
-      // Call SP fn_upsert_product_master
-      const { data: spData, error: spErr } = await supabase.rpc('fn_upsert_product_master', {
-        p_product_key: product_key,
-        p_product_name: product_name,
-        p_short_name: short_name,
-        p_category: category,
-        p_sort_order: sort_order,
-        p_is_active: is_active,
-        p_actor: actorUsername,
-      });
-
-      if (!spErr && spData) {
-        return NextResponse.json({ data: Array.isArray(spData) ? spData[0] : spData });
+    // Cascading rename if new_product_key is provided and different
+    if (new_product_key) {
+      let currentKey = product_key;
+      if (!currentKey && id) {
+        const { data: existing } = await supabase.from('products_master').select('product_key').eq('id', id).single();
+        currentKey = existing?.product_key;
+      }
+      if (currentKey && currentKey !== new_product_key) {
+        const { error: renameErr } = await supabase.rpc('fn_rename_key', {
+          p_scope: 'product',
+          p_old: currentKey,
+          p_new: new_product_key,
+          p_context: {},
+          p_dry_run: false,
+        });
+        if (renameErr) throw renameErr;
       }
     }
 
-    if (!id) return NextResponse.json({ error: 'Product ID or product_key is required' }, { status: 400 });
+    const effectiveKey = new_product_key || product_key;
+
+    if (!id && !effectiveKey) return NextResponse.json({ error: 'Product ID or product_key is required' }, { status: 400 });
 
     const updatePayload: Record<string, any> = {
       updated_by: actorUsername,
@@ -139,7 +133,7 @@ export async function PUT(req: NextRequest) {
 
     if (product_name !== undefined) updatePayload.product_name = product_name.trim();
     if (short_name !== undefined) updatePayload.short_name = short_name.trim();
-    if (category !== undefined) updatePayload.category = category;
+    if (category !== undefined) updatePayload.category = category.trim() || null;
     if (is_active !== undefined) updatePayload.is_active = is_active;
     if (sort_order !== undefined) updatePayload.sort_order = Number(sort_order);
 
@@ -147,7 +141,7 @@ export async function PUT(req: NextRequest) {
       .from('products_master')
       .update(updatePayload)
       .eq('id', id)
-      .select('*')
+      .select('id, product_key, product_name, short_name, category, sort_order, is_active, is_default, created_at, updated_at')
       .single();
 
     if (error) throw error;
@@ -203,6 +197,7 @@ export async function DELETE(req: NextRequest) {
 
     if (error) throw error;
 
+    invalidateMasterTag('masters-products');
     return NextResponse.json({ success: true, message: 'Product soft-deleted successfully' });
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : 'Failed to delete product';

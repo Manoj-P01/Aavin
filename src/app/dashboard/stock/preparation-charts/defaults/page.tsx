@@ -6,9 +6,10 @@ import Link from 'next/link';
 import type { ChartColumnDef, ChartMasterDef, ChartRowData, ChartEntryData } from '@/app/api/stock/preparation-charts/route';
 import { getStandardColumnDecimals } from '@/lib/calculations';
 import { useConfirm } from '@/context/ConfirmContext';
+import KeyField, { executeKeyRename } from '@/components/ui/KeyField';
 
 export default function MasterDefaultFormulationsPage() {
-  const { confirm, showWarning } = useConfirm();
+  const { confirm, showWarning, showError } = useConfirm();
   const [columns, setColumns] = useState<ChartColumnDef[]>([]);
   const [defaultColumns, setDefaultColumns] = useState<ChartColumnDef[]>([]);
   const [chartColumnsMap, setChartColumnsMap] = useState<Record<string, ChartColumnDef[]>>({});
@@ -649,25 +650,21 @@ export default function MasterDefaultFormulationsPage() {
 
     if (colModalEditingKey) {
       const oldKey = colModalEditingKey;
-      if (keyToUse !== oldKey && columns.some(c => c.key === keyToUse)) {
-        alert(`Column key "${keyToUse}" already exists! Please use a unique Field Key.`);
-        return;
+      if (keyToUse !== oldKey) {
+        if (columns.some(c => c.key === keyToUse)) {
+          alert(`Column key "${keyToUse}" already exists! Please use a unique Field Key.`);
+          return;
+        }
+        executeKeyRename({
+          scope: 'prep_chart_column',
+          oldKey,
+          newKey: keyToUse,
+          context: { chart_key: activeChartKey },
+          confirm,
+          showError,
+        });
       }
       updatedCols = columns.map(c => (c.key === oldKey ? newCol : c));
-
-      // If key was updated, migrate row.values across all rows
-      if (keyToUse !== oldKey) {
-        setRows(prev =>
-          prev.map(row => {
-            const nextVals = { ...row.values };
-            if (oldKey in nextVals) {
-              nextVals[keyToUse] = nextVals[oldKey];
-              delete nextVals[oldKey];
-            }
-            return { ...row, values: nextVals };
-          })
-        );
-      }
     } else {
       if (columns.some(c => c.key === newCol.key)) {
         alert(`Column key "${newCol.key}" already exists! Please use a unique Field Key.`);
@@ -1051,24 +1048,71 @@ export default function MasterDefaultFormulationsPage() {
     return masters.find(m => m.key === activeChartKey) || null;
   }, [masters, activeChartKey]);
 
+  const handleNavigate = async (e: React.MouseEvent<HTMLAnchorElement>, href: string) => {
+    if (isDirty) {
+      e.preventDefault();
+      const isConfirmed = await confirm({
+        title: 'Unsaved Changes',
+        message: `You have unsaved formulation changes for "${activeMaster?.name || 'this chart'}". If you leave now, these changes will be lost. Do you want to discard them and continue?`,
+        confirmText: 'Discard & Leave',
+        cancelText: 'Stay on Page',
+        type: 'warning',
+      });
+      if (isConfirmed) {
+        window.location.href = href;
+      }
+    }
+  };
+
   return (
     <>
       <Header
-        title="Master Default Formulation Tables"
+        title="Master Chart Preparation"
         subtitle="Manage default batch formulation templates & pre-defined formulas inherited by daily preparation charts"
         actions={
-          <div style={{ display: 'flex', gap: 10 }}>
-            <Link href="/dashboard/stock/preparation-charts" className="btn btn-primary btn-sm">
-              🗓️ Daily Preparation Charts Dashboard
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+            <Link
+              href="/dashboard/stock/preparation-charts/columns"
+              className="btn btn-secondary btn-sm"
+              onClick={e => handleNavigate(e, '/dashboard/stock/preparation-charts/columns')}
+              title="Manage Dynamic Preparation Chart Columns"
+            >
+              ⚙️ Chart Columns Config
             </Link>
-            <Link href="/dashboard/stock/preparation-charts/masters" className="btn btn-secondary btn-sm">
-              ⚙️ Preparation Chart Master Names
+            <Link
+              href="/dashboard/stock/preparation-charts/masters"
+              className="btn btn-secondary btn-sm"
+              onClick={e => handleNavigate(e, '/dashboard/stock/preparation-charts/masters')}
+              title="Manage Preparation Chart Master Names"
+            >
+              📊 Preparation Chart Master Names
+            </Link>
+            <Link
+              href="/dashboard/stock/preparation-charts"
+              className="btn btn-primary btn-sm"
+              onClick={e => handleNavigate(e, '/dashboard/stock/preparation-charts')}
+              title="Go to Daily Preparation Charts Dashboard"
+            >
+              🗓️ Daily Preparation Charts Dashboard
             </Link>
           </div>
         }
       />
 
-      <div className="page-body animate-fade-in" style={{ display: 'flex', flexDirection: 'column', height: 'calc(100vh - 120px)', overflow: 'hidden' }}>
+      <div
+        className="page-body animate-fade-in"
+        style={{
+          display: 'flex',
+          flexDirection: 'column',
+          height: 'calc(100dvh - 85px)',
+          maxHeight: 'calc(100dvh - 85px)',
+          padding: '14px 20px',
+          width: '100%',
+          maxWidth: '100%',
+          overflow: 'hidden',
+          boxSizing: 'border-box',
+        }}
+      >
         {toastMessage && (
           <div
             style={{
@@ -1091,642 +1135,692 @@ export default function MasterDefaultFormulationsPage() {
           </div>
         )}
 
-        {/* Master Selector Tabs Bar */}
-        <div className="card" style={{ marginBottom: 12, padding: '12px 18px', flexShrink: 0 }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8, flexWrap: 'wrap', gap: 8 }}>
-            <div style={{ fontWeight: 700, fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
-              Select Chart Master Name:
-            </div>
-            <div style={{ fontSize: '0.78rem', color: '#64748b' }}>
-              💡 Each master has its own separate default template and columns.
-            </div>
-          </div>
-          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
-            {masters.map(m => {
-              const isSelected = m.key === activeChartKey;
-              return (
-                <button
-                  key={`default_tab_${m.key}`}
-                  type="button"
-                  onClick={() => handleSwitchChartMaster(m.key)}
-                  style={{
-                    padding: '8px 16px',
-                    borderRadius: 8,
-                    fontSize: '0.85rem',
-                    fontWeight: 700,
-                    background: isSelected ? '#b45309' : '#f1f5f9',
-                    color: isSelected ? '#ffffff' : '#475569',
-                    border: isSelected ? '1px solid #b45309' : '1px solid #cbd5e1',
-                    cursor: 'pointer',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: 6,
-                  }}
-                >
-                  <span>📋 {m.name}</span>
-                  <span style={{ fontSize: '0.72rem', opacity: 0.85 }}>({m.product_variant || 'DEFAULT'})</span>
-                </button>
-              );
-            })}
-            <button
-              type="button"
-              onClick={handleOpenNewMaster}
-              style={{
-                padding: '8px 16px',
-                borderRadius: 8,
-                fontSize: '0.85rem',
-                fontWeight: 700,
-                background: '#f8fafc',
-                color: '#0284c7',
-                border: '1px dashed #38bdf8',
-                cursor: 'pointer',
-                display: 'flex',
-                alignItems: 'center',
-                gap: 6,
-              }}
-              title="Add a brand new Chart Master and default template"
-            >
-              <span>➕ Add Chart Master</span>
-            </button>
-          </div>
-        </div>
-
-        {/* Main formulation Table Card */}
-        {activeChartKey && (
-          <div className="card" style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', minHeight: 0 }}>
-            {/* Table Header Bar */}
-            <div style={{ padding: '12px 18px', background: '#fffbeb', borderBottom: '1px solid #fde68a', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexShrink: 0, flexWrap: 'wrap', gap: 10 }}>
-              <div>
-                <div style={{ fontWeight: 800, fontSize: '1.05rem', color: '#b45309', display: 'flex', alignItems: 'center', gap: 8 }}>
-                  <span>⭐ Default Master Template for {activeMaster?.name}</span>
-                  <span style={{ fontSize: '0.72rem', background: '#fef3c7', color: '#92400e', border: '1px solid #fde68a', padding: '2px 8px', borderRadius: 12, fontWeight: 700 }}>
-                    {activeMaster?.product_variant || 'DEFAULT'}
-                  </span>
-                </div>
-                <div style={{ fontSize: '0.78rem', color: '#78350f', marginTop: 2 }}>
-                  Formulas and values saved here will automatically populate on all un-entered daily preparation charts for this master.
-                </div>
-              </div>
-
-              <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-                <button
-                  type="button"
-                  onClick={handleOpenSaveAs}
-                  className="btn btn-secondary btn-sm"
-                  style={{
-                    background: '#ffffff',
-                    border: '1px solid #f59e0b',
-                    color: '#b45309',
-                    fontWeight: 700,
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: 5,
-                    fontSize: '0.8rem',
-                    padding: '5px 12px',
-                    borderRadius: 6,
-                    cursor: 'pointer',
-                  }}
-                  title="Save current formulation table as a new separate Master Template without modifying existing templates"
-                >
-                  💾 Save Template
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => setIsColEditing(prev => !prev)}
-                  style={{
-                    background: isColEditing ? '#e0f2fe' : '#ffffff',
-                    border: isColEditing ? '1px solid #0284c7' : '1px solid #cbd5e1',
-                    color: isColEditing ? '#0369a1' : '#475569',
-                    borderRadius: 6,
-                    padding: '5px 12px',
-                    fontSize: '0.8rem',
-                    fontWeight: 700,
-                    cursor: 'pointer',
-                  }}
-                >
-                  {isColEditing ? '⚙️ Done Editing Columns' : '✏️ Edit Table Columns'}
-                </button>
-
-                {isColEditing && (
-                  <button
-                    type="button"
-                    onClick={() => handleOpenAddColumn()}
-                    style={{ background: '#f0f9ff', border: '1px dashed #0284c7', color: '#0284c7', borderRadius: 6, padding: '5px 12px', fontSize: '0.8rem', fontWeight: 700, cursor: 'pointer' }}
-                  >
-                    ➕ Add Column
-                  </button>
-                )}
-
-                <button
-                  type="button"
-                  onClick={() => {
-                    setRows(prev => [
-                      ...prev,
-                      { variant: '', values: {} }
-                    ]);
-                    setIsDirty(true);
-                  }}
-                  style={{ background: '#f0f9ff', border: '1px solid #bae6fd', color: '#0284c7', borderRadius: 6, padding: '5px 12px', fontSize: '0.8rem', fontWeight: 700, cursor: 'pointer' }}
-                >
-                  ➕ Add Ingredient Row
-                </button>
-              </div>
-            </div>
-
-            {/* Excel Formula Bar */}
+        {/* Master-Detail Split Layout: Left CHART MASTERS sidebar + Right Table Card */}
+        <div style={{ display: 'flex', gap: 14, flex: 1, minHeight: 0, minWidth: 0, width: '100%', maxWidth: '100%', overflow: 'hidden' }}>
+          {/* Left Sidebar: CHART MASTERS */}
+          <div
+            className="card"
+            style={{
+              width: 250,
+              minWidth: 230,
+              maxWidth: 270,
+              flexShrink: 0,
+              background: '#283342',
+              borderRadius: 10,
+              padding: '16px 12px',
+              display: 'flex',
+              flexDirection: 'column',
+              boxShadow: '0 2px 6px rgba(0, 0, 0, 0.2)',
+              border: '1px solid rgba(255, 255, 255, 0.1)',
+              overflowY: 'auto',
+            }}
+          >
             <div
               style={{
-                padding: '8px 16px',
-                background: '#fffbeb',
-                borderBottom: '1px solid #fde68a',
-                display: 'flex',
-                alignItems: 'center',
-                gap: 12,
-                flexShrink: 0,
+                fontSize: '0.78rem',
+                fontWeight: 700,
+                letterSpacing: '0.06em',
+                textTransform: 'uppercase',
+                color: '#8b9bb4',
+                marginBottom: 14,
+                paddingLeft: 4,
               }}
             >
-              {/* Active Cell Address Box */}
-              <div
+              CHART MASTERS
+            </div>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6, flex: 1, overflowY: 'auto' }}>
+              {masters.length === 0 ? (
+                <div style={{ padding: '20px 10px', fontSize: '0.8rem', color: '#8b9bb4', textAlign: 'center' }}>
+                  No chart masters created yet.
+                </div>
+              ) : (
+                masters.map(m => {
+                  const isSelected = m.key === activeChartKey;
+                  return (
+                    <div
+                      key={`chart_master_item_${m.key}`}
+                      onClick={() => handleSwitchChartMaster(m.key)}
+                      style={{
+                        padding: '10px 14px',
+                        borderRadius: 8,
+                        cursor: 'pointer',
+                        transition: 'all 0.15s ease',
+                        background: isSelected ? 'rgba(255, 255, 255, 0.08)' : 'transparent',
+                        border: isSelected ? '1px solid rgba(255, 255, 255, 0.12)' : '1px solid transparent',
+                        borderLeft: isSelected ? '3px solid #3b82f6' : '3px solid transparent',
+                        borderRight: isSelected ? '3px solid #f97316' : '3px solid transparent',
+                        boxShadow: isSelected ? '0 1px 3px rgba(0, 0, 0, 0.2)' : 'none',
+                      }}
+                      onMouseEnter={e => {
+                        if (!isSelected) {
+                          (e.currentTarget as HTMLElement).style.background = 'rgba(255, 255, 255, 0.05)';
+                        }
+                      }}
+                      onMouseLeave={e => {
+                        if (!isSelected) {
+                          (e.currentTarget as HTMLElement).style.background = 'transparent';
+                        }
+                      }}
+                    >
+                      <div
+                        style={{
+                          fontSize: '0.84rem',
+                          fontWeight: isSelected ? 700 : 500,
+                          color: isSelected ? '#ffffff' : '#cbd5e1',
+                          lineHeight: 1.3,
+                        }}
+                      >
+                        {m.name}
+                      </div>
+                      {(isSelected || m.product_variant) && (
+                        <div
+                          style={{
+                            fontSize: '0.74rem',
+                            color: '#8b9bb4',
+                            marginTop: 3,
+                            fontWeight: isSelected ? 500 : 400,
+                          }}
+                        >
+                          {isSelected ? '(Active)' : `(${m.product_variant})`}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })
+              )}
+
+              {/* + Add Chart Master placed right next to the last chart name */}
+              <button
+                type="button"
+                onClick={handleOpenNewMaster}
                 style={{
+                  width: '100%',
+                  padding: '9px 12px',
+                  borderRadius: 8,
+                  border: '1px solid rgba(255, 255, 255, 0.16)',
+                  background: 'transparent',
+                  color: '#cbd5e1',
+                  fontSize: '0.82rem',
+                  fontWeight: 600,
+                  cursor: 'pointer',
                   display: 'flex',
                   alignItems: 'center',
-                  gap: 6,
-                  background: '#ffffff',
-                  padding: '3px 10px',
-                  borderRadius: 6,
-                  border: '1px solid #fcd34d',
-                  fontWeight: 800,
-                  fontSize: '0.85rem',
-                  color: '#b45309',
-                  fontFamily: 'monospace',
-                  minWidth: 65,
                   justifyContent: 'center',
+                  gap: 6,
+                  marginTop: 6,
+                  flexShrink: 0,
+                  transition: 'all 0.15s ease',
                 }}
-              >
-                <span>{activeCellDetails.address}</span>
-              </div>
-
-              <div
-                style={{
-                  fontWeight: 900,
-                  fontSize: '1.05rem',
-                  color: '#b45309',
-                  fontStyle: 'italic',
-                  fontFamily: 'serif',
-                  userSelect: 'none',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 4,
+                onMouseEnter={e => {
+                  (e.currentTarget as HTMLElement).style.background = 'rgba(255, 255, 255, 0.06)';
+                  (e.currentTarget as HTMLElement).style.borderColor = 'rgba(255, 255, 255, 0.3)';
+                  (e.currentTarget as HTMLElement).style.color = '#ffffff';
                 }}
-                title="Excel Formula Indicator"
+                onMouseLeave={e => {
+                  (e.currentTarget as HTMLElement).style.background = 'transparent';
+                  (e.currentTarget as HTMLElement).style.borderColor = 'rgba(255, 255, 255, 0.16)';
+                  (e.currentTarget as HTMLElement).style.color = '#cbd5e1';
+                }}
+                title="Add a brand new Chart Master and default template"
               >
-                <span>ƒx</span>
-              </div>
+                + Add Chart Master
+              </button>
+            </div>
+          </div>
 
-              <div style={{ height: 20, width: 1, background: '#fcd34d' }} />
+          {/* Right formulation Table Card */}
+          {activeChartKey && (
+            <div
+              className="card"
+              style={{
+                flex: 1,
+                minWidth: 0,
+                width: 0,
+                maxWidth: '100%',
+                display: 'flex',
+                flexDirection: 'column',
+                overflow: 'hidden',
+                minHeight: 0,
+              }}
+            >
+              {/* Table Header Bar */}
+              <div style={{ padding: '12px 18px', background: '#fffbeb', borderBottom: '1px solid #fde68a', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexShrink: 0, flexWrap: 'wrap', gap: 10 }}>
+                <div>
+                  <div style={{ fontWeight: 800, fontSize: '1.05rem', color: '#b45309', display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <span>⭐ Default Master Template for {activeMaster?.name}</span>
+                    <span style={{ fontSize: '0.72rem', background: '#fef3c7', color: '#92400e', border: '1px solid #fde68a', padding: '2px 8px', borderRadius: 12, fontWeight: 700 }}>
+                      {activeMaster?.product_variant || 'DEFAULT'}
+                    </span>
+                  </div>
+                  <div style={{ fontSize: '0.78rem', color: '#78350f', marginTop: 2 }}>
+                    Formulas and values saved here will automatically populate on all un-entered daily preparation charts for this master.
+                  </div>
+                </div>
 
-              {/* Active Column Name & Formula Input */}
-              <div style={{ flex: 1, display: 'flex', alignItems: 'center', gap: 10, minWidth: 260 }}>
-                {activeCellDetails.colName && (
-                  <span
+                <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+                  <button
+                    type="button"
+                    onClick={() => setIsColEditing(prev => !prev)}
                     style={{
-                      fontSize: '0.75rem',
+                      background: isColEditing ? '#e0f2fe' : '#ffffff',
+                      border: isColEditing ? '1px solid #0284c7' : '1px solid #cbd5e1',
+                      color: isColEditing ? '#0369a1' : '#475569',
+                      borderRadius: 6,
+                      padding: '5px 12px',
+                      fontSize: '0.8rem',
                       fontWeight: 700,
-                      background: '#fef3c7',
-                      color: '#b45309',
-                      padding: '2px 8px',
-                      borderRadius: 4,
-                      whiteSpace: 'nowrap',
+                      cursor: 'pointer',
                     }}
                   >
-                    {activeCellDetails.colName}
-                  </span>
-                )}
-                <input
-                  type="text"
-                  className="form-input"
-                  disabled={!selectedCell}
-                  value={activeCellDetails.formulaText}
-                  onKeyDown={e => {
-                    if (e.key === 'Enter') {
-                      (e.target as HTMLInputElement).blur();
-                    }
-                  }}
-                  onChange={e => {
-                    if (!selectedCell) return;
-                    handleCellChange(selectedCell.rowIndex, selectedCell.colKey, e.target.value);
-                  }}
-                  placeholder={selectedCell ? "Enter default value or formula e.g. =+B1*A1" : "Click any cell in the table below to inspect or enter default formula"}
-                  style={{
-                    fontFamily: 'monospace',
-                    fontWeight: 700,
-                    fontSize: '0.85rem',
-                    background: '#ffffff',
-                    color: activeCellDetails.formulaText.startsWith('=') ? '#b45309' : 'var(--text-primary)',
-                    borderColor: selectedCell ? '#b45309' : 'var(--border)',
-                    height: 30,
-                  }}
-                />
+                    {isColEditing ? '⚙️ Done Editing Columns' : '✏️ Edit Table Columns'}
+                  </button>
+
+                  {isColEditing && (
+                    <button
+                      type="button"
+                      onClick={() => handleOpenAddColumn()}
+                      style={{ background: '#f0f9ff', border: '1px dashed #0284c7', color: '#0284c7', borderRadius: 6, padding: '5px 12px', fontSize: '0.8rem', fontWeight: 700, cursor: 'pointer' }}
+                    >
+                      ➕ Add Column
+                    </button>
+                  )}
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setRows(prev => [
+                        ...prev,
+                        { variant: '', values: {} }
+                      ]);
+                      setIsDirty(true);
+                    }}
+                    style={{ background: '#f0f9ff', border: '1px solid #bae6fd', color: '#0284c7', borderRadius: 6, padding: '5px 12px', fontSize: '0.8rem', fontWeight: 700, cursor: 'pointer' }}
+                  >
+                    ➕ Add Ingredient Row
+                  </button>
+                </div>
               </div>
 
-              {/* Computed Value Result Badge */}
-              {selectedCell && (
+              {/* Excel Formula Bar */}
+              <div
+                style={{
+                  padding: '8px 16px',
+                  background: '#fffbeb',
+                  borderBottom: '1px solid #fde68a',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 12,
+                  flexShrink: 0,
+                }}
+              >
+                {/* Active Cell Address Box */}
                 <div
                   style={{
                     display: 'flex',
                     alignItems: 'center',
                     gap: 6,
+                    background: '#ffffff',
                     padding: '3px 10px',
                     borderRadius: 6,
-                    background: '#ffffff',
-                    border: '1px solid #fde68a',
+                    border: '1px solid #fcd34d',
+                    fontWeight: 800,
+                    fontSize: '0.85rem',
                     color: '#b45309',
-                    fontSize: '0.78rem',
-                    fontWeight: 700,
+                    fontFamily: 'monospace',
+                    minWidth: 65,
+                    justifyContent: 'center',
                   }}
                 >
-                  <span style={{ color: '#78350f' }}>Value:</span>
-                  <span style={{ fontFamily: 'var(--font-numbers)', fontWeight: 800 }}>{activeCellDetails.value}</span>
+                  <span>{activeCellDetails.address}</span>
                 </div>
-              )}
-            </div>
 
-            {/* Scrollable Table Viewport */}
-            <div style={{ overflow: 'auto', flex: 1, minHeight: 0 }}>
-              <table className="inline-table" style={{ width: '100%', minWidth: 700 }}>
-                <thead>
-                  <tr style={{ background: '#f1f5f9' }}>
-                    <th style={{ width: 40, textAlign: 'center' }}>#</th>
-                    {columns.map((col, cIdx) => (
-                      <th
-                        key={`m_col_${col.key}`}
-                        style={{
-                          textAlign: col.type === 'text' ? 'left' : 'right',
-                          background: col.type === 'calculated' ? '#e0f2fe' : '#f1f5f9',
-                          color: col.type === 'calculated' ? '#0369a1' : 'var(--text-primary)',
-                          padding: '8px 10px',
-                          fontSize: '0.82rem',
-                          minWidth: 110,
-                        }}
-                      >
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 3, gap: 4 }}>
-                          <span style={{ fontSize: '0.65rem', color: '#0284c7', fontWeight: 800, fontFamily: 'monospace' }}>
-                            {getExcelColName(cIdx)}
-                          </span>
-                          {isColEditing && (
-                            <div style={{ display: 'flex', gap: 2, alignItems: 'center' }}>
-                              <button
-                                type="button"
-                                onClick={() => handleOpenAddColumn(cIdx)}
-                                style={{ background: '#ffffff', border: '1px solid #bae6fd', color: '#0369a1', borderRadius: 3, padding: '1px 4px', fontSize: '0.65rem', fontWeight: 700, cursor: 'pointer' }}
-                                title="Insert Column to Left"
-                              >
-                                +L
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => handleOpenAddColumn(cIdx + 1)}
-                                style={{ background: '#ffffff', border: '1px solid #bae6fd', color: '#0369a1', borderRadius: 3, padding: '1px 4px', fontSize: '0.65rem', fontWeight: 700, cursor: 'pointer' }}
-                                title="Insert Column to Right"
-                              >
-                                +R
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => handleOpenEditColumn(col)}
-                                style={{ background: '#ffffff', border: '1px solid #cbd5e1', color: '#475569', borderRadius: 3, padding: '1px 4px', fontSize: '0.65rem', fontWeight: 700, cursor: 'pointer' }}
-                                title="Edit Column Details / Rename"
-                              >
-                                ✏️
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => handleDeleteColumnInline(col.key, cIdx)}
-                                style={{ background: '#fef2f2', border: '1px solid #fca5a5', color: '#dc2626', borderRadius: 3, padding: '1px 4px', fontSize: '0.65rem', fontWeight: 700, cursor: 'pointer' }}
-                                title="Delete Column"
-                              >
-                                ✕
-                              </button>
-                            </div>
-                          )}
-                        </div>
-                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: col.type === 'text' ? 'flex-start' : 'space-between', gap: 6 }}>
-                          <span>{col.name} {col.unit ? `(${col.unit})` : ''}</span>
-                          {col.type !== 'text' && (
-                            <select
-                              value={col.decimals !== undefined ? String(col.decimals) : ''}
-                              onChange={(e) => {
-                                const val = e.target.value !== '' ? parseInt(e.target.value, 10) : undefined;
-                                const updated = columns.map(c => c.key === col.key ? { ...c, decimals: val } : c);
-                                setColumns(updated);
-                                if (activeChartKey) {
-                                  setChartColumnsMap(prev => ({
-                                    ...prev,
-                                    [activeChartKey]: updated,
-                                  }));
-                                }
-                                setIsDirty(true);
-                              }}
-                              style={{
-                                fontSize: '0.68rem',
-                                padding: '1px 4px',
-                                height: 20,
-                                fontWeight: 700,
-                                color: '#0369a1',
-                                background: '#ffffff',
-                                border: '1px solid #bae6fd',
-                                borderRadius: 4,
-                                cursor: 'pointer',
-                              }}
-                              title={`Set required decimal places for column ${col.name}`}
-                            >
-                              <option value="">Auto ({getStandardColumnDecimals(col.key)})</option>
-                              <option value="0">.0 (Whole)</option>
-                              <option value="1">.1 Dec</option>
-                              <option value="2">.2 Decs</option>
-                              <option value="3">.3 Decs</option>
-                              <option value="4">.4 Decs</option>
-                            </select>
-                          )}
-                        </div>
-                      </th>
-                    ))}
-                    {isColEditing && (
-                      <th style={{ width: 120, textAlign: 'center' }}>
-                        <button
-                          type="button"
-                          onClick={() => handleOpenAddColumn()}
-                          style={{ background: '#f0f9ff', border: '1px dashed #0284c7', color: '#0284c7', borderRadius: 4, padding: '2px 8px', fontSize: '0.72rem', fontWeight: 700, cursor: 'pointer' }}
-                          title="Add New Column at End"
+                <div
+                  style={{
+                    fontWeight: 900,
+                    fontSize: '1.05rem',
+                    color: '#b45309',
+                    fontStyle: 'italic',
+                    fontFamily: 'serif',
+                    userSelect: 'none',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 4,
+                  }}
+                  title="Excel Formula Indicator"
+                >
+                  <span>ƒx</span>
+                </div>
+
+                <div style={{ height: 20, width: 1, background: '#fcd34d' }} />
+
+                {/* Active Column Name & Formula Input */}
+                <div style={{ flex: 1, display: 'flex', alignItems: 'center', gap: 10, minWidth: 120 }}>
+                  {activeCellDetails.colName && (
+                    <span
+                      style={{
+                        fontSize: '0.75rem',
+                        fontWeight: 700,
+                        background: '#fef3c7',
+                        color: '#b45309',
+                        padding: '2px 8px',
+                        borderRadius: 4,
+                        whiteSpace: 'nowrap',
+                      }}
+                    >
+                      {activeCellDetails.colName}
+                    </span>
+                  )}
+                  <input
+                    type="text"
+                    className="form-input"
+                    disabled={!selectedCell}
+                    value={activeCellDetails.formulaText}
+                    onKeyDown={e => {
+                      if (e.key === 'Enter') {
+                        (e.target as HTMLInputElement).blur();
+                      }
+                    }}
+                    onChange={e => {
+                      if (!selectedCell) return;
+                      handleCellChange(selectedCell.rowIndex, selectedCell.colKey, e.target.value);
+                    }}
+                    placeholder={selectedCell ? "Enter default value or formula e.g. =+B1*A1" : "Click any cell in the table below to inspect or enter default formula"}
+                    style={{
+                      fontFamily: 'monospace',
+                      fontWeight: 700,
+                      fontSize: '0.85rem',
+                      background: '#ffffff',
+                      color: activeCellDetails.formulaText.startsWith('=') ? '#b45309' : 'var(--text-primary)',
+                      borderColor: selectedCell ? '#b45309' : 'var(--border)',
+                      height: 30,
+                    }}
+                  />
+                </div>
+
+                {/* Computed Value Result Badge */}
+                {selectedCell && (
+                  <div
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 6,
+                      padding: '3px 10px',
+                      borderRadius: 6,
+                      background: '#ffffff',
+                      border: '1px solid #fde68a',
+                      color: '#b45309',
+                      fontSize: '0.78rem',
+                      fontWeight: 700,
+                    }}
+                  >
+                    <span style={{ color: '#78350f' }}>Value:</span>
+                    <span style={{ fontFamily: 'var(--font-numbers)', fontWeight: 800 }}>{activeCellDetails.value}</span>
+                  </div>
+                )}
+              </div>
+
+              {/* Scrollable Table Viewport */}
+              <div style={{ overflow: 'auto', flex: 1, minHeight: 0, width: '100%', minWidth: 0 }}>
+                <table className="inline-table" style={{ width: '100%', minWidth: 700 }}>
+                  <thead>
+                    <tr style={{ background: '#f1f5f9' }}>
+                      <th style={{ width: 40, textAlign: 'center' }}>#</th>
+                      {columns.map((col, cIdx) => (
+                        <th
+                          key={`m_col_${col.key}`}
+                          style={{
+                            textAlign: col.type === 'text' ? 'left' : 'right',
+                            background: col.type === 'calculated' ? '#e0f2fe' : '#f1f5f9',
+                            color: col.type === 'calculated' ? '#0369a1' : 'var(--text-primary)',
+                            padding: '8px 10px',
+                            fontSize: '0.82rem',
+                            minWidth: 110,
+                          }}
                         >
-                          ➕ Column
-                        </button>
-                      </th>
-                    )}
-                    <th style={{ width: 110, textAlign: 'center' }}>Row Action</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {rows.map((row, rIdx) => (
-                    <tr key={`modal_row_${rIdx}`}>
-                      <td style={{ textAlign: 'center', fontWeight: 700, color: '#94a3b8', fontSize: '0.75rem' }}>
-                        {rIdx + 1}
-                      </td>
-                      {columns.map((col, cIdx) => {
-                        const isCellSelected = selectedCell?.rowIndex === rIdx && selectedCell?.colKey === col.key;
-                        const isCellFocused = focusedCell?.rowIndex === rIdx && focusedCell?.colKey === col.key;
-                        const computedVal = computeCell(col, row.values || {}, rIdx, rows);
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 3, gap: 4 }}>
+                            <span style={{ fontSize: '0.65rem', color: '#0284c7', fontWeight: 800, fontFamily: 'monospace' }}>
+                              {getExcelColName(cIdx)}
+                            </span>
+                            {isColEditing && (
+                              <div style={{ display: 'flex', gap: 2, alignItems: 'center' }}>
+                                <button
+                                  type="button"
+                                  onClick={() => handleOpenAddColumn(cIdx)}
+                                  style={{ background: '#ffffff', border: '1px solid #bae6fd', color: '#0369a1', borderRadius: 3, padding: '1px 4px', fontSize: '0.65rem', fontWeight: 700, cursor: 'pointer' }}
+                                  title="Insert Column to Left"
+                                >
+                                  +L
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => handleOpenAddColumn(cIdx + 1)}
+                                  style={{ background: '#ffffff', border: '1px solid #bae6fd', color: '#0369a1', borderRadius: 3, padding: '1px 4px', fontSize: '0.65rem', fontWeight: 700, cursor: 'pointer' }}
+                                  title="Insert Column to Right"
+                                >
+                                  +R
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => handleOpenEditColumn(col)}
+                                  style={{ background: '#ffffff', border: '1px solid #cbd5e1', color: '#475569', borderRadius: 3, padding: '1px 4px', fontSize: '0.65rem', fontWeight: 700, cursor: 'pointer' }}
+                                  title="Edit Column Details / Rename"
+                                >
+                                  ✏️
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => handleDeleteColumnInline(col.key, cIdx)}
+                                  style={{ background: '#fef2f2', border: '1px solid #fca5a5', color: '#dc2626', borderRadius: 3, padding: '1px 4px', fontSize: '0.65rem', fontWeight: 700, cursor: 'pointer' }}
+                                  title="Delete Column"
+                                >
+                                  ✕
+                                </button>
+                              </div>
+                            )}
+                          </div>
+                          <div style={{ display: 'flex', alignItems: 'center', justifyContent: col.type === 'text' ? 'flex-start' : 'space-between', gap: 6 }}>
+                            <span>{col.name} {col.unit ? `(${col.unit})` : ''}</span>
+                            {col.type !== 'text' && (
+                              <select
+                                value={col.decimals !== undefined ? String(col.decimals) : ''}
+                                onChange={(e) => {
+                                  const val = e.target.value !== '' ? parseInt(e.target.value, 10) : undefined;
+                                  const updated = columns.map(c => c.key === col.key ? { ...c, decimals: val } : c);
+                                  setColumns(updated);
+                                  if (activeChartKey) {
+                                    setChartColumnsMap(prev => ({
+                                      ...prev,
+                                      [activeChartKey]: updated,
+                                    }));
+                                  }
+                                  setIsDirty(true);
+                                }}
+                                style={{
+                                  fontSize: '0.68rem',
+                                  padding: '1px 4px',
+                                  height: 20,
+                                  fontWeight: 700,
+                                  color: '#0369a1',
+                                  background: '#ffffff',
+                                  border: '1px solid #bae6fd',
+                                  borderRadius: 4,
+                                  cursor: 'pointer',
+                                }}
+                                title={`Set required decimal places for column ${col.name}`}
+                              >
+                                <option value="">Auto ({getStandardColumnDecimals(col.key)})</option>
+                                <option value="0">.0 (Whole)</option>
+                                <option value="1">.1 Dec</option>
+                                <option value="2">.2 Decs</option>
+                                <option value="3">.3 Decs</option>
+                                <option value="4">.4 Decs</option>
+                              </select>
+                            )}
+                          </div>
+                        </th>
+                      ))}
+                      {isColEditing && (
+                        <th style={{ width: 120, textAlign: 'center' }}>
+                          <button
+                            type="button"
+                            onClick={() => handleOpenAddColumn()}
+                            style={{ background: '#f0f9ff', border: '1px dashed #0284c7', color: '#0284c7', borderRadius: 4, padding: '2px 8px', fontSize: '0.72rem', fontWeight: 700, cursor: 'pointer' }}
+                            title="Add New Column at End"
+                          >
+                            ➕ Column
+                          </button>
+                        </th>
+                      )}
+                      <th style={{ width: 110, textAlign: 'center' }}>Row Action</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {rows.map((row, rIdx) => (
+                      <tr key={`modal_row_${rIdx}`}>
+                        <td style={{ textAlign: 'center', fontWeight: 700, color: '#94a3b8', fontSize: '0.75rem' }}>
+                          {rIdx + 1}
+                        </td>
+                        {columns.map((col, cIdx) => {
+                          const isCellSelected = selectedCell?.rowIndex === rIdx && selectedCell?.colKey === col.key;
+                          const isCellFocused = focusedCell?.rowIndex === rIdx && focusedCell?.colKey === col.key;
+                          const computedVal = computeCell(col, row.values || {}, rIdx, rows);
 
-                        if (col.type === 'calculated') {
-                          const formattedCalc = typeof computedVal === 'number'
-                            ? (computedVal !== 0 ? formatNumberValue(computedVal, col.decimals, col.key) : '-')
-                            : (computedVal || '-');
+                          if (col.type === 'calculated') {
+                            const formattedCalc = typeof computedVal === 'number'
+                              ? (computedVal !== 0 ? formatNumberValue(computedVal, col.decimals, col.key) : '-')
+                              : (computedVal || '-');
+
+                            return (
+                              <td
+                                key={`m_cell_${rIdx}_${col.key}`}
+                                onClick={() => setSelectedCell({ rowIndex: rIdx, colKey: col.key })}
+                                style={{
+                                  textAlign: 'right',
+                                  fontWeight: 700,
+                                  color: '#0369a1',
+                                  background: isCellSelected ? '#bae6fd' : '#f0f9ff',
+                                  fontFamily: 'var(--font-numbers)',
+                                  outline: isCellSelected ? '2px solid #0284c7' : 'none',
+                                  outlineOffset: -2,
+                                  cursor: 'pointer',
+                                }}
+                                title={`Cell ${getExcelColName(cIdx)}${rIdx + 1} (${col.name}): Click to view formula`}
+                              >
+                                {formattedCalc}
+                              </td>
+                            );
+                          }
+
+                          const rawVal = row.values?.[col.key];
+                          const isFormula = typeof rawVal === 'string' && (rawVal.startsWith('=') || rawVal.startsWith('=+'));
+                          let displayVal = rawVal !== undefined ? rawVal : (col.type === 'text' ? row.variant : '');
+                          if (isFormula && !isCellFocused) {
+                            displayVal = typeof computedVal === 'number'
+                              ? (computedVal !== 0 ? formatNumberValue(computedVal, col.decimals, col.key) : '-')
+                              : String(computedVal || '-');
+                          } else if (!isCellFocused && !isFormula && rawVal !== undefined && rawVal !== '' && col.type === 'number') {
+                            const numVal = typeof rawVal === 'number' ? rawVal : parseFloat(String(rawVal));
+                            if (!isNaN(numVal)) {
+                              displayVal = formatNumberValue(numVal, col.decimals, col.key);
+                            }
+                          }
+
+                          const isDraggedInFillModal = !!(fillDrag && fillDrag.colKey === col.key &&
+                            rIdx >= Math.min(fillDrag.sourceRow, fillDrag.targetRow) &&
+                            rIdx <= Math.max(fillDrag.sourceRow, fillDrag.targetRow));
 
                           return (
-                            <td
-                              key={`m_cell_${rIdx}_${col.key}`}
-                              onClick={() => setSelectedCell({ rowIndex: rIdx, colKey: col.key })}
-                              style={{
-                                textAlign: 'right',
-                                fontWeight: 700,
-                                color: '#0369a1',
-                                background: isCellSelected ? '#bae6fd' : '#f0f9ff',
-                                fontFamily: 'var(--font-numbers)',
-                                outline: isCellSelected ? '2px solid #0284c7' : 'none',
-                                outlineOffset: -2,
-                                cursor: 'pointer',
-                              }}
-                              title={`Cell ${getExcelColName(cIdx)}${rIdx + 1} (${col.name}): Click to view formula`}
-                            >
-                              {formattedCalc}
+                            <td key={`m_cell_${rIdx}_${col.key}`} data-row-index={rIdx} style={{ position: 'relative' }}>
+                              {isFormula && (
+                                <div
+                                  style={{
+                                    position: 'absolute',
+                                    top: 2,
+                                    left: 2,
+                                    width: 0,
+                                    height: 0,
+                                    borderStyle: 'solid',
+                                    borderWidth: '7px 7px 0 0',
+                                    borderColor: '#b45309 transparent transparent transparent',
+                                    pointerEvents: 'none',
+                                    zIndex: 5,
+                                  }}
+                                  title={`Default Formula Present: ${rawVal}`}
+                                />
+                              )}
+                              <input
+                                type="text"
+                                className="form-input"
+                                value={displayVal}
+                                placeholder="-"
+                                title={isFormula ? `Default Formula: ${rawVal}` : undefined}
+                                onFocus={() => {
+                                  setSelectedCell({ rowIndex: rIdx, colKey: col.key });
+                                  setFocusedCell({ rowIndex: rIdx, colKey: col.key });
+                                }}
+                                onBlur={() => setFocusedCell(null)}
+                                onClick={() => setSelectedCell({ rowIndex: rIdx, colKey: col.key })}
+                                onKeyDown={e => {
+                                  if (e.key === 'Enter') {
+                                    (e.target as HTMLInputElement).blur();
+                                  }
+                                }}
+                                onChange={e => handleCellChange(rIdx, col.key, e.target.value)}
+                                style={{
+                                  padding: isFormula ? '3px 6px 3px 10px' : '3px 6px',
+                                  fontSize: '0.8rem',
+                                  height: 28,
+                                  textAlign: col.type === 'text' ? 'left' : 'right',
+                                  fontFamily: col.type === 'text' ? 'inherit' : 'var(--font-numbers)',
+                                  fontWeight: isFormula ? 800 : 700,
+                                  background: isDraggedInFillModal
+                                    ? '#fef3c7'
+                                    : isCellSelected
+                                      ? '#fef3c7'
+                                      : isFormula
+                                        ? '#fffbeb'
+                                        : '#ffffff',
+                                  color: isFormula ? '#b45309' : 'var(--text-primary)',
+                                  borderColor: isDraggedInFillModal
+                                    ? '#b45309'
+                                    : isCellSelected
+                                      ? '#b45309'
+                                      : isFormula
+                                        ? '#fcd34d'
+                                        : 'var(--border)',
+                                  boxShadow: isDraggedInFillModal
+                                    ? '0 0 0 2px rgba(180, 83, 9, 0.45)'
+                                    : isCellSelected
+                                      ? '0 0 0 2px rgba(180, 83, 9, 0.25)'
+                                      : 'none',
+                                }}
+                              />
+
+                              {/* Excel Fill Handle Square */}
+                              {isCellSelected && (
+                                <div
+                                  onMouseDown={e => handleFillDragStart(e, rIdx, col.key)}
+                                  style={{
+                                    position: 'absolute',
+                                    bottom: 2,
+                                    right: 2,
+                                    width: 8,
+                                    height: 8,
+                                    background: '#b45309',
+                                    border: '1px solid #ffffff',
+                                    cursor: 'ns-resize',
+                                    zIndex: 10,
+                                    borderRadius: 1,
+                                  }}
+                                  title="Excel Fill Handle: Drag up or down to auto-fill default formula/values to adjacent cells with relative row adjustment"
+                                />
+                              )}
                             </td>
                           );
-                        }
-
-                        const rawVal = row.values?.[col.key];
-                        const isFormula = typeof rawVal === 'string' && (rawVal.startsWith('=') || rawVal.startsWith('=+'));
-                        let displayVal = rawVal !== undefined ? rawVal : (col.type === 'text' ? row.variant : '');
-                        if (isFormula && !isCellFocused) {
-                          displayVal = typeof computedVal === 'number'
-                            ? (computedVal !== 0 ? formatNumberValue(computedVal, col.decimals, col.key) : '-')
-                            : String(computedVal || '-');
-                        } else if (!isCellFocused && !isFormula && rawVal !== undefined && rawVal !== '' && col.type === 'number') {
-                          const numVal = typeof rawVal === 'number' ? rawVal : parseFloat(String(rawVal));
-                          if (!isNaN(numVal)) {
-                            displayVal = formatNumberValue(numVal, col.decimals, col.key);
-                          }
-                        }
-
-                        const isDraggedInFillModal = !!(fillDrag && fillDrag.colKey === col.key &&
-                          rIdx >= Math.min(fillDrag.sourceRow, fillDrag.targetRow) &&
-                          rIdx <= Math.max(fillDrag.sourceRow, fillDrag.targetRow));
-
-                        return (
-                          <td key={`m_cell_${rIdx}_${col.key}`} data-row-index={rIdx} style={{ position: 'relative' }}>
-                            {isFormula && (
-                              <div
-                                style={{
-                                  position: 'absolute',
-                                  top: 2,
-                                  left: 2,
-                                  width: 0,
-                                  height: 0,
-                                  borderStyle: 'solid',
-                                  borderWidth: '7px 7px 0 0',
-                                  borderColor: '#b45309 transparent transparent transparent',
-                                  pointerEvents: 'none',
-                                  zIndex: 5,
-                                }}
-                                title={`Default Formula Present: ${rawVal}`}
-                              />
-                            )}
-                            <input
-                              type="text"
-                              className="form-input"
-                              value={displayVal}
-                              placeholder="-"
-                              title={isFormula ? `Default Formula: ${rawVal}` : undefined}
-                              onFocus={() => {
-                                setSelectedCell({ rowIndex: rIdx, colKey: col.key });
-                                setFocusedCell({ rowIndex: rIdx, colKey: col.key });
-                              }}
-                              onBlur={() => setFocusedCell(null)}
-                              onClick={() => setSelectedCell({ rowIndex: rIdx, colKey: col.key })}
-                              onKeyDown={e => {
-                                if (e.key === 'Enter') {
-                                  (e.target as HTMLInputElement).blur();
-                                }
-                              }}
-                              onChange={e => handleCellChange(rIdx, col.key, e.target.value)}
-                              style={{
-                                padding: isFormula ? '3px 6px 3px 10px' : '3px 6px',
-                                fontSize: '0.8rem',
-                                height: 28,
-                                textAlign: col.type === 'text' ? 'left' : 'right',
-                                fontFamily: col.type === 'text' ? 'inherit' : 'var(--font-numbers)',
-                                fontWeight: isFormula ? 800 : 700,
-                                background: isDraggedInFillModal
-                                  ? '#fef3c7'
-                                  : isCellSelected
-                                    ? '#fef3c7'
-                                    : isFormula
-                                      ? '#fffbeb'
-                                      : '#ffffff',
-                                color: isFormula ? '#b45309' : 'var(--text-primary)',
-                                borderColor: isDraggedInFillModal
-                                  ? '#b45309'
-                                  : isCellSelected
-                                    ? '#b45309'
-                                    : isFormula
-                                      ? '#fcd34d'
-                                      : 'var(--border)',
-                                boxShadow: isDraggedInFillModal
-                                  ? '0 0 0 2px rgba(180, 83, 9, 0.45)'
-                                  : isCellSelected
-                                    ? '0 0 0 2px rgba(180, 83, 9, 0.25)'
-                                    : 'none',
-                              }}
-                            />
-
-                            {/* Excel Fill Handle Square */}
-                            {isCellSelected && (
-                              <div
-                                onMouseDown={e => handleFillDragStart(e, rIdx, col.key)}
-                                style={{
-                                  position: 'absolute',
-                                  bottom: 2,
-                                  right: 2,
-                                  width: 8,
-                                  height: 8,
-                                  background: '#b45309',
-                                  border: '1px solid #ffffff',
-                                  cursor: 'ns-resize',
-                                  zIndex: 10,
-                                  borderRadius: 1,
-                                }}
-                                title="Excel Fill Handle: Drag up or down to auto-fill default formula/values to adjacent cells with relative row adjustment"
-                              />
-                            )}
+                        })}
+                        {isColEditing && (
+                          <td style={{ textAlign: 'center', color: '#94a3b8', fontSize: '0.72rem' }}>
+                            —
                           </td>
-                        );
-                      })}
-                      {isColEditing && (
-                        <td style={{ textAlign: 'center', color: '#94a3b8', fontSize: '0.72rem' }}>
-                          —
+                        )}
+                        <td style={{ textAlign: 'center' }}>
+                          <div style={{ display: 'flex', gap: 4, justifyContent: 'center' }}>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                if (rIdx === 0) return;
+                                setIsDirty(true);
+                                setRows(prev => {
+                                  const copy = [...prev];
+                                  const temp = copy[rIdx];
+                                  copy[rIdx] = copy[rIdx - 1];
+                                  copy[rIdx - 1] = temp;
+                                  return copy;
+                                });
+                              }}
+                              disabled={rIdx === 0}
+                              style={{ background: '#ffffff', border: '1px solid #cbd5e1', borderRadius: 4, padding: '1px 5px', fontSize: '0.7rem', cursor: 'pointer' }}
+                              title="Move Row Up"
+                            >
+                              ▲
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                if (rIdx === rows.length - 1) return;
+                                setIsDirty(true);
+                                setRows(prev => {
+                                  const copy = [...prev];
+                                  const temp = copy[rIdx];
+                                  copy[rIdx] = copy[rIdx + 1];
+                                  copy[rIdx + 1] = temp;
+                                  return copy;
+                                });
+                              }}
+                              disabled={rIdx === rows.length - 1}
+                              style={{ background: '#ffffff', border: '1px solid #cbd5e1', borderRadius: 4, padding: '1px 5px', fontSize: '0.7rem', cursor: 'pointer' }}
+                              title="Move Row Down"
+                            >
+                              ▼
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setIsDirty(true);
+                                setRows(prev => {
+                                  const copy = [...prev];
+                                  copy.splice(rIdx + 1, 0, { variant: '', values: {} });
+                                  return copy;
+                                });
+                              }}
+                              style={{ background: '#f0f9ff', border: '1px solid #bae6fd', color: '#0284c7', borderRadius: 4, padding: '1px 6px', fontSize: '0.7rem', cursor: 'pointer', fontWeight: 700 }}
+                              title="Insert Empty Row Below"
+                            >
+                              ➕ Insert
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setIsDirty(true);
+                                setRows(prev => prev.filter((_, i) => i !== rIdx));
+                              }}
+                              style={{ background: '#fef2f2', border: '1px solid #fca5a5', color: '#dc2626', borderRadius: 4, padding: '1px 5px', fontSize: '0.7rem', cursor: 'pointer' }}
+                              title="Delete Row"
+                            >
+                              ✕
+                            </button>
+                          </div>
                         </td>
-                      )}
-                      <td style={{ textAlign: 'center' }}>
-                        <div style={{ display: 'flex', gap: 4, justifyContent: 'center' }}>
-                          <button
-                            type="button"
-                            onClick={() => {
-                              if (rIdx === 0) return;
-                              setIsDirty(true);
-                              setRows(prev => {
-                                const copy = [...prev];
-                                const temp = copy[rIdx];
-                                copy[rIdx] = copy[rIdx - 1];
-                                copy[rIdx - 1] = temp;
-                                return copy;
-                              });
-                            }}
-                            disabled={rIdx === 0}
-                            style={{ background: '#ffffff', border: '1px solid #cbd5e1', borderRadius: 4, padding: '1px 5px', fontSize: '0.7rem', cursor: 'pointer' }}
-                            title="Move Row Up"
-                          >
-                            ▲
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => {
-                              if (rIdx === rows.length - 1) return;
-                              setIsDirty(true);
-                              setRows(prev => {
-                                const copy = [...prev];
-                                const temp = copy[rIdx];
-                                copy[rIdx] = copy[rIdx + 1];
-                                copy[rIdx + 1] = temp;
-                                return copy;
-                              });
-                            }}
-                            disabled={rIdx === rows.length - 1}
-                            style={{ background: '#ffffff', border: '1px solid #cbd5e1', borderRadius: 4, padding: '1px 5px', fontSize: '0.7rem', cursor: 'pointer' }}
-                            title="Move Row Down"
-                          >
-                            ▼
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setIsDirty(true);
-                              setRows(prev => {
-                                const copy = [...prev];
-                                copy.splice(rIdx + 1, 0, { variant: '', values: {} });
-                                return copy;
-                              });
-                            }}
-                            style={{ background: '#f0f9ff', border: '1px solid #bae6fd', color: '#0284c7', borderRadius: 4, padding: '1px 6px', fontSize: '0.7rem', cursor: 'pointer', fontWeight: 700 }}
-                            title="Insert Empty Row Below"
-                          >
-                            ➕ Insert
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setIsDirty(true);
-                              setRows(prev => prev.filter((_, i) => i !== rIdx));
-                            }}
-                            style={{ background: '#fef2f2', border: '1px solid #fca5a5', color: '#dc2626', borderRadius: 4, padding: '1px 5px', fontSize: '0.7rem', cursor: 'pointer' }}
-                            title="Delete Row"
-                          >
-                            ✕
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
 
-            {/* Pinned Card Footer */}
-            <div style={{ padding: '14px 20px', background: '#f8fafc', borderTop: '1px solid var(--border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexShrink: 0 }}>
-              <div style={{ fontSize: '0.78rem', color: '#64748b' }}>
+              {/* Pinned Card Footer */}
+              <div style={{ padding: '14px 20px', background: '#f8fafc', borderTop: '1px solid var(--border)', display: 'flex', justifyContent: 'flex-end', alignItems: 'center', flexShrink: 0 }}>
+                {/* <div style={{ fontSize: '0.78rem', color: '#64748b' }}>
                 ⭐ Changes saved here will be stored in database as the Master Default template.
-              </div>
-              <div style={{ display: 'flex', gap: 10 }}>
-                <Link href="/dashboard/stock/preparation-charts" className="btn btn-secondary btn-sm">
-                  Cancel
-                </Link>
-                <button
-                  type="button"
-                  className="btn btn-secondary btn-sm"
-                  onClick={handleOpenSaveAs}
-                  disabled={saving || !activeChartKey}
-                  style={{
-                    background: '#ffffff',
-                    border: '1px solid #d97706',
-                    color: '#b45309',
-                    fontWeight: 700,
-                  }}
-                  title="Save this table as a new separate Master Template without modifying existing templates"
-                >
-                  💾 Save Template
-                </button>
-                <button
-                  type="button"
-                  className="btn btn-primary btn-sm"
-                  onClick={handleSaveDefaultTemplate}
-                  disabled={saving || !activeChartKey}
-                  style={{ background: '#b45309', borderColor: '#b45309' }}
-                >
-                  {saving ? 'Saving Default...' : '⭐ Save Master Default Table'}
-                </button>
+              </div> */}
+                <div style={{ display: 'flex', gap: 10 }}>
+                  <Link href="/dashboard/stock/preparation-charts" className="btn btn-secondary btn-sm">
+                    Cancel
+                  </Link>
+                  <button
+                    type="button"
+                    className="btn btn-primary btn-sm"
+                    onClick={handleSaveDefaultTemplate}
+                    disabled={saving || !activeChartKey}
+                    style={{ background: '#b45309', borderColor: '#b45309' }}
+                  >
+                    {saving ? 'Saving Default...' : '⭐ Save Master Default Table'}
+                  </button>
+                </div>
               </div>
             </div>
-          </div>
-        )}
+          )}
+        </div>
       </div>
 
       {/* Modal for Creating / Editing Column Inline */}
@@ -1785,33 +1879,23 @@ export default function MasterDefaultFormulationsPage() {
                 />
               </div>
 
-              <div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <label className="form-label" style={{ fontWeight: 600 }}>
-                    Field Key <span style={{ color: '#dc2626' }}>*</span>
-                  </label>
-                  {colModalEditingKey && (
-                    <span style={{ fontSize: '0.72rem', color: '#0369a1', fontWeight: 600 }}>
-                      Editable (updates key across column settings & row values)
-                    </span>
-                  )}
-                </div>
-                <input
-                  type="text"
-                  className="form-input"
-                  placeholder="e.g. qty_lit, sp_gr, fat_pct, kg_snf"
-                  value={formColKey}
-                  onChange={e => {
-                    setFormColKey(e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, '_'));
-                    setColKeyManuallyEdited(true);
-                  }}
-                  required
-                  style={{ background: '#ffffff', fontFamily: 'monospace', fontWeight: 600 }}
-                />
-                <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: 3 }}>
-                  Unique identifier used in formulas and database storage (lowercase letters, numbers, underscores)
-                </div>
-              </div>
+              <KeyField
+                label="Field Key"
+                value={formColKey}
+                onChange={val => {
+                  setFormColKey(val);
+                  setColKeyManuallyEdited(true);
+                }}
+                originalKey={colModalEditingKey}
+                scope="prep_chart_column"
+                context={{ chart_key: activeChartKey }}
+                existingKeys={columns.map(c => c.key)}
+                placeholder="e.g. qty_lit, sp_gr, fat_pct, kg_snf"
+                onRenameComplete={(oldKey, newKey) => {
+                  setColumns(prev => prev.map(c => c.key === oldKey ? { ...c, key: newKey } : c));
+                  setColModalEditingKey(newKey);
+                }}
+              />
 
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12 }}>
                 <div>
@@ -1978,7 +2062,7 @@ export default function MasterDefaultFormulationsPage() {
                   onChange={e => setSaveAsKey(e.target.value)}
                   style={{ fontFamily: 'monospace', fontSize: '0.82rem' }}
                 />
-              </div>             
+              </div>
 
               <div>
                 <label className="form-label" style={{ fontWeight: 600 }}>Description (Optional)</label>
@@ -2117,7 +2201,7 @@ export default function MasterDefaultFormulationsPage() {
                     </option>
                   ))}
                 </select>
-              </div>                
+              </div>
               <div>
                 <label className="form-label" style={{ fontWeight: 600 }}>Description (Optional)</label>
                 <input
