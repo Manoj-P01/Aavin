@@ -8,6 +8,8 @@ import Step, { DAILY_ENTRY_STEP_ITEMS } from '@/components/ui/Step';
 import { calcKgFatSnf, calcQtyKg, generateDynamicBalanceRows } from '@/lib/calculations';
 import type { TSSection, Shift } from '@/lib/types';
 import { useConfirm } from '@/context/ConfirmContext';
+import { useShiftConfig } from '@/hooks/useSettings';
+import { StgToTsMappingRule } from '@/app/api/ts/stg-mappings/route';
 
 interface RowState {
   section: TSSection;
@@ -22,53 +24,144 @@ interface RowState {
   remarks: string;
 }
 
-const DEFAULT_SP_GR: Record<string, number> = {
-  WM: 1.0272, SSM: 1.0311, CREAM: 0.9893, 'DLT MILK': 1.0298,
-  'FC.MILK': 1.0298, 'STD.Milk': 1.029, SMP: 1.3834,
-};
-
-const DEFAULT_FAT: Record<string, number> = {
-  WM: 3.93, SSM: 0.05, CREAM: 39.21, 'DLT MILK': 3.5,
-  'FC.MILK': 6, 'STD.Milk': 4.5, SMP: 0.5,
-};
-
-const DEFAULT_SNF: Record<string, number> = {
-  WM: 7.95, SSM: 8.14, CREAM: 5.53, 'DLT MILK': 8.5,
-  'FC.MILK': 9, 'STD.Milk': 8.5, SMP: 96.3,
-};
-
-const INITIAL_OB: string[] = [];
-const INITIAL_RECEIPTS: string[] = [];
-const INITIAL_DESPATCH: string[] = [];
-const INITIAL_LOCAL: string[] = [];
-const INITIAL_OTHER: string[] = [];
-
-function makeDefaultRows(): RowState[] {
-  const rows: RowState[] = [];
-  const addSection = (section: TSSection, products: string[]) => {
-    const isOBorCB = section === 'OB' || section === 'CB';
-    products.forEach(product => {
-      rows.push({
-        section, product,
-        qty_lts: '',
-        qty_kg: '',
-        fat_pct: isOBorCB ? String(DEFAULT_FAT[product] || '') : '',
-        snf_pct: isOBorCB ? String(DEFAULT_SNF[product] || '') : '',
-        sp_gr: isOBorCB ? String(DEFAULT_SP_GR[product] || '') : '',
-        kg_fat: '',
-        kg_snf: '',
-        remarks: '',
+function buildDefaultRowsFromMaster(masterDef: any = null): RowState[] {
+  if (!masterDef) return [];
+  const result: RowState[] = [];
+  const add = (section: TSSection, items: any[]) => {
+    (items || []).forEach((item: any) => {
+      const prod = (typeof item === 'string' ? item : item.variant || item.product || '').trim();
+      if (!prod) return;
+      result.push({
+        section,
+        product: prod,
+        qty_lts: item.qty_lts !== undefined && item.qty_lts !== null ? String(item.qty_lts) : '',
+        qty_kg: item.qty_kg !== undefined && item.qty_kg !== null ? String(item.qty_kg) : '',
+        fat_pct: item.fat_pct !== undefined && item.fat_pct !== null ? String(item.fat_pct) : '',
+        snf_pct: item.snf_pct !== undefined && item.snf_pct !== null ? String(item.snf_pct) : '',
+        sp_gr: item.sp_gr !== undefined && item.sp_gr !== null ? String(item.sp_gr) : '',
+        kg_fat: item.kg_fat !== undefined && item.kg_fat !== null ? String(item.kg_fat) : '',
+        kg_snf: item.kg_snf !== undefined && item.kg_snf !== null ? String(item.kg_snf) : '',
+        remarks: item.remarks || '',
       });
     });
   };
 
-  addSection('OB', INITIAL_OB);
-  addSection('RECEIPT', INITIAL_RECEIPTS);
-  addSection('DISPOSAL_DESPATCH', INITIAL_DESPATCH);
-  addSection('LOCAL_SALE', INITIAL_LOCAL);
-  addSection('OTHER_DISPOSAL', INITIAL_OTHER);
-  addSection('CB', INITIAL_OB);
-  return rows;
+  add('OB', masterDef?.ob_rows || masterDef?.ob_particulars || []);
+  add('RECEIPT', masterDef?.receipt_rows || masterDef?.receipt_particulars || []);
+  add('DISPOSAL_DESPATCH', masterDef?.despatch_rows || masterDef?.despatch_particulars || []);
+  add('LOCAL_SALE', masterDef?.local_sale_rows || masterDef?.local_sale_particulars || []);
+  add('OTHER_DISPOSAL', masterDef?.other_disposal_rows || masterDef?.other_disposal_particulars || []);
+  add('CB', masterDef?.cb_rows || masterDef?.cb_particulars || []);
+
+  return result;
+}
+
+function applyStgRulesToRows(
+  currentRows: RowState[],
+  stgRows: any[],
+  rules: StgToTsMappingRule[]
+): { updatedRows: RowState[]; mappedCount: number } {
+  let mappedCount = 0;
+  const nextRows = currentRows.map(row => ({ ...row }));
+  const normalizeKey = (s: string) => (s || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+
+  nextRows.forEach(row => {
+    const targetSec = row.section;
+    const targetProd = normalizeKey(row.product);
+
+    // Find rules targeting this section and particular
+    const matchingRules = (rules || []).filter(r => {
+      if (!r.enabled && r.enabled !== undefined) return false;
+      const rSec = r.target_section;
+      const rProd = normalizeKey(r.target_particular);
+      return rSec === targetSec && (rProd === targetProd || rProd === '*');
+    });
+
+    matchingRules.forEach(rule => {
+      const srcStmt = normalizeKey(rule.source_statement_key);
+      const srcSec = (rule.source_section || '').toUpperCase();
+      const srcRowName = normalizeKey(rule.source_row_name);
+
+      // Find matching STG row
+      const matchedStg = (stgRows || []).find((sRow: any) => {
+        const sBlock = normalizeKey(sRow.product_block || sRow.statement_key || '');
+        if (srcStmt !== '*' && srcStmt !== sBlock) return false;
+
+        const sSide = (sRow.side || '').toUpperCase();
+        const sItem = (sRow.item_name || '').toUpperCase();
+
+        if (srcSec === 'OB' && (sSide === 'OB' || sItem === 'OB' || sItem.includes('OPENING'))) return true;
+        if (srcSec === 'CB' && (sSide === 'CB' || sItem === 'CB' || sItem.includes('CLOSING'))) return true;
+        if (srcSec === 'RECEIPT' && sSide !== 'RECEIPT') return false;
+        if (srcSec === 'DISPOSAL' && sSide !== 'DISPOSAL') return false;
+
+        const sItemNorm = normalizeKey(sRow.item_name || '');
+        return srcRowName === '*' || srcRowName === sItemNorm;
+      });
+
+      if (matchedStg) {
+        const field = rule.target_field || 'all';
+        if (field === 'all' || field === 'qty_lts') {
+          if (matchedStg.qty_lts !== undefined && matchedStg.qty_lts !== null) {
+            row.qty_lts = String(matchedStg.qty_lts);
+            mappedCount++;
+          }
+        }
+        if (field === 'all' || field === 'qty_kg') {
+          if (matchedStg.qty_kg !== undefined && matchedStg.qty_kg !== null) {
+            row.qty_kg = String(matchedStg.qty_kg);
+          }
+        }
+        if (field === 'all' || field === 'fat_pct') {
+          if (matchedStg.fat_pct !== undefined && matchedStg.fat_pct !== null) {
+            row.fat_pct = String(matchedStg.fat_pct);
+          }
+        }
+        if (field === 'all' || field === 'snf_pct') {
+          if (matchedStg.snf_pct !== undefined && matchedStg.snf_pct !== null) {
+            row.snf_pct = String(matchedStg.snf_pct);
+          }
+        }
+        if (field === 'all' || field === 'sp_gr') {
+          if (matchedStg.sp_gr !== undefined && matchedStg.sp_gr !== null) {
+            row.sp_gr = String(matchedStg.sp_gr);
+          }
+        }
+        if (field === 'all' || field === 'kg_fat') {
+          if (matchedStg.kg_fat !== undefined && matchedStg.kg_fat !== null) {
+            row.kg_fat = String(matchedStg.kg_fat);
+          }
+        }
+        if (field === 'all' || field === 'kg_snf') {
+          if (matchedStg.kg_snf !== undefined && matchedStg.kg_snf !== null) {
+            row.kg_snf = String(matchedStg.kg_snf);
+          }
+        }
+
+        // Recalculate calculated values using standard Excel formulas if sp_gr or qty_kg were not directly supplied
+        const fat = parseFloat(row.fat_pct) || 0;
+        const snf = parseFloat(row.snf_pct) || 0;
+        if ((!row.sp_gr || parseFloat(row.sp_gr) === 0) && (fat > 0 || snf > 0)) {
+          row.sp_gr = (1 + (snf - (0.2 * fat) - 0.36) / 250).toFixed(4);
+        }
+
+        const lts = parseFloat(row.qty_lts) || 0;
+        const spg = parseFloat(row.sp_gr) || 0;
+        if ((!row.qty_kg || parseFloat(row.qty_kg) === 0) && lts > 0 && spg > 0) {
+          row.qty_kg = String(calcQtyKg(lts, spg));
+        }
+
+        const kg = parseFloat(row.qty_kg) || 0;
+        if (kg > 0 && (fat > 0 || snf > 0)) {
+          const calc = calcKgFatSnf(kg, fat, snf);
+          if (!row.kg_fat || parseFloat(row.kg_fat) === 0) row.kg_fat = calc.kg_fat > 0 ? String(calc.kg_fat) : '';
+          if (!row.kg_snf || parseFloat(row.kg_snf) === 0) row.kg_snf = calc.kg_snf > 0 ? String(calc.kg_snf) : '';
+        }
+      }
+    });
+  });
+
+  return { updatedRows: nextRows, mappedCount };
 }
 
 const SECTION_META: { key: TSSection; label: string; color: string }[] = [
@@ -103,6 +196,7 @@ export default function TSEntryForm({
 }: TSEntryFormProps = {}) {
   const router = useRouter();
   const { confirm } = useConfirm();
+  const { shiftConfig } = useShiftConfig();
   const searchParams = useSearchParams();
   const paramDate = searchParams.get('date');
   const paramShift = searchParams.get('shift');
@@ -130,7 +224,11 @@ export default function TSEntryForm({
   }, [initialShift]);
 
   const [notes, setNotes] = useState('');
-  const [rows, setRows] = useState<RowState[]>(makeDefaultRows);
+  const [rows, setRows] = useState<RowState[]>(() => buildDefaultRowsFromMaster());
+  const [stgRowsCache, setStgRowsCache] = useState<any[]>([]);
+  const [stgRulesCache, setStgRulesCache] = useState<StgToTsMappingRule[]>([]);
+  const [syncingStg, setSyncingStg] = useState(false);
+  const [syncStatusMsg, setSyncStatusMsg] = useState<string | null>(null);
   const [savingSection, setSavingSection] = useState<Record<string, boolean>>({});
   const [saveStatus, setSaveStatus] = useState<Record<string, string>>({});
   const [mainSaving, setMainSaving] = useState(false);
@@ -144,61 +242,39 @@ export default function TSEntryForm({
 
     async function loadData() {
       try {
-        // Fetch global reportMode setting
-        let parsedMode: 'full_day' | 'shift' = 'full_day';
-        try {
-          const configRes = await fetch('/api/entries?report_type=STOCK&date=1970-01-01');
-          if (configRes.ok) {
-            const configJson = await configRes.json();
-            const entries: any[] = configJson.data || [];
-            const configEntry = entries.find((e: any) => {
-              if (!e.notes || e.notes.includes('__METADATA__:')) return false;
-              try {
-                const parsed = JSON.parse(e.notes);
-                return parsed && typeof parsed === 'object' && !Array.isArray(parsed);
-              } catch { return false; }
-            });
-            if (configEntry && configEntry.notes) {
-              try {
-                const parsed = JSON.parse(configEntry.notes);
-                if (parsed && typeof parsed === 'object') {
-                  if (parsed.mode) parsedMode = parsed.mode;
-                }
-              } catch (e) {}
-            }
-          }
-        } catch (err) {
-          console.error('Failed to load shift mode config in TSEntryForm:', err);
-        }
+        // Global reportMode setting from app_settings
+        const parsedMode: 'full_day' | 'shift' = shiftConfig?.mode || 'full_day';
         setReportMode(parsedMode);
         if (parsedMode === 'full_day') {
           setShift(null);
         }
 
-        // Fetch global statements config
-        let gStmts: any[] = [];
+        // Fetch TS Statement Master formulations
+        let tsMasterDef: any = null;
         try {
-          const configRes = await fetch('/api/entries?report_type=TS');
-          if (configRes.ok) {
-            const configJson = await configRes.json();
-            const entries: any[] = configJson.data || [];
-            const configEntry = entries.find((e: any) => {
-              if (!e.notes || e.notes.includes('__METADATA__:')) return false;
-              try {
-                const parsed = JSON.parse(e.notes);
-                return Array.isArray(parsed) && (parsed.length === 0 || parsed[0]?.key !== undefined);
-              } catch { return false; }
-            });
-            if (configEntry && configEntry.notes) {
-              try {
-                gStmts = JSON.parse(configEntry.notes) || [];
-              } catch (e) {}
-            }
+          const mRes = await fetch('/api/ts/statement-masters');
+          if (mRes.ok) {
+            const mJson = await mRes.json();
+            if (mJson.master) tsMasterDef = mJson.master;
           }
         } catch (err) {
-          console.error('Failed to load global config', err);
+          console.warn('Failed loading TS statement masters:', err);
         }
 
+        // Fetch STG ➔ TS Mapping Rules
+        let mappingRules: StgToTsMappingRule[] = [];
+        try {
+          const rRes = await fetch('/api/ts/stg-mappings');
+          if (rRes.ok) {
+            const rJson = await rRes.json();
+            if (Array.isArray(rJson.rules)) mappingRules = rJson.rules;
+          }
+        } catch (err) {
+          console.warn('Failed loading STG mappings:', err);
+        }
+        if (active) setStgRulesCache(mappingRules);
+
+        // Fetch TS Entry & STG Rows for this date
         const res = await fetch(`/api/ts?date=${entryDate}${shift ? `&shift=${shift}` : ''}`);
         let activeRows: RowState[] = [];
         let hasSavedRows = false;
@@ -210,6 +286,8 @@ export default function TSEntryForm({
           if (active && data.data) {
             entryNotes = data.data.notes || '';
             stgRows = data.data.stg_rows || [];
+            if (active) setStgRowsCache(stgRows);
+
             if (data.data.ts_rows && data.data.ts_rows.length > 0) {
               hasSavedRows = true;
               activeRows = data.data.ts_rows.map((row: any) => ({
@@ -229,46 +307,21 @@ export default function TSEntryForm({
         }
 
         if (!hasSavedRows) {
-          activeRows = makeDefaultRows();
+          // Initialize rows from TS Master Formulations
+          const defaultRows = buildDefaultRowsFromMaster(tsMasterDef);
+          // Apply STG mapping rules
+          const { updatedRows } = applyStgRulesToRows(defaultRows, stgRows, mappingRules);
+          activeRows = updatedRows;
         }
 
-        const { obRows, cbRows } = generateDynamicBalanceRows(stgRows, entryNotes, gStmts);
-        const formObRows = obRows.map(r => ({
-          section: 'OB' as TSSection,
-          product: r.product,
-          qty_lts: r.qty_lts ? String(r.qty_lts) : '',
-          qty_kg: r.qty_kg ? String(r.qty_kg) : '',
-          fat_pct: r.fat_pct ? String(r.fat_pct) : '',
-          snf_pct: r.snf_pct ? String(r.snf_pct) : '',
-          sp_gr: r.sp_gr ? String(r.sp_gr) : '',
-          kg_fat: r.kg_fat ? String(r.kg_fat) : '',
-          kg_snf: r.kg_snf ? String(r.kg_snf) : '',
-          remarks: '',
-        }));
-        const formCbRows = cbRows.map(r => ({
-          section: 'CB' as TSSection,
-          product: r.product,
-          qty_lts: r.qty_lts ? String(r.qty_lts) : '',
-          qty_kg: r.qty_kg ? String(r.qty_kg) : '',
-          fat_pct: r.fat_pct ? String(r.fat_pct) : '',
-          snf_pct: r.snf_pct ? String(r.snf_pct) : '',
-          sp_gr: r.sp_gr ? String(r.sp_gr) : '',
-          kg_fat: r.kg_fat ? String(r.kg_fat) : '',
-          kg_snf: r.kg_snf ? String(r.kg_snf) : '',
-          remarks: '',
-        }));
-
-        const otherRows = activeRows.filter(r => r.section !== 'OB' && r.section !== 'CB');
-        const mergedRows = [...formObRows, ...otherRows, ...formCbRows];
-
         if (active) {
-          setRows(mergedRows);
+          setRows(activeRows);
           setNotes(entryNotes);
         }
       } catch (err) {
         console.error('Error loading TS data:', err);
         if (active) {
-          setRows(makeDefaultRows());
+          setRows(buildDefaultRowsFromMaster());
           setNotes('');
         }
       }
@@ -278,31 +331,86 @@ export default function TSEntryForm({
     return () => { active = false; };
   }, [entryDate, shift]);
 
+  const handleManualSyncFromStg = async () => {
+    setSyncingStg(true);
+    setSyncStatusMsg(null);
+    try {
+      // 1. Fetch fresh STG rows for current date and shift
+      const res = await fetch(`/api/ts?date=${entryDate}${shift ? `&shift=${shift}` : ''}`);
+      let freshStgRows: any[] = [];
+      if (res.ok) {
+        const json = await res.json();
+        freshStgRows = json.data?.stg_rows || [];
+      }
+
+      // 2. Fetch fresh STG mapping rules
+      let freshRules = stgRulesCache;
+      try {
+        const rRes = await fetch('/api/ts/stg-mappings');
+        if (rRes.ok) {
+          const rJson = await rRes.json();
+          if (Array.isArray(rJson.rules)) freshRules = rJson.rules;
+        }
+      } catch {}
+
+      if (freshStgRows.length === 0) {
+        setSyncStatusMsg('⚠️ No STG statement entries found for this date & shift.');
+        setTimeout(() => setSyncStatusMsg(null), 4000);
+        setSyncingStg(false);
+        return;
+      }
+
+      const { updatedRows, mappedCount } = applyStgRulesToRows(rows, freshStgRows, freshRules);
+      setRows(updatedRows);
+      setStgRowsCache(freshStgRows);
+      setStgRulesCache(freshRules);
+
+      setSyncStatusMsg(`✅ Successfully synced ${mappedCount} values from Solid Balance STG statement!`);
+      setTimeout(() => setSyncStatusMsg(null), 4000);
+    } catch (err) {
+      console.error('Manual sync failed:', err);
+      setSyncStatusMsg('❌ Failed to sync from STG statement.');
+      setTimeout(() => setSyncStatusMsg(null), 4000);
+    }
+    setSyncingStg(false);
+  };
+
   const updateRow = (idx: number, field: keyof RowState, value: string) => {
     const finalVal = field === 'product' ? value.toUpperCase() : value;
     setRows(prev => {
       const next = [...prev];
       next[idx] = { ...next[idx], [field]: finalVal };
 
-      // 1. Auto-calc qty_kg from qty_lts × sp_gr if they haven't explicitly set it or are updating inputs
-      if (field === 'qty_lts' || field === 'sp_gr') {
+      // 1. Auto-calc sp_gr if fat_pct and snf_pct are entered
+      if (field === 'fat_pct' || field === 'snf_pct') {
+        const fat = parseFloat(field === 'fat_pct' ? value : next[idx].fat_pct) || 0;
+        const snf = parseFloat(field === 'snf_pct' ? value : next[idx].snf_pct) || 0;
+        if (fat > 0 || snf > 0) {
+          // Standard Excel formula: 1 + (snf - (0.2 * fat) - 0.36) / 250
+          const spg = 1 + (snf - (0.2 * fat) - 0.36) / 250;
+          if (spg > 0) {
+            next[idx].sp_gr = spg.toFixed(4);
+          }
+        }
+      }
+
+      // 2. Auto-calc qty_kg from qty_lts × sp_gr
+      if (field === 'qty_lts' || field === 'sp_gr' || field === 'fat_pct' || field === 'snf_pct') {
         const lts = parseFloat(field === 'qty_lts' ? value : next[idx].qty_lts) || 0;
         const spg = parseFloat(field === 'sp_gr' ? value : next[idx].sp_gr) || 0;
-        if (lts && spg) {
+        if (lts > 0 && spg > 0) {
           next[idx].qty_kg = String(calcQtyKg(lts, spg));
         }
       }
 
-      // 2. Auto-calc kg_fat / kg_snf from qty_kg, fat_pct, snf_pct
+      // 3. Auto-calc kg_fat / kg_snf from qty_kg, fat_pct, snf_pct
       const kg = parseFloat(next[idx].qty_kg) || 0;
       const fat = parseFloat(next[idx].fat_pct) || 0;
       const snf = parseFloat(next[idx].snf_pct) || 0;
       const calc = calcKgFatSnf(kg, fat, snf);
 
-      if (field === 'qty_kg' || field === 'qty_lts' || field === 'sp_gr' || field === 'fat_pct') {
+      if (field === 'qty_kg' || field === 'qty_lts' || field === 'sp_gr' || field === 'fat_pct' || field === 'snf_pct') {
         next[idx].kg_fat = calc.kg_fat > 0 ? String(calc.kg_fat) : '';
-      }
-      if (field === 'qty_kg' || field === 'qty_lts' || field === 'sp_gr' || field === 'snf_pct') {
         next[idx].kg_snf = calc.kg_snf > 0 ? String(calc.kg_snf) : '';
       }
 
@@ -498,7 +606,12 @@ export default function TSEntryForm({
         title="Total Solids (TS) Statement"
         subtitle={`Auto-calculated Fat & SNF Balances (${reportMode === 'full_day' ? 'Full Day' : (shift === 'D' ? 'Day Shift' : 'Night Shift')})`}
         actions={
-          <Link href="/dashboard/ts" className="btn btn-secondary btn-sm">← Back to TS List</Link>
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+            <Link href="/dashboard/ts/defaults" className="btn btn-secondary btn-sm">⭐ TS Defaults</Link>
+            <Link href="/dashboard/ts/columns" className="btn btn-secondary btn-sm">⚙️ Columns</Link>
+            <Link href="/dashboard/ts/ts-mappings" className="btn btn-secondary btn-sm">🔗 STG Mappings</Link>
+            <Link href="/dashboard/ts" className="btn btn-secondary btn-sm">← Back to TS List</Link>
+          </div>
         }
       >
         <Step
@@ -594,8 +707,26 @@ export default function TSEntryForm({
               placeholder="e.g. Maintenance day, partial collection..."
             />
           </div>
+          <div className="form-group" style={{ display: 'flex', alignItems: 'flex-end' }}>
+            <button
+              type="button"
+              onClick={handleManualSyncFromStg}
+              disabled={syncingStg}
+              className="btn btn-secondary"
+              style={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, fontWeight: 600, height: 38 }}
+              title="Sync and update values from Stage 3 Solid Balance STG Statement using configured mapping rules"
+            >
+              {syncingStg ? <span className="spinner" /> : '🔄'} Sync from STG Statement
+            </button>
+          </div>
         </div>
       </div>
+
+      {syncStatusMsg && (
+        <div style={{ background: '#f0fdf4', border: '1px solid #bbf7d0', color: '#166534', padding: '10px 16px', borderRadius: 8, marginBottom: 16, fontWeight: 500 }}>
+          {syncStatusMsg}
+        </div>
+      )}
 
       {error && <div className="alert alert-error">⚠️ {error}</div>}
 
@@ -606,18 +737,14 @@ export default function TSEntryForm({
           .map((r, originalIdx) => ({ r, originalIdx }))
           .filter(x => x.r.section === key);
 
-        const disabledStyle = { backgroundColor: '#f1f5f9', cursor: 'not-allowed', color: '#64748b' };
-
         return (
           <div key={key} className="entry-form-section">
             <div className="entry-form-section-title" style={{ color, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <span>
                 {label}
-                {isBalanceSection && (
-                  <span style={{ fontSize: '0.75rem', fontWeight: 500, marginLeft: 8, opacity: 0.85, padding: '2px 6px', background: 'rgba(0,0,0,0.06)', border: '1px solid rgba(0,0,0,0.1)', borderRadius: 4, verticalAlign: 'middle', color: 'var(--text-secondary)' }}>
-                    🔗 Auto-populated from STG
-                  </span>
-                )}
+                <span style={{ fontSize: '0.75rem', fontWeight: 500, marginLeft: 8, opacity: 0.85, padding: '2px 6px', background: 'rgba(0,0,0,0.06)', border: '1px solid rgba(0,0,0,0.1)', borderRadius: 4, verticalAlign: 'middle', color: 'var(--text-secondary)' }}>
+                  🔗 STG Mapped
+                </span>
               </span>
               <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
                 {saveStatus[key] && (
@@ -625,17 +752,15 @@ export default function TSEntryForm({
                     {saveStatus[key]}
                   </span>
                 )}
-                {!isBalanceSection && (
-                  <button
-                    type="button"
-                    className="btn btn-primary btn-sm"
-                    style={{ background: color, border: 'none', boxShadow: 'none' }}
-                    onClick={() => handleSaveSection(key)}
-                    disabled={savingSection[key]}
-                  >
-                    {savingSection[key] ? 'Saving...' : '💾 Save Section'}
-                  </button>
-                )}
+                <button
+                  type="button"
+                  className="btn btn-primary btn-sm"
+                  style={{ background: color, border: 'none', boxShadow: 'none' }}
+                  onClick={() => handleSaveSection(key)}
+                  disabled={savingSection[key]}
+                >
+                  {savingSection[key] ? 'Saving...' : '💾 Save Section'}
+                </button>
               </div>
             </div>
             <div className="table-wrapper">
@@ -661,9 +786,8 @@ export default function TSEntryForm({
                           type="text"
                           value={r.product}
                           onChange={e => updateRow(originalIdx, 'product', e.target.value)}
-                          style={{ textAlign: 'left', fontWeight: 500, fontFamily: 'var(--font-sans)', ...(isBalanceSection ? disabledStyle : {}) }}
+                          style={{ textAlign: 'left', fontWeight: 500, fontFamily: 'var(--font-sans)' }}
                           id={`ts-${key}-${originalIdx}-product`}
-                          disabled={isBalanceSection}
                         />
                       </td>
                       <td>
@@ -674,8 +798,6 @@ export default function TSEntryForm({
                           value={r.qty_lts}
                           onChange={e => updateRow(originalIdx, 'qty_lts', e.target.value)}
                           id={`ts-${key}-${originalIdx}-lts`}
-                          style={isBalanceSection ? disabledStyle : {}}
-                          disabled={isBalanceSection}
                         />
                       </td>
                       <td>
@@ -686,8 +808,6 @@ export default function TSEntryForm({
                           value={r.qty_kg}
                           onChange={e => updateRow(originalIdx, 'qty_kg', e.target.value)}
                           id={`ts-${key}-${originalIdx}-kg`}
-                          style={isBalanceSection ? disabledStyle : {}}
-                          disabled={isBalanceSection}
                         />
                       </td>
                       <td>
@@ -697,8 +817,6 @@ export default function TSEntryForm({
                           value={r.fat_pct}
                           onChange={e => updateRow(originalIdx, 'fat_pct', e.target.value)}
                           id={`ts-${key}-${originalIdx}-fat`}
-                          style={isBalanceSection ? disabledStyle : {}}
-                          disabled={isBalanceSection}
                         />
                       </td>
                       <td>
@@ -708,8 +826,6 @@ export default function TSEntryForm({
                           value={r.snf_pct}
                           onChange={e => updateRow(originalIdx, 'snf_pct', e.target.value)}
                           id={`ts-${key}-${originalIdx}-snf`}
-                          style={isBalanceSection ? disabledStyle : {}}
-                          disabled={isBalanceSection}
                         />
                       </td>
                       <td>
@@ -719,8 +835,6 @@ export default function TSEntryForm({
                           value={r.sp_gr}
                           onChange={e => updateRow(originalIdx, 'sp_gr', e.target.value)}
                           id={`ts-${key}-${originalIdx}-spg`}
-                          style={isBalanceSection ? disabledStyle : {}}
-                          disabled={isBalanceSection}
                         />
                       </td>
                       <td>
@@ -730,8 +844,6 @@ export default function TSEntryForm({
                           value={r.kg_fat}
                           onChange={e => updateRow(originalIdx, 'kg_fat', e.target.value)}
                           id={`ts-${key}-${originalIdx}-kgfat`}
-                          style={isBalanceSection ? disabledStyle : {}}
-                          disabled={isBalanceSection}
                         />
                       </td>
                       <td>
@@ -741,34 +853,28 @@ export default function TSEntryForm({
                           value={r.kg_snf}
                           onChange={e => updateRow(originalIdx, 'kg_snf', e.target.value)}
                           id={`ts-${key}-${originalIdx}-kgsnf`}
-                          style={isBalanceSection ? disabledStyle : {}}
-                          disabled={isBalanceSection}
                         />
                       </td>
 
                       <td className="no-print">
-                        {isBalanceSection ? (
-                          <div style={{ textAlign: 'center', color: 'var(--text-muted)' }}>—</div>
-                        ) : (
-                          <div style={{ display: 'flex', gap: 8, justifyContent: 'center' }}>
-                            <button
-                              type="button"
-                              style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '1rem', padding: 0 }}
-                              title="Add row below"
-                              onClick={() => addRowAfter(key, originalIdx)}
-                            >
-                              ➕
-                            </button>
-                            <button
-                              type="button"
-                              style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '1rem', padding: 0 }}
-                              title="Delete row"
-                              onClick={() => deleteRow(originalIdx)}
-                            >
-                              ❌
-                            </button>
-                          </div>
-                        )}
+                        <div style={{ display: 'flex', gap: 8, justifyContent: 'center' }}>
+                          <button
+                            type="button"
+                            style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '1rem', padding: 0 }}
+                            title="Add row below"
+                            onClick={() => addRowAfter(key, originalIdx)}
+                          >
+                            ➕
+                          </button>
+                          <button
+                            type="button"
+                            style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '1rem', padding: 0 }}
+                            title="Delete row"
+                            onClick={() => deleteRow(originalIdx)}
+                          >
+                            ❌
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   ))}

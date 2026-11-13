@@ -5,8 +5,8 @@ import { ConfirmProvider } from '@/context/ConfirmContext';
 import IdleSessionTracker from '@/components/auth/IdleSessionTracker';
 
 export const metadata: Metadata = {
-  title: 'Aavin Dashboard | NKL Dairy Union',
-  description: 'Total Solids and Milk & Cream Stock Statement dashboard for Namakkal District Co-operative Milk Producers\' Union Ltd',
+  title: `${process.env.NEXT_PUBLIC_APP_NAME || 'Aavin Dashboard'} | ${process.env.NEXT_PUBLIC_ORG_SHORT || 'NKL Dairy Union'}`,
+  description: `Total Solids and Milk & Cream Stock Statement dashboard for ${process.env.NEXT_PUBLIC_ORG_NAME || "Namakkal District Co-operative Milk Producers' Union Ltd"}`,
   keywords: 'aavin, dairy, milk, namakkal, total solids, stock statement, NKL',
 };
 

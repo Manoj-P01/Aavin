@@ -3,6 +3,7 @@ import * as XLSX from 'xlsx';
 import { getSupabaseServiceClient } from '@/lib/supabase';
 import { TS_OB_PRODUCTS, TS_RECEIPT_PRODUCTS, TS_DESPATCH_PRODUCTS, TS_LOCAL_SALE_PRODUCTS, TS_OTHER_DISPOSAL_PRODUCTS } from '@/lib/types';
 import type { TSSection, StockRowType, Shift } from '@/lib/types';
+import { packRows } from '@/lib/rowJson';
 
 // Helper: parse date from Excel format
 function parseExcelDate(val: any): string {
@@ -38,7 +39,7 @@ export async function POST(req: NextRequest) {
     let activeProds: any[] = [];
     const { data: dbProds } = await supabase
       .from('products_master')
-      .select('*')
+      .select('id, product_key, product_name, short_name, category, sort_order, is_active')
       .eq('is_active', true)
       .order('sort_order', { ascending: true });
     if (dbProds) activeProds = dbProds;
@@ -236,13 +237,17 @@ export async function POST(req: NextRequest) {
           supabase.from('ts_milk_rows').delete().eq('entry_id', entryId),
           supabase.from('stg_rows').delete().eq('entry_id', entryId),
         ]);
+        const packedTsRows = packRows(
+          tsRows.map((r, sort_order) => ({ ...r, entry_id: entryId, sort_order })),
+          'ts'
+        );
+        const packedStgRows = packRows(
+          stgRows.map((r, sort_order) => ({ ...r, entry_id: entryId, sort_order })),
+          'stg'
+        );
         await Promise.all([
-          supabase.from('ts_milk_rows').insert(
-            tsRows.map((r, sort_order) => ({ ...r, entry_id: entryId, sort_order }))
-          ),
-          stgRows.length > 0 ? supabase.from('stg_rows').insert(
-            stgRows.map((r, sort_order) => ({ ...r, entry_id: entryId, sort_order }))
-          ) : Promise.resolve(),
+          supabase.from('ts_milk_rows').insert(packedTsRows),
+          packedStgRows.length > 0 ? supabase.from('stg_rows').insert(packedStgRows) : Promise.resolve(),
         ]);
       }
       importedCount = 1;
@@ -275,7 +280,6 @@ export async function POST(req: NextRequest) {
         }
 
         const stockRows: any[] = [];
-        let separationDetails: any = null;
 
         let activeCols: string[] = activeProds.map((p: any) => p.product_key || p.key || p.short_name);
 
@@ -302,8 +306,8 @@ export async function POST(req: NextRequest) {
 
           if (label === 'TOTAL' || label === 'difference' || label === 'Closing Balance' || label === 'DATE') continue;
 
-          // Check if this row is separation details
-          if (label === 'Details of Separation' || label === 'WM' || label === 'SSM (Lts)' || label === 'Cream (Lts)') {
+          // Skip details/breakdown rows
+          if (label === 'Details' || label === 'WM' || label === 'SSM (Lts)' || label === 'Cream (Lts)') {
             continue;
           }
 
@@ -335,10 +339,7 @@ export async function POST(req: NextRequest) {
         }
 
         if (entryId) {
-          await Promise.all([
-            supabase.from('stock_rows').delete().eq('entry_id', entryId),
-            supabase.from('separation_details').delete().eq('entry_id', entryId),
-          ]);
+          await supabase.from('stock_rows').delete().eq('entry_id', entryId);
 
           const sectionTypes: Array<{ type: 'OB' | 'RECEIPT' | 'DISPOSAL'; label: string; order: number }> = [
             { type: 'OB', label: 'Opening Balance', order: 0 },

@@ -1,10 +1,9 @@
 import { fmtNum, getRowValueFromStockRow } from '@/lib/calculations';
-import type { StockRow, SeparationDetails } from '@/lib/types';
+import type { StockRow } from '@/lib/types';
 import React from 'react';
 
 interface Props {
   rows: StockRow[];
-  separation?: SeparationDetails | null;
   date: string;
   shift: 'D' | 'N' | 'COMBINED' | 'FULL_DAY';
   notes?: string | null;
@@ -17,28 +16,28 @@ function ColNum({ val }: { val: number }) {
   return <td className="num" style={{ color, fontSize: '0.78rem', fontFamily: 'var(--font-numbers)' }}>{val === 0 ? '-' : fmtNum(abs)}</td>;
 }
 
-const DEFAULT_REPORT_PRODUCTS = [
-  { key: 'wh_milk', label: 'WH.MILK' },
-  { key: 'dlt_milk', label: 'DLT.MILK' },
-  { key: 'fc_milk', label: 'FC.MILK' },
-  { key: 'std_milk', label: 'STD.MILK' },
-  { key: 'dtm', label: 'DTM' },
-  { key: 'skim_milk', label: 'SKIM.MILK' },
-  { key: 'cream', label: 'CREAM' },
-  { key: 'butter_milk', label: 'BUTTER.MILK' },
-  { key: 'r_con', label: 'R.CON' },
-  { key: 'smp', label: 'SMP' },
-  { key: 'water', label: 'WATER' },
-];
-
-export default function StockReport({ rows, separation, date, shift, notes, products }: Props) {
+export default function StockReport({ rows, date, shift, notes, products }: Props) {
   const dateDisplay = new Date(date).toLocaleDateString('en-IN', {
     day: '2-digit', month: '2-digit', year: 'numeric',
   });
 
   const shiftLabel = shift === 'D' ? 'Day (D)' : shift === 'N' ? 'Night (N)' : shift === 'FULL_DAY' ? 'Full Day' : 'Combined (D+N)';
 
-  let columns = products && products.length > 0 ? [...products] : [...DEFAULT_REPORT_PRODUCTS];
+  let columns = products && products.length > 0 ? [...products] : [];
+  if (columns.length === 0) {
+    const discovered = new Set<string>();
+    rows.forEach(r => {
+      if (r.values && typeof r.values === 'object') {
+        Object.keys(r.values).forEach(k => discovered.add(k));
+      }
+      Object.keys(r).forEach(k => {
+        if (!['id', 'entry_id', 'row_type', 'row_label', 'sort_order', 'values', 'created_at', 'updated_at'].includes(k)) {
+          discovered.add(k);
+        }
+      });
+    });
+    columns = Array.from(discovered).map(k => ({ key: k, label: k.replace(/_/g, '.').toUpperCase() }));
+  }
   const customValues: Record<string, Record<string, number>> = {};
   let cleanNotes = notes || '';
 

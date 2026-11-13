@@ -6,8 +6,9 @@ import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import { getStandardColumnDecimals, cleanStatementLabel } from '@/lib/calculations';
 import { useConfirm } from '@/context/ConfirmContext';
+import KeyField, { executeKeyRename } from '@/components/ui/KeyField';
 
-export type STGSectionType = 'OB' | 'RECEIPT' | 'DISPOSAL' | 'RECON';
+export type STGSectionType = 'OB' | 'RECEIPT' | 'DISPOSAL' | 'CB' | 'RECON';
 
 export interface STGColumnDef {
   key: string;
@@ -32,8 +33,8 @@ export interface STGReconRow {
 
 export interface STGRowData {
   variant: string;
-  row_type?: 'OB' | 'RECEIPT' | 'DISPOSAL';
-  side?: 'RECEIPT' | 'DISPOSAL';
+  row_type?: 'OB' | 'RECEIPT' | 'DISPOSAL' | 'CB';
+  side?: 'RECEIPT' | 'DISPOSAL' | 'CB';
   values: Record<string, any>;
 }
 
@@ -49,10 +50,12 @@ export interface STGMasterDef {
   ob_rows?: STGRowData[];
   receipt_rows?: STGRowData[];
   disposal_rows?: STGRowData[];
+  cb_rows?: STGRowData[];
   reconciliation_rows?: STGReconRow[];
   ob_columns?: STGColumnDef[];
   receipt_columns?: STGColumnDef[];
   disposal_columns?: STGColumnDef[];
+  cb_columns?: STGColumnDef[];
   recon_columns?: STGColumnDef[];
   custom_columns?: STGColumnDef[];
   default_rows?: STGRowData[];
@@ -64,47 +67,25 @@ export interface STGMasterDef {
 // Default columns for each section with editable Column A (Particular / Label)
 export const getDefaultOBColumns = (baseCols?: STGColumnDef[]): STGColumnDef[] => {
   if (baseCols && baseCols.length > 0) return JSON.parse(JSON.stringify(baseCols));
-  return [
-    { key: 'variant', name: 'VARIANT', type: 'text', sort_order: 1 },
-    { key: 'qty_lts', name: 'Qty (Lts)', type: 'number', decimals: 0, sort_order: 2 },
-    { key: 'qty_kg', name: 'Qty (Kg)', type: 'number', decimals: 2, sort_order: 3 },
-    { key: 'fat_pct', name: 'Fat%', type: 'number', decimals: 2, sort_order: 4 },
-    { key: 'snf_pct', name: 'Snf%', type: 'number', decimals: 2, sort_order: 5 },
-    { key: 'sp_gr', name: 'SP.G', type: 'number', decimals: 4, sort_order: 6 },
-    { key: 'kg_fat', name: 'Kg.Fat', type: 'number', decimals: 3, sort_order: 7 },
-    { key: 'kg_snf', name: 'Kg.Snf', type: 'number', decimals: 3, sort_order: 8 },
-  ];
+  return [];
 };
 
 export const getDefaultReceiptColumns = (baseCols?: STGColumnDef[]): STGColumnDef[] => {
   if (baseCols && baseCols.length > 0) return JSON.parse(JSON.stringify(baseCols));
-  return [
-    { key: 'variant', name: 'VARIANT', type: 'text', sort_order: 1 },
-    { key: 'qty_lts', name: 'Qty (Lts)', type: 'number', decimals: 0, sort_order: 2 },
-    { key: 'qty_kg', name: 'Qty (Kg)', type: 'number', decimals: 2, sort_order: 3 },
-    { key: 'fat_pct', name: 'Fat%', type: 'number', decimals: 2, sort_order: 4 },
-    { key: 'snf_pct', name: 'Snf%', type: 'number', decimals: 2, sort_order: 5 },
-    { key: 'sp_gr', name: 'SP.G', type: 'number', decimals: 4, sort_order: 6 },
-    { key: 'kg_fat', name: 'Kg.Fat', type: 'number', decimals: 3, sort_order: 7 },
-    { key: 'kg_snf', name: 'Kg.Snf', type: 'number', decimals: 3, sort_order: 8 },
-  ];
+  return [];
 };
 
 export const getDefaultDisposalColumns = (baseCols?: STGColumnDef[]): STGColumnDef[] => {
   if (baseCols && baseCols.length > 0) return JSON.parse(JSON.stringify(baseCols));
-  return [
-    { key: 'variant', name: 'VARIANT', type: 'text', sort_order: 1 },
-    { key: 'qty_lts', name: 'Qty (Lts)', type: 'number', decimals: 0, sort_order: 2 },
-    { key: 'qty_kg', name: 'Qty (Kg)', type: 'number', decimals: 2, sort_order: 3 },
-    { key: 'fat_pct', name: 'Fat%', type: 'number', decimals: 2, sort_order: 4 },
-    { key: 'snf_pct', name: 'Snf%', type: 'number', decimals: 2, sort_order: 5 },
-    { key: 'sp_gr', name: 'SP.G', type: 'number', decimals: 4, sort_order: 6 },
-    { key: 'kg_fat', name: 'Kg.Fat', type: 'number', decimals: 3, sort_order: 7 },
-    { key: 'kg_snf', name: 'Kg.Snf', type: 'number', decimals: 3, sort_order: 8 },
-  ];
+  return [];
 };
 
-export const getDefaultReconColumns = (baseCols?: STGColumnDef[]): STGColumnDef[] => {
+export const getDefaultCBColumns = (baseCols?: STGColumnDef[]): STGColumnDef[] => {
+  if (baseCols && baseCols.length > 0) return JSON.parse(JSON.stringify(baseCols));
+  return [];
+};
+
+export const getReconciliationColumns = (baseCols?: STGColumnDef[]): STGColumnDef[] => {
   if (baseCols && baseCols.length > 0) {
     return baseCols.map((c, i) => ({
       ...c,
@@ -112,85 +93,50 @@ export const getDefaultReconColumns = (baseCols?: STGColumnDef[]): STGColumnDef[
       sort_order: i + 1,
     }));
   }
-  return [
-    { key: 'label', name: 'VARIANT', type: 'text', sort_order: 1 },
-    { key: 'qty_lts', name: 'Qty (Lts)', type: 'number', decimals: 0, sort_order: 2 },
-    { key: 'qty_kg', name: 'Qty (Kg)', type: 'number', decimals: 2, sort_order: 3 },
-    { key: 'fat_pct', name: 'Fat%', type: 'number', decimals: 2, sort_order: 4 },
-    { key: 'snf_pct', name: 'Snf%', type: 'number', decimals: 2, sort_order: 5 },
-    { key: 'sp_gr', name: 'SP.G', type: 'number', decimals: 4, sort_order: 6 },
-    { key: 'kg_fat', name: 'Kg.Fat', type: 'number', decimals: 3, sort_order: 7 },
-    { key: 'kg_snf', name: 'Kg.Snf', type: 'number', decimals: 3, sort_order: 8 },
-    { key: 'note', name: 'Note / Description', type: 'text', sort_order: 9 },
-  ];
+  return [];
 };
 
 export const getDefaultReconRows = (): STGReconRow[] => [];
 
-const PROHIBITED_COLUMN_NAMES = new Set([
-  'Opening Balance Particular',
-  'Receipt Particular',
-  'Disposal Particular',
-  'Reconciliation Item / Summary Label',
-]);
-
 // Helper to synchronize a section's columns with configured columns from STG Statement Column Configuration:
 // 1. Removes any column that was removed from configured columns.
 // 2. Orders columns strictly in the exact order placed in STG Statement Column Configuration.
-// 3. Completely prevents artificial particular names and unwanted forced calculated types from being injected.
 export const syncSectionColumnsWithConfig = (
   existingCols: STGColumnDef[] | undefined,
-  activeConfigCols: STGColumnDef[],
+  activeConfigCols: STGColumnDef[] | undefined,
   isRecon: boolean = false
 ): STGColumnDef[] => {
-  const configCols = activeConfigCols && activeConfigCols.length > 0
-    ? activeConfigCols
-    : getDefaultReceiptColumns();
+  // If activeConfigCols is explicitly provided, it is authoritative:
+  if (Array.isArray(activeConfigCols)) {
+    if (activeConfigCols.length === 0) return [];
+    return activeConfigCols.map((cfgCol, idx) => {
+      const existing = (existingCols || []).find(
+        c => c.key === cfgCol.key || (isRecon && cfgCol.key === 'variant' && c.key === 'label')
+      );
 
-  if (!Array.isArray(existingCols) || existingCols.length === 0) {
-    return configCols.map((c, idx) => ({
-      ...c,
-      key: isRecon && c.key === 'variant' ? 'label' : c.key,
-      sort_order: idx + 1,
-    }));
+      const name = existing?.name ? existing.name : cfgCol.name;
+      const colType = existing?.type || cfgCol.type || 'number';
+      const formula = existing?.formula || cfgCol.formula || undefined;
+
+      const res: STGColumnDef = {
+        ...cfgCol,
+        key: isRecon && (existing?.key === 'label' || cfgCol.key === 'label') ? 'label' : cfgCol.key,
+        name,
+        type: colType,
+        decimals: existing?.decimals !== undefined ? existing.decimals : cfgCol.decimals,
+        unit: existing?.unit || cfgCol.unit,
+        sort_order: idx + 1,
+        is_active: existing?.is_active !== undefined ? existing.is_active : (cfgCol.is_active !== undefined ? cfgCol.is_active : true),
+      };
+
+      if (formula) res.formula = formula;
+      else delete res.formula;
+
+      return res;
+    });
   }
 
-  // Map strictly over configCols to respect order & removals from STG Statement Column Configuration
-  return configCols.map((cfgCol, idx) => {
-    const existing = existingCols.find(
-      c => c.key === cfgCol.key || (isRecon && cfgCol.key === 'variant' && c.key === 'label')
-    );
-
-    const name = existing?.name && !PROHIBITED_COLUMN_NAMES.has(existing.name)
-      ? existing.name
-      : cfgCol.name;
-
-    const isHardcodedCalc = (existing?.formula === 'qty_lts * sp_gr' || cfgCol.formula === 'qty_lts * sp_gr' ||
-                             existing?.formula === 'qty_kg * fat_pct / 100' || cfgCol.formula === 'qty_kg * fat_pct / 100' ||
-                             existing?.formula === 'qty_kg * snf_pct / 100' || cfgCol.formula === 'qty_kg * snf_pct / 100');
-
-    const colType = (cfgCol.key === 'variant' || cfgCol.key === 'label' || existing?.key === 'variant' || existing?.key === 'label')
-      ? 'text'
-      : (isHardcodedCalc ? 'number' : (existing?.type || cfgCol.type || 'number'));
-
-    const formula = isHardcodedCalc ? undefined : (existing?.formula || cfgCol.formula || undefined);
-
-    const res: STGColumnDef = {
-      ...cfgCol,
-      key: isRecon && (existing?.key === 'label' || cfgCol.key === 'label') ? 'label' : cfgCol.key,
-      name,
-      type: colType,
-      decimals: existing?.decimals !== undefined ? existing.decimals : cfgCol.decimals,
-      unit: existing?.unit || cfgCol.unit,
-      sort_order: idx + 1,
-      is_active: existing?.is_active !== undefined ? existing.is_active : (cfgCol.is_active !== undefined ? cfgCol.is_active : true),
-    };
-
-    if (formula) res.formula = formula;
-    else delete res.formula;
-
-    return res;
-  });
+  return Array.isArray(existingCols) ? existingCols : [];
 };
 
 // Helper to ensure Column A (Particular or Label) exists in a column list
@@ -211,7 +157,7 @@ const ensureParticularColumn = (cols: STGColumnDef[], defaultName: string, keyNa
 };
 
 function STGDefaultFormulationsContent() {
-  const { confirm, showWarning } = useConfirm();
+  const { confirm, showWarning, showError } = useConfirm();
   const searchParams = useSearchParams();
   const paramMaster = searchParams?.get('master') || null;
 
@@ -223,11 +169,14 @@ function STGDefaultFormulationsContent() {
   const [obColumns, setObColumns] = useState<STGColumnDef[]>(getDefaultOBColumns());
   const [receiptColumns, setReceiptColumns] = useState<STGColumnDef[]>(getDefaultReceiptColumns());
   const [disposalColumns, setDisposalColumns] = useState<STGColumnDef[]>(getDefaultDisposalColumns());
-  const [reconColumns, setReconColumns] = useState<STGColumnDef[]>(getDefaultReconColumns());
+  const [cbColumns, setCbColumns] = useState<STGColumnDef[]>(getDefaultCBColumns());
+  const [reconColumns, setReconColumns] = useState<STGColumnDef[]>(getReconciliationColumns());
 
   // Global authoritative configured columns from STG Statement Column Configuration (/api/ts/columns)
   const [configuredColumns, setConfiguredColumns] = useState<STGColumnDef[]>([]);
   const configuredColumnsRef = useRef<STGColumnDef[]>([]);
+  const [configuredSections, setConfiguredSections] = useState<{ ob: STGColumnDef[]; receipt: STGColumnDef[]; disposal: STGColumnDef[]; cb: STGColumnDef[]; recon: STGColumnDef[] } | null>(null);
+  const configuredSectionsRef = useRef<{ ob: STGColumnDef[]; receipt: STGColumnDef[]; disposal: STGColumnDef[]; cb: STGColumnDef[]; recon: STGColumnDef[] } | null>(null);
 
   // Per-section Rows
   const [obRows, setObRows] = useState<STGRowData[]>([
@@ -235,6 +184,9 @@ function STGDefaultFormulationsContent() {
   ]);
   const [receiptRows, setReceiptRows] = useState<STGRowData[]>([]);
   const [disposalRows, setDisposalRows] = useState<STGRowData[]>([]);
+  const [cbRows, setCbRows] = useState<STGRowData[]>([
+    { variant: 'Closing Balance', row_type: 'CB', side: 'CB', values: { variant: 'Closing Balance' } }
+  ]);
   const [reconRows, setReconRows] = useState<STGReconRow[]>(getDefaultReconRows());
 
   // Per-section Column Editing state (toggle button on each table header)
@@ -242,6 +194,7 @@ function STGDefaultFormulationsContent() {
     OB: false,
     RECEIPT: false,
     DISPOSAL: false,
+    CB: false,
     RECON: false,
   });
 
@@ -303,15 +256,17 @@ function STGDefaultFormulationsContent() {
       case 'OB': return obColumns;
       case 'RECEIPT': return receiptColumns;
       case 'DISPOSAL': return disposalColumns;
+      case 'CB': return cbColumns;
       case 'RECON': return reconColumns;
     }
-  }, [obColumns, receiptColumns, disposalColumns, reconColumns]);
+  }, [obColumns, receiptColumns, disposalColumns, cbColumns, reconColumns]);
 
   const setSectionColumns = useCallback((sec: STGSectionType, cols: STGColumnDef[]) => {
     switch (sec) {
       case 'OB': setObColumns(cols); break;
       case 'RECEIPT': setReceiptColumns(cols); break;
       case 'DISPOSAL': setDisposalColumns(cols); break;
+      case 'CB': setCbColumns(cols); break;
       case 'RECON': setReconColumns(cols); break;
     }
   }, []);
@@ -487,29 +442,13 @@ function STGDefaultFormulationsContent() {
       return evaluateExcelFormula(cellVal, rowIndex, rowVals, rowList, colList);
     }
 
-    if (col.type === 'calculated' || ((col.key === 'qty_kg' || col.key === 'kg' || col.key === 'kg_fat' || col.key === 'kg_snf') && (cellVal === undefined || cellVal === ''))) {
+    if (col.type === 'calculated' || (col.formula && typeof col.formula === 'string' && col.formula.trim() !== '')) {
       if (col.formula && typeof col.formula === 'string' && (col.formula.startsWith('=') || col.formula.startsWith('=+'))) {
         return evaluateExcelFormula(col.formula, rowIndex, rowVals, rowList, colList);
       }
-      if (col.formula && typeof col.formula === 'string') {
+      if (col.formula && typeof col.formula === 'string' && col.formula.trim() !== '') {
         return evaluateExcelFormula(`=${col.formula}`, rowIndex, rowVals, rowList, colList);
       }
-
-      // Built-in standard formulas
-      const qtyLts = parseFloat(String(rowVals?.qty_lts ?? rowVals?.lts ?? 0)) || 0;
-      const spGr = parseFloat(String(rowVals?.sp_gr ?? 0)) || 0;
-      const fatPct = parseFloat(String(rowVals?.fat_pct ?? 0)) || 0;
-      const snfPct = parseFloat(String(rowVals?.snf_pct ?? 0)) || 0;
-
-      let qtyKg = parseFloat(String(rowVals?.qty_kg ?? rowVals?.kg ?? 0));
-      if (isNaN(qtyKg) || qtyKg === 0) {
-        qtyKg = qtyLts * spGr;
-      }
-
-      if (col.key === 'qty_kg' || col.key === 'kg') return qtyLts * spGr;
-      if (col.key === 'kg_fat' || col.key === 'fat') return (qtyKg * fatPct) / 100;
-      if (col.key === 'kg_snf' || col.key === 'snf') return (qtyKg * snfPct) / 100;
-
       return 0;
     }
     return cellVal !== undefined ? cellVal : '';
@@ -561,6 +500,21 @@ function STGDefaultFormulationsContent() {
     return totals;
   }, [disposalColumns, disposalRows]);
 
+  const totalCB = useMemo(() => {
+    const totals: Record<string, number> = {};
+    cbColumns.forEach(col => {
+      if (col.type !== 'text') {
+        const sum = cbRows.reduce((acc, row, idx) => {
+          const computed = computeCell(col, row.values, idx, cbRows, cbColumns);
+          const num = typeof computed === 'number' ? computed : parseFloat(String(computed || 0));
+          return acc + (isNaN(num) ? 0 : num);
+        }, 0);
+        totals[col.key] = sum;
+      }
+    });
+    return totals;
+  }, [cbColumns, cbRows]);
+
   // Safe Excel Formula Evaluator for Reconciliation Summary
   const evaluateReconFormula = (
     formulaStr: any,
@@ -570,6 +524,7 @@ function STGDefaultFormulationsContent() {
     obTots: Record<string, number>,
     recTotals: Record<string, number>,
     dispTotals: Record<string, number>,
+    cbTots?: Record<string, number>,
     depth: number = 0
   ): number | string => {
     if (depth > 10 || formulaStr === undefined || formulaStr === null || formulaStr === '') return 0;
@@ -630,17 +585,18 @@ function STGDefaultFormulationsContent() {
     // Closing Balance references: CB or CB.col
     expr = expr.replace(/\bCB(?:\.([a-z_0-9]+))?\b/gi, (_, key) => {
       const targetK = (key || colKey).toLowerCase();
+      if (cbTots && cbTots[targetK] !== undefined) return String(cbTots[targetK]);
       const rec = (obTots[targetK] || 0) + (recTotals[targetK] || 0);
       const disp = dispTotals[targetK] || 0;
       return String(rec - disp);
     });
 
-    // Cross-references to individual rows from other sections: OB1.col, REC1.col, DISP1.col or OB1.B, REC1.C
-    expr = expr.replace(/\b(OB|REC|DISP)([0-9]+)(?:\.([a-z_0-9]+))?\b/gi, (_, secPrefix, rowNum, targetColKey) => {
+    // Cross-references to individual rows from other sections: OB1.col, REC1.col, DISP1.col, CB1.col
+    expr = expr.replace(/\b(OB|REC|DISP|CB)([0-9]+)(?:\.([a-z_0-9]+))?\b/gi, (_, secPrefix, rowNum, targetColKey) => {
       const rIdx = parseInt(rowNum, 10) - 1;
       const upperSec = secPrefix.toUpperCase();
-      const targetRowList = upperSec === 'OB' ? obRows : upperSec === 'REC' ? receiptRows : disposalRows;
-      const targetColList = upperSec === 'OB' ? obColumns : upperSec === 'REC' ? receiptColumns : disposalColumns;
+      const targetRowList = upperSec === 'OB' ? obRows : upperSec === 'REC' ? receiptRows : upperSec === 'DISP' ? disposalRows : cbRows;
+      const targetColList = upperSec === 'OB' ? obColumns : upperSec === 'REC' ? receiptColumns : upperSec === 'DISP' ? disposalColumns : cbColumns;
       const targetRow = targetRowList[rIdx];
       if (!targetRow) return '0';
       let cKey = (targetColKey || colKey).toLowerCase();
@@ -679,7 +635,7 @@ function STGDefaultFormulationsContent() {
       }
       if (rawVal === undefined || rawVal === null || rawVal === '' || rawVal === '—' || rawVal === '-') return '0';
       if (typeof rawVal === 'string' && (rawVal.startsWith('=') || rawVal.startsWith('=+'))) {
-        const evalSub = evaluateReconFormula(rawVal, cKey, targetRIdx, reconList, obTots, recTotals, dispTotals, depth + 1);
+        const evalSub = evaluateReconFormula(rawVal, cKey, targetRIdx, reconList, obTots, recTotals, dispTotals, cbTots, depth + 1);
         return String(typeof evalSub === 'number' ? evalSub : (parseFloat(String(evalSub)) || 0));
       }
       const num = typeof rawVal === 'number' ? rawVal : parseFloat(String(rawVal));
@@ -698,7 +654,7 @@ function STGDefaultFormulationsContent() {
       if (rawVal === undefined && cKey === 'label') rawVal = targetRow.label;
       if (rawVal === undefined || rawVal === null || rawVal === '' || rawVal === '—' || rawVal === '-') return '0';
       if (typeof rawVal === 'string' && (rawVal.startsWith('=') || rawVal.startsWith('=+'))) {
-        const evalSub = evaluateReconFormula(rawVal, cKey, targetRIdx, reconList, obTots, recTotals, dispTotals, depth + 1);
+        const evalSub = evaluateReconFormula(rawVal, cKey, targetRIdx, reconList, obTots, recTotals, dispTotals, cbTots, depth + 1);
         return String(typeof evalSub === 'number' ? evalSub : (parseFloat(String(evalSub)) || 0));
       }
       const num = typeof rawVal === 'number' ? rawVal : parseFloat(String(rawVal));
@@ -717,18 +673,22 @@ function STGDefaultFormulationsContent() {
   // Helper to extract value from any row object (handling variant / label aliases seamlessly)
   const getRowCellValue = (row: any, colKey: string): string => {
     if (!row) return '';
-    if (colKey === 'variant') {
-      return row.variant !== undefined ? row.variant : (row.label !== undefined ? row.label : (row.values?.['variant'] !== undefined ? row.values['variant'] : (row.values?.['label'] !== undefined ? row.values['label'] : '')));
+    const k = colKey.toLowerCase();
+    if (k === 'variant') {
+      return row.variant !== undefined ? row.variant : (row.label !== undefined ? row.label : (row.values?.['variant'] !== undefined ? row.values['variant'] : (row.values?.['receipt'] !== undefined ? row.values['receipt'] : (row.values?.['disposal'] !== undefined ? row.values['disposal'] : (row.values?.['label'] !== undefined ? row.values['label'] : '')))));
     }
-    if (colKey === 'label') {
-      return row.label !== undefined ? row.label : (row.variant !== undefined ? row.variant : (row.values?.['label'] !== undefined ? row.values['label'] : (row.values?.['variant'] !== undefined ? row.values['variant'] : '')));
+    if (k === 'label') {
+      return row.label !== undefined ? row.label : (row.variant !== undefined ? row.variant : (row.values?.['label'] !== undefined ? row.values['label'] : (row.values?.['ob'] !== undefined ? row.values['ob'] : (row.values?.['variant'] !== undefined ? row.values['variant'] : ''))));
     }
     let raw = row.values?.[colKey];
-    if (raw === undefined) {
-      if (colKey === 'qty_lts') raw = row.values?.['lts'];
-      else if (colKey === 'lts') raw = row.values?.['qty_lts'];
-      else if (colKey === 'qty_kg') raw = row.values?.['kg'];
-      else if (colKey === 'kg') raw = row.values?.['qty_kg'];
+    if (raw === undefined || raw === null || raw === '') {
+      if (k === 'receipt') raw = row.values?.['receipt'] || row.variant || row.values?.['variant'];
+      else if (k === 'disposal') raw = row.values?.['disposal'] || row.variant || row.values?.['variant'];
+      else if (k === 'ob') raw = row.values?.['ob'] || row.label || row.variant || row.values?.['label'] || row.values?.['variant'];
+      else if (k === 'qty_lts') raw = row.values?.['lts'];
+      else if (k === 'lts') raw = row.values?.['qty_lts'];
+      else if (k === 'qty_kg') raw = row.values?.['kg'];
+      else if (k === 'kg') raw = row.values?.['qty_kg'];
     }
     return raw !== undefined && raw !== null ? String(raw) : '';
   };
@@ -792,6 +752,18 @@ function STGDefaultFormulationsContent() {
         valueStr = rawVal || '-';
       }
       formulaText = rawVal !== undefined ? (String(rawVal).startsWith('=') ? String(rawVal) : `= ${rawVal}`) : '';
+    } else if (section === 'CB') {
+      sectionTag = '🔒 Closing Balance';
+      address = `CB${rowIndex + 1}.${excelColLetter}`;
+      const row = cbRows[rowIndex] || { values: {}, variant: '' };
+      const rawVal = getRowCellValue(row, colKey);
+      if (col.type === 'calculated' || (typeof rawVal === 'string' && (rawVal.startsWith('=') || rawVal.startsWith('=+')))) {
+        const computed = computeCell(col, row.values || {}, rowIndex, cbRows, cbColumns);
+        valueStr = typeof computed === 'number' ? formatNumberValue(computed, col.decimals, col.key) : (computed || '-');
+      } else {
+        valueStr = rawVal || '-';
+      }
+      formulaText = rawVal !== undefined ? (String(rawVal).startsWith('=') ? String(rawVal) : `= ${rawVal}`) : '';
     } else if (section === 'RECON') {
       sectionTag = '⚖️ Reconciliation';
       address = `R${rowIndex + 1}.${excelColLetter}`;
@@ -799,7 +771,7 @@ function STGDefaultFormulationsContent() {
       const rawVal = getRowCellValue(row, colKey);
       let computed: any = rawVal ?? '';
       if (typeof rawVal === 'string' && (rawVal.startsWith('=') || rawVal.startsWith('=+'))) {
-        computed = evaluateReconFormula(rawVal, colKey, rowIndex, reconRows, totalOB, totalReceipts, totalDisposals);
+        computed = evaluateReconFormula(rawVal, colKey, rowIndex, reconRows, totalOB, totalReceipts, totalDisposals, totalCB);
         valueStr = typeof computed === 'number' ? formatNumberValue(computed, col.decimals, col.key) : (computed || '-');
       } else {
         valueStr = rawVal || '-';
@@ -815,7 +787,7 @@ function STGDefaultFormulationsContent() {
       formulaText,
       value: valueStr,
     };
-  }, [selectedCell, obColumns, receiptColumns, disposalColumns, reconColumns, obRows, receiptRows, disposalRows, reconRows, totalOB, totalReceipts, totalDisposals, viewDecimals]);
+  }, [selectedCell, obColumns, receiptColumns, disposalColumns, cbColumns, reconColumns, obRows, receiptRows, disposalRows, cbRows, reconRows, totalOB, totalReceipts, totalDisposals, totalCB, viewDecimals]);
 
   // Loading data from API
   const loadMasterDefaults = useCallback((
@@ -825,51 +797,65 @@ function STGDefaultFormulationsContent() {
   ) => {
     const targetMaster = mastersList.find(m => m.key === masterKey);
 
-    const activeCols = (activeConfigCols && activeConfigCols.length > 0)
-      ? activeConfigCols
-      : (configuredColumnsRef.current.length > 0 ? configuredColumnsRef.current : configuredColumns);
+    const activeSecs = configuredSectionsRef.current;
 
     if (!masterKey || !targetMaster) {
-      setObColumns(syncSectionColumnsWithConfig(undefined, activeCols, false));
-      setReceiptColumns(syncSectionColumnsWithConfig(undefined, activeCols, false));
-      setDisposalColumns(syncSectionColumnsWithConfig(undefined, activeCols, false));
-      setReconColumns(syncSectionColumnsWithConfig(undefined, activeCols, true));
+      setObColumns(syncSectionColumnsWithConfig(undefined, activeSecs?.ob || [], false));
+      setReceiptColumns(syncSectionColumnsWithConfig(undefined, activeSecs?.receipt || [], false));
+      setDisposalColumns(syncSectionColumnsWithConfig(undefined, activeSecs?.disposal || [], false));
+      setCbColumns(syncSectionColumnsWithConfig(undefined, activeSecs?.cb || [], false));
+      setReconColumns(syncSectionColumnsWithConfig(undefined, activeSecs?.recon || [], true));
       setObRows([]);
       setReceiptRows([]);
       setDisposalRows([]);
+      setCbRows([]);
       setReconRows([]);
       setSelectedCell(null);
       setFocusedCell(null);
       return;
     }
 
-    // Synchronize Column lists strictly with STG Statement Column Configuration:
+    // Synchronize Column lists strictly with STG Statement Column Configuration (by section):
     // 1. Columns removed in STG Statement Column Configuration are removed.
     // 2. Columns follow the exact order configured in STG Statement Column Configuration.
+    // 3. ZERO cross-section column copying: each section strictly only uses its own configured columns!
+    const obActiveCols = activeSecs?.ob !== undefined ? activeSecs.ob : (targetMaster?.ob_columns || []);
+    const recActiveCols = activeSecs?.receipt !== undefined ? activeSecs.receipt : (targetMaster?.receipt_columns || []);
+    const dispActiveCols = activeSecs?.disposal !== undefined ? activeSecs.disposal : (targetMaster?.disposal_columns || []);
+    const cbActiveCols = activeSecs?.cb !== undefined ? activeSecs.cb : (targetMaster?.cb_columns || []);
+    const reconActiveCols = activeSecs?.recon !== undefined ? activeSecs.recon : (targetMaster?.recon_columns || []);
+
     const loadedOBCols = syncSectionColumnsWithConfig(
       targetMaster.ob_columns,
-      activeCols,
+      obActiveCols,
       false
     );
     setObColumns(loadedOBCols);
 
     const loadedRecCols = syncSectionColumnsWithConfig(
       targetMaster.receipt_columns,
-      activeCols,
+      recActiveCols,
       false
     );
     setReceiptColumns(loadedRecCols);
 
     const loadedDispCols = syncSectionColumnsWithConfig(
       targetMaster.disposal_columns,
-      activeCols,
+      dispActiveCols,
       false
     );
     setDisposalColumns(loadedDispCols);
 
+    const loadedCBCols = syncSectionColumnsWithConfig(
+      targetMaster.cb_columns,
+      cbActiveCols,
+      false
+    );
+    setCbColumns(loadedCBCols);
+
     const loadedReconCols = syncSectionColumnsWithConfig(
       targetMaster.recon_columns,
-      activeCols,
+      reconActiveCols,
       true
     );
     setReconColumns(loadedReconCols);
@@ -907,7 +893,19 @@ function STGDefaultFormulationsContent() {
       setDisposalRows(extractedDisp.length > 0 ? JSON.parse(JSON.stringify(extractedDisp)) : []);
     }
 
-    // 4. Reconciliation Rows
+    // 4. Closing Balance Rows strictly from saved rows of table
+    if (targetMaster?.cb_rows && Array.isArray(targetMaster.cb_rows) && targetMaster.cb_rows.length > 0) {
+      setCbRows(JSON.parse(JSON.stringify(targetMaster.cb_rows)));
+    } else {
+      const extractedCB = (targetMaster?.default_rows || targetMaster?.rows || []).filter((r: any) =>
+        r.row_type === 'CB' || (r.variant || '').toLowerCase().includes('closing')
+      );
+      setCbRows(extractedCB.length > 0 ? JSON.parse(JSON.stringify(extractedCB)) : [
+        { variant: 'Closing Balance', row_type: 'CB', side: 'CB', values: { variant: 'Closing Balance' } }
+      ]);
+    }
+
+    // 5. Reconciliation Rows
     if (targetMaster?.reconciliation_rows && Array.isArray(targetMaster.reconciliation_rows) && targetMaster.reconciliation_rows.length > 0) {
       setReconRows(JSON.parse(JSON.stringify(targetMaster.reconciliation_rows)));
     } else {
@@ -929,6 +927,10 @@ function STGDefaultFormulationsContent() {
       let loadedCols: STGColumnDef[] = [];
       if (colsRes.ok) {
         const colJson = await colsRes.json();
+        if (colJson.sections) {
+          setConfiguredSections(colJson.sections);
+          configuredSectionsRef.current = colJson.sections;
+        }
         if (Array.isArray(colJson.columns) && colJson.columns.length > 0) {
           loadedCols = colJson.columns;
         }
@@ -1011,9 +1013,14 @@ function STGDefaultFormulationsContent() {
     setObRows(prev => {
       const copy = [...prev];
       if (!copy[idx]) return prev;
-      const updatedRow = { ...copy[idx], values: { ...copy[idx].values, [colKey]: val } };
-      if (colKey === 'variant') {
+      const updatedRow: any = { ...copy[idx], values: { ...copy[idx].values, [colKey]: val } };
+      const k = colKey.toLowerCase();
+      if (['variant', 'ob', 'label', 'particular', 'name'].includes(k)) {
         updatedRow.variant = val;
+        updatedRow.label = val;
+        updatedRow.values.variant = val;
+        updatedRow.values.ob = val;
+        updatedRow.values.label = val;
       }
       copy[idx] = updatedRow;
       return copy;
@@ -1024,8 +1031,15 @@ function STGDefaultFormulationsContent() {
   const handleAddReceiptRow = () => {
     const newIdx = receiptRows.length + 1;
     const name = `Receipt ${newIdx}`;
-    setReceiptRows(prev => [...prev, { variant: name, row_type: 'RECEIPT', side: 'RECEIPT', values: { variant: name } }]);
-    setSelectedCell({ section: 'RECEIPT', rowIndex: receiptRows.length, colKey: 'variant' });
+    const initVals: Record<string, any> = { variant: name, receipt: name };
+    receiptColumns.forEach(c => {
+      const k = (c.key || '').toLowerCase();
+      if (c.type === 'text' || ['receipt', 'variant', 'particular', 'name', 'label'].includes(k)) {
+        initVals[c.key] = name;
+      }
+    });
+    setReceiptRows(prev => [...prev, { variant: name, row_type: 'RECEIPT', side: 'RECEIPT', values: initVals }]);
+    setSelectedCell({ section: 'RECEIPT', rowIndex: receiptRows.length, colKey: receiptColumns[0]?.key || 'variant' });
     showToast(`➕ Added Receipt Row #${newIdx}`);
   };
 
@@ -1062,9 +1076,12 @@ function STGDefaultFormulationsContent() {
     setReceiptRows(prev => {
       const copy = [...prev];
       if (!copy[idx]) return prev;
-      const updatedRow = { ...copy[idx], values: { ...copy[idx].values, [colKey]: val } };
-      if (colKey === 'variant') {
+      const updatedRow: any = { ...copy[idx], values: { ...copy[idx].values, [colKey]: val } };
+      const k = colKey.toLowerCase();
+      if (['variant', 'receipt', 'particular', 'label', 'name'].includes(k)) {
         updatedRow.variant = val;
+        updatedRow.values.variant = val;
+        updatedRow.values.receipt = val;
       }
       copy[idx] = updatedRow;
       return copy;
@@ -1075,8 +1092,15 @@ function STGDefaultFormulationsContent() {
   const handleAddDisposalRow = () => {
     const newIdx = disposalRows.length + 1;
     const name = `Disposal ${newIdx}`;
-    setDisposalRows(prev => [...prev, { variant: name, row_type: 'DISPOSAL', side: 'DISPOSAL', values: { variant: name } }]);
-    setSelectedCell({ section: 'DISPOSAL', rowIndex: disposalRows.length, colKey: 'variant' });
+    const initVals: Record<string, any> = { variant: name, disposal: name };
+    disposalColumns.forEach(c => {
+      const k = (c.key || '').toLowerCase();
+      if (c.type === 'text' || ['disposal', 'variant', 'particular', 'name', 'label'].includes(k)) {
+        initVals[c.key] = name;
+      }
+    });
+    setDisposalRows(prev => [...prev, { variant: name, row_type: 'DISPOSAL', side: 'DISPOSAL', values: initVals }]);
+    setSelectedCell({ section: 'DISPOSAL', rowIndex: disposalRows.length, colKey: disposalColumns[0]?.key || 'variant' });
     showToast(`➕ Added Disposal Row #${newIdx}`);
   };
 
@@ -1113,9 +1137,73 @@ function STGDefaultFormulationsContent() {
     setDisposalRows(prev => {
       const copy = [...prev];
       if (!copy[idx]) return prev;
-      const updatedRow = { ...copy[idx], values: { ...copy[idx].values, [colKey]: val } };
-      if (colKey === 'variant') {
+      const updatedRow: any = { ...copy[idx], values: { ...copy[idx].values, [colKey]: val } };
+      const k = colKey.toLowerCase();
+      if (['variant', 'disposal', 'particular', 'label', 'name'].includes(k)) {
         updatedRow.variant = val;
+        updatedRow.values.variant = val;
+        updatedRow.values.disposal = val;
+      }
+      copy[idx] = updatedRow;
+      return copy;
+    });
+  };
+
+  // Row Management Functions for Closing Balance (CB)
+  const handleAddCBRow = () => {
+    const newIdx = cbRows.length + 1;
+    const name = `Closing Stock ${newIdx}`;
+    const initVals: Record<string, any> = { variant: name, cb: name };
+    cbColumns.forEach(c => {
+      const k = (c.key || '').toLowerCase();
+      if (c.type === 'text' || ['cb', 'variant', 'particular', 'name', 'label'].includes(k)) {
+        initVals[c.key] = name;
+      }
+    });
+    setCbRows(prev => [...prev, { variant: name, row_type: 'CB', side: 'CB', values: initVals }]);
+    setSelectedCell({ section: 'CB', rowIndex: cbRows.length, colKey: cbColumns[0]?.key || 'variant' });
+    showToast(`➕ Added Closing Balance Row #${newIdx}`);
+  };
+
+  const handleDeleteCBRow = async (idx: number) => {
+    const rowToDelete = cbRows[idx];
+    const ok = await confirm({
+      title: 'Delete Closing Balance Row',
+      message: `Delete closing balance row "${rowToDelete?.variant || ''}"?`,
+      confirmText: 'Delete Row',
+      cancelText: 'Cancel',
+      type: 'danger',
+    });
+    if (!ok) return;
+    setCbRows(prev => prev.filter((_, i) => i !== idx));
+    if (selectedCell?.section === 'CB' && selectedCell.rowIndex === idx) setSelectedCell(null);
+    showToast('Deleted closing balance row.');
+  };
+
+  const handleMoveCBRow = (idx: number, dir: 'UP' | 'DOWN') => {
+    if (dir === 'UP' && idx === 0) return;
+    if (dir === 'DOWN' && idx === cbRows.length - 1) return;
+    const targetIdx = dir === 'UP' ? idx - 1 : idx + 1;
+    setCbRows(prev => {
+      const copy = [...prev];
+      const temp = copy[idx];
+      copy[idx] = copy[targetIdx];
+      copy[targetIdx] = temp;
+      return copy;
+    });
+    if (selectedCell?.section === 'CB') setSelectedCell({ ...selectedCell, rowIndex: targetIdx });
+  };
+
+  const handleCBCellChange = (idx: number, colKey: string, val: string) => {
+    setCbRows(prev => {
+      const copy = [...prev];
+      if (!copy[idx]) return prev;
+      const updatedRow: any = { ...copy[idx], values: { ...copy[idx].values, [colKey]: val } };
+      const k = colKey.toLowerCase();
+      if (['variant', 'cb', 'particular', 'label', 'name'].includes(k)) {
+        updatedRow.variant = val;
+        updatedRow.values.variant = val;
+        updatedRow.values.cb = val;
       }
       copy[idx] = updatedRow;
       return copy;
@@ -1268,17 +1356,20 @@ function STGDefaultFormulationsContent() {
     const colField = sec === 'OB' ? 'ob_columns'
       : sec === 'RECEIPT' ? 'receipt_columns'
       : sec === 'DISPOSAL' ? 'disposal_columns'
+      : sec === 'CB' ? 'cb_columns'
       : 'recon_columns';
 
     const effectiveOBRows = updatedRowsPayload?.obRows ?? obRows;
     const effectiveRecRows = updatedRowsPayload?.receiptRows ?? receiptRows;
     const effectiveDispRows = updatedRowsPayload?.disposalRows ?? disposalRows;
+    const effectiveCBRows = (updatedRowsPayload as any)?.cbRows ?? cbRows;
     const effectiveReconRows = updatedRowsPayload?.reconRows ?? reconRows;
 
     const combinedRows = [
       ...effectiveOBRows.map(r => ({ ...r, row_type: 'OB' as const, side: 'RECEIPT' as const })),
       ...effectiveRecRows.map(r => ({ ...r, row_type: 'RECEIPT' as const, side: 'RECEIPT' as const })),
       ...effectiveDispRows.map(r => ({ ...r, row_type: 'DISPOSAL' as const, side: 'DISPOSAL' as const })),
+      ...effectiveCBRows.map((r: STGRowData) => ({ ...r, row_type: 'CB' as const, side: 'CB' as const })),
     ];
 
     const updatedMasters = masters.map(m => {
@@ -1287,9 +1378,11 @@ function STGDefaultFormulationsContent() {
           ...m,
           [colField]: updatedCols,
           ...(sec === 'RECEIPT' ? { custom_columns: updatedCols } : {}),
+          ...(sec === 'CB' ? { cb_columns: updatedCols } : {}),
           ob_rows: effectiveOBRows,
           receipt_rows: effectiveRecRows,
           disposal_rows: effectiveDispRows,
+          cb_rows: effectiveCBRows,
           reconciliation_rows: effectiveReconRows,
           default_rows: combinedRows,
           rows: combinedRows,
@@ -1308,43 +1401,17 @@ function STGDefaultFormulationsContent() {
         body: JSON.stringify({ masters: updatedMasters }),
       });
 
-      // 2. Keep STG Statement Column Configuration (/api/ts/columns) synchronized if deleted or edited
-      if (deletedKey) {
-        const remainingConfig = configuredColumns.filter(c => c.key !== deletedKey);
-        if (remainingConfig.length !== configuredColumns.length) {
-          setConfiguredColumns(remainingConfig);
-          configuredColumnsRef.current = remainingConfig;
-          await fetch('/api/ts/columns', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ columns: remainingConfig }),
-          });
-        }
-      } else if (modifiedCol) {
-        let hasMatch = false;
-        const syncedConfig = configuredColumns.map(cfgCol => {
-          if (cfgCol.key === modifiedCol.key || (cfgCol.key === 'variant' && modifiedCol.key === 'label')) {
-            hasMatch = true;
-            return {
-              ...cfgCol,
-              name: modifiedCol.name,
-              decimals: modifiedCol.decimals,
-              type: modifiedCol.type,
-              unit: modifiedCol.unit,
-            };
-          }
-          return cfgCol;
-        });
-        if (hasMatch) {
-          setConfiguredColumns(syncedConfig);
-          configuredColumnsRef.current = syncedConfig;
-          await fetch('/api/ts/columns', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ columns: syncedConfig }),
-          });
-        }
-      }
+      // 2. Keep STG Statement Column Configuration (/api/ts/columns) synchronized for this section ONLY
+      const secKey = sec === 'OB' ? 'ob' : sec === 'RECEIPT' ? 'receipt' : sec === 'DISPOSAL' ? 'disposal' : sec === 'CB' ? 'cb' : 'recon';
+      await fetch('/api/ts/columns', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          statement_key: activeMasterKey,
+          section: secKey,
+          columns: updatedCols,
+        }),
+      });
     } catch (err) {
       console.error('Error persisting column modification to DB:', err);
     }
@@ -1363,6 +1430,18 @@ function STGDefaultFormulationsContent() {
     if (!colModalEditingKey && currentCols.some(c => c.key === keyToUse)) {
       showWarning(`Column with key "${keyToUse}" already exists in the ${sec} section!`);
       return;
+    }
+
+    if (colModalEditingKey && keyToUse !== colModalEditingKey) {
+      const res = await executeKeyRename({
+        scope: 'stg_column',
+        oldKey: colModalEditingKey,
+        newKey: keyToUse,
+        context: { statement_key: activeMasterKey || undefined },
+        confirm,
+        showError,
+      });
+      if (!res.success) return;
     }
 
     const newCol: STGColumnDef = {
@@ -1663,7 +1742,7 @@ function STGDefaultFormulationsContent() {
   const handleRestoreDefaultMasters = async () => {
     const isConfirmed = await confirm({
       title: 'Restore Default Statement Masters',
-      message: 'Restore the standard 9 statement masters (Whole Milk, Skimmed Milk, Cream, Separation, Delite, FCM, STD, Curd, SMP for RSM)?',
+      message: 'Restore the standard 9 statement masters (Whole Milk, Skimmed Milk, Cream, Process, Delite, FCM, STD, Curd, SMP for RSM)?',
       confirmText: 'Restore Defaults',
       cancelText: 'Cancel',
       type: 'info',
@@ -1722,14 +1801,17 @@ function STGDefaultFormulationsContent() {
       return;
     }
 
-    let initOBCols: STGColumnDef[] = getDefaultOBColumns();
-    let initRecCols: STGColumnDef[] = getDefaultReceiptColumns();
-    let initDispCols: STGColumnDef[] = getDefaultDisposalColumns();
-    let initReconCols: STGColumnDef[] = getDefaultReconColumns();
+    const activeSecs = configuredSectionsRef.current;
+    let initOBCols: STGColumnDef[] = activeSecs?.ob ? JSON.parse(JSON.stringify(activeSecs.ob)) : [];
+    let initRecCols: STGColumnDef[] = activeSecs?.receipt ? JSON.parse(JSON.stringify(activeSecs.receipt)) : [];
+    let initDispCols: STGColumnDef[] = activeSecs?.disposal ? JSON.parse(JSON.stringify(activeSecs.disposal)) : [];
+    let initCBCols: STGColumnDef[] = activeSecs?.cb ? JSON.parse(JSON.stringify(activeSecs.cb)) : getDefaultCBColumns();
+    let initReconCols: STGColumnDef[] = activeSecs?.recon ? JSON.parse(JSON.stringify(activeSecs.recon)) : [];
 
     let initOBRows: STGRowData[] = [{ variant: 'Opening Balance', row_type: 'OB', side: 'RECEIPT', values: { variant: 'Opening Balance' } }];
     let initRecRows: STGRowData[] = [];
     let initDispRows: STGRowData[] = [];
+    let initCBRows: STGRowData[] = [{ variant: 'Closing Balance', row_type: 'CB', side: 'CB', values: { variant: 'Closing Balance', cb: 'Closing Balance' } }];
     let initReconRows: STGReconRow[] = getDefaultReconRows();
 
     if (newMasterSource !== 'blank') {
@@ -1738,6 +1820,7 @@ function STGDefaultFormulationsContent() {
         if (srcMaster.ob_rows && srcMaster.ob_rows.length > 0) initOBRows = JSON.parse(JSON.stringify(srcMaster.ob_rows));
         if (srcMaster.receipt_rows && srcMaster.receipt_rows.length > 0) initRecRows = JSON.parse(JSON.stringify(srcMaster.receipt_rows));
         if (srcMaster.disposal_rows && srcMaster.disposal_rows.length > 0) initDispRows = JSON.parse(JSON.stringify(srcMaster.disposal_rows));
+        if (srcMaster.cb_rows && srcMaster.cb_rows.length > 0) initCBRows = JSON.parse(JSON.stringify(srcMaster.cb_rows));
         if (srcMaster.reconciliation_rows && srcMaster.reconciliation_rows.length > 0) initReconRows = JSON.parse(JSON.stringify(srcMaster.reconciliation_rows));
       }
     }
@@ -1748,6 +1831,7 @@ function STGDefaultFormulationsContent() {
         if (srcMaster.ob_columns && srcMaster.ob_columns.length > 0) initOBCols = JSON.parse(JSON.stringify(srcMaster.ob_columns));
         if (srcMaster.receipt_columns && srcMaster.receipt_columns.length > 0) initRecCols = JSON.parse(JSON.stringify(srcMaster.receipt_columns));
         if (srcMaster.disposal_columns && srcMaster.disposal_columns.length > 0) initDispCols = JSON.parse(JSON.stringify(srcMaster.disposal_columns));
+        if (srcMaster.cb_columns && srcMaster.cb_columns.length > 0) initCBCols = JSON.parse(JSON.stringify(srcMaster.cb_columns));
         if (srcMaster.recon_columns && srcMaster.recon_columns.length > 0) initReconCols = JSON.parse(JSON.stringify(srcMaster.recon_columns));
       }
     }
@@ -1761,14 +1845,16 @@ function STGDefaultFormulationsContent() {
       ob_rows: initOBRows,
       receipt_rows: initRecRows,
       disposal_rows: initDispRows,
+      cb_rows: initCBRows,
       reconciliation_rows: initReconRows,
       ob_columns: initOBCols,
       receipt_columns: initRecCols,
       disposal_columns: initDispCols,
+      cb_columns: initCBCols,
       recon_columns: initReconCols,
       custom_columns: initRecCols,
-      default_rows: [...initOBRows, ...initRecRows, ...initDispRows],
-      rows: [...initOBRows, ...initRecRows, ...initDispRows],
+      default_rows: [...initOBRows, ...initRecRows, ...initDispRows, ...initCBRows],
+      rows: [...initOBRows, ...initRecRows, ...initDispRows, ...initCBRows],
     };
 
     setSaving(true);
@@ -1788,10 +1874,12 @@ function STGDefaultFormulationsContent() {
         setObColumns(initOBCols);
         setReceiptColumns(initRecCols);
         setDisposalColumns(initDispCols);
+        setCbColumns(initCBCols);
         setReconColumns(initReconCols);
         setObRows(initOBRows);
         setReceiptRows(initRecRows);
         setDisposalRows(initDispRows);
+        setCbRows(initCBRows);
         setReconRows(initReconRows);
         showToast(`✅ Created new Statement Master "${newMaster.label}"!`);
       } else {
@@ -1813,6 +1901,7 @@ function STGDefaultFormulationsContent() {
         ...obRows.map(r => ({ ...r, row_type: 'OB' as const, side: 'RECEIPT' as const })),
         ...receiptRows.map(r => ({ ...r, row_type: 'RECEIPT' as const, side: 'RECEIPT' as const })),
         ...disposalRows.map(r => ({ ...r, row_type: 'DISPOSAL' as const, side: 'DISPOSAL' as const })),
+        ...cbRows.map(r => ({ ...r, row_type: 'CB' as const, side: 'CB' as const })),
       ];
 
       const updatedMasters = masters.map(m => {
@@ -1822,10 +1911,12 @@ function STGDefaultFormulationsContent() {
             ob_rows: obRows,
             receipt_rows: receiptRows,
             disposal_rows: disposalRows,
+            cb_rows: cbRows,
             reconciliation_rows: reconRows,
             ob_columns: obColumns,
             receipt_columns: receiptColumns,
             disposal_columns: disposalColumns,
+            cb_columns: cbColumns,
             recon_columns: reconColumns,
             custom_columns: receiptColumns,
             default_rows: combinedRows,
@@ -1862,10 +1953,10 @@ function STGDefaultFormulationsContent() {
     setSaving(false);
   };
 
-  // Renders one of the standard data sections: Opening Balance, Receipts, or Disposals
+  // Renders one of the standard data sections: Opening Balance, Receipts, Disposals, or Closing Balance
   // All columns (including Column A: Particular) are dynamic, editable, and connect to Excel Formula Bar!
   const renderSectionTable = (
-    sectionType: 'OB' | 'RECEIPT' | 'DISPOSAL',
+    sectionType: 'OB' | 'RECEIPT' | 'DISPOSAL' | 'CB',
     sectionTitle: string,
     sectionList: STGRowData[],
     sectionColumns: STGColumnDef[],
@@ -2298,25 +2389,27 @@ function STGDefaultFormulationsContent() {
               )}
             </select>
 
-            <button
-              type="button"
-              onClick={handleOpenNewMasterModal}
-              style={{
-                background: '#0284c7',
-                border: 'none',
-                color: '#ffffff',
-                borderRadius: 6,
-                padding: '6px 12px',
-                fontSize: '0.8rem',
-                fontWeight: 700,
-                cursor: 'pointer',
-                display: 'flex',
-                alignItems: 'center',
-                gap: 5,
-              }}
-            >
-              ➕ Create Statement Master
-            </button>
+            {masters.length > 0 && (
+              <button
+                type="button"
+                onClick={handleOpenNewMasterModal}
+                style={{
+                  background: '#0284c7',
+                  border: 'none',
+                  color: '#ffffff',
+                  borderRadius: 6,
+                  padding: '6px 12px',
+                  fontSize: '0.8rem',
+                  fontWeight: 700,
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 5,
+                }}
+              >
+                ➕ Create Statement Master
+              </button>
+            )}
 
             <button
               type="button"
@@ -2417,12 +2510,12 @@ function STGDefaultFormulationsContent() {
 
             <button
               type="button"
-              onClick={handleAddReconRow}
+              onClick={handleAddCBRow}
               disabled={!activeMasterKey}
-              style={{ background: '#7c3aed', border: 'none', color: '#ffffff', borderRadius: 6, padding: '5px 12px', fontSize: '0.8rem', fontWeight: 700, cursor: activeMasterKey ? 'pointer' : 'not-allowed', opacity: activeMasterKey ? 1 : 0.6, display: 'flex', alignItems: 'center', gap: 4 }}
-              title="Add a new row to Reconciliation Summary"
+              style={{ background: '#ca8a04', border: 'none', color: '#ffffff', borderRadius: 6, padding: '5px 12px', fontSize: '0.8rem', fontWeight: 700, cursor: activeMasterKey ? 'pointer' : 'not-allowed', opacity: activeMasterKey ? 1 : 0.6, display: 'flex', alignItems: 'center', gap: 4 }}
+              title="Add a new row to Closing Balance"
             >
-              ➕ Add Reconciliation Row
+              ➕ Add CB Row
             </button>
 
             <button
@@ -2631,7 +2724,23 @@ function STGDefaultFormulationsContent() {
             totalDisposals
           )}
 
-          {/* Section 4: Stock Balance & Reconciliation Summary (Auto-Computed) */}
+          {/* Section 4: Closing Balance (CB) */}
+          {renderSectionTable(
+            'CB',
+            'Closing Balance (CB)',
+            cbRows,
+            cbColumns,
+            '#fefce8',
+            '#ca8a04',
+            '🔒',
+            handleAddCBRow,
+            handleDeleteCBRow,
+            handleMoveCBRow,
+            handleCBCellChange,
+            totalCB
+          )}
+
+          {/* Section 5: Stock Balance & Reconciliation Summary (Auto-Computed) */}
           <div style={{ marginBottom: 24, border: '1px solid #7c3aed40', borderRadius: 8, overflow: 'hidden', background: '#ffffff', boxShadow: '0 1px 3px rgba(0,0,0,0.05)' }}>
             {/* Header */}
             <div style={{ background: '#faf5ff', padding: '10px 16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid #7c3aed30' }}>
@@ -3071,7 +3180,7 @@ function STGDefaultFormulationsContent() {
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
               <div>
                 <h3 style={{ margin: 0, fontSize: '1.1rem', fontWeight: 800, color: '#1e293b' }}>
-                  ⚙️ Column Configuration — {colConfigSection === 'OB' ? 'Opening Balance (OB)' : colConfigSection === 'RECEIPT' ? 'Receipts' : colConfigSection === 'DISPOSAL' ? 'Disposals' : 'Reconciliation Summary'}
+                  ⚙️ Column Configuration — {colConfigSection === 'OB' ? 'Opening Balance (OB)' : colConfigSection === 'RECEIPT' ? 'Receipts' : colConfigSection === 'DISPOSAL' ? 'Disposals' : colConfigSection === 'CB' ? 'Closing Balance (CB)' : 'Reconciliation Summary'}
                 </h3>
                 <p style={{ margin: '3px 0 0', fontSize: '0.78rem', color: '#64748b' }}>
                   Manage, reorder, edit, and rename columns (including Particulars & Summary Labels) specifically for this section.
@@ -3231,24 +3340,25 @@ function STGDefaultFormulationsContent() {
                 />
               </div>
 
-              <div>
-                <label className="form-label" style={{ fontSize: '0.8rem', fontWeight: 700 }}>
-                  Field Key (internal identifier) *
-                </label>
-                <input
-                  type="text"
-                  required
-                  disabled={!!colModalEditingKey}
-                  className="form-input"
-                  value={formColKey}
-                  placeholder="e.g. qty_lts, fat_pct, variant..."
-                  onChange={e => {
-                    setColKeyManuallyEdited(true);
-                    setFormColKey(e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, '_'));
-                  }}
-                  style={{ fontFamily: 'monospace', background: colModalEditingKey ? '#f8fafc' : '#ffffff' }}
-                />
-              </div>
+              <KeyField
+                label="Field Key (internal identifier)"
+                value={formColKey}
+                onChange={val => {
+                  setColKeyManuallyEdited(true);
+                  setFormColKey(val);
+                }}
+                originalKey={colModalEditingKey}
+                scope="stg_column"
+                context={{ statement_key: activeMasterKey || undefined }}
+                existingKeys={getSectionColumns(colModalSection).map(c => c.key)}
+                placeholder="e.g. qty_lts, fat_pct, variant..."
+                onRenameComplete={(oldKey, newKey) => {
+                  const curCols = getSectionColumns(colModalSection);
+                  setSectionColumns(colModalSection, curCols.map(c => c.key === oldKey ? { ...c, key: newKey } : c));
+                  setColModalEditingKey(newKey);
+                  showToast(`⚡ Renamed key "${oldKey}" ➔ "${newKey}"`);
+                }}
+              />
 
               <div>
                 <label className="form-label" style={{ fontSize: '0.8rem', fontWeight: 700 }}>
@@ -3578,33 +3688,7 @@ function STGDefaultFormulationsContent() {
               )}
             </div>
 
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderTop: '1px solid var(--border)', paddingTop: 14 }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setIsManageMastersModalOpen(false);
-                    handleOpenNewMasterModal();
-                  }}
-                  className="btn btn-secondary btn-sm"
-                  style={{ fontWeight: 800 }}
-                >
-                  ➕ Create New Statement Master
-                </button>
-                {masters.length < 9 && (
-                  <button
-                    type="button"
-                    onClick={handleRestoreDefaultMasters}
-                    disabled={saving}
-                    className="btn btn-secondary btn-sm"
-                    style={{ fontWeight: 700, background: '#f8fafc' }}
-                    title="Restore standard 9 statement masters"
-                  >
-                    🔄 Restore Defaults
-                  </button>
-                )}
-              </div>
-
+            <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', borderTop: '1px solid var(--border)', paddingTop: 14 }}>
               <button
                 type="button"
                 onClick={() => setIsManageMastersModalOpen(false)}
@@ -3648,23 +3732,17 @@ function STGDefaultFormulationsContent() {
                 />
               </div>
 
-              <div>
-                <label className="form-label" style={{ fontSize: '0.8rem', fontWeight: 700 }}>
-                  Identifier Key *
-                </label>
-                <input
-                  type="text"
-                  required
-                  className="form-input"
-                  value={newMasterKey}
-                  placeholder="e.g. butter_milk_statement"
-                  onChange={e => {
-                    setNewMasterKeyManuallyEdited(true);
-                    setNewMasterKey(e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, '_'));
-                  }}
-                  style={{ fontFamily: 'monospace' }}
-                />
-              </div>
+              <KeyField
+                label="Identifier Key"
+                value={newMasterKey}
+                onChange={val => {
+                  setNewMasterKeyManuallyEdited(true);
+                  setNewMasterKey(val);
+                }}
+                scope="statement"
+                existingKeys={masters.map(m => m.key)}
+                placeholder="e.g. butter_milk_statement"
+              />
 
               <div>
                 <label className="form-label" style={{ fontSize: '0.8rem', fontWeight: 700 }}>

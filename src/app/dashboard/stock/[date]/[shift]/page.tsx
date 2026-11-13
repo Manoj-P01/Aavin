@@ -6,18 +6,19 @@ import Header from '@/components/layout/Header';
 import StockReport from '@/components/reports/StockReport';
 import Link from 'next/link';
 import { useConfirm } from '@/context/ConfirmContext';
+import { useShiftConfig } from '@/hooks/useSettings';
 import { fmtDate, calcStockSummary, combineShiftSummaries } from '@/lib/calculations';
-import type { StockRow, SeparationDetails, Shift } from '@/lib/types';
+import type { StockRow, Shift } from '@/lib/types';
 
 interface ShiftData {
   rows: StockRow[];
-  separation: SeparationDetails | null;
 }
 
 export default function StockViewPage() {
   const { showError } = useConfirm();
   const { date, shift } = useParams<{ date: string; shift: string }>();
   const router = useRouter();
+  const { shiftConfig } = useShiftConfig();
   const [data, setData] = useState<ShiftData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -71,30 +72,10 @@ export default function StockViewPage() {
     async function load() {
       try {
         // Load report mode configuration & database products master
-        let parsedMode: 'full_day' | 'shift' = 'full_day';
-        try {
-          const configRes = await fetch('/api/entries?report_type=STOCK&date=1970-01-01');
-          if (configRes.ok) {
-            const configJson = await configRes.json();
-            const entries: any[] = configJson.data || [];
-            const configEntry = entries.find((e: any) => {
-              if (!e.notes || e.notes.includes('__METADATA__:')) return false;
-              try {
-                const parsed = JSON.parse(e.notes);
-                return parsed && typeof parsed === 'object' && !Array.isArray(parsed);
-              } catch { return false; }
-            });
-            if (configEntry && configEntry.notes) {
-              try {
-                const parsed = JSON.parse(configEntry.notes);
-                if (parsed && typeof parsed === 'object') {
-                  if (parsed.mode) parsedMode = parsed.mode;
-                }
-              } catch (e) {}
-            }
-          }
+        const parsedMode: 'full_day' | 'shift' = shiftConfig?.mode || 'full_day';
+        setReportMode(parsedMode);
 
-          // Load products configuration directly from database table
+        try {
           const stockCfgRes = await fetch('/api/stock/config');
           if (stockCfgRes.ok) {
             const stockCfg = await stockCfgRes.json();
@@ -123,8 +104,7 @@ export default function StockViewPage() {
         setEntryNotes(entry.notes);
 
         const shiftRows = json.data.stock_rows.filter((r: StockRow) => r.entry_id === entry.id);
-        const shiftSep = json.data.separation_details.find((s: SeparationDetails) => s.entry_id === entry.id) || null;
-        setData({ rows: shiftRows, separation: shiftSep });
+        setData({ rows: shiftRows });
 
         // Try to load the other shift too if in shift-wise mode
         if (parsedMode === 'shift') {
@@ -136,8 +116,7 @@ export default function StockViewPage() {
               if (entry2) {
                 setOtherNotes(entry2.notes);
                 const rows2 = json2.data.stock_rows.filter((r: StockRow) => r.entry_id === entry2.id);
-                const sep2 = json2.data.separation_details.find((s: SeparationDetails) => s.entry_id === entry2.id) || null;
-                setOtherShiftData({ rows: rows2, separation: sep2 });
+                setOtherShiftData({ rows: rows2 });
               }
             }
           } catch { /* other shift may not exist */ }
@@ -153,8 +132,8 @@ export default function StockViewPage() {
   }, [date, shift, otherShift]);
 
   // Combined view: merge both shifts
-  const getCombinedRows = (): { rows: StockRow[]; separation: SeparationDetails | null } => {
-    if (!data || !otherShiftData) return data || { rows: [], separation: null };
+  const getCombinedRows = (): { rows: StockRow[] } => {
+    if (!data || !otherShiftData) return data || { rows: [] };
     const dayData = shift === 'D' ? data : otherShiftData;
     const nightData = shift === 'N' ? data : otherShiftData;
     const daySummary = calcStockSummary(dayData.rows);
@@ -167,10 +146,10 @@ export default function StockViewPage() {
       ...combined.total_receipts ? [{ id: 'rec', entry_id: 'combined', row_type: 'RECEIPT' as const, row_label: 'Receipts:', sort_order: 1, ...combined.total_receipts }] : [],
       ...combined.total_disposals ? [{ id: 'dis', entry_id: 'combined', row_type: 'DISPOSAL' as const, row_label: 'Disposals', sort_order: 2, ...combined.total_disposals }] : [],
     ];
-    return { rows: syntheticRows, separation: dayData.separation };
+    return { rows: syntheticRows };
   };
 
-  const displayData = viewMode === 'combined' ? getCombinedRows() : (data || { rows: [], separation: null });
+  const displayData = viewMode === 'combined' ? getCombinedRows() : (data || { rows: [] });
 
   return (
     <>
@@ -280,7 +259,6 @@ export default function StockViewPage() {
           <div className="card">
             <StockReport
               rows={displayData.rows}
-              separation={displayData.separation}
               date={date}
               shift={reportMode === 'full_day' ? 'FULL_DAY' : (viewMode === 'combined' ? 'COMBINED' : (shift === 'N' ? 'N' : 'D'))}
               notes={viewMode === 'combined' ? `${entryNotes || ''}\n${otherNotes || ''}` : entryNotes}

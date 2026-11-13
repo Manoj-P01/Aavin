@@ -173,7 +173,6 @@ export default function StockQueryPage() {
           ) : (
             <StockReport
               rows={rows}
-              separation={null}
               date={filterType === 'day' ? date : new Date().toISOString().split('T')[0]}
               shift="COMBINED"
             />

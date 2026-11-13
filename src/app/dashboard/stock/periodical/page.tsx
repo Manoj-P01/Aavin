@@ -7,7 +7,7 @@ import Link from 'next/link';
 import StockReport from '@/components/reports/StockReport';
 import { useConfirm } from '@/context/ConfirmContext';
 import { fmtDate } from '@/lib/calculations';
-import type { Entry, StockRow, SeparationDetails } from '@/lib/types';
+import type { Entry, StockRow } from '@/lib/types';
 
 interface ProductCol {
   key: string;
@@ -185,7 +185,7 @@ export default function PeriodicalSummaryReportPage() {
         const res = await fetch('/api/entries?report_type=STOCK&include_rows=true');
         if (res.ok) {
           const json = await res.json();
-          const list: Entry[] = (json.data || []).filter((e: Entry) => e.entry_date && e.entry_date !== '1970-01-01');
+          const list: Entry[] = (json.data || []).filter((e: Entry) => !!e.entry_date);
           setAllEntries(list);
 
           // Discover available years from data
@@ -201,7 +201,7 @@ export default function PeriodicalSummaryReportPage() {
           setAvailableYears(sortedYears);
 
           // Extract columns from metadata entry if present
-          const metaEntry = (json.data || []).find((e: any) => e.entry_date === '1970-01-01' || (e.notes && e.notes.includes('__METADATA__:')));
+          const metaEntry = (json.data || []).find((e: any) => e.notes && e.notes.includes('__METADATA__:'));
           if (metaEntry && metaEntry.notes) {
             try {
               const metaText = metaEntry.notes.replace('__METADATA__:', '');
@@ -1407,26 +1407,6 @@ export default function PeriodicalSummaryReportPage() {
           <div style={{ display: 'flex', gap: 10 }}>
             {aggregatedReport && (
               <>
-                {/* <button
-                  type="button"
-                  className="btn btn-primary btn-sm"
-                  style={{ background: '#16a34a', borderColor: '#16a34a', fontWeight: 600 }}
-                  onClick={handleExportPeriodicalExcel}
-                  title="Download Excel file with separate product sheets and formatted filename"
-                >
-                  📥 Download Excel (Product Sheets)
-                </button> */}
-                {/* <button
-                  type="button"
-                  className="btn btn-secondary btn-sm"
-                  onClick={handleExportMultiSheetExcel}
-                  title="Extract Excel file with each daily Stock Statement in an individual sheet tab"
-                >
-                  📥 Extract Daily Sheets Excel
-                </button> */}
-                {/* <button type="button" className="btn btn-secondary btn-sm" onClick={handleExportCSV}>
-                  📥 Export Consolidated CSV
-                </button> */}
                 <button type="button" className="btn btn-secondary btn-sm" onClick={() => window.print()}>
                   🖨️ Print Report
                 </button>

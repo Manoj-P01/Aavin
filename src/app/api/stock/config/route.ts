@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getSupabaseServiceClient } from '@/lib/supabase';
 import { getAuthUserFromRequest } from '@/lib/auth';
+
 // GET /api/stock/config - Load Stock Products Configuration (Product Columns, Receipt Rows, Disposal Rows)
 export async function GET(req: NextRequest) {
   try {
@@ -10,7 +11,7 @@ export async function GET(req: NextRequest) {
     let products: any[] = [];
     const { data: prodData, error: prodErr } = await supabase
       .from('products_master')
-      .select('*')
+      .select('id, product_key, product_name, short_name, category, sort_order, is_active, is_default')
       .eq('is_active', true)
       .order('sort_order', { ascending: true });
 
@@ -20,7 +21,7 @@ export async function GET(req: NextRequest) {
         key: p.product_key,
         full_name: p.product_name,
         short_name: p.short_name,
-        category: p.category || 'Liquid Milk',
+        category: p.category || '',
         sort_order: p.sort_order || idx + 1,
         is_active: p.is_active,
       }));
@@ -28,14 +29,24 @@ export async function GET(req: NextRequest) {
 
     // 2. Fetch Particulars Master (Receipt Rows)
     let receiptRows: any[] = [];
-    const { data: recData, error: recErr } = await supabase
-      .from('particulars_master')
-      .select('*')
-      .eq('section_type', 'RECEIPT')
-      .eq('is_active', true)
-      .order('sort_order', { ascending: true });
+    let recData: any[] | null = null;
+    const { data: recRpcData, error: recRpcErr } = await supabase.rpc('fn_get_active_particulars_master', {
+      p_section_type: 'RECEIPT',
+    });
+    if (!recRpcErr && Array.isArray(recRpcData)) {
+      recData = recRpcData;
+    } else {
+      const { data: recDbData, error: recErr } = await supabase
+        .from('particulars_master')
+        .select('id, section_type, particular_name, code, sort_order, is_active')
+        .eq('section_type', 'RECEIPT')
+        .eq('is_active', true)
+        .order('sort_order', { ascending: true });
+      if (recErr) console.error('Error fetching receipt_rows:', recErr);
+      recData = recDbData;
+    }
 
-    if (!recErr && Array.isArray(recData) && recData.length > 0) {
+    if (Array.isArray(recData) && recData.length > 0) {
       receiptRows = recData.map((r, idx) => ({
         id: r.id,
         full_name: r.particular_name,
@@ -47,14 +58,24 @@ export async function GET(req: NextRequest) {
 
     // 3. Fetch Particulars Master (Disposal Rows)
     let disposalRows: any[] = [];
-    const { data: dispData, error: dispErr } = await supabase
-      .from('particulars_master')
-      .select('*')
-      .eq('section_type', 'DISPOSAL')
-      .eq('is_active', true)
-      .order('sort_order', { ascending: true });
+    let dispData: any[] | null = null;
+    const { data: dispRpcData, error: dispRpcErr } = await supabase.rpc('fn_get_active_particulars_master', {
+      p_section_type: 'DISPOSAL',
+    });
+    if (!dispRpcErr && Array.isArray(dispRpcData)) {
+      dispData = dispRpcData;
+    } else {
+      const { data: dispDbData, error: dispErr } = await supabase
+        .from('particulars_master')
+        .select('id, section_type, particular_name, code, sort_order, is_active')
+        .eq('section_type', 'DISPOSAL')
+        .eq('is_active', true)
+        .order('sort_order', { ascending: true });
+      if (dispErr) console.error('Error fetching disposal_rows:', dispErr);
+      dispData = dispDbData;
+    }
 
-    if (!dispErr && Array.isArray(dispData) && dispData.length > 0) {
+    if (Array.isArray(dispData) && dispData.length > 0) {
       disposalRows = dispData.map((d, idx) => ({
         id: d.id,
         full_name: d.particular_name,
@@ -98,36 +119,27 @@ export async function POST(req: NextRequest) {
     if (Array.isArray(removed_product_ids) && removed_product_ids.length > 0) {
       for (const id of removed_product_ids) {
         if (!id) continue;
-        const { error: rpcErr } = await supabase.rpc('fn_soft_delete_product_master', { p_id: id, p_actor: actorUsername });
-        if (rpcErr) {
-          const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id);
-          const filterCol = isUuid ? 'id' : 'product_key';
-          await supabase.from('products_master').update({ is_active: false, updated_by: actorUsername, updated_at: new Date().toISOString() }).eq(filterCol, id);
-        }
+        const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id);
+        const filterCol = isUuid ? 'id' : 'product_key';
+        await supabase.from('products_master').update({ is_active: false, updated_by: actorUsername, updated_at: new Date().toISOString() }).eq(filterCol, id);
       }
     }
 
     if (Array.isArray(removed_receipt_ids) && removed_receipt_ids.length > 0) {
       for (const id of removed_receipt_ids) {
         if (!id) continue;
-        const { error: rpcErr } = await supabase.rpc('fn_soft_delete_particular_master', { p_id: id, p_actor: actorUsername });
-        if (rpcErr) {
-          const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id);
-          const filterCol = isUuid ? 'id' : 'particular_name';
-          await supabase.from('particulars_master').update({ is_active: false, updated_by: actorUsername, updated_at: new Date().toISOString() }).eq(filterCol, id);
-        }
+        const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id);
+        const filterCol = isUuid ? 'id' : 'particular_name';
+        await supabase.from('particulars_master').update({ is_active: false, updated_by: actorUsername, updated_at: new Date().toISOString() }).eq(filterCol, id);
       }
     }
 
     if (Array.isArray(removed_disposal_ids) && removed_disposal_ids.length > 0) {
       for (const id of removed_disposal_ids) {
         if (!id) continue;
-        const { error: rpcErr } = await supabase.rpc('fn_soft_delete_particular_master', { p_id: id, p_actor: actorUsername });
-        if (rpcErr) {
-          const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id);
-          const filterCol = isUuid ? 'id' : 'particular_name';
-          await supabase.from('particulars_master').update({ is_active: false, updated_by: actorUsername, updated_at: new Date().toISOString() }).eq(filterCol, id);
-        }
+        const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id);
+        const filterCol = isUuid ? 'id' : 'particular_name';
+        await supabase.from('particulars_master').update({ is_active: false, updated_by: actorUsername, updated_at: new Date().toISOString() }).eq(filterCol, id);
       }
     }
 
@@ -142,39 +154,23 @@ export async function POST(req: NextRequest) {
 
         const position = i + 1; // 1-indexed ordering position
         const key = prod.key || full_name.toLowerCase().replace(/\s+/g, '_');
-        const category = prod.category?.trim() || 'Liquid Milk';
+        const category = prod.category?.trim() || null;
 
-        // Execute case-insensitive upsert SP fn_upsert_product_master
-        const { data: spData, error: spErr } = await supabase.rpc('fn_upsert_product_master', {
-          p_product_key: key,
-          p_product_name: full_name,
-          p_short_name: short_name,
-          p_category: category,
-          p_sort_order: position,
-          p_is_active: true,
-          p_actor: actorUsername,
-        });
-
-        if (!spErr && Array.isArray(spData) && spData.length > 0) {
-          savedProducts.push(spData[0]);
-        } else {
-          // Direct fallback upsert
-          const { data: dbData } = await supabase
-            .from('products_master')
-            .upsert({
-              product_key: key,
-              product_name: full_name,
-              short_name: short_name,
-              category: category,
-              sort_order: position,
-              is_active: true,
-              updated_by: actorUsername,
-              updated_at: new Date().toISOString(),
-            }, { onConflict: 'product_key' })
-            .select('*')
-            .single();
-          if (dbData) savedProducts.push(dbData);
-        }
+        const { data: dbData } = await supabase
+          .from('products_master')
+          .upsert({
+            product_key: key,
+            product_name: full_name,
+            short_name: short_name,
+            category: category,
+            sort_order: position,
+            is_active: true,
+            updated_by: actorUsername,
+            updated_at: new Date().toISOString(),
+          }, { onConflict: 'product_key' })
+          .select('id, product_key, product_name, short_name, category, sort_order, is_active')
+          .single();
+        if (dbData) savedProducts.push(dbData);
       }
     }
 
@@ -189,34 +185,20 @@ export async function POST(req: NextRequest) {
 
         const position = i + 1; // 1-indexed ordering position
 
-        // Execute case-insensitive upsert SP fn_upsert_particular_master
-        const { data: spData, error: spErr } = await supabase.rpc('fn_upsert_particular_master', {
-          p_section_type: 'RECEIPT',
-          p_particular_name: full_name,
-          p_code: short_name,
-          p_sort_order: position,
-          p_is_active: true,
-          p_actor: actorUsername,
-        });
-
-        if (!spErr && Array.isArray(spData) && spData.length > 0) {
-          savedReceiptRows.push(spData[0]);
-        } else {
-          const { data: dbData } = await supabase
-            .from('particulars_master')
-            .upsert({
-              section_type: 'RECEIPT',
-              particular_name: full_name,
-              code: short_name,
-              sort_order: position,
-              is_active: true,
-              updated_by: actorUsername,
-              updated_at: new Date().toISOString(),
-            }, { onConflict: 'section_type,particular_name' })
-            .select('*')
-            .single();
-          if (dbData) savedReceiptRows.push(dbData);
-        }
+        const { data: dbData } = await supabase
+          .from('particulars_master')
+          .upsert({
+            section_type: 'RECEIPT',
+            particular_name: full_name,
+            code: short_name,
+            sort_order: position,
+            is_active: true,
+            updated_by: actorUsername,
+            updated_at: new Date().toISOString(),
+          }, { onConflict: 'section_type,particular_name' })
+          .select('id, section_type, particular_name, code, sort_order, is_active')
+          .single();
+        if (dbData) savedReceiptRows.push(dbData);
       }
     }
 
@@ -231,34 +213,20 @@ export async function POST(req: NextRequest) {
 
         const position = i + 1; // 1-indexed ordering position
 
-        // Execute case-insensitive upsert SP fn_upsert_particular_master
-        const { data: spData, error: spErr } = await supabase.rpc('fn_upsert_particular_master', {
-          p_section_type: 'DISPOSAL',
-          p_particular_name: full_name,
-          p_code: short_name,
-          p_sort_order: position,
-          p_is_active: true,
-          p_actor: actorUsername,
-        });
-
-        if (!spErr && Array.isArray(spData) && spData.length > 0) {
-          savedDisposalRows.push(spData[0]);
-        } else {
-          const { data: dbData } = await supabase
-            .from('particulars_master')
-            .upsert({
-              section_type: 'DISPOSAL',
-              particular_name: full_name,
-              code: short_name,
-              sort_order: position,
-              is_active: true,
-              updated_by: actorUsername,
-              updated_at: new Date().toISOString(),
-            }, { onConflict: 'section_type,particular_name' })
-            .select('*')
-            .single();
-          if (dbData) savedDisposalRows.push(dbData);
-        }
+        const { data: dbData } = await supabase
+          .from('particulars_master')
+          .upsert({
+            section_type: 'DISPOSAL',
+            particular_name: full_name,
+            code: short_name,
+            sort_order: position,
+            is_active: true,
+            updated_by: actorUsername,
+            updated_at: new Date().toISOString(),
+          }, { onConflict: 'section_type,particular_name' })
+          .select('id, section_type, particular_name, code, sort_order, is_active')
+          .single();
+        if (dbData) savedDisposalRows.push(dbData);
       }
     }
 

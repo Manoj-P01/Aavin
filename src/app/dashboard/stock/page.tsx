@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import Header from '@/components/layout/Header';
 import Link from 'next/link';
+import { useShiftConfig } from '@/hooks/useSettings';
 import { fmtDate } from '@/lib/calculations';
 import type { Entry } from '@/lib/types';
 
@@ -21,32 +22,18 @@ export default function StockListPage() {
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
   });
 
+  const { shiftConfig } = useShiftConfig();
+
+  useEffect(() => {
+    if (shiftConfig?.mode) {
+      setReportMode(shiftConfig.mode);
+    }
+  }, [shiftConfig]);
+
   useEffect(() => {
     async function load() {
       setLoading(true);
       try {
-        // Load report mode configuration
-        let parsedMode: 'full_day' | 'shift' = 'full_day';
-        try {
-          const configRes = await fetch('/api/entries?report_type=STOCK&date=1970-01-01');
-          if (configRes.ok) {
-            const configJson = await configRes.json();
-            const entries: any[] = configJson.data || [];
-            const configEntry = entries.find((e: any) => e.entry_date === '1970-01-01') || entries.find((e: any) => e.notes && !e.notes.includes('__METADATA__:'));
-            if (configEntry && configEntry.notes) {
-              try {
-                const parsed = JSON.parse(configEntry.notes);
-                if (parsed && typeof parsed === 'object') {
-                  if (parsed.mode) parsedMode = parsed.mode;
-                }
-              } catch (e) {}
-            }
-          }
-        } catch (err) {
-          console.error('Error loading config in stock list page:', err);
-        }
-        setReportMode(parsedMode);
-
         const res = await fetch(`/api/entries?report_type=STOCK&month=${month}`);
         const json = await res.json();
         const entries = (json.data || []) as Entry[];

@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { useConfirm } from '@/context/ConfirmContext';
+import KeyField, { executeKeyRename } from '@/components/ui/KeyField';
 
 interface ProductItem {
   id: string;
@@ -51,8 +52,9 @@ export default function MasterDeclarationsPage() {
   const [newProdKey, setNewProdKey] = useState('');
   const [newProdName, setNewProdName] = useState('');
   const [newProdShortName, setNewProdShortName] = useState('');
-  const [newProdCategory, setNewProdCategory] = useState('Liquid Milk');
+  const [newProdCategory, setNewProdCategory] = useState('');
   const [editingProduct, setEditingProduct] = useState<ProductItem | null>(null);
+  const [originalProductKey, setOriginalProductKey] = useState<string | null>(null);
 
   // Dairies State
   const [dairies, setDairies] = useState<DairyItem[]>([]);
@@ -61,6 +63,7 @@ export default function MasterDeclarationsPage() {
   const [newDairyName, setNewDairyName] = useState('');
   const [newDairyCode, setNewDairyCode] = useState('');
   const [editingDairy, setEditingDairy] = useState<DairyItem | null>(null);
+  const [originalDairyName, setOriginalDairyName] = useState<string | null>(null);
 
   // Categories Master State
   const [categories, setCategories] = useState<CategoryItem[]>([]);
@@ -120,9 +123,13 @@ export default function MasterDeclarationsPage() {
       setLoadingCategories(true);
       const res = await fetch('/api/master/categories');
       const json = await res.json();
-      if (res.ok && json.data) setCategories(json.data);
+      if (res.ok && Array.isArray(json.data)) {
+        setCategories(json.data);
+      } else {
+        setCategories([]);
+      }
     } catch {
-      // handled silently
+      setCategories([]);
     } finally {
       setLoadingCategories(false);
     }
@@ -147,7 +154,7 @@ export default function MasterDeclarationsPage() {
           product_key: newProdKey,
           product_name: newProdName,
           short_name: newProdShortName || newProdKey.toUpperCase(),
-          category: newProdCategory,
+          category: newProdCategory.trim() || undefined,
           sort_order: products.length + 1,
         }),
       });
@@ -172,10 +179,16 @@ export default function MasterDeclarationsPage() {
     setMessage(null);
 
     try {
+      const payload: Record<string, any> = { ...editingProduct };
+      if (originalProductKey && editingProduct.product_key !== originalProductKey) {
+        payload.new_product_key = editingProduct.product_key;
+        payload.product_key = originalProductKey;
+      }
+
       const res = await fetch('/api/master/products', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(editingProduct),
+        body: JSON.stringify(payload),
       });
 
       const json = await res.json();
@@ -183,6 +196,7 @@ export default function MasterDeclarationsPage() {
 
       setMessage({ type: 'success', text: `Product "${editingProduct.product_name}" updated!` });
       setEditingProduct(null);
+      setOriginalProductKey(null);
       fetchProducts();
     } catch (err: unknown) {
       setMessage({ type: 'error', text: err instanceof Error ? err.message : 'Error updating product' });
@@ -224,6 +238,17 @@ export default function MasterDeclarationsPage() {
     setMessage(null);
 
     try {
+      if (originalDairyName && editingDairy.dairy_name !== originalDairyName) {
+        const renameRes = await executeKeyRename({
+          scope: 'dairy',
+          oldKey: originalDairyName,
+          newKey: editingDairy.dairy_name,
+          confirm,
+          showError,
+        });
+        if (!renameRes.success) return;
+      }
+
       const res = await fetch('/api/master/dairies', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
@@ -235,6 +260,7 @@ export default function MasterDeclarationsPage() {
 
       setMessage({ type: 'success', text: `Destination Dairy "${editingDairy.dairy_name}" updated!` });
       setEditingDairy(null);
+      setOriginalDairyName(null);
       fetchDairies();
     } catch (err: unknown) {
       setMessage({ type: 'error', text: err instanceof Error ? err.message : 'Error updating dairy' });
@@ -293,7 +319,7 @@ export default function MasterDeclarationsPage() {
     }
   };
 
-  const { confirm } = useConfirm();
+  const { confirm, showError } = useConfirm();
 
   const handleDeleteProduct = async (id: string, name: string) => {
     const isConfirmed = await confirm({
@@ -508,6 +534,8 @@ export default function MasterDeclarationsPage() {
             <tbody>
               {loadingProducts ? (
                 <tr><td colSpan={7} style={{ padding: 24, textAlign: 'center', color: 'var(--text-muted)' }}>Loading declared products...</td></tr>
+              ) : products.length === 0 ? (
+                <tr><td colSpan={7} style={{ padding: 32, textAlign: 'center', color: 'var(--text-muted)' }}>No products declared yet. Click "+ Declare New Product" above to add one.</td></tr>
               ) : products.map(p => (
                 <tr key={p.id} style={{ borderBottom: '1px solid var(--border)' }}>
                   <td style={{ padding: '12px 16px' }}>
@@ -515,7 +543,7 @@ export default function MasterDeclarationsPage() {
                     <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontFamily: 'monospace' }}>{p.product_key}</div>
                   </td>
                   <td style={{ padding: '12px 16px', fontWeight: 600, color: '#0ea5e9' }}>{p.short_name || '—'}</td>
-                  <td style={{ padding: '12px 16px', color: 'var(--text-secondary)' }}>{p.category}</td>
+                  <td style={{ padding: '12px 16px', color: p.category ? 'var(--text-secondary)' : 'var(--text-muted)' }}>{p.category || '—'}</td>
                   <td style={{ padding: '12px 16px' }}>
                     <span style={{ padding: '2px 8px', borderRadius: 12, fontSize: '0.72rem', fontWeight: 700, background: p.is_active ? '#d1fae5' : '#fee2e2', color: p.is_active ? '#065f46' : '#991b1b' }}>
                       {p.is_active ? 'Active' : 'Disabled'}
@@ -531,7 +559,7 @@ export default function MasterDeclarationsPage() {
                   </td>
                   <td style={{ padding: '12px 16px', textAlign: 'center' }}>
                     <div style={{ display: 'inline-flex', gap: 6 }}>
-                      <button type="button" className="btn btn-secondary btn-xs" onClick={() => setEditingProduct(p)}>✏️ Edit</button>
+                      <button type="button" className="btn btn-secondary btn-xs" onClick={() => { setEditingProduct(p); setOriginalProductKey(p.product_key); }}>✏️ Edit</button>
                       <button type="button" className="btn btn-secondary btn-xs" style={{ color: '#ef4444', borderColor: '#fca5a5' }} onClick={() => handleDeleteProduct(p.id, p.product_name)}>✕ Delete</button>
                     </div>
                   </td>
@@ -559,6 +587,8 @@ export default function MasterDeclarationsPage() {
             <tbody>
               {loadingCategories ? (
                 <tr><td colSpan={6} style={{ padding: 24, textAlign: 'center', color: 'var(--text-muted)' }}>Loading declared product categories...</td></tr>
+              ) : categories.length === 0 ? (
+                <tr><td colSpan={6} style={{ padding: 32, textAlign: 'center', color: 'var(--text-muted)' }}>No product categories declared yet. Click "+ Declare Product Category" above to add one.</td></tr>
               ) : categories.map(c => (
                 <tr key={c.id} style={{ borderBottom: '1px solid var(--border)' }}>
                   <td style={{ padding: '12px 16px', fontWeight: 700, color: 'var(--text-primary)' }}>{c.category_name}</td>
@@ -625,7 +655,7 @@ export default function MasterDeclarationsPage() {
                   </td>
                   <td style={{ padding: '12px 16px', textAlign: 'center' }}>
                     <div style={{ display: 'inline-flex', gap: 6 }}>
-                      <button type="button" className="btn btn-secondary btn-xs" onClick={() => setEditingDairy(d)}>✏️ Edit</button>
+                      <button type="button" className="btn btn-secondary btn-xs" onClick={() => { setEditingDairy(d); setOriginalDairyName(d.dairy_name); }}>✏️ Edit</button>
                       <button type="button" className="btn btn-secondary btn-xs" style={{ color: '#ef4444', borderColor: '#fca5a5' }} onClick={() => handleDeleteDairy(d.id, d.dairy_name)}>✕ Delete</button>
                     </div>
                   </td>
@@ -645,10 +675,14 @@ export default function MasterDeclarationsPage() {
               <button type="button" style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '1.2rem' }} onClick={() => setShowAddProductModal(false)}>✖</button>
             </div>
             <form onSubmit={handleAddProduct} style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-              <div>
-                <label style={{ fontSize: '0.8rem', fontWeight: 600, display: 'block', marginBottom: 4 }}>Product Key (identifier)</label>
-                <input type="text" placeholder="e.g. flavoured_milk" className="form-input" value={newProdKey} onChange={e => setNewProdKey(e.target.value)} required style={{ width: '100%' }} />
-              </div>
+              <KeyField
+                label="Product Key (identifier)"
+                value={newProdKey}
+                onChange={setNewProdKey}
+                scope="product"
+                existingKeys={products.map(p => p.product_key)}
+                placeholder="e.g. flavoured_milk"
+              />
               <div>
                 <label style={{ fontSize: '0.8rem', fontWeight: 600, display: 'block', marginBottom: 4 }}>Product Name</label>
                 <input type="text" placeholder="e.g. Flavoured Milk" className="form-input" value={newProdName} onChange={e => setNewProdName(e.target.value)} required style={{ width: '100%' }} />
@@ -658,18 +692,14 @@ export default function MasterDeclarationsPage() {
                 <input type="text" placeholder="e.g. FM" className="form-input" value={newProdShortName} onChange={e => setNewProdShortName(e.target.value)} style={{ width: '100%' }} />
               </div>
               <div>
-                <label style={{ fontSize: '0.8rem', fontWeight: 600, display: 'block', marginBottom: 4 }}>Category</label>
+                <label style={{ fontSize: '0.8rem', fontWeight: 600, display: 'block', marginBottom: 4 }}>
+                  Category <span style={{ color: 'var(--text-muted)', fontWeight: 400 }}>(Optional)</span>
+                </label>
                 <select className="form-select" value={newProdCategory} onChange={e => setNewProdCategory(e.target.value)} style={{ width: '100%' }}>
-                  {categories.length > 0 ? categories.map(c => (
+                  <option value="">-- No Category (Optional) --</option>
+                  {categories.map(c => (
                     <option key={c.id} value={c.category_name}>{c.category_name}</option>
-                  )) : (
-                    <>
-                      <option value="Liquid Milk">Liquid Milk</option>
-                      <option value="Products">Products</option>
-                      <option value="By-Products">By-Products</option>
-                      <option value="Others">Others</option>
-                    </>
-                  )}
+                  ))}
                 </select>
               </div>
               <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, marginTop: 12 }}>
@@ -690,6 +720,18 @@ export default function MasterDeclarationsPage() {
               <button type="button" style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '1.2rem' }} onClick={() => setEditingProduct(null)}>✖</button>
             </div>
             <form onSubmit={handleUpdateProduct} style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+              <KeyField
+                label="Product Key (identifier)"
+                value={editingProduct.product_key}
+                onChange={val => setEditingProduct({ ...editingProduct, product_key: val })}
+                originalKey={originalProductKey}
+                scope="product"
+                existingKeys={products.map(p => p.product_key)}
+                onRenameComplete={(oldKey, newKey) => {
+                  setOriginalProductKey(newKey);
+                  fetchProducts();
+                }}
+              />
               <div>
                 <label style={{ fontSize: '0.8rem', fontWeight: 600, display: 'block', marginBottom: 4 }}>Product Name</label>
                 <input type="text" className="form-input" value={editingProduct.product_name} onChange={e => setEditingProduct({ ...editingProduct, product_name: e.target.value })} required style={{ width: '100%' }} />
@@ -699,18 +741,14 @@ export default function MasterDeclarationsPage() {
                 <input type="text" className="form-input" value={editingProduct.short_name || ''} onChange={e => setEditingProduct({ ...editingProduct, short_name: e.target.value })} style={{ width: '100%' }} />
               </div>
               <div>
-                <label style={{ fontSize: '0.8rem', fontWeight: 600, display: 'block', marginBottom: 4 }}>Category</label>
-                <select className="form-select" value={editingProduct.category || 'Liquid Milk'} onChange={e => setEditingProduct({ ...editingProduct, category: e.target.value })} style={{ width: '100%' }}>
-                  {categories.length > 0 ? categories.map(c => (
+                <label style={{ fontSize: '0.8rem', fontWeight: 600, display: 'block', marginBottom: 4 }}>
+                  Category <span style={{ color: 'var(--text-muted)', fontWeight: 400 }}>(Optional)</span>
+                </label>
+                <select className="form-select" value={editingProduct.category || ''} onChange={e => setEditingProduct({ ...editingProduct, category: e.target.value })} style={{ width: '100%' }}>
+                  <option value="">-- No Category (Optional) --</option>
+                  {categories.map(c => (
                     <option key={c.id} value={c.category_name}>{c.category_name}</option>
-                  )) : (
-                    <>
-                      <option value="Liquid Milk">Liquid Milk</option>
-                      <option value="Products">Products</option>
-                      <option value="By-Products">By-Products</option>
-                      <option value="Others">Others</option>
-                    </>
-                  )}
+                  ))}
                 </select>
               </div>
               <div>
@@ -739,8 +777,8 @@ export default function MasterDeclarationsPage() {
             </div>
             <form onSubmit={handleAddCategory} style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
               <div>
-                <label style={{ fontSize: '0.8rem', fontWeight: 600, display: 'block', marginBottom: 4 }}>Category Name (e.g. Liquid Milk)</label>
-                <input type="text" placeholder="e.g. Liquid Milk" className="form-input" value={newCategoryName} onChange={e => setNewCategoryName(e.target.value)} required style={{ width: '100%' }} />
+                <label style={{ fontSize: '0.8rem', fontWeight: 600, display: 'block', marginBottom: 4 }}>Category Name</label>
+                <input type="text" placeholder="e.g. Dairy Products" className="form-input" value={newCategoryName} onChange={e => setNewCategoryName(e.target.value)} required style={{ width: '100%' }} />
               </div>
               <div>
                 <label style={{ fontSize: '0.8rem', fontWeight: 600, display: 'block', marginBottom: 4 }}>Category Code</label>
@@ -823,10 +861,18 @@ export default function MasterDeclarationsPage() {
               <button type="button" style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '1.2rem' }} onClick={() => setEditingDairy(null)}>✖</button>
             </div>
             <form onSubmit={handleUpdateDairy} style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-              <div>
-                <label style={{ fontSize: '0.8rem', fontWeight: 600, display: 'block', marginBottom: 4 }}>Dairy Name</label>
-                <input type="text" className="form-input" value={editingDairy.dairy_name} onChange={e => setEditingDairy({ ...editingDairy, dairy_name: e.target.value })} required style={{ width: '100%' }} />
-              </div>
+              <KeyField
+                label="Dairy Name"
+                value={editingDairy.dairy_name}
+                onChange={val => setEditingDairy({ ...editingDairy, dairy_name: val })}
+                originalKey={originalDairyName}
+                scope="dairy"
+                existingKeys={dairies.map(d => d.dairy_name)}
+                onRenameComplete={(oldKey, newKey) => {
+                  setOriginalDairyName(newKey);
+                  fetchDairies();
+                }}
+              />
               <div>
                 <label style={{ fontSize: '0.8rem', fontWeight: 600, display: 'block', marginBottom: 4 }}>Dairy Code</label>
                 <input type="text" className="form-input" value={editingDairy.code || ''} onChange={e => setEditingDairy({ ...editingDairy, code: e.target.value })} style={{ width: '100%' }} />

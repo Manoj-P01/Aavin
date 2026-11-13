@@ -154,90 +154,80 @@ export default function PrepToStockMappingsConfigPage() {
     return list;
   }, [masters]);
 
-  // Extract ingredients for a given chart from templates & master dynamically without duplicate variant aliases
-  const getChartIngredients = (chartKey: string): string[] => {
-    const rawList: string[] = [];
+  // Helper to extract differentiated ingredients from a template's rows
+  const extractDifferentiatedRows = (rows: any[]): string[] => {
+    if (!Array.isArray(rows) || rows.length === 0) return [];
 
-    const addVariant = (val?: string) => {
-      if (typeof val !== 'string') return;
-      const trimmed = val.trim();
-      if (!trimmed) return;
-      const lower = trimmed.toLowerCase();
+    // Filter valid rows and preserve their 1-indexed chart row position
+    const valid: Array<{ variant: string; rowNum: number }> = [];
+    rows.forEach((r: any, idx: number) => {
+      const raw = (r.variant || r.values?.variant || '').trim();
+      if (!raw) return;
+      const lower = raw.toLowerCase();
       if (['new ingredient', 'sample', 'diff', 'difference', 'total'].includes(lower)) return;
-      rawList.push(trimmed);
-    };
+      valid.push({
+        variant: raw,
+        rowNum: idx + 1, // 1-based row index in chart template
+      });
+    });
 
-    if (chartKey && chartKey !== '*') {
-      const m = masters.find(x => x.key === chartKey);
-      if (m?.product_variant) addVariant(m.product_variant);
+    // Count occurrences of each normalized variant name in this chart
+    const counts = new Map<string, number>();
+    valid.forEach(item => {
+      const key = item.variant.toLowerCase();
+      counts.set(key, (counts.get(key) || 0) + 1);
+    });
 
-      const tmpl = templates[chartKey];
-      if (tmpl && Array.isArray(tmpl.rows)) {
-        tmpl.rows.forEach((r: any) => addVariant(r.variant));
+    // Format: if variant appears > 1 time, append (Row X) to differentiate duplicate rows (e.g. MILK (Row 2), MILK (Row 6))
+    return valid.map(item => {
+      const key = item.variant.toLowerCase();
+      const count = counts.get(key) || 0;
+      if (count > 1) {
+        return `${item.variant} (Row ${item.rowNum})`;
       }
-    } else {
-      masters.forEach(m => {
-        if (m.product_variant) addVariant(m.product_variant);
-      });
-      Object.values(templates).forEach((tmpl: any) => {
-        if (tmpl && Array.isArray(tmpl.rows)) {
-          tmpl.rows.forEach((r: any) => addVariant(r.variant));
-        }
-      });
+      return item.variant;
+    });
+  };
+
+  // Extract ingredients for a given chart from templates dynamically, strictly from chart rows and differentiating duplicates
+  const getChartIngredients = (chartKey: string): string[] => {
+    if (chartKey && chartKey !== '*') {
+      const tmpl = templates[chartKey] || Object.values(templates).find((t: any) => t?.key === chartKey);
+      if (tmpl && Array.isArray(tmpl.rows)) {
+        return extractDifferentiatedRows(tmpl.rows);
+      }
+      return [];
     }
 
-    // Canonicalization map: maps normalized strings (e.g. 'std', 'stdmilk') to one unified display name
-    const canonicalMap = new Map<string, string>();
-
-    // 1. Chart master product_variants take precedence
-    masters.forEach(m => {
-      if (m.product_variant && m.product_variant.trim()) {
-        const pv = m.product_variant.trim();
-        const normKey = pv.toLowerCase().replace(/[\s._-]/g, '');
-        canonicalMap.set(normKey, pv);
-        if (normKey === 'std' || normKey === 'stdmilk') {
-          canonicalMap.set('std', pv);
-          canonicalMap.set('stdmilk', pv);
-        }
-        if (normKey === 'dlt' || normKey === 'dltmilk' || normKey === 'delite') {
-          canonicalMap.set('dlt', pv);
-          canonicalMap.set('dltmilk', pv);
-          canonicalMap.set('delite', pv);
-        }
-        if (normKey === 'fc' || normKey === 'fcm' || normKey === 'fcmilk') {
-          canonicalMap.set('fc', pv);
-          canonicalMap.set('fcm', pv);
-          canonicalMap.set('fcmilk', pv);
-        }
-      }
-    });
-
-    // 2. Map database product names & short names
-    dbRawProducts.forEach((p: any) => {
-      const sName = (p.short_name || '').trim();
-      const pName = (p.product_name || p.full_name || '').trim();
-      const sNorm = sName.toLowerCase().replace(/[\s._-]/g, '');
-      const pNorm = pName.toLowerCase().replace(/[\s._-]/g, '');
-      const preferred = canonicalMap.get(sNorm) || canonicalMap.get(pNorm) || sName || pName;
-      if (sNorm) canonicalMap.set(sNorm, preferred);
-      if (pNorm) canonicalMap.set(pNorm, preferred);
-    });
-
-    // Deduplicate preserving unique ingredients
-    const resultList: string[] = [];
+    // When chartKey === '*' (All Preparation Charts):
+    // Collect ingredients across all chart templates preserving masters order and differentiating duplicates
+    const allList: string[] = [];
     const seen = new Set<string>();
 
-    rawList.forEach(v => {
-      const normKey = v.toLowerCase().replace(/[\s._-]/g, '');
-      const canonical = canonicalMap.get(normKey) || v;
-      const seenKey = canonical.toLowerCase();
-      if (!seen.has(seenKey)) {
-        seen.add(seenKey);
-        resultList.push(canonical);
+    const chartKeys = masters.length > 0
+      ? masters.map(m => m.key).filter(k => templates[k])
+      : Object.keys(templates);
+
+    // Append any template keys not explicitly in masters
+    Object.keys(templates).forEach(k => {
+      if (!chartKeys.includes(k)) chartKeys.push(k);
+    });
+
+    chartKeys.forEach(k => {
+      const tmpl = templates[k];
+      if (tmpl && Array.isArray(tmpl.rows)) {
+        const list = extractDifferentiatedRows(tmpl.rows);
+        list.forEach(item => {
+          const lower = item.toLowerCase();
+          if (!seen.has(lower)) {
+            seen.add(lower);
+            allList.push(item);
+          }
+        });
       }
     });
 
-    return resultList;
+    return allList;
   };
 
   // Currently selected chart object
@@ -264,7 +254,52 @@ export default function PrepToStockMappingsConfigPage() {
   // Helper to find closest product match for a variant
   const findBestProductMatch = (variant: string): string => {
     if (!variant || productOptions.length === 0) return productOptions[0]?.key || '';
-    const vNorm = variant.toLowerCase().replace(/[\s._-]/g, '');
+    // Strip (Row X) suffix for matching against product master options
+    const cleanVariant = variant.replace(/\(Row\s*\d+\)/i, '').trim();
+    const vNorm = cleanVariant.toLowerCase().replace(/[\s._-]/g, '');
+
+    // Special common dairy abbreviations first
+    if (vNorm === 'fcm' || vNorm === 'fc') {
+      const fcmMatch = productOptions.find(p => {
+        const k = p.key.toLowerCase();
+        const l = p.label.toLowerCase();
+        return k.includes('fc') || l.includes('fc') || l.includes('full cream');
+      });
+      if (fcmMatch) return fcmMatch.key;
+    }
+    if (vNorm === 'dlt' || vNorm === 'delite') {
+      const dltMatch = productOptions.find(p => {
+        const k = p.key.toLowerCase();
+        const l = p.label.toLowerCase();
+        return k.includes('dlt') || l.includes('delite');
+      });
+      if (dltMatch) return dltMatch.key;
+    }
+    if (vNorm === 'std') {
+      const stdMatch = productOptions.find(p => {
+        const k = p.key.toLowerCase();
+        const l = p.label.toLowerCase();
+        return k.includes('std') || l.includes('standard');
+      });
+      if (stdMatch) return stdMatch.key;
+    }
+    if (vNorm === 'smp') {
+      const smpMatch = productOptions.find(p => {
+        const k = p.key.toLowerCase();
+        const l = p.label.toLowerCase();
+        return k.includes('smp') || l.includes('smp') || l.includes('skimmed milk powder');
+      });
+      if (smpMatch) return smpMatch.key;
+    }
+    if (vNorm === 'cream') {
+      const creamMatch = productOptions.find(p => {
+        const k = p.key.toLowerCase();
+        const l = p.label.toLowerCase();
+        return k.includes('cream') || l.includes('cream') || k.includes('butter') || l.includes('butter');
+      });
+      if (creamMatch) return creamMatch.key;
+    }
+
     const exact = productOptions.find(p => {
       const kNorm = p.key.toLowerCase().replace(/[\s._-]/g, '');
       const lNorm = p.label.toLowerCase().replace(/[\s._-]/g, '');

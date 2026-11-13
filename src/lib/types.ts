@@ -2,8 +2,35 @@
 // Aavin Dashboard – TypeScript Type Definitions
 // ─────────────────────────────────────────────────────────────────────────────
 
-export type ReportType = 'TS' | 'STOCK' | 'STG' | 'INTERNAL_STOCK_MAPPING' | 'STOCK_MAPPING';
+export type ReportType = 'TS' | 'STOCK' | 'STG';
+export type MappingReportType = 'INTERNAL_STOCK_MAPPING' | 'STOCK_MAPPING';
+export type ExtendedReportType = ReportType | MappingReportType;
 export type Shift = 'D' | 'N' | 'F';
+
+export interface ShiftScheduleItem {
+  key: string;
+  label: string;
+  start?: string;
+  end?: string;
+}
+
+export interface ProductScheduleItem {
+  key: string;
+  name: string;
+  enabled: boolean;
+}
+
+export interface ShiftConfig {
+  mode: 'full_day' | 'shift';
+  shifts: ShiftScheduleItem[];
+  products?: ProductScheduleItem[];
+}
+
+export interface StgCalcConfig {
+  fatCalcMode: 'FROM_PCT' | 'FROM_KG';
+  snfCalcMode: 'FROM_PCT' | 'FROM_KG';
+  densityFactor: number;
+}
 
 export type TSSection =
   | 'OB'
@@ -25,6 +52,7 @@ export interface Entry {
   entry_date: string;    // ISO date: YYYY-MM-DD
   shift: Shift | null;
   report_type: ReportType;
+  status?: string | null;
   notes: string | null;
   created_at: string;
   updated_at: string;
@@ -44,6 +72,7 @@ export interface TSMilkRow {
   kg_snf: number;
   remarks?: string;
   sort_order: number;
+  row_json?: Record<string, any>;
 }
 
 export interface STGRow {
@@ -60,6 +89,7 @@ export interface STGRow {
   kg_fat: number;
   kg_snf: number;
   sort_order: number;
+  row_json?: Record<string, any>;
 }
 
 export interface StockRow {
@@ -93,19 +123,6 @@ export interface StockRow {
   smp?: number;
   water?: number;
   [key: string]: any;
-}
-
-export interface SeparationDetails {
-  id: string;
-  entry_id: string;
-  wm_fat_pct: number;
-  wm_snf_pct: number;
-  cream_lts: number;
-  cream_fat_pct: number;
-  cream_snf_pct: number;
-  ssm_lts: number;
-  ssm_fat_pct: number;
-  ssm_snf_pct: number;
 }
 
 export type StockSummaryRowType = 'OB' | 'TOTAL_RECEIPT' | 'TOTAL_DISPOSAL' | 'CB';
@@ -154,6 +171,7 @@ export interface STGProductTotals {
 }
 
 export interface StockColumns {
+  [key: string]: number;
   wh_milk: number;
   dlt_milk: number;
   fc_milk: number;
@@ -191,6 +209,7 @@ export interface TSMilkRowInput {
 
 export interface StockRowInput {
   row_label: string;
+  [key: string]: number | string;
   wh_milk: number | string;
   dlt_milk: number | string;
   fc_milk: number | string;
@@ -217,7 +236,6 @@ export interface EntryWithData extends Entry {
   stg_rows?: STGRow[];
   stock_rows?: StockRow[];
   stock_summary_rows?: StockSummaryRow[];
-  separation_details?: SeparationDetails;
 }
 
 // ─── Dashboard Summary ─────────────────────────────────────────────────────────

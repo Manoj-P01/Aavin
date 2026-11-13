@@ -30,12 +30,3 @@ ALTER TABLE prep_to_stock_mapping_rules ENABLE ROW LEVEL SECURITY;
 
 DROP POLICY IF EXISTS "Allow all prep to stock mapping rules" ON prep_to_stock_mapping_rules;
 CREATE POLICY "Allow all prep to stock mapping rules" ON prep_to_stock_mapping_rules FOR ALL USING (true) WITH CHECK (true);
-
--- Seed Default Preparation Chart to Stock Statement Mapping Rules
-INSERT INTO prep_to_stock_mapping_rules (rule_key, source_chart_key, source_variant, source_col_key, target_row_type, target_product_key, enabled, description, sort_order)
-VALUES
-  ('rule_delite', '*', 'DELITE', 'qty_lit', 'RECEIPT', 'dlt_milk', true, 'DELITE Preparation Chart Qty(Lit) ➔ DLT.Milk (Receipts)', 1),
-  ('rule_fcm', '*', 'FCM', 'qty_lit', 'RECEIPT', 'fcm', true, 'FCM Preparation Chart Qty(Lit) ➔ FCM (Receipts)', 2),
-  ('rule_std', '*', 'STD MILK', 'qty_lit', 'RECEIPT', 'std_milk', true, 'STD Preparation Chart Qty(Lit) ➔ STD.Milk (Receipts)', 3),
-  ('rule_skim', '*', 'SKIM MILK', 'qty_lit', 'RECEIPT', 'skim_milk', true, 'Skim Milk Preparation Chart Qty(Lit) ➔ SKIM MILK (Receipts)', 4)
-ON CONFLICT (rule_key) DO NOTHING;

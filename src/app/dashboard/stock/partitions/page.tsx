@@ -1,7 +1,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 // Aavin Dashboard – Receipts Internal Partitions Configuration Page
 // Dedicated page under Stock Statement to configure which Disposals row particulars
-// require Receipts Internal Partitions auto-mapping (e.g. To Separation ➔ Skim Milk & Cream)
+// require Receipts Internal Partitions auto-mapping (e.g. To Partition ➔ Skim Milk & Cream)
 // ─────────────────────────────────────────────────────────────────────────────
 
 'use client';
@@ -19,9 +19,9 @@ export interface PartitionItem {
 
 export interface InternalStockMappingRule {
   id: string;
-  sourceDisposalParticular: string;  // e.g. 'To DLT Milk' or 'To Separation'
-  targetReceiptProductKey?: string;   // e.g. 'dlt_milk'
-  targetReceiptProductLabel?: string; // e.g. 'DLT.Milk'
+  sourceDisposalParticular: string;  // e.g. 'To Product' or 'To Partition'
+  targetReceiptProductKey?: string;   // e.g. product key
+  targetReceiptProductLabel?: string;
   partitions?: PartitionItem[];
   enabled: boolean;
 }
@@ -185,7 +185,7 @@ export default function ReceiptsInternalPartitionsPage() {
   const openEditForm = (rule: InternalStockMappingRule) => {
     setEditingId(rule.id);
     setFormSourceParticular(rule.sourceDisposalParticular);
-    setFormTargetReceiptKey(rule.targetReceiptProductKey || 'dlt_milk');
+    setFormTargetReceiptKey(rule.targetReceiptProductKey || stockProducts[0]?.key || '');
     setFormPartitions(rule.partitions ? [...rule.partitions] : []);
     setIsEditing(true);
   };
@@ -319,7 +319,7 @@ export default function ReceiptsInternalPartitionsPage() {
               • In <strong>Stock Statement Entry</strong>, the <code>🔀 Receipts Internal Partitions</code> button & icon will <strong>ONLY be shown</strong> on Disposals rows that are mapped below. Unmapped Disposals rows will not display the partition icon.
             </div>
             <div style={{ marginTop: 4 }}>
-              • Example: <code>To Separation</code> can be partitioned across <code>Skim Milk</code> & <code>Cream</code> Receipts columns.
+              • Example: <code>To Process</code> can be partitioned across <code>Skim Milk</code> & <code>Cream</code> Receipts columns.
             </div>
           </div>
         </div>

@@ -158,7 +158,7 @@ export async function GET(req: NextRequest) {
     try {
       const { data: dbRules, error: dbErr } = await supabase
         .from('prep_to_stock_mapping_rules')
-        .select('*')
+        .select('id, rule_key, source_chart_key, source_variant, source_col_key, target_row_type, target_row_label, target_product_key, enabled, description, sort_order')
         .order('sort_order', { ascending: true })
         .order('created_at', { ascending: true });
 
@@ -193,7 +193,7 @@ export async function GET(req: NextRequest) {
       try {
         let query = supabase
           .from('prep_chart_entries')
-          .select('*')
+          .select('id, chart_key, entry_date, shift, entry_json, updated_at')
           .eq('entry_date', date);
 
         if (shift) {
@@ -415,7 +415,7 @@ export async function POST(req: NextRequest) {
         entry_json: body.entry,
         updated_by: actorUsername,
         updated_at: new Date().toISOString(),
-      }, { onConflict: 'chart_key,entry_date,shift' });
+      }, { onConflict: 'entry_date,chart_key,shift' });
     }
 
     return NextResponse.json({

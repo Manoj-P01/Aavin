@@ -1,13 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { invalidateMasterTag } from '@/lib/masters';
 import { getSupabaseServiceClient } from '@/lib/supabase';
 import { getAuthUserFromRequest } from '@/lib/auth';
-
-const DEFAULT_CATEGORIES = [
-  { id: 'cat_1', category_name: 'Liquid Milk', code: 'MILK', sort_order: 1, is_active: true },
-  { id: 'cat_2', category_name: 'Products', code: 'PROD', sort_order: 2, is_active: true },
-  { id: 'cat_3', category_name: 'By-Products', code: 'BYPROD', sort_order: 3, is_active: true },
-  { id: 'cat_4', category_name: 'Others', code: 'OTHR', sort_order: 4, is_active: true },
-];
 
 // GET /api/master/categories - List active product categories from product_categories_master
 export async function GET(req: NextRequest) {
@@ -17,22 +11,17 @@ export async function GET(req: NextRequest) {
     // Query product_categories_master
     const { data: categories, error } = await supabase
       .from('product_categories_master')
-      .select('*')
+      .select('id, category_name, code, sort_order, is_active')
       .order('sort_order', { ascending: true });
 
     if (error) {
       console.error('Error fetching product_categories_master:', error);
-      return NextResponse.json({ data: DEFAULT_CATEGORIES });
+      return NextResponse.json({ data: [] });
     }
 
-    // If table exists and query succeeded, return categories list
-    if (Array.isArray(categories)) {
-      return NextResponse.json({ data: categories });
-    }
-
-    return NextResponse.json({ data: DEFAULT_CATEGORIES });
+    return NextResponse.json({ data: categories || [] });
   } catch (err: unknown) {
-    return NextResponse.json({ data: DEFAULT_CATEGORIES });
+    return NextResponse.json({ data: [] });
   }
 }
 
@@ -57,20 +46,7 @@ export async function POST(req: NextRequest) {
     const cleanName = category_name.trim();
     const supabase = getSupabaseServiceClient();
 
-    // Try SP fn_upsert_product_category first
-    const { data: spData, error: spErr } = await supabase.rpc('fn_upsert_product_category', {
-      p_category_name: cleanName,
-      p_code: code?.trim() || cleanName.substring(0, 4).toUpperCase(),
-      p_sort_order: Number(sort_order) || 0,
-      p_is_active: is_active !== undefined ? is_active : true,
-      p_actor: actorUsername,
-    });
-
-    if (!spErr && spData) {
-      return NextResponse.json({ data: Array.isArray(spData) ? spData[0] : spData }, { status: 201 });
-    }
-
-    // Direct Table Upsert fallback
+    // Direct Table Upsert
     const { data, error } = await supabase
       .from('product_categories_master')
       .upsert({
@@ -81,10 +57,11 @@ export async function POST(req: NextRequest) {
         created_by: actorUsername,
         updated_by: actorUsername,
       }, { onConflict: 'category_name' })
-      .select('*')
+      .select('id, category_name, code, sort_order, is_active, created_at, updated_at')
       .single();
 
     if (error) throw error;
+    invalidateMasterTag('masters-categories');
     return NextResponse.json({ data }, { status: 201 });
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : 'Failed to declare category';
@@ -109,21 +86,7 @@ export async function PUT(req: NextRequest) {
 
     const supabase = getSupabaseServiceClient();
 
-    if (category_name) {
-      const { data: spData, error: spErr } = await supabase.rpc('fn_upsert_product_category', {
-        p_category_name: category_name.trim(),
-        p_code: code,
-        p_sort_order: sort_order,
-        p_is_active: is_active,
-        p_actor: actorUsername,
-      });
-
-      if (!spErr && spData) {
-        return NextResponse.json({ data: Array.isArray(spData) ? spData[0] : spData });
-      }
-    }
-
-    if (!id) return NextResponse.json({ error: 'Category ID or category_name is required' }, { status: 400 });
+    if (!id && !category_name) return NextResponse.json({ error: 'Category ID or category_name is required' }, { status: 400 });
 
     const updatePayload: Record<string, any> = {
       updated_by: actorUsername,
@@ -135,16 +98,18 @@ export async function PUT(req: NextRequest) {
     if (is_active !== undefined) updatePayload.is_active = is_active;
     if (sort_order !== undefined) updatePayload.sort_order = Number(sort_order);
 
-    const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id);
+    const isUuid = Boolean(id && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id));
     let updateQuery = supabase.from('product_categories_master').update(updatePayload);
 
-    if (isUuid) {
+    if (isUuid && id) {
       updateQuery = updateQuery.eq('id', id);
-    } else {
+    } else if (id) {
       updateQuery = updateQuery.or(`id.eq.${id},category_name.eq.${id},code.eq.${id}`);
+    } else if (category_name) {
+      updateQuery = updateQuery.eq('category_name', category_name.trim());
     }
 
-    const { data, error } = await updateQuery.select('*').single();
+    const { data, error } = await updateQuery.select('id, category_name, code, sort_order, is_active, created_at, updated_at').single();
 
     if (error) throw error;
     return NextResponse.json({ data });
@@ -174,27 +139,7 @@ export async function DELETE(req: NextRequest) {
 
     const supabase = getSupabaseServiceClient();
 
-    // 1. If product_categories_master is empty, seed defaults first so deleting a default category works correctly
-    const { data: existing } = await supabase
-      .from('product_categories_master')
-      .select('id, category_name, code');
-
-    if (!existing || existing.length === 0) {
-      for (const defCat of DEFAULT_CATEGORIES) {
-        await supabase
-          .from('product_categories_master')
-          .upsert({
-            category_name: defCat.category_name,
-            code: defCat.code,
-            sort_order: defCat.sort_order,
-            is_active: defCat.is_active,
-            created_by: actorUsername,
-            updated_by: actorUsername,
-          }, { onConflict: 'category_name' });
-      }
-    }
-
-    // 2. Try SP soft delete first if available
+    // 1. Try SP soft delete first if available
     try {
       await supabase.rpc('fn_soft_delete_product_category', {
         p_id: id,
@@ -230,6 +175,7 @@ export async function DELETE(req: NextRequest) {
       await updateQuery;
     }
 
+    invalidateMasterTag('masters-categories');
     return NextResponse.json({ success: true, message: 'Category deleted successfully' });
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : 'Failed to delete category';

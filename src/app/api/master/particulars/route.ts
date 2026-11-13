@@ -22,7 +22,7 @@ export async function GET(req: NextRequest) {
     // Direct table query fallback
     let query = supabase
       .from('particulars_master')
-      .select('*')
+      .select('id, section_type, particular_name, code, sort_order, is_active, created_at, updated_at')
       .eq('is_active', true)
       .order('sort_order', { ascending: true });
 
@@ -66,21 +66,7 @@ export async function POST(req: NextRequest) {
 
     const supabase = getSupabaseServiceClient();
 
-    // Call stored procedure fn_upsert_particular_master
-    const { data: spData, error: spErr } = await supabase.rpc('fn_upsert_particular_master', {
-      p_section_type: section_type.toUpperCase().trim(),
-      p_particular_name: particular_name.trim(),
-      p_code: code?.trim() || particular_name.trim(),
-      p_sort_order: Number(sort_order) || 0,
-      p_is_active: is_active !== undefined ? is_active : true,
-      p_actor: actorUsername,
-    });
-
-    if (!spErr && spData) {
-      return NextResponse.json({ data: Array.isArray(spData) ? spData[0] : spData }, { status: 201 });
-    }
-
-    // Direct table upsert fallback
+    // Direct table upsert
     const { data, error } = await supabase
       .from('particulars_master')
       .upsert({
@@ -92,7 +78,7 @@ export async function POST(req: NextRequest) {
         created_by: actorUsername,
         updated_by: actorUsername,
       }, { onConflict: 'section_type,particular_name' })
-      .select('*')
+      .select('id, section_type, particular_name, code, sort_order, is_active, created_at, updated_at')
       .single();
 
     if (error) throw error;
@@ -121,22 +107,7 @@ export async function PUT(req: NextRequest) {
 
     const supabase = getSupabaseServiceClient();
 
-    if (section_type && particular_name) {
-      const { data: spData, error: spErr } = await supabase.rpc('fn_upsert_particular_master', {
-        p_section_type: section_type.toUpperCase().trim(),
-        p_particular_name: particular_name.trim(),
-        p_code: code?.trim() || particular_name.trim(),
-        p_sort_order: Number(sort_order) || 0,
-        p_is_active: is_active !== undefined ? is_active : true,
-        p_actor: actorUsername,
-      });
-
-      if (!spErr && spData) {
-        return NextResponse.json({ data: Array.isArray(spData) ? spData[0] : spData });
-      }
-    }
-
-    if (!id) return NextResponse.json({ error: 'Particular ID or section_type & particular_name is required' }, { status: 400 });
+    if (!id && !(section_type && particular_name)) return NextResponse.json({ error: 'Particular ID or section_type & particular_name is required' }, { status: 400 });
 
     const updatePayload: Record<string, any> = {
       updated_by: actorUsername,
@@ -152,7 +123,7 @@ export async function PUT(req: NextRequest) {
       .from('particulars_master')
       .update(updatePayload)
       .eq('id', id)
-      .select('*')
+      .select('id, section_type, particular_name, code, sort_order, is_active, created_at, updated_at')
       .single();
 
     if (error) throw error;
@@ -183,17 +154,7 @@ export async function DELETE(req: NextRequest) {
 
     const supabase = getSupabaseServiceClient();
 
-    // Call stored procedure fn_soft_delete_particular_master first
-    const { error: rpcErr } = await supabase.rpc('fn_soft_delete_particular_master', {
-      p_id: id,
-      p_actor: actorUsername,
-    });
-
-    if (!rpcErr) {
-      return NextResponse.json({ success: true, message: 'Particular soft-deleted successfully' });
-    }
-
-    // Fallback to direct table soft delete
+    // Direct table soft delete
     const { error } = await supabase
       .from('particulars_master')
       .update({ is_active: false, updated_by: actorUsername, updated_at: new Date().toISOString() })

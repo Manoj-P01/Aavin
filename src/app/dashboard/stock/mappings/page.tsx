@@ -13,8 +13,8 @@ import { useConfirm } from '@/context/ConfirmContext';
 
 export interface InternalStockMappingRule {
   id: string;
-  sourceDisposalParticular: string;  // e.g. 'To DLT Milk' or 'To Separation'
-  targetReceiptProductKey?: string;   // e.g. 'dlt_milk'
+  sourceDisposalParticular: string;  // e.g. 'To DLT Milk' or 'To Process'
+  targetReceiptProductKey?: string;   // target product key
   targetReceiptProductLabel?: string; // e.g. 'DLT.Milk'
   partitions?: Array<{
     targetReceiptProductKey: string;
@@ -29,8 +29,8 @@ export default function InternalStockMappingConfigPage() {
   const [internalRules, setInternalRules] = useState<InternalStockMappingRule[]>([]);
   const [isInternalEditing, setIsInternalEditing] = useState<boolean>(false);
   const [internalEditingId, setInternalEditingId] = useState<string | null>(null);
-  const [formSourceParticular, setFormSourceParticular] = useState<string>('To DLT Milk');
-  const [formTargetReceiptKey, setFormTargetReceiptKey] = useState<string>('dlt_milk');
+  const [formSourceParticular, setFormSourceParticular] = useState<string>('');
+  const [formTargetReceiptKey, setFormTargetReceiptKey] = useState<string>('');
 
   const [stockProducts, setStockProducts] = useState<Array<{ key: string; label: string }>>([]);
   const [disposalParticularsList, setDisposalParticularsList] = useState<string[]>([]);
@@ -54,16 +54,19 @@ export default function InternalStockMappingConfigPage() {
           const stockCfg = await stockConfigRes.json();
           if (Array.isArray(stockCfg.products) && stockCfg.products.length > 0) {
             if (active) {
-              setStockProducts(stockCfg.products.map((p: any) => ({
+              const mapped = stockCfg.products.map((p: any) => ({
                 key: p.key || p.product_key,
                 label: p.short_name || p.full_name || p.key,
-              })));
+              }));
+              setStockProducts(mapped);
+              setFormTargetReceiptKey(prev => prev || mapped[0]?.key || '');
             }
           }
           if (Array.isArray(stockCfg.disposal_rows) && stockCfg.disposal_rows.length > 0) {
             const list = stockCfg.disposal_rows.map((r: any) => r.full_name || r.particular_name || r.short_name).filter(Boolean);
             if (active && list.length > 0) {
               setDisposalParticularsList(list);
+              setFormSourceParticular(prev => prev || list[0]);
             }
           }
         }
@@ -197,7 +200,7 @@ export default function InternalStockMappingConfigPage() {
   const openEditInternalForm = (rule: InternalStockMappingRule) => {
     setInternalEditingId(rule.id);
     setFormSourceParticular(rule.sourceDisposalParticular);
-    setFormTargetReceiptKey(rule.targetReceiptProductKey || 'dlt_milk');
+    setFormTargetReceiptKey(rule.targetReceiptProductKey || stockProducts[0]?.key || '');
     setIsInternalEditing(true);
   };
 
@@ -306,7 +309,7 @@ export default function InternalStockMappingConfigPage() {
               • In <strong>New Stock Statement Entry</strong>, the total value of row of <strong>Disposals</strong> (e.g. <code>To DLT Milk</code>) will automatically show as the value in <strong>Receipts</strong> of <code>DLT.Milk</code>.
             </div>
             <div style={{ marginTop: 4 }}>
-              • For <strong>To other Dairies</strong>, click the <strong>🔀 Split SSM to Dairies</strong> button in Stock Entry to split values into individual destination dairies (e.g., <code>Madurai-SSM</code>, <code>SNR-SSM</code>, <code>Erode-SSM</code>).
+              • For <strong>To other Dairies</strong>, click the <strong>🔀 Split SSM to Dairies</strong> button in Stock Entry to split values into individual destination dairies.
             </div>
           </div>
         </div>
@@ -319,16 +322,6 @@ export default function InternalStockMappingConfigPage() {
             </div>
 
             <div style={{ display: 'flex', gap: 10 }}>
-              <button
-                type="button"
-                className="btn btn-success btn-sm"
-                onClick={() => saveInternalToApi(internalRules, true)}
-                disabled={loading || saving}
-                title="Save all Disposals ➔ Receipts mapping rules directly to Database"
-                style={{ display: 'flex', alignItems: 'center', gap: 6, fontWeight: 700 }}
-              >
-                💾 Save
-              </button>
               <button
                 type="button"
                 className="btn btn-primary btn-sm"
